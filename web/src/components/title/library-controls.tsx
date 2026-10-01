@@ -14,6 +14,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
+import { SeasonSwitcher } from "@/components/tf/season-switcher";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -249,22 +250,14 @@ export function LibraryControls({
             {bySeason.length > 1 ? (
               <div className="pt-3">
                 <p className="mb-2 text-[12px] text-subtle-foreground">Or start from a season</p>
-                <div className="flex flex-wrap gap-2">
-                  {bySeason.map((option) => (
-                    <Label
-                      key={option.value}
-                      data-add-option={option.value}
-                      className="h-11 min-w-[44px] cursor-pointer justify-center rounded-full border border-border bg-background px-3.5 text-[13px] font-normal tabular-nums text-muted-foreground transition-colors hover:border-input hover:text-foreground has-data-checked:border-brand has-data-checked:bg-brand-dim has-data-checked:text-foreground has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
-                    >
-                      <RadioGroupItem
-                        value={option.value}
-                        aria-label={option.label}
-                        className="sr-only"
-                      />
-                      {option.label.replace(/^From season /, "Season ")}
-                    </Label>
-                  ))}
-                </div>
+                <SeasonSwitcher
+                  variant="pills"
+                  options={bySeason.map((option) => ({
+                    value: option.value,
+                    label: option.label.replace(/^From season /, "Season "),
+                    attrs: { "data-add-option": option.value },
+                  }))}
+                />
               </div>
             ) : null}
             </RadioGroup>

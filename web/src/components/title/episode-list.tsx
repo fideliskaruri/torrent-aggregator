@@ -38,13 +38,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SeasonSwitcher } from "@/components/tf/season-switcher";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useCapabilities } from "@/lib/capabilities";
@@ -245,32 +239,22 @@ export function EpisodeList({
           </h2>
           <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:col-auto sm:row-auto">
             {seasons.length > 1 ? (
-              <Select
-                value={season != null ? String(season) : undefined}
+              <SeasonSwitcher
+                variant="select"
+                options={seasons.map((s) => ({
+                  value: String(s.season),
+                  label: `Season ${s.season}`,
+                  attrs: { "data-season-option": s.season },
+                }))}
+                value={season != null ? String(season) : null}
                 onValueChange={(value) => {
                   const next = Number(value);
                   if (Number.isFinite(next)) onSeasonChange(next);
                 }}
-              >
-                <SelectTrigger
-                  data-season-select
-                  aria-label="Season"
-                  className="min-w-0 shrink-0 bg-card font-medium dark:bg-card"
-                >
-                  <SelectValue placeholder="Season" />
-                </SelectTrigger>
-                <SelectContent position="popper" align="start">
-                  {seasons.map((s) => (
-                    <SelectItem
-                      key={s.season}
-                      value={String(s.season)}
-                      data-season-option={s.season}
-                    >
-                      Season {s.season}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                align="start"
+                triggerAttrs={{ "data-season-select": "" }}
+                triggerClassName="min-w-0 shrink-0 bg-card font-medium dark:bg-card"
+              />
             ) : season != null ? (
               <span
                 data-season-label
