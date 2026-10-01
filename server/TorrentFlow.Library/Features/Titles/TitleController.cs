@@ -33,7 +33,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
             if (resolved != null && !MatchesProvider(workKey, resolved))
                 return BadRequest(new { error = "Provider identity does not match this title." });
         }
-        return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved), ct));
+        return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external)), ct));
     }
     [HttpGet("progress")]
     public async Task<IActionResult> Progress(string workKey, CancellationToken ct) => Ok(await titles.Progress(workKey, ct));

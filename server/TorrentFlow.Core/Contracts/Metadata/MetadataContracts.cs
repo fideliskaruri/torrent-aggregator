@@ -86,6 +86,6 @@ public sealed record CatalogWork(
 /// <summary>Catalog / work lookups for the title page.</summary>
 public interface ICatalogLookup
 {
-    /// <summary>Latest catalog entry for a work key (accepts legacy key aliases), or null.</summary>
+    /// <summary>Latest catalog entry for a work key (an identity key, a title route key or a legacy key alias), or null.</summary>
     Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken cancellationToken = default);
 }

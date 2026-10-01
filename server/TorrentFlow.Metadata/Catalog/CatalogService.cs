@@ -314,6 +314,10 @@ public sealed class CatalogService(
 
     public sealed record CatalogRefreshResult(Dictionary<string, int> Written, List<string> Errors, bool Offline, Dictionary<string, string> Origin, long TookMs);
 
+    /// <summary>
+    /// The catalog row for a work: an exact identity key ("film:dune:2021"), else the newest row whose title and year
+    /// a title route key ("dune-2021") names (TS findCatalogByComputedKey).
+    /// </summary>
     public async Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
@@ -321,6 +325,11 @@ public sealed class CatalogService(
             .Where(e => e.WorkKey == workKey)
             .OrderBy(e => e.Source == "related").ThenBy(e => e.Rank)
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            var recent = await db.CatalogEntries.AsNoTracking().OrderByDescending(e => e.RefreshedAt).Take(400).ToListAsync(ct).ConfigureAwait(false);
+            row = recent.FirstOrDefault(e => WorkKeySlug.Matches(workKey, e.Title, e.Year));
+        }
         return row is null ? null : ToWork(row);
     }
 

@@ -71,12 +71,7 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
             if (path.Contains("/search/titles", StringComparison.OrdinalIgnoreCase))
                 root = await ProjectSearchAsync(root, userId, requests, context.RequestAborted);
             else if (IsTitleDetailPath(path))
-            {
-                var provider = context.Request.Query["provider"].FirstOrDefault() ?? "tmdb";
-                var providerId = context.Request.Query["providerId"].FirstOrDefault()
-                    ?? context.Request.Query["externalId"].FirstOrDefault();
-                root = await ProjectTitleDetailAsync(root, userId, provider, providerId, requests, context.RequestAborted);
-            }
+                root = await ProjectTitleDetailAsync(root, userId, requests, context.RequestAborted);
             else
                 root = StripForbidden(root);
 
@@ -165,18 +160,15 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
         return next;
     }
 
-    private static async Task<JsonNode> ProjectTitleDetailAsync(JsonNode root, string userId, string provider, string? providerId, MediaRequestService requests, CancellationToken ct)
+    private static async Task<JsonNode> ProjectTitleDetailAsync(JsonNode root, string userId, MediaRequestService requests, CancellationToken ct)
     {
         if (root is not JsonObject obj) return StripForbidden(root);
 
         var workKey = obj["workKey"]?.GetValue<string>() ?? "";
         var mediaType = obj["mediaType"]?.GetValue<string>() ?? ((obj["isSeries"]?.GetValue<bool>() ?? false) ? "tv" : "movie");
-        if (string.IsNullOrWhiteSpace(providerId) && obj["library"] is JsonObject lib && lib["addPayload"] is JsonObject add)
-        {
-            providerId = add["externalId"]?.GetValue<string>();
-            if (providerId is { Length: > 0 } && providerId.StartsWith("work:", StringComparison.Ordinal))
-                providerId = null;
-        }
+        // The title payload names the one provider identity the page requests with (TitleService.Detail).
+        var provider = obj["provider"]?.GetValue<string>() ?? "";
+        var providerId = obj["providerId"]?.GetValue<string>();
 
         var state = (await requests.AnnotateCatalogAsync(userId, [(workKey, mediaType, providerId, provider)], ct)).FirstOrDefault()
             ?? new CatalogRequestState(false, null, null);
@@ -186,6 +178,8 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
             ["workKey"] = workKey,
             ["title"] = obj["title"]?.DeepClone(),
             ["aliases"] = obj["aliases"]?.DeepClone() ?? new JsonArray(),
+            ["provider"] = obj["provider"]?.DeepClone(),
+            ["providerId"] = obj["providerId"]?.DeepClone(),
             ["year"] = obj["year"]?.DeepClone(),
             ["mediaType"] = obj["mediaType"]?.DeepClone(),
             ["isSeries"] = obj["isSeries"]?.DeepClone(),
