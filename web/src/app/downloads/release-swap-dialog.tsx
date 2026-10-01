@@ -69,8 +69,8 @@ export interface ReleaseAlternatives {
 /**
  * Every unfinished built-in row offers the action — queued, paused, stalled,
  * just swapped, or not yet reporting progress. When the server can't replace a
- * row (imported from disk, a streaming copy, playing) the dialog says why
- * instead of the menu hiding the item.
+ * row (imported from disk, for example) the dialog says why instead of the
+ * menu hiding the item.
  */
 export function canFindAnotherRelease(t: ClientTorrent): boolean {
   // A season pack row fills several episodes at once; v1 offers no per-episode swap for it.
@@ -168,7 +168,7 @@ export function ReleaseSwapDialog({
           setState({
             kind: "error",
             message: failureMessage(body, res.status, "Couldn't search right now. Try again."),
-            // 409 is the server declining this row (imported, streaming copy, complete), not a failed search.
+            // 409 is the server declining this row (imported or complete), not a failed search.
             refused: res.status === 409,
           });
           return;

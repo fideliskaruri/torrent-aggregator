@@ -52,7 +52,7 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
         <p className="text-xs font-medium text-muted-foreground">Download hours</p>
         <p className="text-xs leading-relaxed text-subtle-foreground">
           {windows.length
-            ? "New downloads only start inside these hours (this computer's time). Running downloads keep going, and Resume or Download now always starts one right away."
+            ? "New downloads only start inside these hours (this computer's time). Running downloads keep going, and Download now always starts one right away."
             : "Downloads can start at any time. Add hours to only start new downloads at night or on weekends."}
         </p>
         {windows.length && open != null ? (

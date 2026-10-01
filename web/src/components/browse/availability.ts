@@ -1,13 +1,12 @@
 /**
  * Availability → what the UI is allowed to offer.
  *
- * The product rule this module exists to enforce: **never render a Play button
- * that will not play.** A rail item claims a state, but a claim is not enough —
- * `ready` with no info hash is nothing the player can open, so the label has to
- * follow what we can actually *do* with the fields we hold, not the adjective
- * the data layer chose. Every surface (card, hero, overlay) reads its label,
- * its behaviour and its disabled reason from here, so there is one place to be
- * wrong and one place to fix.
+ * The product rule this module exists to enforce: **never offer an action that
+ * cannot succeed.** A rail item claims a state, but a claim is not enough, so
+ * the label has to follow what we can actually *do* with the fields we hold,
+ * not the adjective the data layer chose. Every surface (card, hero) reads its
+ * label, its behaviour and its disabled reason from here, so there is one
+ * place to be wrong and one place to fix.
  *
  * Pure and DOM-free on purpose: `browse-ui.test.ts` drives it as a table.
  */
@@ -96,16 +95,15 @@ export function availabilityMeta(
       return {
         label: "Ready",
         tone: "success",
-        description: "Downloaded in full. Plays instantly and seeks anywhere.",
+        description: "Downloaded in full.",
       };
     case "warm":
-          // Not "Playable" — that competed with "Ready" as a second word for
-          // "you can press Play". "Partial" names the actual difference (bytes on
-          // disk) while the accent tone still marks it as live/playable.
+          // "Partial" names the actual difference from "Ready" (bytes on disk)
+          // while the accent tone still marks it as in progress.
           return {
             label: "Partial",
             tone: "accent",
-            description: "Partly downloaded and live in the swarm. Plays now.",
+            description: "Partly downloaded. The rest is on its way.",
           };
     case "fetchable":
       return {
@@ -128,15 +126,15 @@ export function availabilityMeta(
 // Actions
 // ---------------------------------------------------------------------------
 
-/** Opens the player for a torrent we already hold. */
-interface PlayAction {
-  kind: "play";
-  label: "Play" | "Resume";
+/**
+ * Already on disk. Nothing to press on the card: the card opens the title page,
+ * where the finished files are.
+ */
+interface LocalAction {
+  kind: "local";
+  label: "Downloaded";
   disabled: false;
   reason: null;
-  infoHash: string;
-  filePath: string | null;
-  resumePositionSec: number | null;
 }
 
 /** Asks the on-demand grabber for one specific episode, named on the button ("Get S02E01"). */
@@ -183,7 +181,7 @@ interface DownloadingAction {
   reason: string;
 }
 
-export type CardAction = PlayAction | GetAction | SearchAction | BlockedAction | DownloadingAction;
+export type CardAction = LocalAction | GetAction | SearchAction | BlockedAction | DownloadingAction;
 
 /**
  * Default media type for an on-demand grab when the row does not name one.
@@ -220,9 +218,9 @@ const STATE_POLICY: Record<AvailabilityState, "local" | "fetch" | "dead"> = {
  *
  * Ordering of the rules matters:
  *  0. The next episode of a followed show that is downloading → "Downloading".
- *  1. Playable *and* we hold the info hash → Play/Resume.
- *  2. Playable but no info hash → treat as not-local. A claim we cannot honour
- *     must never surface as Play; it degrades below.
+ *  1. On disk *and* we hold the info hash → Downloaded (the card opens its page).
+ *  2. On disk but no info hash → treat as not-local. A claim we cannot honour
+ *     degrades below.
  *  3. The next episode of a followed show that is not on disk → "Get S02E01".
  *  4. `unavailable` → blocked, with the reason spoken. The *only* dead end.
  *  5. No title at all → blocked; there is not even a string to look up.
@@ -237,7 +235,7 @@ export function resolveCardAction(item: RailItem): CardAction {
   const title = item.title.trim();
 
   // The next episode is on its way: say so before anything else, so a hash
-  // for the arriving torrent can never read as Play.
+  // for the arriving torrent can never read as Downloaded.
   if (item.watchListItemId && item.nextState === "downloading") {
     const percent = progressPercent(item.nextProgress);
     return {
@@ -248,24 +246,12 @@ export function resolveCardAction(item: RailItem): CardAction {
       disabled: true,
       reason:
         percent == null
-          ? "This episode is downloading. It will be ready to play here."
-          : `This episode is ${percent}% downloaded. It will be ready to play here.`,
+          ? "This episode is downloading."
+          : `This episode is ${percent}% downloaded.`,
     };
   }
-  // Play means play. A hash is enough to press it — if the engine no longer
-  // holds that torrent, the click re-fetches and starts. Refusing here is how
-  // Continue Watching lost its Play and the player said "download it first".
   if (infoHash && (state === null || STATE_POLICY[state] === "local")) {
-    const resume = item.resumePositionSec ?? 0;
-    return {
-      kind: "play",
-      label: resume > 0 ? "Resume" : "Play",
-      disabled: false,
-      reason: null,
-      infoHash,
-      filePath: item.filePath,
-      resumePositionSec: item.resumePositionSec,
-    };
+    return { kind: "local", label: "Downloaded", disabled: false, reason: null };
   }
 
   // A show you follow always has a way forward to its next episode. Neither
@@ -354,8 +340,8 @@ export function resolveCardAction(item: RailItem): CardAction {
 }
 
 /**
- * {@link resolveCardAction} for this viewer. People who can't download or play
- * never get Play or Download; the card sends them to the title page, where the
+ * {@link resolveCardAction} for this viewer. People who can't download never
+ * get Downloaded or Get; the card sends them to the title page, where the
  * Request button sits in the same place.
  */
 export function viewerCardAction(
@@ -364,7 +350,7 @@ export function viewerCardAction(
   titleHref: string | null,
 ): CardAction {
   const action = resolveCardAction(item);
-  if (canDownload || (action.kind !== "play" && action.kind !== "get")) return action;
+  if (canDownload || (action.kind !== "local" && action.kind !== "get")) return action;
   return {
     kind: "search",
     label: "Request",
@@ -602,15 +588,12 @@ export type ActionStatus = "idle" | "pending" | "done" | "error";
  */
 export function actionLabel(action: CardAction, status: ActionStatus): string {
   switch (action.kind) {
-    case "play":
-      if (status === "pending") return "Opening…";
-      if (status === "error") return "Try again";
-      return action.label;
     case "get":
       if (status === "pending") return "Starting…";
       if (status === "error") return "Try again";
       if (status === "done") return "Downloading";
       return action.label;
+    case "local":
     case "search":
     case "blocked":
     case "downloading":

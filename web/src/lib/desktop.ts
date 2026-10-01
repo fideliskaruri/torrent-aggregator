@@ -25,16 +25,6 @@ export interface DesktopStatus {
     latest: { version: string; tag: string; pageUrl: string | null; hasInstaller: boolean } | null;
     install: DownloadProgress;
   };
-  ffmpeg: {
-    ffmpeg: string | null;
-    ffprobe: string | null;
-    managed: boolean;
-    canDownload: boolean;
-    toolsDirectory: string;
-    packageLabel: string | null;
-    packageSize: number | null;
-    download: DownloadProgress;
-  };
 }
 
 export const DESKTOP_URL = "/api/desktop";
@@ -96,9 +86,4 @@ export async function checkForUpdatesNow(): Promise<DesktopStatus> {
 export async function startUpdate(): Promise<void> {
   const res = await sessionAwareFetch("/api/desktop/update/install", { method: "POST" });
   if (!res.ok) throw new Error(await readError(res, `Update failed (${res.status})`));
-}
-
-export async function startFfmpegDownload(): Promise<void> {
-  const res = await sessionAwareFetch("/api/desktop/ffmpeg/download", { method: "POST" });
-  if (!res.ok) throw new Error(await readError(res, `Download failed (${res.status})`));
 }

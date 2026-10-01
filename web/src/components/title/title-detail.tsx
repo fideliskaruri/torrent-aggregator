@@ -4,34 +4,31 @@
  * The complaint this answers, in the user's words: *"this is not a product,
  * it's a website you go to view torrent lists."* It was true, and structurally
  * so: clicking a title anywhere in the app landed on `/search`, a table of
- * release names, seeders and magnet links. Netflix is *see art → click → a
- * page about the title → press play*, and that page did not exist here.
+ * release names, seeders and magnet links. This page is *see art → click → a
+ * page about the title → press Download*.
  *
- * So the whole layout is built around one control. It is **Play**, **Resume**
- * or **Get** — never "Search" and never a releases table. Getting is one press,
- * performed by the server, and does not navigate anywhere. The user picks a
- * title, sees info, and watches or downloads — torrent plumbing stays off-stage.
+ * So the layout is built around acquiring the title, never "Search" and never
+ * a releases table. Getting is one press, performed by the server, and does
+ * not navigate anywhere. Finished files open in the owner's own player from
+ * Downloads; nothing on this page plays.
  *
- * Three things about the states on this page:
+ * Two things about the states on this page:
  *
  *  - `availability: null` means *nobody has checked*, and renders as an
- *    ordinary clickable Get. It is not a disabled control and it is not
+ *    ordinary clickable Download. It is not a disabled control and it is not
  *    `unavailable`.
- *  - Play is offered only when a live local torrent backs it. A progress row
- *    for a deleted download is not evidence of a file (the server already
- *    refuses to emit one, and this never invents its own).
  *  - Error and empty are one exclusive chain, not two independent `{x ? …}`
  *    blocks — the bug that told `/watchlist` users their library was empty
  *    when the request had actually failed.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, Download, ListVideo, Loader2, Play, Search } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, Search } from "lucide-react";
 import { Link } from "react-router";
-import { useFeatures } from "@/lib/features";
 import { toast } from "@/lib/toast";
+import { useFeatures } from "@/lib/features";
+import { openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import { PosterImage } from "@/components/browse/poster-image";
-import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
 import { cleanDisplayTitle } from "@/components/browse/availability";
 import { headingTitle } from "./heading-title";
@@ -46,13 +43,17 @@ import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-stat
 import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
+import { libraryHint } from "./library-hint";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import {
   providerAiredFor,
   seasonProgressFromRows,
   seasonProgressFromSummary,
+  seasonProgressLabel,
+  showProgressFromSeasons,
   type SeasonProgress,
 } from "./season-progress";
+import { SeasonProgressMeter } from "./season-progress-meter";
 import { MoreLikeThis } from "./more-like-this";
 import { RequestAction } from "@/components/requests/request-action";
 import { useCapabilities } from "@/lib/capabilities";
@@ -68,10 +69,9 @@ import {
   releaseYear,
 } from "./title-hero-meta";
 import {
-  resolvePrimaryAction,
+  needsEpisodeDiscovery,
   resolveTitleTransferControl,
   shouldRunTitleAction,
-  titleActionButtonLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
@@ -109,12 +109,11 @@ import {
 } from "@/lib/library/storage-override";
 import type {
   TitleDetailPayload,
+  TitleEpisodeTransfer,
   TitleExtrasPayload,
   TitleProgressPayload,
   TitleSeasonGrabResponse,
-  TitleRetention,
 } from "./types";
-import { episodeTitleMap } from "./types";
 
 export interface TitleDetailProps {
   workKey: string;
@@ -133,27 +132,11 @@ export interface TitleDetailProps {
    * A season the user picked by hand on a previous visit, read server-side
    * from the durable `tf_season` cookie (see
    * `@/lib/title/remembered-season`). Threaded through to the API as a plain
-   * query param so `pickSeason` can prefer it over a stale watch cursor.
+   * query param so the server's season pick can prefer it over a provider default.
    */
   rememberedSeason?: number | null;
 }
 
-/** The player, once a Play has been pressed. */
-type PlayTarget = {
-  /**
-   * `null` during the opening handoff: the overlay mounts the instant a stream
-   * Play is pressed and shows its one loader while the grab runs; the resolved
-   * hash flows in afterwards. Existing-local play sets it immediately.
-   */
-  infoHash: string | null;
-  title: string;
-  episodeTitle: string | null;
-  season: number | null;
-  episode: number | null;
-  resumePositionSec: number | null;
-};
-
-const PRIMARY_KEY = "primary";
 const DOWNLOAD_KEY = "download";
 /** Keeps a toast's Retry a 44px touch target on phones. */
 const RETRY_TOAST_CLASSNAMES = {
@@ -196,7 +179,6 @@ function ButtonBody({
 }
 
 export function TitleDetail(props: TitleDetailProps) {
-  const { streaming: streamingEnabled } = useFeatures();
   const caps = useCapabilities();
   const [season, setSeason] = useState<number | null>(() =>
     resolveInitialSeason({
@@ -208,34 +190,14 @@ export function TitleDetail(props: TitleDetailProps) {
   const [seasonStatuses, setSeasonStatuses] = useState<
     Record<string, SeasonGrabStatus>
   >({});
-  const [playing, setPlaying] = useState<PlayTarget | null>(null);
-  useEffect(() => {
-    if (!streamingEnabled) setPlaying(null);
-  }, [streamingEnabled]);
   // The cap is a guardrail, not a wall: an over-cap Download raises an informed
-  // confirmation instead of a dead-end toast. Play never reaches it — the
-  // server-side gate reclaims stream cache and proceeds.
+  // confirmation instead of a dead-end toast.
   const cap = useStorageCapOverride();
   const spentRemoteActions = useRef(new Set<string>());
   const spentSeasonGrabs = useRef(new Set<string>());
   // Season requests still waiting on the server; a toast Retry may pass a
   // spent (partially started) season but never one of these.
   const inFlightSeasonGrabs = useRef(new Set<string>());
-  // Recovery timers: if a streaming grab stays in "done" for 90 s without the
-  // episode becoming playable, re-enable the row so the user has a path to
-  // retry. This fixes the class of stuck state where the API responded but the
-  // client refetch never arrived (Task 3).
-  const recoveryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  // Clear all recovery timers on unmount to prevent state updates on an
-  // unmounted component.
-  useEffect(() => {
-    const timers = recoveryTimers.current;
-    return () => {
-      timers.forEach(clearTimeout);
-      timers.clear();
-    };
-  }, []);
 
   // Resync on props change — the SPA half of cookie persistence. A cached RSC
   // payload can carry an old server cookie, so the live browser cookie wins.
@@ -269,8 +231,8 @@ export function TitleDetail(props: TitleDetailProps) {
     (nextSeason: number) => {
       manualSeasonSelection.current = true;
       setSeason(nextSeason);
-      // This is the only durable write: an explicit user pick, never inferred
-      // playback progress or a provider default.
+      // This is the only durable write: an explicit user pick, never an
+      // inferred season or a provider default.
       writeRememberedSeasonCookie(props.workKey, nextSeason);
     },
     [props.workKey],
@@ -327,7 +289,7 @@ export function TitleDetail(props: TitleDetailProps) {
   }, [data, startTransferPoll]);
 
   // Transfers are the owner's; everyone else never polls them.
-  const progressUrl = caps.canSeeTransfers && transferPoll && !playing
+  const progressUrl = caps.canSeeTransfers && transferPoll
     ? `/api/title/${encodeURIComponent(props.workKey)}/progress?session=${transferPollSession}`
     : null;
   const {
@@ -335,7 +297,7 @@ export function TitleDetail(props: TitleDetailProps) {
     error: progressError,
     settled: progressSettled,
   } = useApiQuery<TitleProgressPayload>(progressUrl, {
-      refreshMs: transferPoll && !playing ? 2_500 : 0,
+      refreshMs: transferPoll ? 2_500 : 0,
     });
   useEffect(() => {
     if (!progressSettled || progressError || !progress) return;
@@ -411,14 +373,6 @@ export function TitleDetail(props: TitleDetailProps) {
   } = useApiQuery<TitleExtrasPayload>(extrasUrl, {
     dataIdentity: extrasIdentity,
   });
-  const episodeTitles = useMemo(
-    () =>
-      extras?.season == null
-        ? undefined
-        : episodeTitleMap(extras.season, extras.episodes),
-    [extras],
-  );
-
   const statusFor = useCallback(
     (key: string) => statuses[key] ?? "idle",
     [statuses],
@@ -427,17 +381,17 @@ export function TitleDetail(props: TitleDetailProps) {
   // runAction must keep ONE identity for the life of the page. It flows through
   // handleEpisodeListAction into every memoised <EpisodeCard>, whose comparator
   // bails on a changed `onAction`. Depending on `cap` (a fresh object every
-  // render) or `extras`/`data` (a fresh object every 2.5s transfer poll) rebuilt
-  // it on every poll and reflashed every card. The volatile values it reads are
+  // render) or `data` (a fresh object every 2.5s transfer poll) rebuilt it on
+  // every poll and reflashed every card. The volatile values it reads are
   // therefore kept in a ref refreshed each render and shadowed at the top of the
-  // body, so the callback itself carries an empty dependency list.
-  const actionDeps = useRef({ props, statusFor, cap, extras, data, refetch });
+  // body, so the callback itself only depends on stable values.
+  const actionDeps = useRef({ props, statusFor, cap, data, refetch });
   // Refresh the ref *after commit* (latest-ref pattern), not during render.
   // runAction only fires from user events, which always run post-commit, so it
   // sees committed values — and an interrupted/discarded concurrent render can
   // never leave the committed handler reading uncommitted props.
   useLayoutEffect(() => {
-    actionDeps.current = { props, statusFor, cap, extras, data, refetch };
+    actionDeps.current = { props, statusFor, cap, data, refetch };
   });
 
   const runAction = useCallback(
@@ -445,64 +399,14 @@ export function TitleDetail(props: TitleDetailProps) {
       action: TitleAction,
       key: string,
       label: string,
-      retention: TitleRetention,
       resolution?: number,
     ) => {
-      const { props, statusFor, cap, extras, data, refetch } =
-        actionDeps.current;
-      if (!shouldRunTitleAction(action, statusFor(key))) return;
-
-      if (!streamingEnabled && retention === "stream") return;
-      if (action.kind === "play" && retention === "stream") {
-        const episodeTitle =
-          action.season != null &&
-          action.episode != null &&
-          extras?.season === action.season
-            ? extras.episodes.find(
-                (item) => item.episode === action.episode,
-              )?.name ?? null
-            : null;
-        setPlaying({
-          infoHash: action.infoHash,
-          title: cleanDisplayTitle(data?.title ?? props.title ?? label),
-          episodeTitle,
-          season: action.season ?? null,
-          episode: action.episode ?? null,
-          resumePositionSec: action.resumePositionSec,
-        });
-        return;
-      }
-
-      const streaming = retention === "stream";
+      const { props, statusFor, cap, data, refetch } = actionDeps.current;
+      if (!shouldRunTitleAction(statusFor(key))) return;
       if (spentRemoteActions.current.has(key)) return;
       spentRemoteActions.current.add(key);
 
-      // A stream Play opens the player NOW, in its "opening" state (no hash yet),
-      // so ONE loader owns the entire journey from the instant of the press. The
-      // button never shows its own spinner for a stream Play — that button→player
-      // spinner handoff is exactly the "two loaders" the viewer kept reporting.
-      // Non-stream actions (send to client) keep the in-button pending state
-      // because they never open a player.
-      if (streaming) {
-        const episodeTitle =
-          action.season != null &&
-          action.episode != null &&
-          extras?.season === action.season
-            ? extras.episodes.find(
-                (item) => item.episode === action.episode,
-              )?.name ?? null
-            : null;
-        setPlaying({
-          infoHash: null,
-          title: cleanDisplayTitle(data?.title ?? props.title ?? label),
-          episodeTitle,
-          season: action.season ?? null,
-          episode: action.episode ?? null,
-          resumePositionSec: null,
-        });
-      } else {
-        setStatuses((prev) => ({ ...prev, [key]: "pending" }));
-      }
+      setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       try {
         const outcome = await cap.run(({ overrideStorageCap }) =>
           postTitleAction({
@@ -515,7 +419,6 @@ export function TitleDetail(props: TitleDetailProps) {
             sourceType: props.sourceType ?? null,
             format: props.format ?? null,
             action,
-            retention,
             resolution,
             overrideStorageCap,
           }),
@@ -523,81 +426,21 @@ export function TitleDetail(props: TitleDetailProps) {
 
         // The owner was shown the real figures and said no. Nothing was sent, so
         // the row goes back to idle — a declined confirmation is not a failure
-        // and must not leave an error state or a hanging player behind.
+        // and must not leave an error state behind.
         if (outcome.status === "cancelled") {
           spentRemoteActions.current.delete(key);
           setStatuses((prev) => ({ ...prev, [key]: "idle" }));
-          if (streaming) setPlaying(null);
           return;
         }
 
         const body = outcome.value;
-        if (!streaming) startTransferPoll();
+        startTransferPoll();
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
-
-        // The press said Play, so the press has to end in the player. The
-        // engine fetches sequentially and primes the file's first bytes, so a
-        // torrent that started a second ago is as openable as one that
-        // finished last week — the only thing that was missing was being told
-        // which one it is. The resolved hash flows into the SAME already-open
-        // player as a prop update, so the loader that has been up since the
-        // press just keeps running — it is never torn down and rebuilt.
-        //
-        // No hash means the grab succeeded but we cannot address what it sent.
-        // That is rare and it is not an error, so it closes the opening player
-        // and degrades to the download notice rather than hanging on a spinner.
-        const hash = body.infoHash?.trim();
-        if (streaming && hash) {
-          const episodeTitle =
-            action.season != null &&
-            action.episode != null &&
-            extras?.season === action.season
-              ? extras.episodes.find(
-                  (item) => item.episode === action.episode,
-                )?.name ?? null
-              : null;
-          setPlaying({
-            infoHash: hash,
-            title: cleanDisplayTitle(data?.title ?? props.title ?? label),
-            episodeTitle,
-            season: action.season ?? null,
-            episode: action.episode ?? null,
-            resumePositionSec: null,
-          });
-          refetch();
-          return;
-        }
-
-        if (streaming) setPlaying(null);
         toast.success(body.message ?? `${label} sent to your client.`);
         refetch();
-
-        // For streaming grabs that did not immediately resolve a hash: the
-        // episode will become playable once the refetch arrives and the library
-        // maps the info hash. But if that never happens (slow network, torrent
-        // client unreachable), the row stays disabled with no path forward.
-        // Schedule a recovery that resets to idle so the user can try again.
-        if (streaming && !hash) {
-          if (recoveryTimers.current.has(key)) {
-            clearTimeout(recoveryTimers.current.get(key)!);
-          }
-          const timer = setTimeout(() => {
-            recoveryTimers.current.delete(key);
-            setStatuses((prev) => {
-              if (prev[key] === "done") {
-                spentRemoteActions.current.delete(key);
-                return { ...prev, [key]: "idle" };
-              }
-              return prev;
-            });
-          }, 90_000);
-          recoveryTimers.current.set(key, timer);
-        }
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
-        // Close the opening player on a grab failure so no loader is left hanging.
-        if (streaming) setPlaying(null);
         const pick =
           err instanceof NoReleaseFoundError && canDownloadRef.current
             ? pickReleaseToastButton({
@@ -618,12 +461,12 @@ export function TitleDetail(props: TitleDetailProps) {
     // Every changing value runAction needs is read from `actionDeps.current`.
     // startTransferPoll is stable, so this callback also stays stable across
     // progress ticks and the memoised episode cards never rebuild.
-    [startTransferPoll, streamingEnabled],
+    [startTransferPoll],
   );
 
   const seasonStatusFor = useCallback(
-    (targetSeason: number, retention: TitleRetention = "keep") =>
-      seasonStatuses[seasonGrabKey(targetSeason, retention)] ?? ({ status: "idle" } as const),
+    (targetSeason: number) =>
+      seasonStatuses[seasonGrabKey(targetSeason)] ?? ({ status: "idle" } as const),
     [seasonStatuses],
   );
 
@@ -637,12 +480,11 @@ export function TitleDetail(props: TitleDetailProps) {
     async (
       targetSeason: number,
       episodes: number[],
-      retention: TitleRetention,
       resolution?: number,
       options?: { retry?: boolean },
     ) => {
-      const key = seasonGrabKey(targetSeason, retention);
-      const current = seasonStatusFor(targetSeason, retention);
+      const key = seasonGrabKey(targetSeason);
+      const current = seasonStatusFor(targetSeason);
       const retry = options?.retry === true;
       if (retry ? !shouldRetrySeasonGrab(current) : !shouldRunSeasonGrab(current)) return;
       if (retry && !canDownloadRef.current) return;
@@ -666,7 +508,6 @@ export function TitleDetail(props: TitleDetailProps) {
             void runSeasonGrabRef.current?.(
               targetSeason,
               missing,
-              retention,
               resolution,
               { retry: true },
             );
@@ -715,7 +556,6 @@ export function TitleDetail(props: TitleDetailProps) {
               scope: "season",
               season: targetSeason,
               episodes,
-              retention,
               title: props.title ?? null,
               mediaType: props.mediaType ?? null,
               year: props.year ?? null,
@@ -909,23 +749,6 @@ export function TitleDetail(props: TitleDetailProps) {
         />
       )}
 
-      {playing ? (
-        <PlayOverlay
-          infoHash={playing.infoHash}
-          title={playing.title}
-          episodeTitle={playing.episodeTitle}
-          episodeTitles={episodeTitles}
-          season={playing.season}
-          episode={playing.episode}
-          year={data?.year ?? null}
-          resumePositionSec={playing.resumePositionSec}
-          onClose={() => {
-            setPlaying(null);
-            refetch();
-          }}
-        />
-      ) : null}
-
       <StorageCapDialog {...cap.dialogProps} />
     </div>
   );
@@ -976,38 +799,27 @@ function TitleContent({
   season: number | null;
   refreshing: boolean;
   statusFor: (key: string) => TitleActionStatus;
-  seasonStatusFor: (season: number, retention?: TitleRetention) => SeasonGrabStatus;
+  seasonStatusFor: (season: number) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
   onSeasonGrab: (
     season: number,
     episodes: number[],
-    retention: TitleRetention,
     resolution?: number,
   ) => void;
   onAction: (
     action: TitleAction,
     key: string,
     label: string,
-    retention: TitleRetention,
     resolution?: number,
   ) => void;
   onLibraryChanged: () => void;
 }) {
   const caps = useCapabilities();
-  const streaming = useFeatures().streaming && caps.canStream;
+  const { openFolder } = useFeatures();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
-  // Quality picker for the hero Download button. Play is always instant.
+  // Quality picker for the hero Download button.
   const [heroPicker, setHeroPicker] = useState(false);
-
-  function requestAction(
-    action: TitleAction,
-    key: string,
-    label: string,
-    retention: TitleRetention,
-    resolution?: number,
-  ) {
-    onAction(action, key, label, retention, resolution);
-  }
+  const [openingFile, setOpeningFile] = useState<OpenDownloadMode | null>(null);
 
   // Stable per-list handler. Passed straight to <EpisodeList>, which hands it
   // to every card. An inline arrow here was recreated on every render, so the
@@ -1015,23 +827,13 @@ function TitleContent({
   // reflashing their stills. `onAction` (runAction) is itself a useCallback, so
   // this stays referentially stable across polls.
   const handleEpisodeListAction = useCallback(
-    (
-      action: TitleAction,
-      _label: string,
-      _retention: TitleRetention,
-      resolution?: number,
-    ) => {
+    (action: TitleAction, label: string, resolution?: number) => {
       onAction(
         action,
         action.season != null && action.episode != null
-          ? episodeIntentKey(
-              action.season,
-              action.episode,
-              action.kind === "get" ? "keep" : "stream",
-            )
-          : PRIMARY_KEY,
-        _label,
-        action.kind === "get" ? "keep" : "stream",
+          ? episodeIntentKey(action.season, action.episode)
+          : DOWNLOAD_KEY,
+        label,
         resolution,
       );
     },
@@ -1041,15 +843,9 @@ function TitleContent({
   function requestSeasonGrab(
     targetSeason: number,
     episodes: number[],
-    retention: TitleRetention,
     resolution?: number,
   ) {
-    onSeasonGrab(
-      targetSeason,
-      episodes,
-      retention,
-      resolution,
-    );
+    onSeasonGrab(targetSeason, episodes, resolution);
   }
 
   // A provider key ("Tmdb:movie:550") is never printed. While metadata is
@@ -1066,7 +862,7 @@ function TitleContent({
 
   // Visual availability: a title whose release date is still in the future is
   // shown but not actionable — grayed art, a "Coming {date}" label, and no
-  // Play/Download. Unknown dates are never gated (releaseStatus says so).
+  // Download. Unknown dates are never gated (releaseStatus says so).
   // The local catalog only knows dates for works it already holds, so a title
   // opened straight from search falls back to the date the provider returned
   // with the rest of the extras.
@@ -1099,7 +895,7 @@ function TitleContent({
     activeSeason == null ||
     (extras != null && extras.season === activeSeason);
   const episodeExtras = extrasDescribeActiveSeason ? extras : null;
-  const { rows, truncated } = mergeEpisodes({
+  const { rows, allRows, truncated } = mergeEpisodes({
     season: activeSeason,
     episodes: onKnownSeason ? payload.episodes : [],
     meta: episodeExtras?.episodes ?? [],
@@ -1107,38 +903,32 @@ function TitleContent({
     transfers: progress?.episodeTransfers,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
+  // Progress counts every row, not only the rendered ones: a long anime's
+  // downloads sit around episode 1118, far past the row cap. When the server
+  // itself cut the list short, only its per-season summary saw every episode.
+  const rowsCoverSeason = !(onKnownSeason && payload.episodesTruncated);
   const seasonProgress: Record<number, SeasonProgress> = {};
   for (const s of seasons) {
     const aired = providerAiredFor(extras?.airedEpisodes, s.season);
     seasonProgress[s.season] =
-      s.season === activeSeason && rows.length > 0
-        ? seasonProgressFromRows(rows, aired)
+      s.season === activeSeason && allRows.length > 0 && rowsCoverSeason
+        ? seasonProgressFromRows(allRows, aired)
         : seasonProgressFromSummary(s, aired);
   }
+  const showProgress = payload.isSeries
+    ? showProgressFromSeasons(seasons.map((s) => seasonProgress[s.season]))
+    : null;
+  const showProgressText = showProgress ? seasonProgressLabel(showProgress) : null;
 
-  // The hero means watch only when the payload can name what to watch.
-  // Provider-complete rows let a series name a real first/next episode; when
-  // they cannot, discovery stays discovery instead of becoming an ambiguous
-  // title-scope stream.
-  const resolvedPrimary = resolvePrimaryAction({
+  // A series the server holds nothing for, whose provider listing has not
+  // answered with episodes yet, offers one obvious next step: find them.
+  const discoverEpisodes = needsEpisodeDiscovery({
     ...payload,
     seasons,
     season: activeSeason,
     episodes: rows,
   });
-  const primary: TitleAction =
-    resolvedPrimary.kind === "discover"
-      ? resolvedPrimary
-      : resolvedPrimary.kind === "play"
-        ? resolvedPrimary
-        : {
-            kind: "stream",
-            label: "Play",
-            season: resolvedPrimary.season,
-            episode: resolvedPrimary.episode,
-          };
-  const primaryStatus = statusFor(PRIMARY_KEY);
-  const primaryDisplayLabel = titleActionButtonLabel(primary, primaryStatus);
+  const discoveryPending = extrasLoading || extrasRefreshing;
 
   const seasonCount = extras?.seasonCount ?? null;
   const similar = extras?.moreLikeThis ?? [];
@@ -1179,7 +969,7 @@ function TitleContent({
         ? ({ status: "loading" } as const)
         : ({ status: "ready" } as const);
   const activeSeasonGrabStatus =
-    activeSeason != null ? seasonStatusFor(activeSeason, "keep") : ({ status: "idle" } as const);
+    activeSeason != null ? seasonStatusFor(activeSeason) : ({ status: "idle" } as const);
 
   // The SILO-style hero prints one score/meta line under the title and a
   // compact metadata list in a right column. Both draw only from what the
@@ -1220,57 +1010,63 @@ function TitleContent({
   );
 
   // The button is the only place a pending action is narrated: ButtonBody
-  // overlays the spinner in place of the label, exactly like a normal video
-  // player. No status line, no hint, and no progress bar under the buttons.
+  // overlays the spinner in place of the label. No status line, no hint, and
+  // no progress bar under the buttons.
   //
-  // A `get` primary is the download control, so an in-flight title transfer
-  // disables it for the same reason it hides the secondary Download. A `stream`
-  // or `play` primary is left alone: a kept download does not stop the file
-  // being watchable, and taking Play away mid-download is the behaviour the
-  // sequential piece strategy exists to avoid.
-  const primaryCanRun =
-    (primary.kind === "discover"
-      ? !extrasLoading && !extrasRefreshing
-      : shouldRunTitleAction(primary, primaryStatus)) && !gated;
-
-  // Play and Download are the two acquire intents. The primary button above is
-  // the Play/Resume path (it opens the player); Download keeps the file. We only
-  // offer a separate Download alongside a playable primary — when the primary is
-  // itself a Get (positively unavailable), it already *is* the download, so a
-  // second identical button would be noise.
-  //
-  // `discover` suppresses it for a different reason: there is no target yet.
-  // A Download button here would have to name an episode, and the only episode
-  // it could name is the guess this whole change exists to remove.
-  //
-  // The third condition is the one the Client used to contradict: a title the
-  // user has already sent is not offered again. `payload.transfer` is title
-  // scope — an episode or season grab elsewhere in this work must not silence
-  // the title's own control.
+  // Download is offered for a film only: a series is acquired per season or
+  // per episode in the panel below. A title the user has already sent is not
+  // offered again. `payload.transfer` is title scope — an episode or season
+  // grab elsewhere in this work must not silence the title's own control.
   const showDownload = !payload.isSeries && !gated;
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
-    season: primary.season,
-    episode: primary.episode,
-    infoHash: primary.kind === "play" ? primary.infoHash : payload.infoHash,
+    season: null,
+    episode: null,
+    infoHash: payload.infoHash,
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
-  const titleTransfer = progress?.transfer ?? payload.transfer;
+  const ownTitleTransfer = progress?.transfer ?? payload.transfer;
+  // A film already on this computer reads as downloaded however it got there
+  // (this page's Download, or a torrent sent by hand from Downloads): the same
+  // rule the episode cards use. It offers Open, never a second Download.
+  const titleTransfer: TitleEpisodeTransfer | null =
+    (ownTitleTransfer == null || ownTitleTransfer.status === "failed") &&
+    payload.availability === "ready" &&
+    payload.infoHash
+      ? { status: "downloaded", progress: 1, infoHash: payload.infoHash, filePath: null, error: null }
+      : ownTitleTransfer;
   const downloadControl = resolveTitleTransferControl(titleTransfer, downloadStatus, {
     canSeeTransfers: caps.canSeeTransfers,
   });
   const downloadLabel = downloadControl.label;
   const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
+  // A downloaded film opens in the owner's own player, on the computer running
+  // TorrentFlow only (docs/api-open-file.md). Both a finished title transfer
+  // and a ready local row are built-in downloads, and the info hash names it.
+  const openHash = titleTransfer?.status === "downloaded" ? titleTransfer.infoHash : null;
+  const canOpenFile = showDownload && caps.canSeePaths && openFolder && !!openHash;
+  const openTitleFile = async (mode: OpenDownloadMode) => {
+    if (!openHash || openingFile) return;
+    setOpeningFile(mode);
+    try {
+      await openDownload(openHash, mode);
+    } finally {
+      setOpeningFile(null);
+    }
+  };
 
-  // A film with no similar titles has nothing under the hero once the extras
-  // settle. Rendering the empty bottom section left a bordered band of dead
-  // page between the hero and the footer, so the hero takes that height
-  // instead; its content stays top-aligned, so nothing moves under the cursor.
+  const hint = libraryHint({ known: payload.known, gated, caps });
+
+  // A film with no similar titles and no library hint has nothing under the
+  // hero once the extras settle. Rendering the empty bottom section left a
+  // bordered band of dead page between the hero and the footer, so the hero
+  // takes that height instead; its content stays top-aligned, so nothing moves
+  // under the cursor.
   const similarLoading = extrasLoading && !extrasError;
   const nothingBelowHero =
-    !payload.isSeries && payload.known && similar.length === 0 && !similarLoading;
+    !payload.isSeries && hint == null && similar.length === 0 && !similarLoading;
 
   return (
     <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">
@@ -1403,17 +1199,28 @@ function TitleContent({
                 />
               </div>
 
-              {/* Actions come next in the reference: the existing Play/Resume
-                  primary, the film-only Download, then the library controls. The
-                  behaviour of each is untouched — only their position moved above
-                  the synopsis. */}
+              {/* A series' whole-show download line, summed over its seasons:
+                  the same words and ring as the season header below. */}
+              {showProgress && showProgressText ? (
+                <SeasonProgressMeter
+                  progress={showProgress}
+                  label={showProgressText}
+                  className="mt-3 text-[13px]"
+                  data-show-progress
+                />
+              ) : null}
+
+              {/* Actions come next: Find episodes while a series has nothing
+                  listed yet, the film-only Download (Open and Show in folder
+                  once it is on this computer), then the library controls.
+                  The row collapses when none of them applies. */}
               <div
-                className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 md:mt-5 md:flex md:flex-wrap md:items-center"
+                className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 empty:hidden md:mt-5 md:flex md:flex-wrap md:items-center"
                 data-title-acquire
               >
-                {/* A gated (unreleased) title offers no Play/Download at all —
-                    the "Coming {date}" label and grayed art already say why, and
-                    a disabled action is just clutter that does nothing. Tracking
+                {/* A gated (unreleased) title offers no Download at all — the
+                    "Coming {date}" label and grayed art already say why, and a
+                    disabled action is just clutter that does nothing. Tracking
                     it via "Add to library" stays available below. */}
                 {!caps.canDownload ? (
                   gated ? null : (
@@ -1423,80 +1230,60 @@ function TitleContent({
                       onRequested={onLibraryChanged}
                     />
                   )
-                ) : gated || (!streaming && primary.kind !== "discover") ? (
-                  // With no Play to offer, a series still needs an obvious next
-                  // step above the fold: its episodes (and season download) live
-                  // below the hero, so the primary action takes the user there.
-                  payload.isSeries && !gated ? (
+                ) : discoverEpisodes && !gated ? (
+                  <Button
+                    type="button"
+                    size="lg"
+                    data-title-primary
+                    data-action-kind="discover"
+                    aria-label={`Find episodes, ${title}`}
+                    aria-busy={discoveryPending || undefined}
+                    disabled={discoveryPending}
+                    onClick={() => void refetchExtras()}
+                    className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]"
+                  >
+                    <ButtonBody pending={discoveryPending} icon={<Search aria-hidden />}>
+                      Find episodes
+                    </ButtonBody>
+                  </Button>
+                ) : null}
+                {canOpenFile ? (
+                  <>
                     <Button
                       type="button"
                       size="lg"
-                      data-title-episodes-jump
-                      onClick={() => {
-                        const target = document.querySelector<HTMLElement>("[data-title-episodes]");
-                        if (!target) return;
-                        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                        target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
-                      }}
-                      className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]"
+                      data-title-open
+                      aria-label={`Open ${title} in your own player`}
+                      title="Open in your own player"
+                      aria-busy={openingFile === "open" || undefined}
+                      disabled={openingFile !== null}
+                      onClick={() => void openTitleFile("open")}
+                      className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
                     >
-                      <ListVideo aria-hidden />
-                      Episodes
+                      <ButtonBody pending={openingFile === "open"} icon={<ExternalLink aria-hidden />}>
+                        Open
+                      </ButtonBody>
                     </Button>
-                  ) : null
-                ) : (
-                <Button
-                  type="button"
-                  size="lg"
-                  data-title-primary
-                  data-action-kind={primary.kind}
-                  aria-label={
-                    `${primaryDisplayLabel}, ${title}`
-                  }
-                  aria-busy={
-                    (primary.kind === "discover"
-                      ? extrasLoading || extrasRefreshing
-                      : primaryStatus === "pending") || undefined
-                  }
-                  disabled={!primaryCanRun}
-                  onClick={() => {
-                    if (primary.kind === "discover") {
-                      void refetchExtras();
-                      return;
-                    }
-                    requestAction(
-                      primary,
-                      PRIMARY_KEY,
-                      title,
-                      "stream",
-                    );
-                  }}
-                  className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]"
-                >
-                  <ButtonBody
-                    pending={
-                      primary.kind === "discover"
-                        ? extrasLoading || extrasRefreshing
-                        : primaryStatus === "pending"
-                    }
-                    icon={
-                      primary.kind === "discover" ? (
-                        <Search aria-hidden />
-                      ) : (
-                        <Play className="fill-current" aria-hidden />
-                      )
-                    }
-                  >
-                    {primaryDisplayLabel}
-                  </ButtonBody>
-                </Button>
-                )}
-
-                {showDownload && caps.canDownload && downloadControl.opensDownloads ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant="secondary"
+                      data-title-reveal
+                      aria-label={`Show ${title} in its folder`}
+                      aria-busy={openingFile === "reveal" || undefined}
+                      disabled={openingFile !== null}
+                      onClick={() => void openTitleFile("reveal")}
+                      className="relative w-full min-w-0 md:w-auto"
+                    >
+                      <ButtonBody pending={openingFile === "reveal"} icon={<FolderOpen aria-hidden />}>
+                        Show in folder
+                      </ButtonBody>
+                    </Button>
+                  </>
+                ) : showDownload && caps.canDownload && downloadControl.opensDownloads ? (
                   <Button
                     asChild
                     size="lg"
-                    variant={streaming ? "secondary" : "default"}
                     className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
                   >
                     <Link
@@ -1517,7 +1304,6 @@ function TitleContent({
                   <Button
                     type="button"
                     size="lg"
-                    variant={streaming ? "secondary" : "default"}
                     data-title-download
                     data-action-kind="get"
                     data-transfer-status={titleTransfer?.status}
@@ -1526,16 +1312,13 @@ function TitleContent({
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
                     onClick={() => {
-                      // Play is instant and never prompts. Download is the
-                      // deliberate keep-it action — it earns a quality question.
-                      if (shouldAskForQuality("keep", alwaysPreferred)) {
+                      if (shouldAskForQuality(alwaysPreferred)) {
                         setHeroPicker(true);
                       } else {
-                        requestAction(
+                        onAction(
                           downloadAction,
                           DOWNLOAD_KEY,
                           downloadLabelTarget,
-                          "keep",
                           preferredResolution,
                         );
                       }
@@ -1620,11 +1403,10 @@ function TitleContent({
         onAlwaysPreferredChange={setAlwaysPreferred}
         onConfirm={(resolution) => {
           setHeroPicker(false);
-          requestAction(
+          onAction(
             downloadAction,
             DOWNLOAD_KEY,
             downloadLabelTarget,
-            "keep",
             resolution,
           );
         }}
@@ -1639,6 +1421,7 @@ function TitleContent({
             seasonProgress={seasonProgress}
             season={activeSeason}
             episodes={rows}
+            episodeTotal={allRows.length}
             truncated={truncated}
             loadState={episodeListState}
             busy={rows.length === 0 && refreshing && season != null && season !== payload.season}
@@ -1657,17 +1440,16 @@ function TitleContent({
             items have not arrived yet, which keeps the bottom section the same
             height before and after the extras round trip. Without this, the
             hero (which is flex-grow) shrinks when the grid appears — causing
-            the Play/Download buttons to jump up under the cursor, which is how
-            clicking Play silently navigated to the wrong film (Task 1). */}
+            the Download button to jump up under the cursor, which is how a
+            click silently navigated to the wrong film (Task 1). */}
         <MoreLikeThis
           items={similar}
           loading={similarLoading}
         />
 
-        {!payload.known ? (
-          <p className="text-[12px] text-subtle-foreground">
-            Not in your library yet. Download it or add it to your library to
-            keep track of it here.
+        {hint ? (
+          <p className="text-[12px] text-subtle-foreground" data-library-hint>
+            {hint}
           </p>
         ) : null}
       </div>
@@ -1696,9 +1478,6 @@ function withCatalogDefaults(json: unknown): TitleDetailPayload {
       infoHash: null,
       filePath: null,
       downloadFraction: null,
-      watchedFraction: null,
-      resumePositionSec: null,
-      watched: false,
       nextUp: false,
       fromPack: false,
       transfer: null,
@@ -1706,7 +1485,6 @@ function withCatalogDefaults(json: unknown): TitleDetailPayload {
     })),
     availability: p.availability ?? null,
     infoHash: p.infoHash ?? null,
-    resume: p.resume ?? null,
     transfer: p.transfer ?? null,
     library: p.library ?? {
       inLibrary: p.inLibrary === true,
@@ -1845,7 +1623,8 @@ function removeLegacySeasonFromLocation(): void {
  * The extras URL, built from the *answered* payload rather than the props.
  *
  * It has to be, for one specific reason: the detail route picks which season
- * to open (the one being watched, the one the library is hunting), and asking
+ * to open (the one the library is hunting, the one remembered from last
+ * time), and asking
  * the provider for a different season than the list is showing would pin one
  * season's episode names onto another season's rows.
  */

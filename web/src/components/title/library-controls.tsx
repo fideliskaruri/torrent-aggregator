@@ -1,10 +1,9 @@
 /**
  * The library side of the hero: what the library should do with this work.
  *
- * The acquire intents (Play watches it now, Download keeps it) are rendered by
- * the hero itself (`title-detail.tsx`), because Play has to open the in-page
- * player and only the detail container holds that machinery. This component
- * owns catalogue membership.
+ * The acquire intent (Download) is rendered by the hero itself
+ * (`title-detail.tsx`), because only the detail container holds the quality
+ * picker and the transfer polling. This component owns catalogue membership.
  *
  * It goes through the existing watchlist API rather than a new one:
  * `POST /api/watchlist` adds and monitors the title. The payload is built

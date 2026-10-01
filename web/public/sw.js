@@ -3,10 +3,7 @@
  *
  * Caches the app shell: navigations resolve network-first (falling back to a
  * cached index.html), and hashed /assets/* resolve cache-first. Everything
- * else — especially /api/*, Range/stream requests and media — is left alone.
- *
- * Cache policy predicates live in web/src/lib/pwa/sw-cache-rules.ts for tests;
- * keep the two in lockstep when changing rules.
+ * else — especially /api/*, Range requests and media files — is left alone.
  */
 
 const CACHE_PREFIX = "torrentflow-shell-";
@@ -203,7 +200,7 @@ self.addEventListener("notificationclick", (event) => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const existing = windows.find(client => client.url === link);
     if (existing) return existing.focus();
-    // Do not navigate an existing playback tab away from its video.
+    // Open a new window rather than navigating an existing tab away from its page.
     return self.clients.openWindow(link);
   })());
 });

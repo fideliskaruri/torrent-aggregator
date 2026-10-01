@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, RefreshCw, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,11 +12,9 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import {
   DESKTOP_URL,
   checkForUpdatesNow,
-  formatMegabytes,
   isBusy,
   progressPercent,
   saveDesktopSettings,
-  startFfmpegDownload,
   startUpdate,
   type DesktopStatus,
   type DownloadProgress,
@@ -30,8 +28,8 @@ export function DesktopSection() {
   return (
     <SettingsDisclosure
       id="desktop-app"
-      title="App & media tools"
-      summary="Start with Windows, updates, and the ffmpeg tools used for playback checks."
+      title="App"
+      summary="Start with Windows and automatic updates."
       open={open}
       onToggle={() => setOpen((value) => !value)}
       className="scroll-mt-20"
@@ -59,7 +57,7 @@ function DesktopPanel() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const status = data;
-  const polling = Boolean(status && (isBusy(status.ffmpeg.download) || isBusy(status.updates.install)));
+  const polling = Boolean(status && isBusy(status.updates.install));
   useEffect(() => {
     setBusyPoll(polling);
   }, [polling]);
@@ -180,12 +178,6 @@ function DesktopPanel() {
         </p>
       )}
 
-      <FfmpegStatus
-        status={status}
-        primary={!updatePrimary}
-        readOnly={readOnly}
-        onDownload={() => void run(startFfmpegDownload)}
-      />
 
       {message ? (
         <p
@@ -354,90 +346,6 @@ function UpdateStatus({
           Updating closes TorrentFlow for a moment; downloads resume when it restarts.
         </p>
       ) : null}
-    </div>
-  );
-}
-
-function FfmpegStatus({
-  status,
-  primary,
-  readOnly,
-  onDownload,
-}: {
-  status: DesktopStatus;
-  primary: boolean;
-  readOnly: boolean;
-  onDownload: () => void;
-}) {
-  const ff = status.ffmpeg;
-  const found = Boolean(ff.ffmpeg && ff.ffprobe);
-  const busy = isBusy(ff.download);
-  const size = formatMegabytes(ff.packageSize);
-  return (
-    <div className="space-y-3 rounded-lg border border-border p-3" data-desktop-ffmpeg>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <Wrench className="h-4 w-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
-            ffmpeg &amp; ffprobe
-          </p>
-          <p className="text-xs leading-relaxed text-subtle-foreground">
-            Used to check finished downloads are real video and to read subtitles and audio tracks.
-          </p>
-        </div>
-        <Badge
-          variant={found ? "success" : "danger"}
-          className="shrink-0 self-start"
-          data-desktop-ffmpeg-status={found ? "found" : "missing"}
-        >
-          {found ? (ff.managed ? "Installed by TorrentFlow" : "Found") : "Missing"}
-        </Badge>
-      </div>
-      {found ? (
-        <dl className="grid gap-1 text-xs">
-          <PathRow label="ffmpeg" value={ff.ffmpeg!} />
-          <PathRow label="ffprobe" value={ff.ffprobe!} />
-        </dl>
-      ) : null}
-      {busy ? <ProgressLine progress={ff.download} label="ffmpeg" /> : null}
-      {ff.download.state === "failed" && ff.download.error ? (
-        <p className="text-xs text-destructive" role="alert" data-desktop-ffmpeg-error>{ff.download.error}</p>
-      ) : null}
-      {!found && !busy ? (
-        ff.canDownload ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 text-xs text-subtle-foreground">
-              {ff.packageLabel}{size ? ` · ${size}` : ""}, checksum-verified, saved in TorrentFlow's data folder.
-            </p>
-            <Button
-              type="button"
-              variant={primary ? "default" : "secondary"}
-              size="sm"
-              className="shrink-0 self-start sm:self-auto"
-              onClick={onDownload}
-              disabled={readOnly}
-              aria-label="Download ffmpeg"
-              data-desktop-ffmpeg-download
-            >
-              <Download />
-              {ff.download.state === "failed" ? "Try again" : "Download ffmpeg"}
-            </Button>
-          </div>
-        ) : (
-          <p className="text-xs text-subtle-foreground">
-            Install ffmpeg with your package manager (it must be on PATH), or set FFMPEG_PATH and FFPROBE_PATH.
-          </p>
-        )
-      ) : null}
-    </div>
-  );
-}
-
-function PathRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 gap-2">
-      <dt className="w-14 shrink-0 text-subtle-foreground">{label}</dt>
-      <dd className="min-w-0 break-all font-mono text-muted-foreground">{value}</dd>
     </div>
   );
 }

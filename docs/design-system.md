@@ -10,7 +10,7 @@
 ## 1. Design principles (how to resolve ambiguity)
 
 1. **Media-first.** Posters/thumbnails and the title are the hero. Chrome is quiet; content is loud.
-2. **One primary action per surface.** Exactly one amber/primary button per card or section (usually **Play**). Everything else is secondary/ghost or lives behind a `⋯` menu.
+2. **One primary action per surface.** Exactly one amber/primary button per card or section (usually **Download**, or **Request** for a requester). Everything else is secondary/ghost or lives behind a `⋯` menu.
 3. **Never a dead end — always a next step.** Every empty/error/blocked state offers an action (retry, back to browse, download, adjust filter). No bare "nothing here".
 4. **Honest progress, never fake spinners.** A loader must say what it's doing when it can (e.g. "Finding peers…" → "Buffering…"). No infinite copy-free spinner on a wait > ~2s.
 5. **No layout shift / no flash.** Background refresh (5s polls) must NOT blink content to skeletons. Skeletons only when there is genuinely nothing yet; once real rows exist, keep them.
@@ -54,7 +54,7 @@ section spacing `space-y-10`. Tap targets **≥ 44px** (`min-h-[44px]`) on inter
 - **Card:** `--bg-elevated` surface, `--border`, `--radius`, `--shadow-sm`; hover → `--bg-hover`.
 - **Primary button:** amber `--accent` bg, `--primary-foreground` text; exactly one per surface.
 - **Secondary/ghost button:** transparent/`--bg-muted`, `--border`, `--text`.
-- **Overflow menu (`⋯`):** DropdownMenu for non-primary actions (Copy stream URL / Open folder / Pause / Resume / Delete).
+- **Overflow menu (`⋯`):** DropdownMenu for non-primary actions (Show in folder / Pause / Resume / Delete).
 - **State machine per data surface — always implement all four:** `loading` (skeleton, only when empty) · `ready` · `empty` (with a next-step action) · `error` (with retry). Never collapse "loading" into a blank "ready".
 - **Selects:** native `<select>` styled with our tokens (see `episode-list.tsx` `[data-season-select]`).
 - **Every interactive element** has an `aria-label` and a stable `data-*` hook for MCP verification.
@@ -96,7 +96,7 @@ Tailwind defaults: `sm 640` · `md 768` · `lg 1024` · `xl 1280`. **Design mobi
 - [ ] Exactly **one** primary (amber) action per surface.
 - [ ] Secondary actions are ghost/secondary or in a `⋯` menu.
 - [ ] Destructive actions (Delete) require confirmation and are visually de-emphasized.
-- [ ] Primary action is disabled/blocked when it can't succeed (e.g. Play gated until streamable).
+- [ ] Primary action is disabled/blocked when it can't succeed (e.g. Open offered only once the file is on disk).
 
 ### D. Feedback & motion
 - [ ] Any wait > ~2s shows an **honest** loader with staged copy, not a bare spinner.

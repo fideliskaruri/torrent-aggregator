@@ -54,7 +54,6 @@ export interface TransferRow {
   queuePosition?: number;
   /** Why that queued row is waiting: outside-window, queue-full or lower-lane. */
   waitReason?: string | null;
-  playable?: boolean;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;
@@ -147,16 +146,6 @@ export function leadQueuePosition(
     if (lead == null || position < lead) lead = position;
   }
   return lead;
-}
-
-export function canStreamTransfer(
-  transfer: Pick<TransferRow, "playable" | "progress" | "state">,
-): boolean {
-  if (transfer.playable === false) return false;
-  const state = transfer.state.trim().toLowerCase();
-  if (state === "error" || state === "missingfiles") return false;
-  if (isDownloaded(state)) return true;
-  return Math.floor(Math.min(1, Math.max(0, transfer.progress)) * 100) > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -606,8 +595,8 @@ export function groupDownloads<T extends TransferRow>(
 }
 
 /**
- * Distinct single episodes a series group holds, for "12 episodes downloaded
- * +2 downloading". Season packs are left out: a pack's contents are not known
+ * Distinct single episodes a series group holds, for "12 downloaded · 2
+ * downloading" (the title page's wording). Season packs are left out: a pack's contents are not known
  * here, and guessing an episode count for it would be a claim nobody made.
  */
 export function seriesEpisodeTally<T extends TransferRow>(

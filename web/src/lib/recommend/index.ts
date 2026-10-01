@@ -3,7 +3,7 @@
  * recommendations.
  *
  * There is deliberately no recommender here. TMDB's `/recommendations` is
- * behavioural (people who watched this watched that) and is already better than
+ * behavioural (people who liked this also liked that) and is already better than
  * anything that could be built over a five-row library. Its neighbour
  * `/similar` is a genre-vector match and is not usable: it returns 320,032
  * films "similar" to Oppenheimer, led by titles nobody has heard of. AniList

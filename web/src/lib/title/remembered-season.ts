@@ -3,15 +3,13 @@
  *
  * The bug this answers: pick Rick and Morty Season 2, leave through an
  * ordinary app link (not Back), come back — the title page reset to whatever
- * the watch cursor or provider default happened to be, which for a
- * long-running show can be a season far past what was actually being watched.
+ * the provider default happened to be, which for a long-running show can be a
+ * season far from the one the user was looking at.
  * React state alone never survives leaving through a fresh title link.
  *
- * This is deliberately **not** the resume/watch cursor. Those describe actual
- * playback progress and must keep outranking a manual pick that has gone
- * stale; this only remembers "last season the user *looked at* on this
- * title", so it can outrank a stale watch cursor / provider default without
- * ever masquerading as progress.
+ * This is deliberately **not** a progress marker. It only remembers "last
+ * season the user *looked at* on this title", so it can outrank a provider
+ * default without ever masquerading as progress.
  *
  * One cookie holds a bounded map of every title's remembered season —
  * `{ [workKey]: season }` — rather than one cookie per title, which would

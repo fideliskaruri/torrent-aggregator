@@ -17,13 +17,9 @@ pnpm -C web build                                # typecheck + web/dist
 - Page titles use `useDocumentTitle` instead of Next.js `metadata`.
 - `pnpm-workspace.yaml` keeps this a standalone pnpm project, separate from the repo root.
 
-## Streaming feature flag
+## Features and playback
 
 `FeaturesProvider` reads `GET /api/features` once for the app and refreshes every 30 seconds.
-Only `{ "streaming": true }` enables playback; loading, missing flags and errors hide it.
-Disabled streaming leaves search, kept downloads and Library automation available, hides
-players and streaming-only settings, and redirects old `/watch/*` URLs home.
-
-From `web/`, run `node --test tests/*.test.mjs` for feature-gate, session-expiry, requester-shell, desktop-banner
-regressions and the existing library-add/season-selection suites against the SPA modules.
-The tests reuse Vite and Node's test runner; no extra test dependencies are needed.
+There is no in-app playback or streaming. Finished files open in the owner's own player from
+Downloads (Open and Show in folder, `POST /api/downloads/{id}/open`), and old `/watch/*` URLs
+redirect home.

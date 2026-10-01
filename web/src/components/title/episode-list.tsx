@@ -1,37 +1,27 @@
 /**
- * Seasons and episodes — reframed as a horizontal filmstrip.
+ * Seasons and episodes, as a horizontal filmstrip.
  *
- * The old design was one tall row per episode with distinct Play / Download
- * buttons. The approved streaming reference (Trakt / SIMKL "SILO") is a
- * horizontally scrolling strip of stills, each card a poster you press to
- * watch, with the keep-it (Download) action demoted to a small affordance in
- * the corner. The judgements that were baked into the old row still hold and
- * are the whole point of the component:
+ * A horizontally scrolling strip of stills, one card per episode, with the
+ * Download action as a small affordance in the corner. The judgements baked
+ * into the strip are the whole point of the component:
  *
- *  - **The card is the play target.** Clicking anywhere on a card fires the
- *    exact same stream action the old Play button did (retention "stream").
- *    Playing must never silently become a kept download, so Download is a
- *    separate control on top of the card, never nested inside the play button.
  *  - **A row/card only claims a state it checked.** `availability: null` means
- *    nobody has looked — the card is still pressable and the Download control
- *    still says "Download", not "Unavailable".
+ *    nobody has looked — the Download control still says "Download", not
+ *    "Unavailable".
  *  - **An unaired episode gets no controls.** It prints its air date as plain
  *    text, so there is no disabled button for a keyboard user to land on. A
  *    local file always wins over a future date.
  *
- * The header carries a compact watched-progress label — `Watched X of Y (Z%)`
- * for the loaded season — alongside the season picker, the episode count and
- * the season-scoped Download button.
+ * The header carries the season picker, one download-progress line for the
+ * loaded season and the season-scoped Download button.
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
   Loader2,
-  Play,
   RotateCcw,
   Tv,
   X,
@@ -69,9 +59,7 @@ import {
   type EpisodeListLoadState,
 } from "./episode-list-state";
 import {
-  resolveEpisodeAction,
   shouldRunTitleAction,
-  titleActionButtonLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
@@ -83,14 +71,9 @@ import {
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
-import type { TitleRetention, TitleSeason } from "./types";
-import {
-  isSeasonComplete,
-  seasonProgressLabel,
-  seasonProgressShort,
-  type SeasonProgress,
-} from "./season-progress";
-import { useFeatures } from "@/lib/features";
+import type { TitleSeason } from "./types";
+import { seasonProgressLabel, type SeasonProgress } from "./season-progress";
+import { SeasonProgressMeter } from "./season-progress-meter";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
@@ -98,13 +81,14 @@ export interface EpisodeListProps {
   seasonProgress?: Record<number, SeasonProgress>;
   season: number | null;
   episodes: EpisodeRowModel[];
+  /** Episodes in the season before the row cap; defaults to the rendered count. */
+  episodeTotal?: number;
   truncated: boolean;
   loadState: EpisodeListLoadState;
   /** Non-null while a season change is in flight. */
   busy: boolean;
   statusFor: (key: string) => TitleActionStatus;
   seasonGrabStatus: SeasonGrabStatus;
-  seasonStreamStatus?: SeasonGrabStatus;
   /**
    * The whole work is future-dated. Every episode of it is unaired by
    * definition, so the season controls are withheld exactly like the hero's —
@@ -113,21 +97,13 @@ export interface EpisodeListProps {
    */
   gated?: boolean;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention, resolution?: number) => void;
-  onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
+  onSeasonGrab: (season: number, episodes: number[], resolution?: number) => void;
+  onAction: (action: TitleAction, label: string, resolution?: number) => void;
 }
 
-/** Stable per-row key for tracking one in-flight action. */
-function episodeActionKey(season: number, episode: number): string {
+/** Stable per-row key for tracking one in-flight Download. */
+export function episodeIntentKey(season: number, episode: number): string {
   return `s${season}e${episode}`;
-}
-
-export function episodeIntentKey(
-  season: number,
-  episode: number,
-  retention: TitleRetention,
-): string {
-  return `${episodeActionKey(season, episode)}:${retention}`;
 }
 
 /** Clamped 0–100 integer for a 0–1 fraction. */
@@ -136,19 +112,12 @@ function progressPercent(fraction: number | null | undefined): number {
   return Math.round(Math.min(1, Math.max(0, fraction)) * 100);
 }
 
-/** `Watched X of Y (Z%)` for the loaded season. */
-function watchedProgressLabel(episodes: EpisodeRowModel[]): string {
-  const total = episodes.length;
-  const watched = episodes.filter((e) => e.watched === true).length;
-  const percent = total === 0 ? 0 : Math.round((watched / total) * 100);
-  return `Watched ${watched} of ${total} (${percent}%)`;
-}
-
 export function EpisodeList({
   seasons,
   seasonProgress = {},
   season,
   episodes,
+  episodeTotal,
   truncated,
   loadState,
   busy,
@@ -159,9 +128,7 @@ export function EpisodeList({
   onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
-  const { canDownload, canStream } = useCapabilities();
-  // Play and Download are owner controls; everyone else sees the same cards without them.
-  const streaming = useFeatures().streaming && canStream;
+  const { canDownload } = useCapabilities();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
 
   // Single quality picker for the whole list. One picker serves every card's
@@ -214,18 +181,12 @@ export function EpisodeList({
   // card whose transfer state actually changed — the download icon — not the
   // list.
   const handleCardAction = useCallback(
-    (action: TitleAction, label: string, retention: TitleRetention) => {
-      // Play is always instant — never ask for quality. Download earns a
-      // quality question unless the user has elected "always preferred".
-      if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
+    (action: TitleAction, label: string) => {
+      // Download asks for a quality unless the user chose "always preferred".
+      if (shouldAskForQuality(alwaysPreferred)) {
         openPickerFor({ kind: "episode", action, label });
       } else {
-        onAction(
-          action,
-          label,
-          retention,
-          retention === "keep" ? preferredResolution : undefined,
-        );
+        onAction(action, label, preferredResolution);
       }
     },
     [alwaysPreferred, preferredResolution, onAction, openPickerFor],
@@ -235,9 +196,9 @@ export function EpisodeList({
     setPickerOpen(false);
     if (!pendingDownload) return;
     if (pendingDownload.kind === "episode") {
-      onAction(pendingDownload.action, pendingDownload.label, "keep", resolution);
+      onAction(pendingDownload.action, pendingDownload.label, resolution);
     } else {
-      onSeasonGrab(pendingDownload.targetSeason, pendingDownload.episodeNums, "keep", resolution);
+      onSeasonGrab(pendingDownload.targetSeason, pendingDownload.episodeNums, resolution);
     }
     setPendingDownload(null);
   }
@@ -261,12 +222,8 @@ export function EpisodeList({
   // season, so "7 episodes" beats the old "7 in season 1" echo.
   const seasonCountLabel =
     season != null
-      ? episodeSeasonCountLabel(episodes.length, loadState, season)
+      ? episodeSeasonCountLabel(Math.max(episodeTotal ?? 0, episodes.length), loadState, season)
       : null;
-  // The watched label only earns its place once a season's episodes exist:
-  // "Watched 0 of 0 (0%)" over a spinner is noise, not progress.
-  // Watched counts are the owner's playback history; people who can't play have none.
-  const showWatched = canStream && view.kind === "rows" && episodes.length > 0;
   const activeProgress =
     season != null && !busy && view.kind !== "loading" ? seasonProgress[season] ?? null : null;
   const activeProgressLabel = activeProgress ? seasonProgressLabel(activeProgress) : null;
@@ -298,20 +255,15 @@ export function EpisodeList({
                   <SelectValue placeholder="Season" />
                 </SelectTrigger>
                 <SelectContent position="popper" align="start">
-                  {seasons.map((s) => {
-                    const short = seasonProgress[s.season]
-                      ? seasonProgressShort(seasonProgress[s.season])
-                      : null;
-                    return (
-                      <SelectItem
-                        key={s.season}
-                        value={String(s.season)}
-                        data-season-option={s.season}
-                      >
-                        {short ? `Season ${s.season} \u00b7 ${short}` : `Season ${s.season}`}
-                      </SelectItem>
-                    );
-                  })}
+                  {seasons.map((s) => (
+                    <SelectItem
+                      key={s.season}
+                      value={String(s.season)}
+                      data-season-option={s.season}
+                    >
+                      Season {s.season}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             ) : season != null ? (
@@ -332,18 +284,12 @@ export function EpisodeList({
               </p>
             ) : null}
 
-            {showWatched ? (
-              <p
-                data-watched-label
-                className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-subtle-foreground"
-              >
-                <Check className="h-3.5 w-3.5 text-brand-foreground" aria-hidden />
-                {watchedProgressLabel(episodes)}
-              </p>
-            ) : null}
-
             {activeProgress && activeProgressLabel ? (
-              <SeasonProgressMeter progress={activeProgress} label={activeProgressLabel} />
+              <SeasonProgressMeter
+                progress={activeProgress}
+                label={activeProgressLabel}
+                data-season-progress
+              />
             ) : null}
           </div>
 
@@ -352,7 +298,6 @@ export function EpisodeList({
               <Button
                 type="button"
                 size="sm"
-                variant={streaming ? "secondary" : "default"}
                 data-season-grab
                 data-action="download"
                 aria-busy={seasonGrabStatus.status === "pending" || undefined}
@@ -360,10 +305,10 @@ export function EpisodeList({
                 onClick={() => {
                   if (season == null) return;
                   const episodeNums = episodes.map((e) => e.episode);
-                  if (shouldAskForQuality("keep", alwaysPreferred)) {
+                  if (shouldAskForQuality(alwaysPreferred)) {
                     openPickerFor({ kind: "season", targetSeason: season, episodeNums });
                   } else {
-                    onSeasonGrab(season, episodeNums, "keep", preferredResolution);
+                    onSeasonGrab(season, episodeNums, preferredResolution);
                   }
                 }}
                 className="relative min-h-[44px] w-auto lg:min-h-0"
@@ -448,11 +393,8 @@ export function EpisodeList({
                   key={episode.episode}
                   episode={episode}
                   gated={gated}
-                  streamStatus={statusFor(
-                    episodeIntentKey(episode.season, episode.episode, "stream"),
-                  )}
                   downloadStatus={statusFor(
-                    episodeIntentKey(episode.season, episode.episode, "keep"),
+                    episodeIntentKey(episode.season, episode.episode),
                   )}
                   onAction={handleCardAction}
                 />
@@ -470,7 +412,7 @@ export function EpisodeList({
       )}
 
       {/* One quality picker for the entire strip. Every card's Download and the
-          Download season button route through it. Play never does. */}
+          Download season button route through it. */}
       <QualityPicker
         open={pickerOpen}
         onOpenChange={handlePickerOpenChange}
@@ -598,42 +540,17 @@ function EpisodeSkeletonStrip({
 function EpisodeCardImpl({
   episode,
   gated = false,
-  streamStatus,
   downloadStatus,
   onAction,
 }: {
   episode: EpisodeRowModel;
   /** The whole work is future-dated — see `EpisodeListProps.gated`. */
   gated?: boolean;
-  streamStatus: TitleActionStatus;
   downloadStatus: TitleActionStatus;
-  onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
+  onAction: (action: TitleAction, label: string, resolution?: number) => void;
 }) {
-  const { canDownload, canStream } = useCapabilities();
-  // Play and Download are owner controls; everyone else sees the same cards without them.
-  const streaming = useFeatures().streaming && canStream;
+  const { canDownload } = useCapabilities();
   const transfer = episode.transfer;
-  const transferComplete =
-    transfer?.status === "downloaded" && Boolean(transfer.infoHash);
-  const resolved = resolveEpisodeAction(
-    transferComplete
-      ? {
-          ...episode,
-          availability: "ready",
-          infoHash: transfer.infoHash,
-          filePath: transfer.filePath,
-        }
-      : episode,
-  );
-  const streamAction: TitleAction =
-    resolved.kind === "play"
-      ? resolved
-      : {
-          kind: "stream",
-          label: "Play",
-          season: episode.season,
-          episode: episode.episode,
-        };
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -641,16 +558,6 @@ function EpisodeCardImpl({
     episode: episode.episode,
     infoHash: episode.infoHash,
   };
-  const effectiveStreamStatus =
-    streamAction.kind === "play" && streamStatus === "done"
-      ? "idle"
-      : streamStatus;
-  const effectiveDownloadStatus = downloadStatus;
-  const streamLabel = titleActionButtonLabel(streamAction, effectiveStreamStatus);
-  const streamDisplayLabel =
-    effectiveStreamStatus === "idle" && streamAction.kind === "stream"
-      ? "Play"
-      : streamLabel;
 
   const held =
     transfer?.status === "downloaded" ||
@@ -663,37 +570,37 @@ function EpisodeCardImpl({
         ? `Downloading ${formatTransferProgress(transfer.progress)}`
         : held
           ? "Downloaded"
-          : effectiveDownloadStatus === "done"
+          : downloadStatus === "done"
             ? "Queued"
-          : effectiveDownloadStatus === "error"
+          : downloadStatus === "error"
             ? "Retry download"
-            : titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
-  const streamCanRun = shouldRunTitleAction(streamAction, effectiveStreamStatus);
+            : downloadAction.label;
   const downloadCanRun =
     !held &&
     transfer?.status !== "queued" &&
     transfer?.status !== "downloading" &&
-    shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
+    shouldRunTitleAction(downloadStatus);
 
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
 
-  // A file we hold beats a future air date. Provider dates are wrong often
-  // enough that letting one hide a real download would be the worse bug. A
-  // future-dated *work* gates every card, including ones the provider has not
-  // given an air date for at all.
-  const unaired =
-    resolved.kind !== "play" && (gated || isUnaired(meta?.airDate ?? null));
+  // A file we hold, fully or in part, beats a future air date. Provider dates
+  // are wrong often enough that letting one hide a real download would be the
+  // worse bug. A future-dated *work* gates every card, including ones the
+  // provider has not given an air date for at all.
+  const onDisk =
+    (transfer?.status === "downloaded" && Boolean(transfer.infoHash)) ||
+    ((episode.availability === "ready" || episode.availability === "warm") &&
+      Boolean(episode.infoHash?.trim()));
+  const unaired = !onDisk && (gated || isUnaired(meta?.airDate ?? null));
 
-  // The progress strip on the still: watched playback wins over a partial
-  // download, and an actively-downloading transfer is the last fallback. Only
-  // rendered when there is something to show.
+  // The progress strip on the still shows a download that is still moving,
+  // and nothing once the file is here.
   const downloadingProgress =
     transfer?.status === "downloading" ? transfer.progress : null;
-  const progressFraction =
-    episode.watchedFraction ?? episode.downloadFraction ?? downloadingProgress ?? null;
-  const progressPct = progressPercent(progressFraction);
-  const progressKind = episode.watchedFraction != null ? "watched" : "download";
+  const progressPct = held
+    ? 0
+    : progressPercent(episode.downloadFraction ?? downloadingProgress);
 
   // The badge on the still already says "E2", so the caption is the episode's
   // name alone. "S01E02 · Name" under an "E2" badge printed the number twice.
@@ -725,7 +632,7 @@ function EpisodeCardImpl({
       </Badge>
       {progressPct > 0 ? (
         <Progress
-          data-episode-progress={progressKind}
+          data-episode-progress
           value={progressPct}
           aria-hidden
           className="absolute inset-x-0 bottom-0 h-1 rounded-none bg-background/55"
@@ -849,11 +756,7 @@ function EpisodeCardImpl({
       data-episode-row
       data-episode={episode.episode}
       data-availability={episode.availability ?? "unresolved"}
-      className={cn(
-        "group surface relative overflow-hidden p-0",
-        "transition-colors hover:border-input",
-        CARD_WIDTH,
-      )}
+      className={cn("surface relative overflow-hidden p-0", CARD_WIDTH)}
     >
       {unaired ? (
         <div className="flex min-h-[96px] sm:block">
@@ -862,50 +765,12 @@ function EpisodeCardImpl({
         </div>
       ) : (
         <>
-          {/* The whole card is the play target. It is a real button so the
-              press is keyboard-reachable; the Download control is a SIBLING
-              layered on top, never a child, so a click on Download can never
-              also fire Play. */}
-          {streaming ? <Button
-            type="button"
-            variant="ghost"
-            data-episode-action
-            data-action="stream"
-            data-action-kind={streamAction.kind}
-            aria-label={`${streamDisplayLabel}, ${episode.label}`}
-            aria-busy={effectiveStreamStatus === "pending" || undefined}
-            disabled={!streamCanRun}
-            onClick={() => onAction(streamAction, episode.label, "stream")}
-            // The whole card is the control, so none of the button chrome:
-            // no fill, no fade when disabled, text that wraps like a caption.
-            className="flex h-auto min-h-[96px] w-full cursor-pointer items-stretch justify-start gap-0 whitespace-normal rounded-none border-0 p-0 text-left font-normal hover:bg-transparent focus-visible:ring-inset disabled:cursor-default disabled:opacity-100 active:not-aria-[haspopup]:translate-y-0 sm:block sm:min-h-0 dark:hover:bg-transparent"
-          >
-            <span className="relative block shrink-0">
-              {still}
-              {/* Play glyph washed over the still on hover / focus — the card's
-                  primary meaning made visible without a permanent chrome. */}
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur-sm">
-                  {effectiveStreamStatus === "pending" ? (
-                    <Loader2 className="size-5 animate-spin" aria-hidden />
-                  ) : (
-                    <Play className="size-5 fill-current" aria-hidden />
-                  )}
-                </span>
-              </span>
-            </span>
+          <div className="flex min-h-[96px] w-full items-stretch text-left sm:block sm:min-h-0">
+            <span className="relative block shrink-0">{still}</span>
             {caption}
-          </Button> : (
-            <div className="flex min-h-[96px] w-full items-stretch text-left sm:block sm:min-h-0">
-              <span className="relative block shrink-0">{still}</span>
-              {caption}
-            </div>
-          )}
+          </div>
 
-          {/* Compact keep-it affordance. Icon-only to stay out of the card's
+          {/* Compact Download affordance. Icon-only to stay out of the card's
               way, but a 44px touch target and a full aria-label so it is neither
               too small to hit nor mute to assistive tech. */}
           {canDownload ? (
@@ -918,11 +783,11 @@ function EpisodeCardImpl({
               data-action="download"
               data-action-kind={downloadAction.kind}
               aria-label={`${downloadDisplayLabel}, ${episode.label}`}
-              aria-busy={effectiveDownloadStatus === "pending" || undefined}
+              aria-busy={downloadStatus === "pending" || undefined}
               disabled={!downloadCanRun}
               onClick={(event) => {
                 event.stopPropagation();
-                onAction(downloadAction, episode.label, "keep");
+                onAction(downloadAction, episode.label);
               }}
               className={cn(
                 "h-11 gap-1 rounded-full border-foreground/14 dark:border-foreground/14",
@@ -944,7 +809,7 @@ function EpisodeCardImpl({
                 transferStatus={transfer?.status ?? null}
                 progress={transfer?.progress ?? null}
                 held={held}
-                status={effectiveDownloadStatus}
+                status={downloadStatus}
               />
             </Button>
           </span>
@@ -973,7 +838,6 @@ function EpisodeCardImpl({
  */
 const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   if (a.gated !== b.gated) return false;
-  if (a.streamStatus !== b.streamStatus) return false;
   if (a.downloadStatus !== b.downloadStatus) return false;
   if (a.onAction !== b.onAction) return false;
   const pe = a.episode;
@@ -984,8 +848,6 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
     pe.label !== ne.label ||
     pe.availability !== ne.availability ||
     pe.infoHash !== ne.infoHash ||
-    pe.watched !== ne.watched ||
-    pe.watchedFraction !== ne.watchedFraction ||
     pe.downloadFraction !== ne.downloadFraction ||
     pe.nextUp !== ne.nextUp ||
     pe.fromPack !== ne.fromPack
@@ -1078,66 +940,4 @@ function DownloadGlyph({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
-}
-
-/**
- * The season header's "X of Y episodes downloaded". A ring fills with the
- * downloaded share of aired episodes and turns into a check once every aired
- * episode is on disk. In-flight episodes are a muted count beside it, never
- * part of the ring.
- */
-function SeasonProgressMeter({
-  progress,
-  label,
-}: {
-  progress: SeasonProgress;
-  label: string;
-}) {
-  const complete = isSeasonComplete(progress);
-  const fraction =
-    progress.aired && progress.aired > 0
-      ? Math.min(1, progress.downloaded / progress.aired)
-      : 0;
-  const radius = 6.5;
-  const circumference = 2 * Math.PI * radius;
-  return (
-    <p
-      data-season-progress
-      data-complete={complete ? "true" : undefined}
-      className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-muted-foreground"
-    >
-      {complete ? (
-        <span
-          aria-hidden
-          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success text-background"
-        >
-          <Check className="h-3 w-3" strokeWidth={3} />
-        </span>
-      ) : progress.aired != null && progress.aired > 0 ? (
-        <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 -rotate-90">
-          <circle cx="8" cy="8" r={radius} fill="none" strokeWidth="2.5" className="stroke-input" />
-          {fraction > 0 ? (
-            <circle
-              cx="8"
-              cy="8"
-              r={radius}
-              fill="none"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeDasharray={`${fraction * circumference} ${circumference}`}
-              className="stroke-brand"
-            />
-          ) : null}
-        </svg>
-      ) : (
-        <Download className="h-3.5 w-3.5 shrink-0 text-subtle-foreground" aria-hidden />
-      )}
-      <span>{label}</span>
-      {progress.downloading > 0 ? (
-        <span data-season-downloading className="text-subtle-foreground">
-          +{progress.downloading} downloading
-        </span>
-      ) : null}
-    </p>
-  );
 }

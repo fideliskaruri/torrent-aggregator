@@ -18,11 +18,13 @@ import { DesktopSection } from "@/components/settings/desktop-section";
 import { DownloadLocationFields } from "@/components/settings/download-location-fields";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RemoteAccessSection } from "@/components/settings/remote-access-section";
-import { RetentionPanel } from "@/components/settings/retention-panel";
 import { DownloadWindowsPanel } from "@/components/settings/download-windows-panel";
+import {
+  clampMaxActive,
+  MaxActiveDownloadsControl,
+} from "@/components/settings/max-active-downloads";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
-import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +66,6 @@ import {
 
 type ClientType = "qbittorrent" | "transmission" | "builtin";
 type ExternalClientType = Exclude<ClientType, "builtin">;
-type RetentionPolicy = "EPHEMERAL" | "KEPT";
 
 export interface ClientForm {
   clientType: ClientType;
@@ -80,8 +81,6 @@ export interface ClientForm {
   automationIntervalMinutes: number;
   maxActiveDownloads: number;
   downloadWindows: DownloadWindowDraft[];
-  verboseDiagnostics: boolean;
-  defaultRetentionPolicy: RetentionPolicy;
   categories: string[];
   pathRules: Record<string, string>;
 }
@@ -101,31 +100,12 @@ const QUALITY_CHOICES = [
   { value: 2160, label: "4K", hint: "Largest files" },
 ] as const;
 
-const FILE_BEHAVIOR_OPTIONS = [
-  {
-    value: "EPHEMERAL",
-    label: "Delete temporary streams when space is needed",
-  },
-  {
-    value: "KEPT",
-    label: "Keep new downloads until I remove them",
-  },
-] as const;
-
 const AUTOMATION_INTERVAL_CHOICES = [
   { value: 0, label: "Only when I run it" },
   { value: 30, label: "Every 30 minutes" },
   { value: 120, label: "Every 2 hours" },
   { value: 360, label: "Every 6 hours" },
 ] as const;
-
-const MAX_ACTIVE_DOWNLOADS = 20;
-
-function clampMaxActive(value: number): number {
-  return Number.isFinite(value)
-    ? Math.min(MAX_ACTIVE_DOWNLOADS, Math.max(1, Math.trunc(value)))
-    : EMPTY_FORM.maxActiveDownloads;
-}
 
 const EMPTY_FORM: ClientForm = {
   clientType: "builtin",
@@ -141,8 +121,6 @@ const EMPTY_FORM: ClientForm = {
   automationIntervalMinutes: 0,
   maxActiveDownloads: 2,
   downloadWindows: [],
-  verboseDiagnostics: false,
-  defaultRetentionPolicy: "EPHEMERAL",
   categories: [
     "Anime",
     "Movies",
@@ -173,6 +151,16 @@ function effectiveCategoryPath(
   return savePath.trim();
 }
 
+/** The cap open download hours hold right now, or null while the saved value applies. */
+function scheduleCapFrom(
+  settings?: { effectiveMaxActive?: number; maxActiveSource?: string } | null,
+): number | null {
+  return settings?.maxActiveSource === "schedule" &&
+    typeof settings.effectiveMaxActive === "number"
+    ? settings.effectiveMaxActive
+    : null;
+}
+
 function parseSettingsTab(
   value: string | null,
 ): "connection" | "folders" | "categories" | null {
@@ -182,7 +170,7 @@ function parseSettingsTab(
 }
 
 export default function SettingsPage() {
-  const { streaming, openFolder: canOpenFolder, runningInContainer } = useFeatures();
+  const { openFolder: canOpenFolder, runningInContainer } = useFeatures();
   const displayPath = useDisplayPath();
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [savedForm, setSavedForm] = useState<ClientForm>(EMPTY_FORM);
@@ -207,6 +195,8 @@ export default function SettingsPage() {
   >([]);
   const [connectionOk, setConnectionOk] = useState(false);
   const [downloadWindowOpen, setDownloadWindowOpen] = useState<boolean | null>(null);
+  // Set while open download hours hold their own cap (servers that report it).
+  const [scheduleCap, setScheduleCap] = useState<number | null>(null);
   const [pendingCapFocus, setPendingCapFocus] = useState(false);
   const capInputRef = useRef<HTMLInputElement | null>(null);
   const legacyTargetRef = useRef<"connection" | "folders" | "categories" | null>(
@@ -287,6 +277,8 @@ export default function SettingsPage() {
             maxStorageGb?: number | null;
             downloadWindows?: DownloadWindow[];
             downloadWindowOpen?: boolean;
+            effectiveMaxActive?: number;
+            maxActiveSource?: string;
             setupComplete?: boolean;
             hasPassword?: boolean;
             pathWarnings?: DownloadPathWarning[];
@@ -322,10 +314,6 @@ export default function SettingsPage() {
               maxActiveDownloads:
                 settings.maxActiveDownloads ?? EMPTY_FORM.maxActiveDownloads,
               downloadWindows: (settings.downloadWindows ?? []).map(toDraft),
-              verboseDiagnostics: settings.verboseDiagnostics === true,
-              defaultRetentionPolicy:
-                settings.defaultRetentionPolicy ??
-                EMPTY_FORM.defaultRetentionPolicy,
               categories:
                 settings.categories ??
                 data.defaults?.categories ??
@@ -343,6 +331,7 @@ export default function SettingsPage() {
         setSetupComplete(settings?.setupComplete === true);
         setPersistedPathWarnings(settings?.pathWarnings ?? []);
         setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
+        setScheduleCap(scheduleCapFrom(settings));
       } catch (error) {
         if (!cancelled) {
           setLoadError(
@@ -504,12 +493,19 @@ export default function SettingsPage() {
             const value = Number(form.maxStorageGb);
             return Number.isFinite(value) && value > 0 ? value : 0;
           })(),
-          verboseDiagnostics: form.verboseDiagnostics,
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
-          maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
+          // Only when changed here: the Downloads page sets it too, and an
+          // unrelated save must not put back the value this page loaded.
+          maxActiveDownloads:
+            Number.isFinite(form.maxActiveDownloads) &&
+            form.maxActiveDownloads !== savedForm.maxActiveDownloads
+              ? clampMaxActive(form.maxActiveDownloads, savedForm.maxActiveDownloads)
+              : undefined,
           downloadWindows,
-          defaultRetentionPolicy: streaming ? form.defaultRetentionPolicy : "KEPT",
+          // Downloads are always kept. Servers that still read this setting
+          // use it to decide whether a pasted torrent is kept.
+          defaultRetentionPolicy: "KEPT",
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -530,6 +526,8 @@ export default function SettingsPage() {
           maxStorageGb?: number | null;
           downloadWindows?: DownloadWindow[];
           downloadWindowOpen?: boolean;
+          effectiveMaxActive?: number;
+          maxActiveSource?: string;
           setupComplete?: boolean;
           hasPassword?: boolean;
           pathWarnings?: DownloadPathWarning[];
@@ -565,10 +563,7 @@ export default function SettingsPage() {
         downloadWindows: settings?.downloadWindows
           ? settings.downloadWindows.map(toDraft)
           : form.downloadWindows,
-        verboseDiagnostics:
-          settings?.verboseDiagnostics ?? form.verboseDiagnostics,
-        defaultRetentionPolicy:
-          settings?.defaultRetentionPolicy ?? form.defaultRetentionPolicy,
+
         categories: settings?.categories ?? form.categories,
         pathRules: settings?.pathRules ?? form.pathRules,
       };
@@ -578,6 +573,7 @@ export default function SettingsPage() {
       setSetupComplete(settings?.setupComplete === true);
       setPersistedPathWarnings(settings?.pathWarnings ?? []);
       setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
+      setScheduleCap(scheduleCapFrom(settings));
       invalidateDownloadPrefs();
       if (data.testResult) {
         setConnectionOk(data.testResult.ok);
@@ -776,34 +772,23 @@ export default function SettingsPage() {
               </p>
             ) : null}
             <FormField label="Downloads at once" htmlFor="max-active-downloads">
-              <Input
+              <MaxActiveDownloadsControl
                 id="max-active-downloads"
-                type="number"
-                min={1}
-                max={MAX_ACTIVE_DOWNLOADS}
-                step={1}
-                inputMode="numeric"
-                value={
-                  Number.isFinite(form.maxActiveDownloads)
-                    ? form.maxActiveDownloads
-                    : ""
+                describedBy="max-active-downloads-help"
+                value={form.maxActiveDownloads}
+                onChange={(maxActiveDownloads) =>
+                  updateForm((current) => ({ ...current, maxActiveDownloads }))
                 }
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    maxActiveDownloads: event.target.valueAsNumber,
-                  }))
-                }
-                className="max-w-[8rem] scroll-mb-32"
-                aria-describedby="max-active-downloads-help"
-                data-max-active-downloads
+                className="max-w-fit"
               />
               <p
                 id="max-active-downloads-help"
                 className="text-xs leading-relaxed text-subtle-foreground"
               >
-                The rest wait in line. Resume or Download now always starts a
-                download right away.
+                The rest wait in line. Download now starts one right away.
+                {scheduleCap != null
+                  ? ` Download hours allow ${scheduleCap} at once right now.`
+                  : null}
               </p>
             </FormField>
             <DownloadWindowsPanel
@@ -857,30 +842,6 @@ export default function SettingsPage() {
               </RadioGroup>
             </fieldset>
 
-            {streaming ? (
-            <FormField label="After watching or downloading" htmlFor="file-behavior">
-              <Select
-                value={form.defaultRetentionPolicy}
-                onValueChange={(value) =>
-                  updateForm((current) => ({
-                    ...current,
-                    defaultRetentionPolicy: value as RetentionPolicy,
-                  }))
-                }
-              >
-                <SelectTrigger id="file-behavior" className="w-full scroll-mb-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FILE_BEHAVIOR_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-            ) : null}
           </section>
 
           <section
@@ -1066,7 +1027,7 @@ export default function SettingsPage() {
         <SettingsDisclosure
           id="advanced-settings"
           title="Advanced"
-          summary="Custom folders, Library timing, cleanup tools, and troubleshooting."
+          summary="Library timing, and custom categories and folders."
           open={advancedOpen}
           onToggle={() => {
             setAdvancedOpen((open) => !open);
@@ -1328,43 +1289,6 @@ export default function SettingsPage() {
               </Collapsible>
             </section>
 
-            {streaming ? (
-            <section className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium text-foreground">
-                  Troubleshooting
-                </h3>
-                <p className="mt-1 text-xs text-subtle-foreground">
-                  Status and cleanup tools are here when something needs attention.
-                </p>
-              </div>
-              <Label
-                htmlFor="verbose-diagnostics"
-                className="flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-lg border border-border p-3 font-normal"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">
-                    Show detailed playback diagnostics
-                  </span>
-                  <span className="mt-1 block text-xs text-subtle-foreground">
-                    Useful only while investigating playback problems.
-                  </span>
-                </span>
-                <Switch
-                  id="verbose-diagnostics"
-                  checked={form.verboseDiagnostics}
-                  onCheckedChange={(checked) =>
-                    updateForm((current) => ({
-                      ...current,
-                      verboseDiagnostics: checked === true,
-                    }))
-                  }
-                />
-              </Label>
-              <SwarmProbePanel />
-              <RetentionPanel showPolicy={false} />
-            </section>
-            ) : null}
           </div>
         </SettingsDisclosure>
       </form>

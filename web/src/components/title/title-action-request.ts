@@ -1,8 +1,5 @@
 import type { TitleAction } from "./title-actions";
-import type {
-  TitleGrabResponse,
-  TitleRetention,
-} from "./types";
+import type { TitleGrabResponse } from "./types";
 import {
   parseStorageOverrideFacts,
   StorageLimitError,
@@ -50,9 +47,7 @@ export interface PostTitleActionInput {
   sourceType?: string | null;
   format?: string | null;
   action: TitleAction;
-  retention: TitleRetention;
-  /** Preferred download resolution in pixels (480/720/1080/2160). Only set for
-   *  keep-it grabs — Play never prompts for quality. */
+  /** Preferred download resolution in pixels (480/720/1080/2160). */
   resolution?: number | null;
   /**
    * Re-issue of a grab the storage cap refused, after the owner was shown the
@@ -114,7 +109,6 @@ export async function postTitleAction({
   sourceType,
   format,
   action,
-  retention,
   resolution,
   overrideStorageCap,
 }: PostTitleActionInput): Promise<TitleGrabResponse> {
@@ -135,7 +129,6 @@ export async function postTitleAction({
       providerId: providerId ?? null,
       sourceType: sourceType ?? null,
       format: format ?? null,
-      retention,
       ...(resolution != null ? { preferredResolution: resolution } : {}),
       ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
     }),

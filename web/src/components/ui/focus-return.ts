@@ -166,7 +166,7 @@ function captureOpener(): FocusAnchor | null {
 function returnFocus(from: FocusAnchor | null) {
   // The dialog closed because the page changed: the new page owns focus.
   if (!from || from.pathname !== window.location.pathname) return;
-  // Something took focus on purpose, like the player that replaced this dialog.
+  // Something took focus on purpose, like another dialog that replaced this one.
   const active = document.activeElement;
   if (active && active !== document.body && active.isConnected) return;
   const target = returnTarget(from);

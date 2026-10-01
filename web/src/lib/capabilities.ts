@@ -12,9 +12,7 @@ export interface Capabilities {
   canDownload: boolean;
   /** Settings, rules, automation, delete, Add to library. */
   canManage: boolean;
-  /** Play in the browser, stream URLs, playback progress. */
-  canStream: boolean;
-  /** File paths, open folder, raw release names. */
+  /** File paths, open file or folder, raw release names. */
   canSeePaths: boolean;
   /** Live transfers: speed, peers, per-episode progress. */
   canSeeTransfers: boolean;
@@ -33,7 +31,6 @@ export function capabilitiesFor(role: SessionRole): Capabilities {
   return {
     canDownload: owner,
     canManage: owner,
-    canStream: owner,
     canSeePaths: owner,
     canSeeTransfers: owner,
     canRequest: !owner,

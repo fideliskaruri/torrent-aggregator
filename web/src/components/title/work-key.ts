@@ -133,16 +133,15 @@ function workKeyMatches(
 
   // A row that states no year cannot contradict one.
   //
-  // `WatchListItem` and `PlaybackProgress` have no year column at all — a
-  // library row is simply "Dune" — while a film's key is `dune-2021`, because
-  // the year is what tells the two films apart. Requiring an exact match would
-  // therefore mean *no film ever* shows as being in your library and *no film
-  // ever* resumes, which is a far larger and more certain defect than the one
-  // this admits: two works with the same base name, one of them stored
-  // yearless, both answering to the other's page.
+  // `WatchListItem` has no year column at all — a library row is simply
+  // "Dune" — while a film's key is `dune-2021`, because the year is what tells
+  // the two films apart. Requiring an exact match would therefore mean *no
+  // film ever* shows as being in your library, which is a far larger and more
+  // certain defect than the one this admits: two works with the same base
+  // name, one of them stored yearless, both answering to the other's page.
   //
-  // Bounded on the dangerous side. This cannot manufacture a Play button: that
-  // needs a live `EngineTorrent` row, and those are identified from release
+  // Bounded on the dangerous side. This cannot manufacture a Downloaded status:
+  // that needs a live `EngineTorrent` row, and those are identified from release
   // names, which do carry the year. `Dune.1984.1080p` states 1984 and is
   // rejected from `dune-2021` by the strict test above.
   if (year != null) return false;

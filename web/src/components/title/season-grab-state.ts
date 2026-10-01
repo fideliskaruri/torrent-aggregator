@@ -1,5 +1,3 @@
-import type { TitleRetention } from "./types";
-
 type SeasonGrabEpisodeStatus = "covered" | "missing" | "not_measured";
 
 interface SeasonGrabEpisodeReport {
@@ -55,8 +53,8 @@ export type SeasonGrabStatus =
   | { status: "done"; report: SeasonGrabReport }
   | { status: "error"; message: string };
 
-export function seasonGrabKey(season: number, retention: TitleRetention = "keep"): string {
-  return `season-${season}:${retention}`;
+export function seasonGrabKey(season: number): string {
+  return `season-${season}`;
 }
 
 export function canOfferSeasonGrab(
@@ -68,7 +66,7 @@ export function canOfferSeasonGrab(
 
 /**
  * The button label is not the duplicate-grab guard. A completed plan is spent
- * until refreshed rows make the selected episodes playable; this predicate is
+ * until refreshed rows report the selected episodes; this predicate is
  * the side-effect gate, with the click handler holding the same line.
  */
 export function shouldRunSeasonGrab(status: SeasonGrabStatus): boolean {

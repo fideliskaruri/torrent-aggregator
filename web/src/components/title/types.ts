@@ -4,10 +4,10 @@
  *
  * Shaped by one rule: **the page must render instantly from what is already
  * known.** Every field below is answerable from the local database — engine
- * rows, playback progress, library rows, cached catalog metadata — so the
- * server never waits on an indexer to draw a page. Anything that needs the
- * network is an *action* the user takes (see `POST /api/title/[workKey]`), not
- * a precondition for the page appearing.
+ * rows, library rows, cached catalog metadata — so the server never waits on
+ * an indexer to draw a page. Anything that needs the network is an *action*
+ * the user takes (see `POST /api/title/[workKey]`), not a precondition for the
+ * page appearing.
  *
  * The availability contract is the one from `@/lib/browse`: `null` means *not
  * yet determined* and must render as a neutral, clickable affordance;
@@ -34,14 +34,10 @@ export interface TitleEpisode {
    */
   availability: AvailabilityState | null;
   infoHash: string | null;
-  /** File inside the torrent, when a progress row named one. */
+  /** File inside the torrent, when the transfer named one. */
   filePath: string | null;
   /** 0–1 download progress when the torrent is partially fetched. */
   downloadFraction: number | null;
-  /** 0–1 of the episode watched. */
-  watchedFraction: number | null;
-  resumePositionSec: number | null;
-  watched: boolean;
   /** The episode the library hunt is waiting for, if this show is monitored. */
   nextUp: boolean;
   /** Satisfied by an exact file inside a legacy pack already held locally. */
@@ -122,18 +118,6 @@ export interface TitleLibraryState {
   };
 }
 
-/** Where playback got to, when there is somewhere to resume. */
-interface TitleResume {
-  infoHash: string;
-  filePath: string | null;
-  positionSec: number;
-  durationSec: number | null;
-  fraction: number | null;
-  season: number | null;
-  episode: number | null;
-  label: string | null;
-}
-
 /** The complete payload for one title page. */
 export interface TitleDetailPayload {
   workKey: string;
@@ -178,8 +162,6 @@ export interface TitleDetailPayload {
   /** 0–1 download progress when the title-level torrent is partial. */
   downloadFraction: number | null;
 
-  resume: TitleResume | null;
-
   /**
    * The user's acquisition state for the *work itself* — a film they sent, or
    * a whole-series grab. Never a summary of its parts.
@@ -187,7 +169,7 @@ export interface TitleDetailPayload {
    * Separate from {@link TitleSeason.transfer} and {@link TitleEpisode.transfer}
    * because the three answer different questions and only the control that owns
    * a scope may read it. Merging them is how a season pack at 40% ends up
-   * claiming episode 3 is 40% watched-ready, and how a title with one queued
+   * claiming episode 3 is 40% downloaded, and how a title with one queued
    * episode starts describing itself as queued.
    */
   transfer: TitleEpisodeTransfer | null;
@@ -232,19 +214,6 @@ export interface TitleEpisodeMeta {
   airDate: string | null;
   runtimeMin: number | null;
   stillUrl: string | null;
-}
-
-export function episodeTitleMap(
-  season: number,
-  episodes: readonly TitleEpisodeMeta[],
-): Readonly<Record<string, string>> {
-  const titles: Record<string, string> = {};
-  for (const episode of episodes) {
-    if (!episode.name) continue;
-    const key = `S${String(season).padStart(2, "0")}E${String(episode.episode).padStart(2, "0")}`;
-    titles[key] = episode.name;
-  }
-  return titles;
 }
 
 /** One neighbour of this work, for the rail under the hero. */
@@ -349,8 +318,6 @@ export interface TitleExtrasPayload {
   generatedAt: string;
 }
 
-export type TitleRetention = "stream" | "keep";
-
 /** What `POST /api/title/[workKey]` answers. */
 export interface TitleGrabResponse {
   ok: boolean;
@@ -365,8 +332,7 @@ export interface TitleGrabResponse {
    * The release that was sent, addressable.
    *
    * Present whenever the pipeline chose something, including
-   * `already_active` — a torrent that is already running is exactly the one a
-   * caller wants to open the player on.
+   * `already_active`.
    */
   infoHash?: string | null;
   /**

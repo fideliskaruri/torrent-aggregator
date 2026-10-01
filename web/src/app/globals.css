@@ -675,13 +675,10 @@ html[data-density="comfortable"] .torrent-row {
    purely cosmetic.
 
    Exemption: in-flight loaders must stay perceptible. A reduced-motion user
-   still needs to know the player, stream, or download is working, and a
-   small spinning icon is feedback, not a vestibular trigger. Every loader
-   in the app is a lucide spinner carrying `.animate-spin`, so that one class
-   keeps a real, continuous 1s spin. `[data-player-loader]` is exempted
-   alongside it so the player's single continuous loader stays alive even if
-   it ever stops being a lucide spinner — the exemption must not depend on
-   one component's implementation detail. Static placeholders (skeleton
+   still needs to know a download or a save is working, and a small
+   spinning icon is feedback, not a vestibular trigger. Every loader in the
+   app is a lucide spinner carrying `.animate-spin`, so that one class keeps
+   a real, continuous 1s spin. Static placeholders (skeleton
    pulses, width transitions) stay collapsed — they convey no live progress. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -693,9 +690,7 @@ html[data-density="comfortable"] .torrent-row {
     scroll-behavior: auto !important;
   }
 
-  .animate-spin,
-  [data-player-loader],
-  [data-player-loader] * {
+  .animate-spin {
     animation-duration: 1s !important;
     animation-iteration-count: infinite !important;
   }

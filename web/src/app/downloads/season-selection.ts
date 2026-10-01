@@ -58,9 +58,8 @@ export function resolveSelectedSeasonKey<T>(
  * The dialog's data contract requires it to keep showing every season and
  * episode of the work the user opened even while the page's own search box or
  * status chips would hide some of those rows from the main list — so the
- * caller must build `groups` from the *unfiltered* download rows (excluding
- * stream/prewarm) and look the series up here, never from the filtered list
- * the page renders.
+ * caller must build `groups` from the *unfiltered* download rows and look the
+ * series up here, never from the filtered list the page renders.
  */
 export function seriesGroupByKey<T>(
   groups: readonly DownloadGroup<T>[],

@@ -2,15 +2,13 @@
  * What the hero says, and which item it says it about.
  *
  * The rail payload carries no synopsis — there is no field for one, and there
- * is no honest way to invent one — so the hero's paragraph is written from the
- * facts we do hold: availability, how far in you are, and whether the thing is
- * on disk. That is genuinely more useful than a catalog blurb here, and it can
- * never be wrong about the one thing the page is for.
+ * is no honest way to invent one — so the hero's facts line is written from
+ * the facts we do hold. It can never be wrong about the one thing the page is
+ * for.
  *
  * Pure and DOM-free: `browse-ui.test.ts` drives it as a table.
  */
 import type { Rail, RailItem } from "@/lib/browse";
-import { progressPercent } from "./availability";
 
 export interface HeroPick {
   item: RailItem;
@@ -20,22 +18,21 @@ export interface HeroPick {
 }
 
 /** Rails good enough to lead the page, best first. */
-const HERO_RAIL_PRIORITY = ["continue-watching", "your-library"];
+const HERO_RAIL_PRIORITY = ["your-library"];
 
 // "Library" is the list of titles you add and track (the nav's Library, the
 // title page's "Add to library"), so the rail of files on disk never borrows it.
 const EYEBROW_BY_RAIL: Record<string, string> = {
-  "continue-watching": "Continue watching",
   "your-library": "Downloaded",
 };
 
 /**
  * The featured item.
  *
- * Preference order is "what you were doing" → "what plays instantly" →
- * whatever exists. Within a rail the first item wins, because every
- * builder already orders by recency. Returns null only when there is genuinely
- * nothing, which is the new-install case the empty state handles.
+ * Preference order is "what is already here" → whatever exists. Within a rail
+ * the first item wins, because every builder already orders by recency.
+ * Returns null only when there is genuinely nothing, which is the new-install
+ * case the empty state handles.
  */
 export function pickHeroItem(rails: readonly Rail[]): HeroPick | null {
   for (const railId of HERO_RAIL_PRIORITY) {
@@ -55,14 +52,12 @@ function eyebrowFor(rail: Rail): string {
 }
 
 /**
- * The short facts line above the hero title: episode marker, how far in, and
- * anything else worth one glance. Empty entries are dropped rather than left as
- * bare separators.
+ * The short facts line above the hero title: the episode marker and anything
+ * else worth one glance. Empty entries are dropped rather than left as bare
+ * separators.
  */
 export function heroFacts(item: RailItem): string[] {
   const facts: string[] = [];
   if (item.subtitle) facts.push(item.subtitle);
-  const percent = progressPercent(item.progressFraction);
-  if (percent != null && percent < 100) facts.push(`${percent}% watched`);
   return facts;
 }

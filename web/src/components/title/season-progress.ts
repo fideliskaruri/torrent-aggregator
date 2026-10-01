@@ -1,7 +1,8 @@
 /**
  * "How much of this season do I have?"
  *
- * One definition, used by the season picker and the season header alike:
+ * One definition, used by the season header, the title hero (summed over
+ * seasons) and the Downloads series row alike:
  *
  *  - **downloaded**: distinct episodes with a finished file on disk.
  *  - **downloading**: distinct episodes queued or transferring that are not
@@ -77,27 +78,35 @@ export function isSeasonComplete(p: SeasonProgress): boolean {
 }
 
 /**
- * Short form for the season picker: `5 of 9`, `✓ 8 of 8`, or nothing for a
- * season with no downloads. In-flight episodes live in the header only.
+ * The one download line, said the same way everywhere (season header, title
+ * hero, Downloads series row): `12 of 38 downloaded · 3 downloading`.
+ * Without a known total it drops the "of Y": `5 downloaded · 2 downloading`.
+ * Null when nothing is downloaded or on its way.
  */
-export function seasonProgressShort(p: SeasonProgress): string | null {
-  if (p.downloaded === 0) return null;
-  if (p.aired == null || p.aired === 0) return `${p.downloaded} downloaded`;
-  return isSeasonComplete(p)
-    ? `\u2713 ${p.downloaded} of ${p.aired}`
-    : `${p.downloaded} of ${p.aired}`;
+export function seasonProgressLabel(p: SeasonProgress): string | null {
+  if (p.downloaded === 0 && p.downloading === 0) return null;
+  const total = p.aired != null && p.aired > 0 ? p.aired : null;
+  const inFlight = p.downloading > 0 ? `${p.downloading} downloading` : null;
+  if (p.downloaded === 0) return total != null ? `${p.downloading} of ${total} downloading` : inFlight;
+  const done = total != null ? `${p.downloaded} of ${total} downloaded` : `${p.downloaded} downloaded`;
+  return inFlight ? `${done} \u00b7 ${inFlight}` : done;
 }
 
-/** Long form for the season header: `8 of 10 episodes downloaded`. */
-export function seasonProgressLabel(p: SeasonProgress): string | null {
-  if (p.aired == null || p.aired === 0) {
-    if (p.downloaded === 0) return null;
-    return `${p.downloaded} ${p.downloaded === 1 ? "episode" : "episodes"} downloaded`;
+/**
+ * A whole show's progress: every season summed. The total is unknown when any
+ * season's is, so the hero never claims "12 of 12" while a season's count is
+ * still missing.
+ */
+export function showProgressFromSeasons(seasons: readonly SeasonProgress[]): SeasonProgress {
+  let downloaded = 0;
+  let downloading = 0;
+  let aired: number | null = seasons.length > 0 ? 0 : null;
+  for (const p of seasons) {
+    downloaded += p.downloaded;
+    downloading += p.downloading;
+    aired = aired == null || p.aired == null ? null : aired + p.aired;
   }
-  if (isSeasonComplete(p)) {
-    return p.aired === 1 ? "The aired episode is downloaded" : `All ${p.aired} aired episodes downloaded`;
-  }
-  return `${p.downloaded} of ${p.aired} ${p.aired === 1 ? "episode" : "episodes"} downloaded`;
+  return { downloaded, downloading, aired };
 }
 
 export function providerAiredFor(

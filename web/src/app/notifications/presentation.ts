@@ -23,8 +23,7 @@ function formatActivityKind(
     .trim()
     .toLowerCase()
     .replace(/\bondemand\b|\bon\s+demand\b/g, "on-demand")
-    .replace(/\bautorule\b|\bauto\s+rule\b/g, "auto-rule")
-    .replace(/\bprewarm\b|\bpre\s+warm\b/g, "pre-warm");
+    .replace(/\bautorule\b|\bauto\s+rule\b/g, "auto-rule");
 
   return words ? words[0].toUpperCase() + words.slice(1) : null;
 }

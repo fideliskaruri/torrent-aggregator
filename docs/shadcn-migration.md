@@ -61,7 +61,7 @@ Counts are from a grep of the current code (`<select`, `role="tab"`,
 | `browse/rail.tsx` | Horizontal scroll strip with native scrollbar and custom arrow buttons | `Carousel` (or `ScrollArea` + `ScrollBar orientation="horizontal"`), `Button size="icon"` |
 | `browse/hero-banner.tsx` | Six raw buttons (pager dots, actions) | `Button`; pager dots as `ToggleGroup` or `Carousel` dots |
 | `browse/title-card.tsx` | Raw buttons, hand-made status chips | `Button`, `Badge` |
-| `browse/play-overlay.tsx` | Hand-rolled popover (`role="dialog"`) | `Popover` (or `DropdownMenu` if it is a list of actions) |
+| `browse/play-overlay.tsx` | Removed with in-app playback (owner bugs 30 Sep, J) | Nothing to migrate |
 | `browse/availability-chip.tsx` | Chip styling | `Badge` variants |
 | `tf/recommendation-rail.tsx` | Raw button, scroll strip | `Carousel` or `ScrollArea`, `Button` |
 | `browse/browse-skeleton.tsx` | Custom shimmer blocks | `Skeleton` |
@@ -75,8 +75,7 @@ Counts are from a grep of the current code (`<select`, `role="tab"`,
 | `title/library-controls.tsx` | Radio inputs, bottom-anchored dialog classes | `RadioGroup`, `Sheet side="bottom"` on phones, `Dialog` above |
 | `title/title-detail.tsx` | Raw buttons, rating and meta chips | `Button`, `Badge` |
 | `title/title-hero-meta.tsx`, `title/more-like-this.tsx` | Chips, rail | `Badge`, `Carousel` |
-| `watch/inline-player.tsx` | Three native `<select>` (audio, subtitles, quality), two `type="range"` (seek, volume), `<details>` menu, two custom disclosures, 23 raw buttons | `Select` (or `DropdownMenu` with radio items inside the player), `Slider`, `Popover`, `Tooltip` on icon buttons, `Button size="icon"` |
-| `watch/swarm-chip.tsx` | Chip | `Badge`, `HoverCard` for details |
+| `watch/*` (inline player, swarm chip) | Removed with in-app playback (owner bugs 30 Sep, J) | Nothing to migrate |
 
 ### Downloads, library, requests (`app/downloads`, `app/watchlist`, `app/requests`, `components/requests`, `components/library`)
 
@@ -98,10 +97,10 @@ Counts are from a grep of the current code (`<select`, `role="tab"`,
 | `app/settings/page.tsx` | Four native `<select>`, radio cards (minimum quality), two custom disclosures, raw `<label>` elements (use `Label` or `FormField`) | `Select`, `RadioGroup` cards or `ToggleGroup`, `Collapsible`, `FormField` |
 | `settings/settings-disclosure.tsx` | Custom disclosure with chevron | `Collapsible` (or `Accordion` for the section list) |
 | `settings/download-windows-panel.tsx` | Two native `<select>` (days, hours), `aria-pressed` day toggles | `Select`, `ToggleGroup type="multiple"` |
-| `settings/retention-panel.tsx` | `aria-pressed` segmented toggle | `ToggleGroup` |
+| `settings/retention-panel.tsx` | Removed with in-app playback (owner bugs 30 Sep, J) | Nothing to migrate |
 | `settings/sources-settings.tsx` | Native checkbox, seven inputs, textarea | `Checkbox` or `Switch`, `Input`, `Textarea`, `FormField` |
 | `settings/folder-picker.tsx` | Hand-rolled popover list | `Popover` + `Command` |
-| `settings/remote-access-section.tsx`, `tmdb-settings.tsx`, `download-location-fields.tsx`, `desktop-section.tsx`, `download-recovery.tsx`, `swarm-probe-panel.tsx` | Raw inputs, textarea, buttons | `Input`, `InputGroup`, `Textarea`, `Button`, `FormField` |
+| `settings/remote-access-section.tsx`, `tmdb-settings.tsx`, `download-location-fields.tsx`, `desktop-section.tsx`, `download-recovery.tsx` | Raw inputs, textarea, buttons | `Input`, `InputGroup`, `Textarea`, `Button`, `FormField` |
 | `app/rules/page.tsx` | Three native `<select>`, `aria-pressed` toggles, custom disclosure | `Select`, `ToggleGroup` or `Switch`, `Collapsible` |
 | `components/setup/download-setup.tsx` | Raw buttons in a stepper | `Button`, `Card` |
 | `components/storage/storage-cap-dialog.tsx` | Inputs in dialog | `Input`, `FormField`, `Slider` if a range fits |
@@ -128,7 +127,7 @@ wave; ask the foundation owner for changes there.
 | Slice | Port | Data folder | Owns | Main primitives | Size |
 | --- | --- | --- | --- | --- | --- |
 | 1. Browse and title | 3950 | `D:\code\memtest\shadcn-browse\data` | `components/browse/*`, `components/tf/recommendation-rail.tsx`, `components/title/*`, `app/title/*`, `app/everything/*` | Carousel, ScrollArea, Select, RadioGroup, Collapsible, Badge, Skeleton | Medium |
-| 2. Player | 3951 | `D:\code\memtest\shadcn-player\data` | `components/watch/*` | Select or DropdownMenu radio items, Slider, Popover, Tooltip, Button | Medium (one big file) |
+| 2. Player | — | — | Removed: there is no in-app playback, and `components/watch/*` is gone | — | — |
 | 3. Downloads, library, requests | 3952 | `D:\code\memtest\shadcn-downloads\data` | `app/downloads/*`, `app/watchlist/*`, `app/requests/*`, `components/requests/*`, `components/library/*` | Tabs, ToggleGroup, Select, Collapsible, RadioGroup, Textarea, DropdownMenu | Large |
 | 4. Settings and rules | 3953 | `D:\code\memtest\shadcn-settings\data` | `app/settings/*`, `app/rules/*`, `components/settings/*`, `components/setup/*`, `components/storage/*` | Select, ToggleGroup, Collapsible, Checkbox or Switch, Popover + Command, FormField | Large |
 | 5. Search, notifications, small pages | 3954 | `D:\code\memtest\shadcn-search\data` | `components/search/*`, `app/search/*`, `app/notifications/*`, `components/notifications/notification-feed.tsx` (feed and push toggle only; leave `NotificationBell`), `app/activity/*`, `app/history/*`, `app/upcoming/*`, `app/about/*`, `app/share/*`, `app/client/*`, `components/pwa/*`, `components/layout/update-banner.tsx`, `components/layout/preview-banner.tsx`, `app/layout.tsx` footer | Command, Tabs, Card, Empty, Switch, Badge, Button, Kbd | Medium |

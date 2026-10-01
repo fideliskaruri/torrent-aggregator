@@ -256,7 +256,7 @@ function RemoteAccessPanel() {
         >
           Cloudflare Tunnel carries the connection and Cloudflare Access decides
           who may sign in, so TorrentFlow never stores a password. Only the owner
-          emails below get in. Video playback stays on this computer.
+          emails below get in. Downloaded files stay on this computer.
         </p>
         <Badge
           variant={notListening ? "danger" : settings.running.enabled ? "success" : "outline"}

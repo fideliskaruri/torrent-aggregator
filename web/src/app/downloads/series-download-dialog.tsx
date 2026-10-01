@@ -10,20 +10,16 @@
  * series actually live, opened explicitly rather than accumulated in place.
  *
  * The dialog does not own its selected season or its open/closed state — both
- * live in `page.tsx` — because Play has to unmount this component entirely
- * while `PlayOverlay` is up (never two focus traps at once) and reopen the
- * same series on the same season afterward. State that lived inside this
- * component would be lost the moment it unmounted; state the parent holds
- * survives the round trip.
+ * live in `page.tsx` — so a notification link can open it on the right season
+ * and a snapshot that drops the series can close it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
-  Copy,
+  ExternalLink,
   Magnet,
-  FolderOpen,
   MoreHorizontal,
   Pause,
   Play,
@@ -65,7 +61,6 @@ import { LoadingGlyph } from "@/components/ui/loading";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
-  canStreamTransfer,
   isDownloaded,
   isDownloading,
   isError,
@@ -77,15 +72,15 @@ import {
 } from "./grouping";
 import {
   canDownloadNow,
+  canOpenFinishedFile,
   forcedStartLabel,
-  isVerifiedDownload,
   pauseResumeAction,
   pauseResumeTargets,
   releaseDisplayFacts,
   sourceChip,
-  stateBadgeVariant,
-  stateLabel,
   rollupChip,
+  rowStateBadge,
+  showsProgressBar,
   transferErrorMessage,
   waitReasonLabel,
   packLabel,
@@ -93,6 +88,8 @@ import {
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FolderMenuItem } from "./folder-menu-item";
+import type { OpenDownloadMode } from "@/lib/open-download";
 
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
@@ -106,22 +103,18 @@ export interface SeriesDownloadDialogProps {
   /** The page's own multi-select set — shared, not a second selection model. */
   selected: Set<string>;
   onToggleSelect: (hash: string, additive: boolean) => void;
+  /** Checks every one of these, or clears them when all are already checked. */
+  onToggleManySelect: (transferIds: string[]) => void;
   /** The episode a notification's "View details" pointed at, if any. */
   highlightedTransferId?: string | null;
   openingHash: string | null;
-  onPlay: (payload: {
-    hash: string;
-    title: string;
-    workKey: string | null;
-    mediaType: string | null;
-    year: number | null;
-    season: number | null;
-    episode: number | null;
-  }) => void;
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
-  onCopyStreamUrl: (torrent: ClientTorrent) => void;
+  /** Open in the owner's own player, or Show in folder (docs/api-open-file.md). */
+  onOpenFile: (torrent: ClientTorrent, mode: OpenDownloadMode) => void;
+  /** The folder fallback when this computer can't open folders. */
+  onCopyPath: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }
@@ -331,10 +324,10 @@ function EpisodeCard({
   highlighted,
   openingHash,
   onToggleSelect,
-  onPlay,
   onAction,
   onOpenFolder,
-  onCopyStreamUrl,
+  onOpenFile,
+  onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
 }: {
@@ -344,16 +337,17 @@ function EpisodeCard({
   highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (hash: string, additive: boolean) => void;
-  onPlay: SeriesDownloadDialogProps["onPlay"];
   onAction: SeriesDownloadDialogProps["onAction"];
   onOpenFolder: SeriesDownloadDialogProps["onOpenFolder"];
-  onCopyStreamUrl: SeriesDownloadDialogProps["onCopyStreamUrl"];
+  onOpenFile: SeriesDownloadDialogProps["onOpenFile"];
+  onCopyPath: SeriesDownloadDialogProps["onCopyPath"];
   onCopyMagnet: SeriesDownloadDialogProps["onCopyMagnet"];
   onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
 }) {
   const t = entry.torrent;
   const pct = progressPercent(t.progress);
   const done = isDownloaded(t.state);
+  const badge = rowStateBadge(t);
   const query = artworkQueryForRelease(t.name, t.category);
   const display = releaseDisplayFacts(t, query);
   const source = sourceChip(t.name);
@@ -365,9 +359,11 @@ function EpisodeCard({
         : (entry.episodeLabel ?? display.title);
   const isBuiltin = t.ownerClientType === "builtin";
   const pauseResume = pauseResumeAction(t);
-  const { streaming, openFolder } = useFeatures();
+  const { openFolder } = useFeatures();
   const displayPath = useDisplayPath();
-  const canPlay = streaming && isBuiltin && canStreamTransfer(t);
+  const busy = openingHash === t.transferId;
+  // A pack's largest file is one episode of many, so a pack only gets Show in folder.
+  const canOpen = openFolder && canOpenFinishedFile(t) && !entry.isSeasonPack && !t.packEpisodes;
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
   const errorMessage = transferErrorMessage(t);
@@ -415,17 +411,14 @@ function EpisodeCard({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge
-              variant={done ? "success" : stateBadgeVariant(t.state)}
+              variant={badge.variant}
+              title={badge.filesMissing ? "The downloaded files are no longer on disk" : undefined}
               data-episode-state
+              data-files-missing={badge.filesMissing || undefined}
             >
-              {done ? <Check className="h-3 w-3" aria-hidden /> : null}
-              {stateLabel(t.state, t.queuePosition)}
+              {done && !badge.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
+              {badge.label}
             </Badge>
-            {isVerifiedDownload(t) ? (
-              <Badge variant="outline" title="Checked on disk" data-episode-verified>
-                Verified
-              </Badge>
-            ) : null}
             {t.imported && <Badge variant="outline">Imported</Badge>}
             {packLabel(t) ? (
               <span className="text-[12px] text-muted-foreground" data-season-pack>
@@ -466,22 +459,24 @@ function EpisodeCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Progress
-          value={pct}
-          aria-label={`${epLabel} progress`}
-          className="h-1.5 flex-1"
-          indicatorClassName={barTone(t.state)}
-        />
-        <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-          {pct}%
-        </span>
-        {speed ? (
-          <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-            ↓ {speed}
+      {showsProgressBar(t) ? (
+        <div className="flex items-center gap-2">
+          <Progress
+            value={pct}
+            aria-label={`${epLabel} progress`}
+            className="h-1.5 flex-1"
+            indicatorClassName={barTone(t.state)}
+          />
+          <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+            {pct}%
           </span>
-        ) : null}
-      </div>
+          {speed ? (
+            <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+              ↓ {speed}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -511,29 +506,20 @@ function EpisodeCard({
               Download now
             </Button>
           ) : null}
-          {streaming && isBuiltin ? (
+          {canOpen ? (
             <Button
               type="button"
               variant="secondary"
               size="sm"
-              disabled={!canPlay}
-              onClick={() =>
-                onPlay({
-                  hash: t.hash,
-                  title: t.workTitle?.trim() || display.title,
-                  workKey: t.workKey ?? null,
-                  mediaType: t.workMediaType ?? t.category ?? null,
-                  year: t.workYear ?? null,
-                  season: entry.season ?? season.season,
-                  episode: entry.episode,
-                })
-              }
-              aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel}, nothing to play yet`}
-              title={canPlay ? "Play" : "Nothing to play yet"}
-              data-episode-play
+              disabled={busy}
+              aria-busy={busy || undefined}
+              onClick={() => onOpenFile(t, "open")}
+              aria-label={`Open ${epLabel} in your own player`}
+              title="Open in your own player"
+              data-open-file
             >
-              <Play className="h-3.5 w-3.5" />
-              Play
+              {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              Open
             </Button>
           ) : null}
         </div>
@@ -581,22 +567,13 @@ function EpisodeCard({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-            {streaming && isBuiltin ? (
-              <DropdownMenuItem
-                onClick={() => onCopyStreamUrl(t)}
-              >
-                <Copy />
-                Copy stream URL
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onOpenFolder(t)}
-              disabled={!openFolder || openingHash === t.transferId}
-            >
-              {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
-              Open folder
-            </DropdownMenuItem>
+            <FolderMenuItem
+              torrent={t}
+              busy={busy}
+              onOpenFolder={onOpenFolder}
+              onOpenFile={onOpenFile}
+              onCopyPath={onCopyPath}
+            />
             <DropdownMenuSeparator />
             {canDownloadNow(t) ? (
               <DropdownMenuItem
@@ -660,13 +637,14 @@ export function SeriesDownloadDialog({
   onSelectSeason,
   selected,
   onToggleSelect,
+  onToggleManySelect,
   highlightedTransferId = null,
   openingHash,
-  onPlay,
   onAction,
   onActionMany,
   onOpenFolder,
-  onCopyStreamUrl,
+  onOpenFile,
+  onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
 }: SeriesDownloadDialogProps) {
@@ -674,6 +652,7 @@ export function SeriesDownloadDialog({
     () => group?.seasons.find((season) => season.key === selectedSeasonKey) ?? null,
     [group, selectedSeasonKey],
   );
+  const selectAllId = useId();
 
   // Scoped to this series so Pause/Resume/Delete act only on what is checked
   // under this show, even though the checkboxes write into the page's one
@@ -700,6 +679,15 @@ export function SeriesDownloadDialog({
   const speed = speedLabel(group.dlspeed);
   const chip = rollupChip(group);
   const headerBarTone = chip.failing ? "bg-destructive" : barTone(group.state);
+  const showBar = showsProgressBar(group);
+  const seasonIds = selectedSeason?.entries.map((entry) => entry.torrent.transferId) ?? [];
+  const seasonCheckedCount = seasonIds.filter((transferId) => selected.has(transferId)).length;
+  const seasonChecked =
+    seasonIds.length > 0 && seasonCheckedCount === seasonIds.length
+      ? true
+      : seasonCheckedCount > 0
+        ? ("indeterminate" as const)
+        : false;
   // No bulk swap endpoint exists yet (see docs/todo-list.md), so the header
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
@@ -744,7 +732,7 @@ export function SeriesDownloadDialog({
         <DialogTitle className="sr-only">{group.title}</DialogTitle>
         <DialogDescription className="sr-only">
           Every season and episode of this show that is downloading or
-          downloaded. Choose a season, then play, pause or remove individual
+          downloaded. Choose a season, then open, pause or remove individual
           episodes.
         </DialogDescription>
 
@@ -775,7 +763,8 @@ export function SeriesDownloadDialog({
             </Badge>
             <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-subtle-foreground">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-              {formatBytes(group.sizeBytes)} · {pct}%
+              {formatBytes(group.sizeBytes)}
+              {showBar ? ` · ${pct}%` : null}
             </span>
             {isDownloading(group.state) && speed ? (
               <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
@@ -789,12 +778,14 @@ export function SeriesDownloadDialog({
               mobile
             />
           </div>
-          <Progress
-            value={pct}
-            aria-label={`${group.title} combined download progress`}
-            className="h-1"
-            indicatorClassName={headerBarTone}
-          />
+          {showBar ? (
+            <Progress
+              value={pct}
+              aria-label={`${group.title} combined download progress`}
+              className="h-1"
+              indicatorClassName={headerBarTone}
+            />
+          ) : null}
           {attention ? <div className="flex">{attention}</div> : null}
         </DialogHeader>
 
@@ -837,22 +828,24 @@ export function SeriesDownloadDialog({
                   {formatBytes(group.sizeBytes)}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Progress
-                  value={pct}
-                  aria-label={`${group.title} combined download progress`}
-                  className="h-1.5 flex-1 max-w-[16rem]"
-                  indicatorClassName={headerBarTone}
-                />
-                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                  {pct}%
-                </span>
-                {isDownloading(group.state) && speed ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                    ↓ {speed}
+              {showBar ? (
+                <div className="flex items-center gap-2">
+                  <Progress
+                    value={pct}
+                    aria-label={`${group.title} combined download progress`}
+                    className="h-1.5 flex-1 max-w-[16rem]"
+                    indicatorClassName={headerBarTone}
+                  />
+                  <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+                    {pct}%
                   </span>
-                ) : null}
-              </div>
+                  {isDownloading(group.state) && speed ? (
+                    <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+                      ↓ {speed}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {attention}
             </div>
             <SeriesActionsMenu
@@ -905,6 +898,33 @@ export function SeriesDownloadDialog({
           }
         >
           {selectedSeason ? (
+            <>
+            {/*
+              In the panel, not on the tab: a checkbox inside role="tab" breaks
+              the rail's arrow keys, and phones pick seasons from a Select.
+              -top-3 matches the panel's py-3: sticky offsets count from the
+              padded edge, so top-0 would sit 12px low over the first cards.
+            */}
+            <div
+              className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
+              data-season-select-all-row
+            >
+              <Checkbox
+                id={selectAllId}
+                checked={seasonChecked}
+                onCheckedChange={() => onToggleManySelect(seasonIds)}
+                aria-label={`Select all episodes in ${seasonLabelFor(selectedSeason)}`}
+                data-season-select-all={
+                  seasonChecked === "indeterminate" ? "some" : seasonChecked ? "all" : "none"
+                }
+              />
+              <label
+                htmlFor={selectAllId}
+                className="cursor-pointer select-none text-[13px] text-muted-foreground"
+              >
+                Select all ({seasonIds.length})
+              </label>
+            </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {selectedSeason.entries.map((entry) => (
                 <EpisodeCard
@@ -915,15 +935,16 @@ export function SeriesDownloadDialog({
                   highlighted={entry.torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
-                  onPlay={onPlay}
                   onAction={onAction}
                   onOpenFolder={onOpenFolder}
-                  onCopyStreamUrl={onCopyStreamUrl}
+                  onOpenFile={onOpenFile}
+                  onCopyPath={onCopyPath}
                   onCopyMagnet={onCopyMagnet}
                   onDeleteRequest={onDeleteRequest}
                 />
               ))}
             </div>
+            </>
           ) : (
             <p className="px-1 py-8 text-center text-[13px] text-subtle-foreground">
               No seasons to show.

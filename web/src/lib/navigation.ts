@@ -7,8 +7,8 @@
  * `flow.test.ts` asserts the product rules against it.
  *
  * Product rules encoded here:
- *  - `/` is Browse: the catalog of what you can watch right now. It answers
- *    "here is what you can play", where the old search-box landing asked
+ *  - `/` is Browse: the catalog of what you can get right now. It answers
+ *    "here is what's out there", where the old search-box landing asked
  *    "what do you want?" and left a new install staring at an empty page.
  *  - Desktop keeps five primary destinations: Browse, Library, Downloads,
  *    Notifications, Settings. Mobile's bottom bar is five *slots*: Browse,

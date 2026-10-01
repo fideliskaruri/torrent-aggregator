@@ -25,7 +25,7 @@ interface TitleResultCardProps {
  * One clickable card per TMDB title.
  *
  * Search is discovery only: poster + name + year + type. The whole card is a
- * single link to the title page. Play / Download / Releases must never run
+ * single link to the title page. Download / Releases must never run
  * here — torrent matching starts only after the title click.
  */
 export function TitleResultCard({
@@ -118,7 +118,7 @@ export function TitleResultCard({
           </div>
         </div>
         {title.overview ? (
-          <p className="hidden line-clamp-2 text-[12px] leading-snug text-subtle-foreground sm:block">
+          <p className="hidden text-[12px] leading-snug text-subtle-foreground sm:line-clamp-2">
             {title.overview}
           </p>
         ) : null}

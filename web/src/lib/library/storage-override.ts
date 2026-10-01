@@ -34,12 +34,6 @@
  * Keeping this as one exported predicate rather than a conditional in the dialog
  * means a new refusal reason cannot quietly inherit "overridable" by default,
  * and the rule can be tested on its own.
- *
- * ## Play never gets here
- *
- * Streaming reclaims cache and proceeds (see `storage-gate.ts`). This prompt is
- * for Download only — a kept file is a permanent claim on the shelf, so it is
- * the only case where the owner should be asked.
  */
 import { formatBytesShort, type StorageLimitKind } from "./storage-format";
 
@@ -349,9 +343,6 @@ export type StorageOverrideOutcome<T> =
  *   5. A `setup` refusal is not an override: it asks for the missing folder and
  *      budget via `answerSetup`, then retries once without any override. The
  *      retry can still meet the cap prompt, which is asked normally.
- *
- * Play never reaches any of this: the server-side gate reclaims stream cache and
- * proceeds, so a stream send does not come back as a `StorageLimitError`.
  */
 export async function runWithStorageOverride<T>(
   attempt: (opts: { overrideStorageCap: boolean }) => Promise<T>,
