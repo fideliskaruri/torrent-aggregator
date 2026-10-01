@@ -43,6 +43,7 @@ import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-stat
 import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
+import { libraryHint } from "./library-hint";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import {
   providerAiredFor,
@@ -1056,13 +1057,16 @@ function TitleContent({
     }
   };
 
-  // A film with no similar titles has nothing under the hero once the extras
-  // settle. Rendering the empty bottom section left a bordered band of dead
-  // page between the hero and the footer, so the hero takes that height
-  // instead; its content stays top-aligned, so nothing moves under the cursor.
+  const hint = libraryHint({ known: payload.known, gated, caps });
+
+  // A film with no similar titles and no library hint has nothing under the
+  // hero once the extras settle. Rendering the empty bottom section left a
+  // bordered band of dead page between the hero and the footer, so the hero
+  // takes that height instead; its content stays top-aligned, so nothing moves
+  // under the cursor.
   const similarLoading = extrasLoading && !extrasError;
   const nothingBelowHero =
-    !payload.isSeries && payload.known && similar.length === 0 && !similarLoading;
+    !payload.isSeries && hint == null && similar.length === 0 && !similarLoading;
 
   return (
     <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">
@@ -1443,10 +1447,9 @@ function TitleContent({
           loading={similarLoading}
         />
 
-        {!payload.known ? (
-          <p className="text-[12px] text-subtle-foreground">
-            Not in your library yet. Download it or add it to your library to
-            keep track of it here.
+        {hint ? (
+          <p className="text-[12px] text-subtle-foreground" data-library-hint>
+            {hint}
           </p>
         ) : null}
       </div>

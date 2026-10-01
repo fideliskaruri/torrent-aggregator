@@ -9,6 +9,9 @@ approves or declines in the **Requests** inbox; an approval downloads the title 
 Everyone uses the **same app**: one shell, one set of pages and components. A role only decides which
 actions and pages you see. The SPA reads `role` from `GET /api/me` and turns it into capabilities with
 `useCapabilities()` (`web/src/lib/capabilities.ts`); screens ask for a capability, never for a role.
+Copy follows the same rule: a line that names an action shows only to someone who can take it. The title
+page's "Not in your library yet" hint is the owner's alone, and leaves out "Download it" while a title is
+unreleased or still in cinemas.
 
 | Capability | Owner | Requester |
 | --- | --- | --- |
