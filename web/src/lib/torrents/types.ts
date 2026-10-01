@@ -116,13 +116,11 @@ interface ClientTorrent {
   peers?: number;
   /** Client-reported failure reason, when state is "error". */
   error?: string | null;
-  /** False only when the app has proof this transfer contains no playable video. */
-  playable?: boolean;
   category?: string;
   /** Absolute download directory from the torrent client */
   savePath?: string | null;
-  /** Whether this torrent is permanent or a stream cache entry. */
-  retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  /** Whether this torrent is a kept download (the only kind there is now). */
+  retentionState?: "kept" | "unknown";
   /**
    * 1-based place in the download queue. Present only while `state` is
    * "queued" — the transfer is admitted and ordered but not in the engine yet.

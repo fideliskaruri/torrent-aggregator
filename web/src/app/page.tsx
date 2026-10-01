@@ -15,7 +15,7 @@ import { SEARCH_HREF } from "@/lib/navigation";
 export default function HomePage() {
   useDocumentTitle(
     "Browse",
-    "Everything you can watch right now, and everything you can get.",
+    "Everything you have, and everything you can get.",
     { absolute: true },
   );
   const [params] = useSearchParams();

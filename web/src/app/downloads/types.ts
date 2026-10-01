@@ -17,12 +17,11 @@ export interface ClientTorrent {
   dlspeed: number;
   upspeed: number;
   state: string;
-  playable?: boolean;
   eta?: number;
   peers?: number;
   category?: string;
   savePath?: string | null;
-  retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  retentionState?: "kept" | "unknown";
   /** 1-based place in the built-in download queue; set only while `state` is "queued". */
   queuePosition?: number;
   /** Why a queued built-in row is waiting (server-computed); absent otherwise. */
@@ -61,29 +60,15 @@ export interface ClientTorrent {
 export type TorrentRowAction = "pause" | "resume" | "force" | "swap";
 
 /**
- * A stream (or prewarm) torrent is an ephemeral playback cache — the engine
- * only ever holds the pieces needed to watch, and it is evicted like a cache.
- * It is not a download the user chose to keep, so it must never appear in the
- * downloads list, be counted in its stats, or be visible in the series dialog.
- * `retentionState` is annotated by /api/client/torrents from
- * EngineTorrent.origin.
+ * Whether a row belongs on the Downloads page: every transfer the server marks
+ * as kept, or does not mark at all. A server older than this build may still
+ * report a short-lived cache transfer, and that was never a download the user
+ * chose to keep.
  */
 export function isDownloadRow(t: ClientTorrent): boolean {
-  return t.retentionState !== "stream" && t.retentionState !== "prewarm";
-}
-
-export interface NowPlaying {
-  infoHash: string;
-  title: string;
-  episodeTitle?: string | null;
-  episodeTitles?: Readonly<Record<string, string>>;
-  season?: number | null;
-  episode?: number | null;
-  /** Missing episodes this one season pack transfer is filling (selected files only); absent for normal rows. */
-  packEpisodes?: number | null;
-}
-
-export interface StreamManifestFile {
-  path: string;
-  length: number;
+  return (
+    t.retentionState == null ||
+    t.retentionState === "kept" ||
+    t.retentionState === "unknown"
+  );
 }

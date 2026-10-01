@@ -10,18 +10,14 @@
  * series actually live, opened explicitly rather than accumulated in place.
  *
  * The dialog does not own its selected season or its open/closed state — both
- * live in `page.tsx` — because Play has to unmount this component entirely
- * while `PlayOverlay` is up (never two focus traps at once) and reopen the
- * same series on the same season afterward. State that lived inside this
- * component would be lost the moment it unmounted; state the parent holds
- * survives the round trip.
+ * live in `page.tsx` — so a notification link can open it on the right season
+ * and a snapshot that drops the series can close it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
-  Copy,
   Magnet,
   FolderOpen,
   MoreHorizontal,
@@ -65,7 +61,6 @@ import { LoadingGlyph } from "@/components/ui/loading";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
-  canStreamTransfer,
   isDownloaded,
   isDownloading,
   isError,
@@ -109,19 +104,9 @@ export interface SeriesDownloadDialogProps {
   /** The episode a notification's "View details" pointed at, if any. */
   highlightedTransferId?: string | null;
   openingHash: string | null;
-  onPlay: (payload: {
-    hash: string;
-    title: string;
-    workKey: string | null;
-    mediaType: string | null;
-    year: number | null;
-    season: number | null;
-    episode: number | null;
-  }) => void;
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
-  onCopyStreamUrl: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }
@@ -331,10 +316,8 @@ function EpisodeCard({
   highlighted,
   openingHash,
   onToggleSelect,
-  onPlay,
   onAction,
   onOpenFolder,
-  onCopyStreamUrl,
   onCopyMagnet,
   onDeleteRequest,
 }: {
@@ -344,10 +327,8 @@ function EpisodeCard({
   highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (hash: string, additive: boolean) => void;
-  onPlay: SeriesDownloadDialogProps["onPlay"];
   onAction: SeriesDownloadDialogProps["onAction"];
   onOpenFolder: SeriesDownloadDialogProps["onOpenFolder"];
-  onCopyStreamUrl: SeriesDownloadDialogProps["onCopyStreamUrl"];
   onCopyMagnet: SeriesDownloadDialogProps["onCopyMagnet"];
   onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
 }) {
@@ -365,9 +346,8 @@ function EpisodeCard({
         : (entry.episodeLabel ?? display.title);
   const isBuiltin = t.ownerClientType === "builtin";
   const pauseResume = pauseResumeAction(t);
-  const { streaming, openFolder } = useFeatures();
+  const { openFolder } = useFeatures();
   const displayPath = useDisplayPath();
-  const canPlay = streaming && isBuiltin && canStreamTransfer(t);
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
   const errorMessage = transferErrorMessage(t);
@@ -511,31 +491,6 @@ function EpisodeCard({
               Download now
             </Button>
           ) : null}
-          {streaming && isBuiltin ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={!canPlay}
-              onClick={() =>
-                onPlay({
-                  hash: t.hash,
-                  title: t.workTitle?.trim() || display.title,
-                  workKey: t.workKey ?? null,
-                  mediaType: t.workMediaType ?? t.category ?? null,
-                  year: t.workYear ?? null,
-                  season: entry.season ?? season.season,
-                  episode: entry.episode,
-                })
-              }
-              aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel}, nothing to play yet`}
-              title={canPlay ? "Play" : "Nothing to play yet"}
-              data-episode-play
-            >
-              <Play className="h-3.5 w-3.5" />
-              Play
-            </Button>
-          ) : null}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -581,14 +536,7 @@ function EpisodeCard({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-            {streaming && isBuiltin ? (
-              <DropdownMenuItem
-                onClick={() => onCopyStreamUrl(t)}
-              >
-                <Copy />
-                Copy stream URL
-              </DropdownMenuItem>
-            ) : null}
+
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
@@ -662,11 +610,9 @@ export function SeriesDownloadDialog({
   onToggleSelect,
   highlightedTransferId = null,
   openingHash,
-  onPlay,
   onAction,
   onActionMany,
   onOpenFolder,
-  onCopyStreamUrl,
   onCopyMagnet,
   onDeleteRequest,
 }: SeriesDownloadDialogProps) {
@@ -744,7 +690,7 @@ export function SeriesDownloadDialog({
         <DialogTitle className="sr-only">{group.title}</DialogTitle>
         <DialogDescription className="sr-only">
           Every season and episode of this show that is downloading or
-          downloaded. Choose a season, then play, pause or remove individual
+          downloaded. Choose a season, then open, pause or remove individual
           episodes.
         </DialogDescription>
 
@@ -915,10 +861,8 @@ export function SeriesDownloadDialog({
                   highlighted={entry.torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
-                  onPlay={onPlay}
                   onAction={onAction}
                   onOpenFolder={onOpenFolder}
-                  onCopyStreamUrl={onCopyStreamUrl}
                   onCopyMagnet={onCopyMagnet}
                   onDeleteRequest={onDeleteRequest}
                 />

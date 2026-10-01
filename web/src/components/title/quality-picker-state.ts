@@ -1,18 +1,11 @@
 /**
  * Quality-selection state for the Download flow.
  *
- * Only Download (keep) asks for quality. Play is instant and never prompts —
- * "I want to watch now" and "I want to keep it" are two different intents, and
- * only the deliberate keep-it action earns a question.
+ * Every Download asks which quality to fetch, unless the user has set
+ * "always use my preferred quality".
  *
- * The rule this implements:
- *   - retention === "keep" → ask, unless the user has set "always preferred"
- *   - retention === "stream" → never ask
- *
- * Pure and DOM-free so it can be table-driven in tests.
+ * Pure and DOM-free.
  */
-
-import type { TitleRetention } from "./types";
 
 export const QUALITY_CHOICES = [
   {
@@ -42,19 +35,8 @@ export type QualityValue = (typeof QUALITY_CHOICES)[number]["value"];
 /** localStorage key. Storing the value makes the preference portable across sessions. */
 export const ALWAYS_PREFERRED_KEY = "tf:download:always-preferred";
 
-/**
- * True when the user should be asked which quality to download.
- *
- * Two conditions gate this: retention must be "keep" (not "stream"), and the
- * user must not have checked "Always use my preferred quality".
- */
-export function shouldAskForQuality(
-  retention: TitleRetention,
-  alwaysPreferred: boolean,
-): boolean {
-  // Play is never prompted — the user said "I want to watch now", not
-  // "I want to choose a quality". Only Download earns the question.
-  if (retention !== "keep") return false;
+/** True when the user should be asked which quality to download. */
+export function shouldAskForQuality(alwaysPreferred: boolean): boolean {
   return !alwaysPreferred;
 }
 

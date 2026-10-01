@@ -3,7 +3,7 @@
  * a keep-it grab to the server.
  *
  * Rules this encodes:
- *   - Only Download asks. Play must never prompt (see quality-picker-state.ts).
+ *   - Only Download asks (see quality-picker-state.ts).
  *   - The chooser opens pre-selected on the user's preferred quality so the
  *     common press is one extra click, not a decision.
  *   - "Always use my preferred quality" skips the chooser on future presses.

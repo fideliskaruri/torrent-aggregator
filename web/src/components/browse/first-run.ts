@@ -17,7 +17,6 @@
  * ids here have to keep matching the data layer's, and a table is how that
  * stays true.
  */
-import { SEARCH_HREF } from "@/lib/navigation";
 
 export interface RailPreview {
   /** Must match the rail id emitted by the data layer. */
@@ -31,7 +30,7 @@ export interface RailPreview {
 }
 
 /**
- * The two personal rails, in the order `BrowseService` emits them.
+ * The personal rail, in the order `BrowseService` emits it.
  *
  * Kept as data rather than JSX so the ids stay next to the data layer's: a
  * rail renamed there and not here would otherwise show a first-run page
@@ -39,25 +38,13 @@ export interface RailPreview {
  */
 export const RAIL_PREVIEWS: readonly RailPreview[] = [
   {
-    id: "continue-watching",
-    title: "Continue watching",
-    blurb: "One card per show at the next episode, and any film you stopped part-way through.",
-    href: SEARCH_HREF,
-    cta: "Find something to watch",
-  },
-  {
     id: "your-library",
     title: "Downloaded",
-    blurb: "Series and films that are downloaded and ready to play, newest first.",
+    blurb: "Series and films that are downloaded and ready to open, newest first.",
     href: "/downloads",
     cta: "Open downloads",
   },
 ] as const;
-
-/** Continue watching is about playback, so it only shows for people who can play. */
-export function visibleBrowseRail(id: string, streaming: boolean): boolean {
-  return streaming || id !== "continue-watching";
-}
 
 /** The minimum a rail-like object has to expose to be counted. */
 export interface CountableRail {
@@ -81,14 +68,11 @@ export interface CountableRail {
  */
 export function missingRailPreviews(
   rails: readonly CountableRail[],
-  streaming = true,
 ): RailPreview[] {
   const populated = new Set(
     rails.filter((rail) => rail.items.length > 0).map((rail) => rail.id),
   );
-  return RAIL_PREVIEWS.filter(
-    (preview) => visibleBrowseRail(preview.id, streaming) && !populated.has(preview.id),
-  );
+  return RAIL_PREVIEWS.filter((preview) => !populated.has(preview.id));
 }
 
 /** True when the payload has no card in any rail — the first-run case. */

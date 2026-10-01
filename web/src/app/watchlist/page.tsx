@@ -6,7 +6,6 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "@/lib/toast";
@@ -63,10 +62,6 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
-import {
-  infoHashFromMagnet,
-  InlineStreamPlayer,
-} from "@/components/watch/inline-player";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
 import { useCapabilities } from "@/lib/capabilities";
 import { parseLibrary } from "@/lib/requests";
@@ -100,7 +95,6 @@ import {
 import { activityLine, needsAttention, positionLine } from "./card-state";
 import { CheckSchedule } from "@/components/library/check-schedule";
 import { removeFromLibraryCopy } from "./remove-copy";
-import { canonicalWatchlistPlayerTitle } from "./player-identity";
 import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
 
 interface WatchItem {
@@ -310,9 +304,8 @@ function writeLastAuto(summary: LastAutoSummary) {
 
 export default function WatchlistPage() {
   const caps = useCapabilities();
-  // Read-only for anyone who can't manage the library: no delete, paths, streams or automation.
+  // Read-only for anyone who can't manage the library: no delete, paths or automation.
   const readOnly = !caps.canManage;
-  const streaming = useFeatures().streaming && caps.canStream;
   const { data: session } = useSession();
   const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
@@ -342,7 +335,6 @@ export default function WatchlistPage() {
   const autoIntervalMinutes = prefsLoaded
     ? (prefs.automationIntervalMinutes ?? 0)
     : null;
-  const isBuiltinClient = !prefs.clientType || prefs.clientType === "builtin";
 
   /**
    * One request, one set of states. This page previously ran the *same* fetch
@@ -876,10 +868,8 @@ export default function WatchlistPage() {
             // A watchlist row is a monitored series unless we know otherwise,
             // so "tv" is the right fallback here — the same one the hunt uses.
             const searchCat = searchCategoryForMediaType(item.mediaType) ?? "tv";
-            const latestInfoHash = infoHashFromMagnet(item.latestReleaseMagnet);
             const itemState = libraryItemState(item, {
               sending: sendingId === item.id,
-              canStream: streaming && isBuiltinClient && Boolean(latestInfoHash),
             });
             const nextLabel = itemState.nextLabel;
             const cardPosition = positionLine(item);
@@ -1209,13 +1199,6 @@ export default function WatchlistPage() {
                         ) : null}
                       </p>
                     ) : null}
-
-                  {streaming && isBuiltinClient && latestInfoHash ? (
-                    <InlineStreamPlayer
-                      infoHash={latestInfoHash}
-                      title={canonicalWatchlistPlayerTitle(item)}
-                    />
-                  ) : null}
                   </>)}
                 </div>
               </article>

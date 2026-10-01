@@ -24,8 +24,6 @@
  * owner overrules it like any other. Both non-overridable cases still link to
  * settings, so neither is a dead end.
  *
- * Play never reaches here: streaming reclaims its own cache and proceeds.
- *
  * ## UI rules honoured
  *
  *   - Esc cancels, focus is trapped, focus restores on close (Radix built-ins).

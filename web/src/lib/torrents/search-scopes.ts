@@ -36,17 +36,6 @@ export interface SearchScope {
   /** One line saying what belongs here, for the section header and a11y. */
   blurb: string;
   kind: SearchScopeKind;
-  /**
-   * Whether Play is a real action for these results.
-   *
-   * Only video streams. Offering Play on a program or a game would be a control
-   * that cannot work; offering it on an album is nearly as bad, because an album
-   * is a *folder of tracks* and the player addresses a single file — it would
-   * open on one arbitrary track or fail outright. A button that looks live and
-   * does nothing is the exact defect class this app has been clearing out, so
-   * these rows show Download only unless the artifact genuinely plays.
-   */
-  playable: boolean;
   /** Category sent to `/api/search`. Null for the TMDB-backed scope. */
   category: AggregatorCategory | null;
   /**
@@ -77,7 +66,6 @@ export const SEARCH_SCOPES = [
     label: "All",
     blurb: "Search films, series and anime together, best matches first.",
     kind: "work",
-    playable: false,
     category: null,
     downloadCategory: null,
     placeholder: "Dune, Severance, Frieren…",
@@ -87,7 +75,6 @@ export const SEARCH_SCOPES = [
     label: "Movies",
     blurb: "Find a movie by title.",
     kind: "work",
-    playable: false,
     category: null,
     downloadCategory: null,
     placeholder: "Dune, Arrival, Moonlight…",
@@ -97,7 +84,6 @@ export const SEARCH_SCOPES = [
     label: "Series",
     blurb: "Find a series by title.",
     kind: "work",
-    playable: false,
     category: null,
     downloadCategory: null,
     placeholder: "Severance, The Bear, Shōgun…",
@@ -107,7 +93,6 @@ export const SEARCH_SCOPES = [
     label: "Anime",
     blurb: "Find an anime title, film, OVA or ONA.",
     kind: "work",
-    playable: false,
     category: null,
     downloadCategory: null,
     placeholder: "Frieren, Slime, Cowboy Bebop…",

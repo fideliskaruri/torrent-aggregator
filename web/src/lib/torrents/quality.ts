@@ -238,5 +238,4 @@ function resolutionAffinity(
 //
 // These three functions were previously duplicated between season-plan.ts and
 // prerank.ts.  They live here because quality.ts is the shared, Prisma-free
-// module that both the pure planner and the Prisma-aware prewarm code can
-// safely import.
+// module that both the pure planner and the ranker can safely import.

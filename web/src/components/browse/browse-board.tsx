@@ -1,6 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import { useFeatures } from "@/lib/features";
-import { useCapabilities } from "@/lib/capabilities";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -10,42 +8,24 @@ import {
   type ActionStatus,
   type CardAction,
 } from "./availability";
-import { RAIL_PREVIEWS, missingRailPreviews, visibleBrowseRail } from "./first-run";
+import { RAIL_PREVIEWS, missingRailPreviews } from "./first-run";
 import { HeroBanner } from "./hero-banner";
 import { pickHeroItem } from "./hero";
-import { PlayOverlay } from "./play-overlay";
 import { Rail } from "./rail";
-
-interface NowPlaying {
-  infoHash: string | null;
-  title: string;
-  subtitle: string | null;
-  season: number | null;
-  episode: number | null;
-  resumePositionSec: number | null;
-}
 
 /**
  * The browse page's one piece of state.
  *
  * Cards and the hero are deliberately dumb: they render an action and report a
- * click. Everything that can fail — opening the player, asking for a grab —
- * lands here, so there is a single place that knows what is in flight and a
- * single place a duplicate grab could be prevented.
+ * click. Everything that can fail — asking for a grab — lands here, so there
+ * is a single place that knows what is in flight and a single place a
+ * duplicate grab could be prevented.
  */
 export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
-  // Continue watching belongs to people who can play.
-  const { canStream } = useCapabilities();
-  const streaming = useFeatures().streaming && canStream;
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
-  const [playing, setPlaying] = useState<NowPlaying | null>(null);
   const { ensureDownloadSetup } = useDownloadSetup();
-  const activePlaying = streaming ? playing : null;
 
-  const rails = useMemo(
-    () => payload.rails.filter((rail) => visibleBrowseRail(rail.id, streaming)),
-    [payload.rails, streaming],
-  );
+  const rails = payload.rails;
   const hero = useMemo(() => pickHeroItem(rails), [rails]);
   // The hero already features its title, so the rail it came from drops that
   // card and keeps the rest in order. A rail left empty is hidden.
@@ -63,53 +43,6 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
 
   const runAction = useCallback(
     async (item: RailItem, action: CardAction) => {
-      if (action.kind === "play") {
-        if (!streaming) return;
-        // Play plays. Open the overlay immediately on the hash we have. If the
-        // engine no longer holds it the stream 404s, so we re-fetch in the
-        // background and hand the fresh hash in as a prop update — the player
-        // never dead-ends on "download it first, then play".
-        setPlaying({
-          infoHash: action.infoHash,
-          title: cleanDisplayTitle(item.title),
-          subtitle: item.subtitle,
-          season: item.season ?? null,
-          episode: item.episode ?? null,
-          resumePositionSec: action.resumePositionSec,
-        });
-
-        // `warm`/`ready` means the engine answered for it moments ago. Anything
-        // else (notably Continue Watching's stale hash) gets a refetch.
-        if (item.availability === "ready" || item.availability === "warm") return;
-
-        try {
-          const res = await fetch("/api/library/ondemand", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              watchListItemId: item.watchListItemId ?? undefined,
-              title: cleanDisplayTitle(item.title),
-              mediaType: item.mediaType ?? undefined,
-              season: item.season ?? undefined,
-              episode: item.episode ?? undefined,
-              retention: "stream",
-              protectHashes: [action.infoHash],
-            }),
-          });
-          const data = (await res.json().catch(() => null)) as {
-            ok?: boolean;
-            infoHash?: string | null;
-          } | null;
-          if (res.ok && data?.infoHash && data.infoHash !== action.infoHash) {
-            setPlaying((prev) =>
-              prev ? { ...prev, infoHash: data.infoHash! } : prev,
-            );
-          }
-        } catch {
-          // The player owns its own failure copy from here.
-        }
-        return;
-      }
       if (action.kind !== "get") return;
       if (statuses[item.id] === "pending") return;
       if (!(await ensureDownloadSetup())) return;
@@ -142,7 +75,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         });
       }
     },
-    [statuses, ensureDownloadSetup, streaming],
+    [statuses, ensureDownloadSetup],
   );
 
   return (
@@ -167,18 +100,6 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         ))}
         <MissingRailsNote rails={rails} />
       </div>
-
-      {activePlaying ? (
-        <PlayOverlay
-          infoHash={activePlaying.infoHash}
-          title={activePlaying.title}
-          subtitle={activePlaying.subtitle}
-          season={activePlaying.season}
-          episode={activePlaying.episode}
-          resumePositionSec={activePlaying.resumePositionSec}
-          onClose={() => setPlaying(null)}
-        />
-      ) : null}
     </>
   );
 }
@@ -198,10 +119,8 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
  * and a footer listing every rail would be saying it twice.
  */
 function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
-  const { canStream } = useCapabilities();
-  const streaming = useFeatures().streaming && canStream;
-  const missing = useMemo(() => missingRailPreviews(rails, streaming), [rails, streaming]);
-  if (!missing.length || missing.length === RAIL_PREVIEWS.filter((rail) => visibleBrowseRail(rail.id, streaming)).length) return null;
+  const missing = useMemo(() => missingRailPreviews(rails), [rails]);
+  if (!missing.length || missing.length === RAIL_PREVIEWS.length) return null;
 
   return (
     <section

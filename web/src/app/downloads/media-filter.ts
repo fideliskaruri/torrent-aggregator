@@ -53,7 +53,7 @@ export const DEFAULT_DOWNLOAD_TAB: DownloadTab = DEFAULT_LIBRARY_TAB;
  *
  * `category` is what this app recorded when it sent the release ("Movies",
  * "TV", "Anime"); it is absent for anything added straight to an external
- * client, and for streams the engine created on its own.
+ * client.
  */
 export interface DownloadRow {
   name: string;

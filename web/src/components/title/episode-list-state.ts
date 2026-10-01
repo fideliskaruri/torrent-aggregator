@@ -4,7 +4,7 @@ export type EpisodeListLoadState =
   | { status: "error"; message: string };
 
 export const EMPTY_EPISODES_COPY =
-  "No episodes known yet. Nothing here has been searched or downloaded, so there is no episode list to show. Use the button above to get the next one.";
+  "No episodes known yet. Nothing here has been searched or downloaded, so there is no episode list to show.";
 
 const SKELETON_ROWS = 5;
 

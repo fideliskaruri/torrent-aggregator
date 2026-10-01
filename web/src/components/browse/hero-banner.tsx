@@ -1,6 +1,4 @@
 import { Link } from "react-router";
-import { useFeatures } from "@/lib/features";
-import { Play } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
 import { Button } from "@/components/ui/button";
@@ -8,7 +6,6 @@ import { cn, factsLine } from "@/lib/utils";
 import {
   actionLabel,
   cleanDisplayTitle,
-  clampFraction,
   viewerCardAction,
   type ActionStatus,
   type CardAction,
@@ -20,7 +17,6 @@ import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
 import { Badge } from "@/components/ui/badge";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 
@@ -38,32 +34,26 @@ export interface HeroBannerProps {
  * panel washed with the title's own tint — the same tint its cards use, so a
  * library with no artwork still looks composed instead of unfinished.
  *
- * The primary action is whatever {@link resolveCardAction} allows, so the
- * largest button on the page can never be a Play that does not play. When there
+ * The primary action is whatever {@link resolveCardAction} allows. When there
  * is nothing to offer, the button is disabled and the reason is printed next to
  * it — a greyed control with no explanation is the thing users file bugs about.
- * With streaming off there is no Play, and a title that would have offered it
- * is one we already hold, so the hero offers its page instead.
+ * A title we already hold has nothing to start, so the hero offers its page.
  */
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
-  const { streaming } = useFeatures();
   const { item, eyebrow } = pick;
   const { canDownload } = useCapabilities();
   const titleHref = titleHrefForItem(item);
   const action = viewerCardAction(item, canDownload, titleHref);
   const releaseGate = browseReleaseGate(item);
   const title = cleanDisplayTitle(item.title);
-  const facts = heroFacts(streaming ? item : { ...item, progressFraction: null });
+  const facts = heroFacts(item);
   const factsText = factsLine(facts);
-  const fraction = releaseGate.gated || !streaming
-    ? null
-    : clampFraction(item.progressFraction);
   const label = releaseGate.gated
     ? (releaseGate.label ?? "Coming soon")
     : actionLabel(action, status);
-  // One Details button. The "Download" that stood here pointed at a file we
-  // already hold and led to the same page as the Details beside it.
-  const pageOnly = !releaseGate.gated && !streaming && action.kind === "play";
+  // One Details button. A Download here would point at a file we already hold
+  // and lead to the same page as the Details beside it.
+  const pageOnly = !releaseGate.gated && action.kind === "local";
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();
 
@@ -135,8 +125,8 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           )}
 
           {/* No availability chip. "Partial" is engine vocabulary about bytes
-              on disk; the viewer only needs to know what pressing Play does,
-              and Play now always plays. Gated titles still say when they land. */}
+              on disk; the viewer only needs to know what the button does.
+              Gated titles still say when they land. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-muted-foreground">
             {releaseGate.gated ? (
               <Badge className="bg-card px-2 py-1 text-[11px] leading-none">
@@ -145,15 +135,6 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             ) : null}
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
-
-          {fraction != null ? (
-            <Progress
-              value={Math.round(fraction * 100)}
-              aria-label={`${title} watched`}
-              className="mt-4 h-1 max-w-sm bg-muted"
-              indicatorClassName="bg-brand"
-            />
-          ) : null}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
             {pageOnly ? (
@@ -181,11 +162,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                 onClick={() => onAction(item, action)}
                 data-hero-primary
               >
-                {status === "pending" ? (
-                  <LoadingGlyph />
-                ) : action.kind === "play" ? (
-                  <Play className="fill-current" />
-                ) : null}
+                {status === "pending" ? <LoadingGlyph /> : null}
                 {label}
               </Button>
             )}
@@ -214,7 +191,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   );
 }
 
-/** Hero-shaped placeholder, so streaming the payload in cannot shift the page. */
+/** Hero-shaped placeholder, so loading the payload in cannot shift the page. */
 export function HeroSkeleton() {
   return (
     <section

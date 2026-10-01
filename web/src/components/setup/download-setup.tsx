@@ -6,8 +6,6 @@
  * owner off to Settings and loses what they were doing, the first Download
  * opens this dialog with the same fields Settings uses, saves them, and lets
  * the download carry on.
- *
- * Streams never need this: the engine stores them in its own cache.
  */
 
 import {

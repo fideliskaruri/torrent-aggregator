@@ -13,7 +13,6 @@ export interface LibraryStateItem {
 }
 
 type LibraryItemStatusKind =
-  | "ready"
   | "in-client"
   | "getting"
   | "waiting"
@@ -51,7 +50,7 @@ export function libraryPageSummary(items: LibraryStateItem[]): string {
 
 export function libraryItemState(
   item: LibraryStateItem,
-  opts: { sending: boolean; canStream: boolean },
+  opts: { sending: boolean },
 ): LibraryItemState {
   const isSeries = isSeriesMediaType(item.mediaType);
   const nextLabel = isSeries ? nextEpisodeLabel(item) : null;
@@ -67,14 +66,6 @@ export function libraryItemState(
   }
 
   if (item.latestReleaseMagnet) {
-    if (opts.canStream) {
-      return {
-        kind: "ready",
-        label: "Ready to watch",
-        detail: nextLabel ? `${nextLabel} is ready here.` : "Playable here.",
-        nextLabel,
-      };
-    }
     return {
       kind: "in-client",
       label: "In your client",

@@ -14,7 +14,6 @@ import {
   MoreHorizontal,
   Pause,
   Play,
-  Copy,
   RefreshCw,
   Search,
   Trash2,
@@ -59,24 +58,16 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import {
-  encodeKeySegment,
   titleHrefForName,
   titlePath,
 } from "@/components/title/work-key";
-import {
-  episodeTitleMap,
-  type TitleExtrasPayload,
-} from "@/components/title/types";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
-import { parseEpisode } from "@/lib/torrents/episodes";
-import { PlayOverlay } from "@/components/browse/play-overlay";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import {
   groupDownloads,
   seriesEpisodeTally,
-  canStreamTransfer,
   isDownloading,
   isError,
   isPaused,
@@ -131,7 +122,7 @@ import {
   withoutDownloadLink,
 } from "./download-link";
 import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
-import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile, type TorrentRowAction } from "./types";
+import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
   PageSkeletonFrame,
@@ -177,51 +168,6 @@ function downloadTitleHref(torrent: ClientTorrent): string | null {
     mediaType: torrent.category,
     season: torrent.season ?? null,
   });
-}
-
-async function loadDownloadEpisodeTitle(payload: {
-  workKey: string;
-  title: string;
-  mediaType: string | null;
-  year: number | null;
-  season: number;
-  episode: number;
-}): Promise<{
-  episodeTitle: string | null;
-  episodeTitles: Readonly<Record<string, string>>;
-} | null> {
-  const search = new URLSearchParams({
-    t: payload.title,
-    s: String(payload.season),
-  });
-  if (payload.mediaType) search.set("type", payload.mediaType);
-  if (payload.year) search.set("y", String(payload.year));
-
-  try {
-    const response = await fetch(
-      `/api/title/${encodeKeySegment(payload.workKey)}/extras?${search.toString()}`,
-      { cache: "no-store" },
-    );
-    if (!response.ok) {
-      console.warn(
-        `[downloads] Episode metadata failed with HTTP ${response.status}`,
-      );
-      return null;
-    }
-    const extras = (await response.json()) as TitleExtrasPayload;
-    if (extras.season !== payload.season) return null;
-    const episodeTitles = episodeTitleMap(payload.season, extras.episodes);
-    return {
-      episodeTitle:
-        extras.episodes.find(
-          (episode) => episode.episode === payload.episode,
-        )?.name ?? null,
-      episodeTitles,
-    };
-  } catch (error) {
-    console.warn("[downloads] Episode metadata request failed", error);
-    return null;
-  }
 }
 
 /** Result of POST /api/client/torrents/tidy (LayoutTidyResult). */
@@ -271,7 +217,6 @@ async function postRowAction(
   };
 }
 export default function ClientPage() {
-  const { streaming } = useFeatures();
   const displayPath = useDisplayPath();
   // Rows, error, offline and "was that read authoritative" move together: a
   // failed poll must never be able to leave the rows blanked but the error
@@ -291,9 +236,8 @@ export default function ClientPage() {
   const [mediaTab, setMediaTab] = useState<DownloadTab>(DEFAULT_DOWNLOAD_TAB);
   // Which series' dialog is open, by the group's own identity key — and which
   // of its seasons is showing. Both live here, not inside the dialog
-  // component, because Play has to unmount the dialog entirely while
-  // `PlayOverlay` is up and remount it afterward on the same series and season;
-  // state owned by the dialog would not survive that round trip.
+  // component, so a notification link can open the dialog on its season and a
+  // snapshot that drops the series can close it.
   const [openSeriesKey, setOpenSeriesKey] = useState<string | null>(null);
   const [selectedSeasonKey, setSelectedSeasonKey] = useState<string | null>(null);
   const [rawSendValue, setRawSendValue] = useState("");
@@ -310,13 +254,8 @@ export default function ClientPage() {
     null,
   );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
-  const [playing, setPlaying] = useState<NowPlaying | null>(null);
-  useEffect(() => {
-    if (!streaming) setPlaying(null);
-  }, [streaming]);
   const [announcement, setAnnouncement] = useState("");
-  // The series dialog also remounts when playback ends, and nothing on the
-  // page has focus then; this is the row its close still belongs to.
+  // The row that opened the series dialog, so closing it hands focus back.
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
   const [openGroupTitle, setOpenGroupTitle] = useState("");
   // A notification's "View details" names one download (see `download-link.ts`);
@@ -513,9 +452,8 @@ export default function ClientPage() {
     });
   }, [offline, load, pendingDelete]);
 
-  // Every download row this app tracks, excluding the engine's own ephemeral
-  // stream/prewarm cache — the base both the main list and the series dialog
-  // are built from.
+  // Every download row this app tracks: the base both the main list and the
+  // series dialog are built from.
   const downloadable = useMemo(() => torrents.filter(isDownloadRow), [torrents]);
 
   const filtered = useMemo(() => {
@@ -1037,35 +975,6 @@ export default function ClientPage() {
     }
   }
 
-  async function copyStreamUrl(t: ClientTorrent) {
-    if (!streaming) return;
-    try {
-      const res = await fetch(`/api/stream/${encodeURIComponent(t.hash)}`);
-      const body = (await res.json().catch(() => null)) as {
-        files?: StreamManifestFile[];
-        error?: string;
-      } | null;
-      if (!res.ok || !body?.files?.length) {
-        throw new Error(body?.error ?? "No streamable file found");
-      }
-      const file = [...body.files].sort((a, b) => b.length - a.length)[0];
-      const encodedPath = file.path
-        .split("/")
-        .map((part) => encodeURIComponent(part))
-        .join("/");
-      const url = new URL(
-        `/api/stream/${encodeURIComponent(t.hash)}/${encodedPath}`,
-        window.location.origin,
-      );
-      await navigator.clipboard.writeText(url.toString());
-      toast.success("Stream URL copied");
-    } catch (err) {
-      toast.error("Could not copy stream URL", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    }
-  }
-
   function toggleSelect(transferId: string, additive: boolean) {
     setSelected((prev) => {
       const next = new Set(additive ? prev : []);
@@ -1126,52 +1035,6 @@ export default function ClientPage() {
         ? document.querySelector<HTMLElement>(`[data-group-key="${CSS.escape(key)}"] [data-group-details]`)
         : null;
     if (opener) requestAnimationFrame(() => opener.focus());
-  }
-
-  function playFromDialog(payload: {
-    hash: string;
-    title: string;
-    workKey: string | null;
-    mediaType: string | null;
-    year: number | null;
-    season: number | null;
-    episode: number | null;
-  }) {
-    // Deliberately does not touch `openSeriesKey`/`selectedSeasonKey`: the
-    // dialog below stops rendering while `playing` is set (see the JSX), which
-    // unmounts its Radix focus trap so only `PlayOverlay`'s is active, and
-    // remounts on the same series and season the instant playback closes.
-    setPlaying({
-      infoHash: payload.hash,
-      title: payload.title,
-      episodeTitle: null,
-      season: payload.season,
-      episode: payload.episode,
-    });
-    if (
-      payload.workKey
-      && payload.season != null
-      && payload.episode != null
-    ) {
-      const metadataRequest = {
-        workKey: payload.workKey,
-        title: payload.title,
-        mediaType: payload.mediaType,
-        year: payload.year,
-        season: payload.season,
-        episode: payload.episode,
-      };
-      void loadDownloadEpisodeTitle(metadataRequest).then((metadata) => {
-        if (!metadata) return;
-        setPlaying((current) =>
-          current?.infoHash === payload.hash
-            && current.season === payload.season
-            && current.episode === payload.episode
-            ? { ...current, ...metadata }
-            : current
-        );
-      });
-    }
   }
 
   if (loading && !torrents.length && !error) {
@@ -1642,7 +1505,7 @@ export default function ClientPage() {
               title="No downloads yet"
               description={
                 isBuiltin
-                 ? "Find a title and choose Download to start watching here."
+                 ? "Find a title and choose Download to see it here."
                  : "Find a title and choose Download to send it to your connected client."
               }
               actionLabel="Open search"
@@ -1678,8 +1541,8 @@ export default function ClientPage() {
 
               {/*
                 One compact row per work: a series card with its overall state
-                and an explicit way in (Details), or a film row with its usual
-                direct Play. Neither ever grows an inline season or episode
+                and an explicit way in (Details), or a film row with its own
+                controls. Neither ever grows an inline season or episode
                 list here — that disclosure lives entirely in
                 `SeriesDownloadDialog` now.
               */}
@@ -1711,17 +1574,8 @@ export default function ClientPage() {
                       openingHash={openingHash}
                       artwork={artwork}
                       onToggleSelect={toggleSelect}
-                      onPlay={(payload) =>
-                        setPlaying({
-                          infoHash: payload.hash,
-                          title: payload.title,
-                          season: payload.season,
-                          episode: payload.episode,
-                        })
-                      }
                       onAction={(act, torrent) => void action(act, torrent)}
                       onOpenFolder={(torrent) => void openDownloadFolder(torrent)}
-                      onCopyStreamUrl={(torrent) => void copyStreamUrl(torrent)}
                       onCopyMagnet={(torrent) => void copyMagnet(torrent)}
                       onDeleteRequest={openDeleteDialog}
                     />
@@ -1742,7 +1596,7 @@ export default function ClientPage() {
         </>
       )}
 
-      {openGroup && !playing ? (
+      {openGroup ? (
         <SeriesDownloadDialog
           group={openGroup}
           open
@@ -1757,17 +1611,15 @@ export default function ClientPage() {
           onToggleSelect={toggleSelect}
           highlightedTransferId={linkedTransferId}
           openingHash={openingHash}
-          onPlay={playFromDialog}
           onAction={(act, torrent) => void action(act, torrent)}
           onActionMany={(act, transfers) => void actionMany(act, transfers)}
           onOpenFolder={(t) => void openDownloadFolder(t)}
-          onCopyStreamUrl={(t) => void copyStreamUrl(t)}
           onCopyMagnet={(t) => void copyMagnet(t)}
           onDeleteRequest={openDeleteDialog}
         />
       ) : null}
 
-      {swapTorrent && !playing ? (
+      {swapTorrent ? (
         <ReleaseSwapDialog
           torrent={swapTorrent}
           onClose={() => setSwapTorrent(null)}
@@ -1784,18 +1636,6 @@ export default function ClientPage() {
             setAnnouncement(`Switched to ${releaseName}.`);
             void load();
           }}
-        />
-      ) : null}
-
-      {playing ? (
-        <PlayOverlay
-          infoHash={playing.infoHash}
-          title={playing.title}
-          episodeTitle={playing.episodeTitle}
-          episodeTitles={playing.episodeTitles}
-          season={playing.season}
-          episode={playing.episode}
-          onClose={() => setPlaying(null)}
         />
       ) : null}
 
@@ -2094,10 +1934,10 @@ function SeriesOverviewRow({
 }
 
 /**
- * A film's row: unchanged from before this redesign. A film was already one
- * row with a direct Play button, and grouping it would only add a disclosure
- * triangle that reveals itself — so it keeps its own identity, its own poster
- * and its own controls rather than routing through the series dialog.
+ * A film's row. A film is one download, and grouping it would only add a
+ * disclosure triangle that reveals itself — so it keeps its own identity, its
+ * own poster and its own controls rather than routing through the series
+ * dialog.
  */
 function FilmRow({
   torrent: t,
@@ -2106,10 +1946,8 @@ function FilmRow({
   openingHash,
   artwork,
   onToggleSelect,
-  onPlay,
   onAction,
   onOpenFolder,
-  onCopyStreamUrl,
   onCopyMagnet,
   onDeleteRequest,
 }: {
@@ -2120,24 +1958,16 @@ function FilmRow({
   openingHash: string | null;
   artwork: ReturnType<typeof useReleaseArtwork>;
   onToggleSelect: (hash: string, additive: boolean) => void;
-  onPlay: (payload: {
-    hash: string;
-    title: string;
-    season: number | null;
-    episode: number | null;
-  }) => void;
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onOpenFolder: (t: ClientTorrent) => void;
-  onCopyStreamUrl: (t: ClientTorrent) => void;
   onCopyMagnet: (t: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
-  const { streaming, openFolder } = useFeatures();
+  const { openFolder } = useFeatures();
   const displayPath = useDisplayPath();
   const display = releaseDisplayFacts(t, query);
-  const parsedEpisode = parseEpisode(t.name);
   const art = artwork[query.key];
   const barTone = isDownloaded(t.state)
     ? "bg-success"
@@ -2346,41 +2176,6 @@ function FilmRow({
             Resume
           </Button>
         ) : null}
-        {streaming && isBuiltin ? (
-          canStreamTransfer(t) ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() =>
-                onPlay({
-                  hash: t.hash,
-                  title: display.title,
-                  season: parsedEpisode.season ?? null,
-                  episode: parsedEpisode.episode ?? null,
-                })
-              }
-              aria-label={`Play ${display.title}`}
-              data-client-play
-            >
-              <Play className="h-3.5 w-3.5" />
-              Play
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled
-              aria-label={`Play ${display.title}, nothing to play yet`}
-              title="Nothing to play yet. Waiting for data."
-              data-client-play-disabled
-            >
-              <Play className="h-3.5 w-3.5" />
-              Play
-            </Button>
-          )
-        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -2426,17 +2221,7 @@ function FilmRow({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-            {streaming && isBuiltin ? (
-              <>
-                <DropdownMenuItem
-                  onClick={() => onCopyStreamUrl(t)}
-                  data-copy-stream-url
-                >
-                  <Copy />
-                  Copy stream URL
-                </DropdownMenuItem>
-              </>
-            ) : null}
+
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}

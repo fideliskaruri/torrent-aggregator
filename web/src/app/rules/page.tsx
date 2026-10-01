@@ -405,7 +405,7 @@ export default function RulesPage() {
     <div className="container-app max-w-3xl py-6 pb-24 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Auto-download rules"
-        description="Automatically grab watchable video releases when they become healthy enough to play."
+        description="Automatically grab video releases once they are healthy enough to download."
         actions={
           <Button
             type="button"
@@ -459,7 +459,7 @@ export default function RulesPage() {
           <FormField
             label="What to watch"
             htmlFor="rule-category"
-            hint="Rules only grab video the app can browse and play."
+            hint="Rules only grab video releases."
           >
             <Select
               value={form.category}
@@ -694,7 +694,7 @@ export default function RulesPage() {
                   <div className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground space-y-2">
                     <p>
                       This legacy rule targets “{category.stored}”, which
-                      TorrentFlow cannot browse or play. It is blocked from
+                      TorrentFlow does not handle. It is blocked from
                       automation until you retarget it to video or delete it.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">

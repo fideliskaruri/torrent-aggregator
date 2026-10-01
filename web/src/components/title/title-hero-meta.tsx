@@ -1,6 +1,6 @@
 /**
- * The hero's metadata furniture — the streaming-detail (Trakt/SIMKL "SILO"
- * style) header pieces, split out as pure helpers plus thin presentational
+ * The hero's metadata furniture — the media-tracker detail page (Trakt/SIMKL
+ * "SILO" style) header pieces, split out as pure helpers plus thin presentational
  * components.
  *
  * Two rules shape this file:

@@ -18,11 +18,9 @@ import { DesktopSection } from "@/components/settings/desktop-section";
 import { DownloadLocationFields } from "@/components/settings/download-location-fields";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RemoteAccessSection } from "@/components/settings/remote-access-section";
-import { RetentionPanel } from "@/components/settings/retention-panel";
 import { DownloadWindowsPanel } from "@/components/settings/download-windows-panel";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
-import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +62,6 @@ import {
 
 type ClientType = "qbittorrent" | "transmission" | "builtin";
 type ExternalClientType = Exclude<ClientType, "builtin">;
-type RetentionPolicy = "EPHEMERAL" | "KEPT";
 
 export interface ClientForm {
   clientType: ClientType;
@@ -80,8 +77,6 @@ export interface ClientForm {
   automationIntervalMinutes: number;
   maxActiveDownloads: number;
   downloadWindows: DownloadWindowDraft[];
-  verboseDiagnostics: boolean;
-  defaultRetentionPolicy: RetentionPolicy;
   categories: string[];
   pathRules: Record<string, string>;
 }
@@ -99,17 +94,6 @@ const QUALITY_CHOICES = [
   { value: 720, label: "720p", hint: "Balanced" },
   { value: 1080, label: "1080p", hint: "Recommended" },
   { value: 2160, label: "4K", hint: "Largest files" },
-] as const;
-
-const FILE_BEHAVIOR_OPTIONS = [
-  {
-    value: "EPHEMERAL",
-    label: "Delete temporary streams when space is needed",
-  },
-  {
-    value: "KEPT",
-    label: "Keep new downloads until I remove them",
-  },
 ] as const;
 
 const AUTOMATION_INTERVAL_CHOICES = [
@@ -141,8 +125,6 @@ const EMPTY_FORM: ClientForm = {
   automationIntervalMinutes: 0,
   maxActiveDownloads: 2,
   downloadWindows: [],
-  verboseDiagnostics: false,
-  defaultRetentionPolicy: "EPHEMERAL",
   categories: [
     "Anime",
     "Movies",
@@ -182,7 +164,7 @@ function parseSettingsTab(
 }
 
 export default function SettingsPage() {
-  const { streaming, openFolder: canOpenFolder, runningInContainer } = useFeatures();
+  const { openFolder: canOpenFolder, runningInContainer } = useFeatures();
   const displayPath = useDisplayPath();
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [savedForm, setSavedForm] = useState<ClientForm>(EMPTY_FORM);
@@ -322,10 +304,6 @@ export default function SettingsPage() {
               maxActiveDownloads:
                 settings.maxActiveDownloads ?? EMPTY_FORM.maxActiveDownloads,
               downloadWindows: (settings.downloadWindows ?? []).map(toDraft),
-              verboseDiagnostics: settings.verboseDiagnostics === true,
-              defaultRetentionPolicy:
-                settings.defaultRetentionPolicy ??
-                EMPTY_FORM.defaultRetentionPolicy,
               categories:
                 settings.categories ??
                 data.defaults?.categories ??
@@ -504,12 +482,13 @@ export default function SettingsPage() {
             const value = Number(form.maxStorageGb);
             return Number.isFinite(value) && value > 0 ? value : 0;
           })(),
-          verboseDiagnostics: form.verboseDiagnostics,
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
           maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
           downloadWindows,
-          defaultRetentionPolicy: streaming ? form.defaultRetentionPolicy : "KEPT",
+          // Downloads are always kept. Servers that still read this setting
+          // use it to decide whether a pasted torrent is kept.
+          defaultRetentionPolicy: "KEPT",
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -565,10 +544,7 @@ export default function SettingsPage() {
         downloadWindows: settings?.downloadWindows
           ? settings.downloadWindows.map(toDraft)
           : form.downloadWindows,
-        verboseDiagnostics:
-          settings?.verboseDiagnostics ?? form.verboseDiagnostics,
-        defaultRetentionPolicy:
-          settings?.defaultRetentionPolicy ?? form.defaultRetentionPolicy,
+
         categories: settings?.categories ?? form.categories,
         pathRules: settings?.pathRules ?? form.pathRules,
       };
@@ -857,30 +833,6 @@ export default function SettingsPage() {
               </RadioGroup>
             </fieldset>
 
-            {streaming ? (
-            <FormField label="After watching or downloading" htmlFor="file-behavior">
-              <Select
-                value={form.defaultRetentionPolicy}
-                onValueChange={(value) =>
-                  updateForm((current) => ({
-                    ...current,
-                    defaultRetentionPolicy: value as RetentionPolicy,
-                  }))
-                }
-              >
-                <SelectTrigger id="file-behavior" className="w-full scroll-mb-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FILE_BEHAVIOR_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-            ) : null}
           </section>
 
           <section
@@ -1066,7 +1018,7 @@ export default function SettingsPage() {
         <SettingsDisclosure
           id="advanced-settings"
           title="Advanced"
-          summary="Custom folders, Library timing, cleanup tools, and troubleshooting."
+          summary="Library timing, and custom categories and folders."
           open={advancedOpen}
           onToggle={() => {
             setAdvancedOpen((open) => !open);
@@ -1328,43 +1280,6 @@ export default function SettingsPage() {
               </Collapsible>
             </section>
 
-            {streaming ? (
-            <section className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium text-foreground">
-                  Troubleshooting
-                </h3>
-                <p className="mt-1 text-xs text-subtle-foreground">
-                  Status and cleanup tools are here when something needs attention.
-                </p>
-              </div>
-              <Label
-                htmlFor="verbose-diagnostics"
-                className="flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-lg border border-border p-3 font-normal"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">
-                    Show detailed playback diagnostics
-                  </span>
-                  <span className="mt-1 block text-xs text-subtle-foreground">
-                    Useful only while investigating playback problems.
-                  </span>
-                </span>
-                <Switch
-                  id="verbose-diagnostics"
-                  checked={form.verboseDiagnostics}
-                  onCheckedChange={(checked) =>
-                    updateForm((current) => ({
-                      ...current,
-                      verboseDiagnostics: checked === true,
-                    }))
-                  }
-                />
-              </Label>
-              <SwarmProbePanel />
-              <RetentionPanel showPolicy={false} />
-            </section>
-            ) : null}
           </div>
         </SettingsDisclosure>
       </form>

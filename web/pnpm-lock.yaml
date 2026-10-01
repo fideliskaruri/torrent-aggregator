@@ -187,9 +187,6 @@ importers:
       framer-motion:
         specifier: ^12.42.2
         version: 12.43.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      hls.js:
-        specifier: ^1.6.16
-        version: 1.7.3
       lucide-react:
         specifier: ^1.25.0
         version: 1.47.0(react@19.2.4)
@@ -1856,9 +1853,6 @@ packages:
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
-
-  hls.js@1.7.3:
-    resolution: {integrity: sha512-MsPlx6yVW4Qv4C7mEVou4/gk/5cN2dVxOTnrNjPSmyH2f0Ln+/UkG10Ax1PE6OvrmTVPKgQYozTtBaPOuCzq7A==}
 
   hono@4.13.8:
     resolution: {integrity: sha512-/Gng7NfoykZl2pjukW5Z6+8Yxm3BPRf86GTbQnt0SbySkvax4fyL4H3HhY1cCpBGmiW9XDRFzRV+CXK2W8QudQ==}
@@ -4488,8 +4482,6 @@ snapshots:
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
-
-  hls.js@1.7.3: {}
 
   hono@4.13.8: {}
 

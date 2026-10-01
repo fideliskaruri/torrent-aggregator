@@ -13,8 +13,8 @@ const FILL: CSSProperties = {
 /**
  * Artwork for a card or hero, with the no-artwork case treated as normal.
  *
- * Most torrent releases have no poster — the engine rows that feed "Ready to
- * Play" store none at all, and the metadata join that might supply one misses
+ * Most torrent releases have no poster — the engine rows that feed
+ * "Downloaded" store none at all, and the metadata join that might supply one misses
  * often — so the fallback is not an error path, it is a layout a large share of
  * cards will actually use. It therefore gets a designed surface instead of a
  * grey box: a deterministic tint keyed off the title, a hairline, and the

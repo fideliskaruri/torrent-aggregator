@@ -1,8 +1,8 @@
 /**
  * Folding the second round trip into the first.
  *
- * `GET /api/title/[workKey]` answers from the local database — what we hold,
- * how far it downloaded, where playback got to. `GET …/extras` answers from
+ * `GET /api/title/[workKey]` answers from the local database — what we hold
+ * and how far it downloaded. `GET …/extras` answers from
  * TMDB — what the episodes are called, when they air, how many seasons there
  * really are. Neither is authoritative about the other's half, and the second
  * one may never arrive, so this is where they are combined under one rule:
@@ -99,9 +99,9 @@ export function mergeEpisodes(input: {
 /**
  * A row for an episode nothing local has ever heard of.
  *
- * Every state field is the honest zero: no file, no progress, nothing watched.
+ * Every state field is the honest zero: no file and no progress.
  * `availability: null` is the important one — it means *not determined*, and
- * renders as an ordinary clickable Get rather than a wall.
+ * renders as an ordinary clickable Download rather than a wall.
  */
 function blankEpisode(season: number, episode: number): TitleEpisode {
   return {
@@ -112,9 +112,6 @@ function blankEpisode(season: number, episode: number): TitleEpisode {
     infoHash: null,
     filePath: null,
     downloadFraction: null,
-    watchedFraction: null,
-    resumePositionSec: null,
-    watched: false,
     nextUp: false,
     fromPack: false,
     transfer: null,

@@ -1,14 +1,12 @@
 import { useId } from "react";
-import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
-import { Play, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import type { RailItem } from "@/lib/browse";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 import { cn } from "@/lib/utils";
 import {
   actionLabel,
   cleanDisplayTitle,
-  clampFraction,
   viewerCardAction,
   searchAction,
   type ActionStatus,
@@ -21,7 +19,6 @@ import { useCapabilities } from "@/lib/capabilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
@@ -35,12 +32,6 @@ export interface TitleCardProps {
   onAction: (item: RailItem, action: CardAction) => void;
   /** Eager-load the first screenful; everything else is lazy. */
   priority?: boolean;
-  /**
-   * Keep the action row visible at rest on hover pointers too. Continue
-   * watching sets it: the state of the next episode (Play, Get, Downloading)
-   * is the point of that rail and must read at a glance.
-   */
-  persistentAction?: boolean;
 }
 
 /**
@@ -48,18 +39,18 @@ export interface TitleCardProps {
  *
  * **The whole card opens the title page.** That is the user's rule, stated
  * plainly: *"i should be able to just click any card to see the information
- * about the show or just resume watching."* So the card is a real `<Link>` —
- * poster, title text and subtitle all — which is what makes middle-click,
- * ctrl-click and "open in new tab" work. An `onClick` with `router.push` looks
- * identical and silently breaks all three.
+ * about the show."* So the card is a real `<Link>` — poster, title text and
+ * subtitle all — which is what makes middle-click, ctrl-click and "open in new
+ * tab" work. An `onClick` with `router.push` looks identical and silently
+ * breaks all three.
  *
- * The action itself (Watch / Resume / Download) is a *sibling* control layered
- * over the poster, never nested inside the link: interactive content inside an
- * `<a>` is invalid HTML and behaves differently in every browser. Being a
- * sibling also means a click on it never reaches the link, so pressing Resume
- * resumes and clicking anywhere else opens the page. The action comes from
- * {@link resolveCardAction}, so a card can never offer Watch for something
- * that cannot play.
+ * The action itself (Get S02E01) is a *sibling* control layered over the
+ * poster, never nested inside the link: interactive content inside an `<a>` is
+ * invalid HTML and behaves differently in every browser. Being a sibling also
+ * means a click on it never reaches the link, so pressing Get gets and
+ * clicking anywhere else opens the page. The action comes from
+ * {@link resolveCardAction}, so a card can never offer an action that cannot
+ * succeed.
  *
  * The action row is visible by default and hover-revealed only from `md` up:
  * touch devices have no hover, and a control that only appears on a state they
@@ -70,9 +61,7 @@ export function TitleCard({
   status = "idle",
   onAction,
   priority = false,
-  persistentAction = false,
 }: TitleCardProps) {
-  const { streaming } = useFeatures();
   // Future primary dates and confirmed cinema-only movies share one Browse
   // gate. Unknown evidence and series always stay open.
   const releaseGate = browseReleaseGate(item);
@@ -82,17 +71,16 @@ export function TitleCard({
   const titleHref = titleHrefForItem(item);
   const action = viewerCardAction(item, canDownload, titleHref);
   // Search fallback is for unavailable library rows, not unreleased catalog
-  // cards — a "find it" affordance on something that does not exist yet is the
-  // same dead end as Play.
+  // cards — a "find it" affordance on something that does not exist yet is a
+  // dead end.
   const fallbackSearch =
     !unreleased && action.kind === "blocked" ? searchAction(item) : null;
   const title = cleanDisplayTitle(item.title);
-  const fraction = unreleased || !streaming ? null : clampFraction(item.progressFraction);
   // Theatrical-window films show "In cinemas" (or "Digital Aug 2026");
   // future-dated films show "Coming {date}". Both take priority over actions.
   const label = unreleased
     ? (releaseGate.label ?? "Coming soon")
-    : !streaming && action.kind === "play" ? "Downloaded" : actionLabel(action, status);
+    : actionLabel(action, status);
   const blocked = action.disabled;
   // Downloading is disabled but not a dead end: the card stays at full
   // strength and its badge keeps the accent.
@@ -102,17 +90,13 @@ export function TitleCard({
   // when the row has no usable title — then the card falls back to being the
   // action itself, because a title page with nothing to name is worse.
   // Unreleased cards keep the link: the title page is the library surface
-  // (overview, track) — only Play/Get/Download are withheld.
+  // (overview, track) — only Get/Download are withheld.
 
-  // Only `play` and `get` are *performed*. `search` and `blocked` describe
-  // where the card already goes, so they render as a caption rather than a
-  // second control competing with the link underneath them. Unreleased never
-  // runs either — a dead Play that resolves to nothing is the defect this gate
-  // exists to prevent.
-  const runnable =
-    !unreleased &&
-    !blocked &&
-    ((streaming && action.kind === "play") || action.kind === "get");
+  // Only `get` is *performed*. `local`, `search` and `blocked` describe where
+  // the card already goes, so they render as a caption rather than a second
+  // control competing with the link underneath them. Unreleased never runs
+  // either.
+  const runnable = !unreleased && !blocked && action.kind === "get";
 
   // A row id is not unique across every surface on the page, and two elements
   // sharing an id break `aria-describedby` for whichever one loses.
@@ -144,7 +128,7 @@ export function TitleCard({
         "group-hover:border-input group-hover:shadow-md",
         "motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1",
         // Future art is present but inert: greyscale + muted so it never reads
-        // as something you can press Play on. Matches the title-page hero gate.
+        // as something you can download yet. Matches the title-page hero gate.
         unreleased && "grayscale opacity-80",
         !unreleased && blocked && !arriving && "opacity-75",
       )}
@@ -173,15 +157,6 @@ export function TitleCard({
           <AvailabilityChip state={item.availability} compact />
         )}
       </span>
-
-      {fraction != null ? (
-        <Progress
-          value={Math.round(fraction * 100)}
-          aria-hidden
-          className="absolute inset-x-0 bottom-0 z-[2] h-[3px] rounded-none bg-input"
-          indicatorClassName="bg-brand"
-        />
-      ) : null}
     </div>
   );
 
@@ -194,11 +169,7 @@ export function TitleCard({
   );
   const badgeInner = (
     <>
-      {status === "pending" ? (
-        <LoadingGlyph className="h-3 w-3" />
-      ) : streaming && !unreleased && action.kind === "play" ? (
-        <Play className="h-3 w-3 shrink-0 fill-current" aria-hidden />
-      ) : null}
+      {status === "pending" ? <LoadingGlyph className="h-3 w-3" /> : null}
       <span className="truncate">{label}</span>
     </>
   );
@@ -208,15 +179,13 @@ export function TitleCard({
     "opacity-100 transition-opacity duration-150",
     // Hide-at-rest is gated to a real hover pointer. On touch (coarse / no-hover)
     // the query never matches, so the chip stays visible at every width and a
-    // tablet user never faces an invisible Play control; mouse/trackpad keeps the
+    // tablet user never faces an invisible control; mouse/trackpad keeps the
     // reveal-on-hover feel. Screen width is not a proxy for input capability.
-    !persistentAction &&
-      "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+    "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
     // The row is a transparent strip across the poster. Without this it would
     // swallow every click that lands beside the badge — the card would look
     // clickable and do nothing, which is the exact defect being fixed.
     "pointer-events-none",
-    fraction != null && "pb-2.5",
   );
 
   // Unreleased: Coming lives on the top chip only. A second badge on the action
@@ -232,7 +201,7 @@ export function TitleCard({
         onClick={(event) => {
           // Belt and braces. The button is a DOM sibling of the card link, so
           // the click cannot bubble into it — but the rails, the board and any
-          // future wrapper are free to listen higher up, and pressing Resume
+          // future wrapper are free to listen higher up, and pressing Get
           // must never also navigate.
           event.stopPropagation();
           event.preventDefault();
@@ -376,7 +345,7 @@ export function TitleCard({
 /**
  * Placeholder with the card's exact geometry.
  *
- * Same width and 2:3 box as the real card, so streaming the rails in cannot
+ * Same width and 2:3 box as the real card, so loading the rails in cannot
  * shift the page — the skeleton is not decoration, it is the layout being
  * reserved.
  */

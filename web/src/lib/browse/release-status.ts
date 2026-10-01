@@ -1,10 +1,10 @@
 /**
  * Future-gating — the single source of truth for "is this thing out yet?".
  *
- * A title whose primary release / first-air date is in the FUTURE is not a
- * playable thing yet. Every surface (browse rails, search results, title hero)
- * must gray it out and label it "Coming {date}" rather than offer a dead
- * Play/Download that resolves to nothing.
+ * A title whose primary release / first-air date is in the FUTURE is not
+ * something you can get yet. Every surface (browse rails, search results, title
+ * hero) must gray it out and label it "Coming {date}" rather than offer a dead
+ * Download that resolves to nothing.
  *
  * Unknown dates are NEVER gated: the absence of a date is not evidence that a
  * title is in the future. Confusing "no date" with "future" would hide half the
@@ -75,7 +75,7 @@ export interface TheatricalStatus {
    *
    * Only ever true when the TMDB release_dates endpoint actually responded —
    * if the check was skipped or the endpoint failed, this stays false so the
-   * film remains playable. Absence of evidence is not evidence of absence.
+   * film remains available. Absence of evidence is not evidence of absence.
    */
   inTheatricalWindow: boolean;
   /**
@@ -107,7 +107,7 @@ function formatHomeDate(isoDate: string): string {
  * Theatrical-window status for a movie.
  *
  * A film in its theatrical window receives the same visual gate as an
- * unreleased title (greyscale, chip, no Play/Download), but with copy that
+ * unreleased title (greyscale, chip, no Download), but with copy that
  * names the real reason — "In cinemas" — rather than pretending the premiere
  * has not happened yet.
  *

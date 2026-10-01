@@ -19,9 +19,9 @@
  * ## The invariant
  *
  * Removing a title from the Library stops tracking and keeps every file. That
- * is the product rule (`DELETE /api/watchlist` promotes the title's streams to
- * kept before it removes the row, precisely so this promise holds), and this
- * copy is the only place the user is told about it. If the behaviour ever
+ * is the product rule (`DELETE /api/watchlist` removes the library row and
+ * never touches a downloaded file), and this copy is the only place the user
+ * is told about it. If the behaviour ever
  * changes, this string has to change with it — which is why it is a tested
  * export and not a literal buried in a 1000-line page.
  */

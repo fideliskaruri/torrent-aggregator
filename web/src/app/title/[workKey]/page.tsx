@@ -23,7 +23,7 @@ export default function TitlePage() {
   const [sp] = useSearchParams();
   const title =
     sp.get("t")?.trim() || displayTitleFromWorkKey(workKey) || "Title";
-  useDocumentTitle(title, `Play or get ${title}.`);
+  useDocumentTitle(title, `Get ${title}.`);
 
   const rememberedSeason = readRememberedSeason(
     readCookie(REMEMBERED_SEASON_COOKIE_NAME),

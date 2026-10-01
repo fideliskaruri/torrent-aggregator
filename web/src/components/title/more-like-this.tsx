@@ -33,7 +33,7 @@ export function MoreLikeThis({
    * Space reservation mirrors the pattern from `hero-banner.tsx` (which uses
    * `min-h-[1.5rem]` on the pitch line): the section must occupy the same
    * vertical footprint before and after the items arrive, or the hero above
-   * it changes height and the Play button shifts under the cursor — the exact
+   * it changes height and the Download button shifts under the cursor — the exact
    * bug that caused accidental navigations to wrong films.
    */
   loading?: boolean;
