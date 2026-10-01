@@ -56,6 +56,7 @@ import {
 } from "./season-progress";
 import { SeasonProgressMeter } from "./season-progress-meter";
 import { MoreLikeThis } from "./more-like-this";
+import { LinkedRecords } from "./linked-records";
 import { RequestAction } from "@/components/requests/request-action";
 import { useCapabilities } from "@/lib/capabilities";
 import { parseRequestState, type RequesterTitle } from "@/lib/requests";
@@ -1511,6 +1512,9 @@ function TitleContent({
           items={similar}
           loading={similarLoading}
         />
+
+        {/* The owner's view of the crosswalk, with Unlink for a wrong match. */}
+        {caps.canManage ? <LinkedRecords workKey={payload.workKey} /> : null}
 
         {hint ? (
           <p className="text-[12px] text-subtle-foreground" data-library-hint>
