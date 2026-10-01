@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { HeroSkeleton } from "./hero-banner";
 import { RailGridSkeleton, RailSkeleton } from "./rail";
 import { PageSkeletonFrame } from "@/components/ui/loading";
@@ -17,13 +18,18 @@ import { cn } from "@/lib/utils";
  * Two rails, not five: it fills the fold at both 390px and 1440px, and
  * promising five rows to a user who is about to be shown one is its own small
  * lie. A genre page is a grid with no hero, so it gets a grid.
+ *
+ * `filters` sits exactly where the board puts it (under the hero), so the
+ * section pills do not jump when the payload lands.
  */
 export function BrowseSkeleton({
   visible = true,
   grid = false,
+  filters,
 }: {
   visible?: boolean;
   grid?: boolean;
+  filters?: ReactNode;
 }) {
   return (
     <PageSkeletonFrame
@@ -35,6 +41,7 @@ export function BrowseSkeleton({
     >
       {grid ? null : <HeroSkeleton />}
       <div className="container-app min-w-0 pb-14">
+        {filters}
         {grid ? (
           <RailGridSkeleton />
         ) : (

@@ -101,10 +101,7 @@ function BrowseFirstRunView({
         }}
         errorTitle="Browse could not load"
         skeleton={(visible) => (
-          <>
-            <div className="container-app min-w-0">{filters}</div>
-            <BrowseSkeleton visible={visible} grid={Boolean(query.genre)} />
-          </>
+          <BrowseSkeleton visible={visible} grid={Boolean(query.genre)} filters={filters} />
         )}
         // Only once a request has actually resolved: a real catalog, or a
         // genuinely empty one.
