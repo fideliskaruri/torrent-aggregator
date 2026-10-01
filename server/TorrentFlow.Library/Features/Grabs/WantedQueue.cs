@@ -360,7 +360,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var input = new GrabInput(work.CanonicalTitle, work.MediaType, WatchListItemId: watchId, WorkId: work.Id,
             PreferredResolution: plan?.Resolution ?? rows.Select(r => r.PreferredResolution).FirstOrDefault(r => r != null),
             OverrideStorageCap: plan?.OverrideStorageCap ?? false, Aliases: aliases, Year: work.Year, WorkKey: work.WorkKey, Lane: lane,
-            Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true);
+            Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true, Urgent: plan?.Single ?? false);
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
         var workId = work.Id;
         // Each episode's row and reason update the moment that episode settles, so a found episode starts and shows at
@@ -501,6 +501,15 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     /// <summary>An episode clicked on its own belongs to its own unit until that settles: its season's runs and the scan skip it.</summary>
     private bool OnItsOwn(Unit clicked) => plans.ContainsKey(clicked) || running.ContainsKey(clicked);
+
+    /// <summary>True while a search for this target runs: its own click, its season's run, or its film's.</summary>
+    public bool Looking(string workKey, int? season, int? episode) =>
+        running.ContainsKey(new(workKey, season, episode)) || episode != null && running.ContainsKey(new(workKey, season));
+
+    /// <summary>When this target's unit tries next, or null when it is due now or not planned.</summary>
+    public DateTime? NextAttempt(string workKey, int? season, int? episode) =>
+        new[] { new Unit(workKey, season, episode), new Unit(workKey, season) }
+            .Select(u => plans.GetValueOrDefault(u)?.DueAt).FirstOrDefault(d => d != null && d != DateTime.MinValue);
 
     /// <summary>Wanted units and when each tries next, for diagnostics and tests.</summary>
     public IReadOnlyList<object> Snapshot() => plans.OrderBy(p => p.Value.Order).Select(p => (object)new

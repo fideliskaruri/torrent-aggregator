@@ -48,8 +48,9 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
     /// What a search's requests share while <see cref="Use"/> is in effect: identical requests are sent once, and each
     /// request that really goes out waits its turn at its site (<see cref="EnterAsync"/>) for at most <paramref name="LineWait"/>,
     /// then takes a <paramref name="Slot"/> and calls <paramref name="Started"/> (so a per-attempt deadline counts only the site's own time).
+    /// <paramref name="Urgent"/> requests (an owner's click) go first in each site's line even when <paramref name="Patient"/>.
     /// </summary>
-    public sealed record SearchScope(bool Patient, TimeSpan LineWait, Func<CancellationToken, Task<IDisposable>>? Slot = null, Action? Started = null);
+    public sealed record SearchScope(bool Patient, TimeSpan LineWait, Func<CancellationToken, Task<IDisposable>>? Slot = null, Action? Started = null, bool Urgent = false);
 
     public static IDisposable Use(SearchScope scope)
     {
@@ -96,7 +97,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
             using (var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 bounded.CancelAfter(scope.LineWait);
-                try { turn = await EnterAsync(url, scope.Patient, bounded.Token); }
+                try { turn = await EnterAsync(url, scope.Patient, bounded.Token, scope.Urgent || !scope.Patient); }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     throw new SourceBusyException($"{HostKey(url)} is busy; skipped for now");
@@ -296,11 +297,12 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
     /// Takes a turn at one site: at most the site's concurrency open at once, request starts spaced by its pacing, and
     /// nothing sent while the site is cooling down after a real 429/503. <paramref name="patient"/> callers (downloads,
     /// the wanted queue) wait for a cool-down of up to <see cref="PatientCoolDownWait"/>, bounded by their token;
-    /// interactive callers go first in the line and wait at most <see cref="InteractiveCoolDownWait"/>. Past that the
-    /// site is skipped for this request with a 429, which never counts as a miss.
+    /// interactive callers wait at most <see cref="InteractiveCoolDownWait"/>. Past that the site is skipped for this
+    /// request with a 429, which never counts as a miss. <paramref name="urgent"/> callers (interactive searches and an
+    /// owner's click) go first in the line, so a season's searches never hold up a click; it defaults to !patient.
     /// Dispose the returned turn when the request is done.
     /// </summary>
-    public async Task<IDisposable> EnterAsync(string url, bool patient, CancellationToken ct)
+    public async Task<IDisposable> EnterAsync(string url, bool patient, CancellationToken ct, bool? urgent = null)
     {
         var host = HostKey(url);
         if (host.Length == 0) return NoTurn.Instance;
@@ -311,7 +313,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         if (!patient)
             lock (line)
                 if (line.NextStart - DateTimeOffset.UtcNow > bound) throw new SourceBusyException($"{host} is busy; skipped for now");
-        await line.AcquireAsync(urgent: !patient, ct);
+        await line.AcquireAsync(urgent: urgent ?? !patient, ct);
         try
         {
             while (true)

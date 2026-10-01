@@ -19,7 +19,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -271,7 +271,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         {
             return (await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
                 PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
-                SkipCache = true, Background = input.Background, WaitForBudget = true, Sources = input.Sources,
+                SkipCache = true, Background = input.Background, WaitForBudget = true, Urgent = input.Urgent, Sources = input.Sources,
                 Filters = rung.Filters with { MinSeeders = input.Constraints?.MinSeeders ?? rung.Filters.MinSeeders,
                     MaxSizeBytes = applyMaxSize ? input.Constraints?.MaxSizeBytes : null, Resolution = input.Constraints?.Resolution },
                 IncludeRejectedResults = true }, ct), null);
@@ -316,7 +316,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         // A wrong category guess returns nothing; an unfiltered search still finds it and identity still rejects other works.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
-            Enrich = false, SkipCache = true, Background = input.Background, WaitForBudget = true, Filters = new() { HasMagnet = true, MinSeeders = input.Background ? null : 1 } }, ct);
+            Enrich = false, SkipCache = true, Background = input.Background, WaitForBudget = true, Urgent = input.Urgent, Filters = new() { HasMagnet = true, MinSeeders = input.Background ? null : 1 } }, ct);
         var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(title, input.Year);
         var releases = (floor != null
             ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).ToList();

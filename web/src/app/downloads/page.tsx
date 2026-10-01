@@ -75,6 +75,7 @@ import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
+import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
 import {
   groupDownloads,
@@ -1626,6 +1627,7 @@ export default function ClientPage() {
             asserts "No downloads yet" stays hidden — keep that structure if
             this section is ever flattened.
           */}
+          <LookingSection />
           {!torrents.length && !loading ? (
             <div className="space-y-4">
             <TfEmptyState

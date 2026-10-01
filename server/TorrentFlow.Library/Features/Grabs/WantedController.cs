@@ -20,7 +20,13 @@ public sealed class WantedController(WantedQueue wanted, IDbContextFactory<Torre
             .Where(t => t.UserId == LocalUser.Id && t.Status == "queued" && t.InfoHash == null && (t.Scope == "episode" || t.Scope == "title"))
             .OrderBy(t => t.WorkKey).ThenBy(t => t.Season).ThenBy(t => t.Episode)
             .Select(t => new { t.TargetKey, t.WorkKey, t.Season, t.Episode, t.Error, t.UpdatedAt }).ToListAsync(ct);
+        var keys = rows.Select(t => t.WorkKey).Distinct().ToArray();
+        var titles = await db.Works.AsNoTracking().Where(w => keys.Contains(w.WorkKey))
+            .ToDictionaryAsync(w => w.WorkKey, w => new { w.CanonicalTitle, w.MediaType }, ct);
+        // `looking` is true while a search for the target runs; otherwise it waits for `nextAttemptAt` (null: due now).
         return Ok(new { queue = wanted.Snapshot(),
-            wanted = rows.Select(t => new { t.WorkKey, t.Season, t.Episode, t.Error, why = wanted.Why(t.TargetKey), t.UpdatedAt }) });
+            wanted = rows.Select(t => new { t.WorkKey, title = titles.GetValueOrDefault(t.WorkKey)?.CanonicalTitle,
+                mediaType = titles.GetValueOrDefault(t.WorkKey)?.MediaType, t.Season, t.Episode, t.Error, why = wanted.Why(t.TargetKey),
+                looking = wanted.Looking(t.WorkKey, t.Season, t.Episode), nextAttemptAt = wanted.NextAttempt(t.WorkKey, t.Season, t.Episode), t.UpdatedAt }) });
     }
 }

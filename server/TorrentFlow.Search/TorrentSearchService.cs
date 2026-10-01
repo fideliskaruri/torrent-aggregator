@@ -56,7 +56,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         if (pool == null)
         {
             // Deadline and freshness policies must not coalesce with automation.
-            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}|{options.WaitForBudget}";
+            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}|{options.WaitForBudget}|{options.Urgent}";
             Task<SearchResponse> work;
             while (true)
             {
@@ -274,7 +274,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             var lineWait = options.WaitForBudget ? PatientSourceWait
                 : TimeSpan.FromMilliseconds(options.AdapterDeadlineMs is > 0 and var deadline ? deadline : InteractiveAdapterDeadlineMs);
             scope = IndexerHttp.Use(new(options.WaitForBudget, lineWait,
-                async ct => await TakeSlotAsync(adapter, ct, null, token), () => lifetime.CancelAfter(attemptMs)));
+                async ct => await TakeSlotAsync(adapter, ct, null, token), () => lifetime.CancelAfter(attemptMs), options.Urgent));
         }
         try { return await adapter.SearchAsync(options, lifetime.Token); }
         catch (OperationCanceledException) when (attemptTimeoutMs is not null && !token.IsCancellationRequested)

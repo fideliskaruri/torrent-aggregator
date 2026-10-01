@@ -56,7 +56,10 @@ peers, scene names, magnet links, save paths) stay off-stage.
   all season packs"); it goes to the Activity log ("What we saw: ...") and `GET /api/wanted` (`why`).
 - **Every Download (a film, one episode, a season) and approved requests are fire and forget** (`WantedQueue`).
   The click or approval only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at
-  once (202); the title page shows them as `state: "looking"`. A found magnet is admitted at once, so its row is on
+  once (202); the title page shows them as `state: "looking"`, and Downloads lists them under Looking for a release
+  (`GET /api/wanted`: `looking` while a search runs, else `why` and `nextAttemptAt`). A clicked film or episode searches
+  as `SearchOptions.Urgent`: its site requests go first in each site's line, so a season fan-out never holds it up.
+  A found magnet is admitted at once, so its row is on
   Downloads within seconds (Finding files); the file rules run when its file list arrives. A dead release fails after
   the metadata timeout, hands its wanted items back, the queue wakes at once and the engine refuses that release to
   automatic picks while its error row is there, so the next pick moves on. The queue runs one unit per (title, season), up to 6 season runs side by side (a
