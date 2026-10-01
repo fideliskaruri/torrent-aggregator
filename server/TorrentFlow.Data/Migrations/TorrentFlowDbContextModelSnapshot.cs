@@ -63,6 +63,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("realMisses");
 
+                    b.Property<string>("RunId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("runId");
+
                     b.Property<string>("Scope")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -106,6 +110,8 @@ namespace TorrentFlow.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex(new[] { "UserId", "InfoHash" }, "AcquisitionTarget_userId_infoHash_idx");
+
+                    b.HasIndex(new[] { "UserId", "RunId" }, "AcquisitionTarget_userId_runId_idx");
 
                     b.HasIndex(new[] { "UserId", "Status" }, "AcquisitionTarget_userId_status_idx");
 

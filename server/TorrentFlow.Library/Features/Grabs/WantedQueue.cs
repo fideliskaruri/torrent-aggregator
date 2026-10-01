@@ -21,6 +21,13 @@ public sealed record WantedOrder(string WorkKey, string WorkId, int? Season, IRe
 public sealed record WantedHelp(string WorkKey, string Title, int? Season, IReadOnlyList<int> Episodes, GrabFailure Failure,
     string Query, string Link);
 
+/// <summary>
+/// One season download's counts (<see cref="SeasonFailureSummary.Counts"/>). <see cref="Link"/> is unique to the run, so
+/// the one notification a run gets is found again and updated by later finds instead of a new one being added.
+/// </summary>
+public sealed record WantedRunSummary(string RunId, string WorkKey, int Season, int Started, int NotFound, SeasonFailureSummary Summary,
+    string Link);
+
 /// <summary>Where the wanted queue reports to the rest of the app: requests and notifications live in the API host.</summary>
 public interface IWantedObserver
 {
@@ -28,6 +35,8 @@ public interface IWantedObserver
     Task<string?> LaneAsync(string workKey, int? season, CancellationToken ct);
     Task StartedAsync(string workKey, int? season, IReadOnlyCollection<string> hashes, CancellationToken ct);
     Task NeedsOwnerAsync(WantedHelp help, CancellationToken ct);
+    /// <summary>A run's counts: after a pass of the queue (<paramref name="create"/>), or a later find that only updates what was said.</summary>
+    Task RunSummaryAsync(WantedRunSummary run, bool create, CancellationToken ct);
 }
 
 /// <summary>
@@ -59,7 +68,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     private static readonly TimeSpan MaxUnsearchedWait = TimeSpan.FromMinutes(15);
 
     private readonly record struct Unit(string WorkKey, int? Season);
-    private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane, int Unsearched = 0);
+    private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane, int Unsearched = 0,
+        string? RunId = null);
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
@@ -76,8 +86,19 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var scope = wanted.Season == null ? "title" : "episode";
         IEnumerable<int?> episodes = wanted.Season == null ? [null] : wanted.Episodes.Where(e => e > 0).Distinct().Order().Cast<int?>();
         var tracked = await SeedAsync(wanted.WorkKey, wanted.WorkId, scope, wanted.Season, episodes, wanted.PreferredResolution, restart: false, ct);
+        // Each season download is one run: every episode it asked for, already started or not, counts toward its one summary.
+        string? runId = null;
+        if (wanted.Season != null && tracked.Count > 0)
+        {
+            runId = Ids.New();
+            var keys = tracked.Keys.ToArray();
+            await using var db = await factory.CreateDbContextAsync(ct);
+            await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && keys.Contains(t.TargetKey))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.RunId, runId), ct);
+        }
         var unit = new Unit(wanted.WorkKey, wanted.Season);
-        plans[unit] = new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, wanted.PreferredResolution, wanted.OverrideStorageCap, wanted.Lane);
+        plans[unit] = new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, wanted.PreferredResolution, wanted.OverrideStorageCap, wanted.Lane,
+            RunId: runId);
         wake.Release();
         return tracked.Count;
     }
@@ -165,7 +186,45 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             try { await observer.StartedAsync(workKey, season, hashes, ct); }
             catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Wanted start report failed"); }
         }
+        // A find after a run's first pass (a retry, a pack, a hand pick) updates that run's counts.
+        string[] runs;
+        await using (var db = await factory.CreateDbContextAsync(ct))
+            runs = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey && t.RunId != null &&
+                t.InfoHash != null && hashes.Contains(t.InfoHash)).Select(t => t.RunId!).Distinct().ToArrayAsync(ct);
+        await ReportRunsAsync(runs, create: false, ct);
     }
+
+    /// <summary>
+    /// A season download's counts, never its reasons (those stay on the title page): <paramref name="create"/> after a
+    /// pass of the queue, which gives the run its one notification; otherwise only an update of a notification it has.
+    /// </summary>
+    private async Task ReportRunsAsync(IReadOnlyCollection<string> runIds, bool create, CancellationToken ct)
+    {
+        foreach (var runId in runIds)
+        {
+            WantedRunSummary run;
+            await using (var db = await factory.CreateDbContextAsync(ct))
+            {
+                var rows = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.RunId == runId)
+                    .Select(t => new { t.WorkKey, t.Season, t.Status, t.InfoHash }).ToListAsync(ct);
+                if (rows.Count == 0 || rows[0].Season is not { } season) continue;
+                var workKey = rows[0].WorkKey;
+                var title = await db.Works.AsNoTracking().Where(w => w.WorkKey == workKey).Select(w => w.CanonicalTitle).FirstOrDefaultAsync(ct);
+                var started = rows.Count(r => r.InfoHash != null || r.Status == "downloaded");
+                run = new(runId, workKey, season, started, rows.Count - started,
+                    SeasonFailureSummary.Counts(title ?? workKey, season, started, rows.Count - started), RunLink(workKey, season, runId));
+            }
+            foreach (var observer in observers)
+            {
+                try { await observer.RunSummaryAsync(run, create, ct); }
+                catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Wanted run summary failed"); }
+            }
+        }
+    }
+
+    /// <summary>The title page at the run's season; the run id makes the link, and so the notification, the run's own.</summary>
+    public static string RunLink(string workKey, int season, string runId) =>
+        $"/title/{Uri.EscapeDataString(workKey)}?s={season}&run={Uri.EscapeDataString(runId)}";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -250,9 +309,11 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == unit.WorkKey, ct);
         plans.TryGetValue(unit, out var plan);
         var started = plan?.Order;
+        var runs = rows.Select(r => r.RunId).Append(plan?.RunId).OfType<string>().Distinct().ToArray();
         if (rows.Count == 0 || work == null)
         {
             Reschedule(unit, started, [], null, null);
+            if (work != null) await ReportRunsAsync(runs, create: true, ct);
             return;
         }
         string? lane = plan?.Lane;
@@ -310,6 +371,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var missing = transfers.Where(t => t.InfoHash == null).ToArray();
         Reschedule(unit, started, missing.Select(t => t.Failure ?? GrabFailure.Unknown).ToArray(), work,
             missing.Select(t => t.Episode).Where(e => e > 0).ToArray());
+        await ReportRunsAsync(runs, create: true, ct);
     }
 
     /// <summary>

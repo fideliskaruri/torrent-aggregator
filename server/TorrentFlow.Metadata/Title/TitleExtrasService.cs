@@ -65,6 +65,7 @@ public sealed class TitleExtrasService(
     KeylessClients keyless,
     ArtworkResolver artwork,
     RecommendationService recommendations,
+    AnimeFranchiseService franchises,
     TimeProvider time,
     ILogger<TitleExtrasService> logger, CinemetaClient? cinemeta = null)
 {
@@ -106,20 +107,22 @@ public sealed class TitleExtrasService(
         if (q.Provider == "anilist" && q.ProviderId is { } aid && aid.All(char.IsAsciiDigit))
         {
             var workTask = anilist.GetWorkByIdAsync(aid, ct);
+            var viewTask = franchises.ResolveAsync(new(q.Title, q.Year, q.MediaType, q.Provider, q.ProviderId), ct);
             var railTask = recommendations.RecommendationsForProviderAsync("anilist", q.Title, "anime", aid, new HashSet<string>(), 12, ct);
             _ = railTask.ContinueWith(t => logger.LogDebug(t.Exception, "AniList recommendations failed"),
                 CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             var work = await workTask.ConfigureAwait(false);
+            var view = await viewTask.ConfigureAwait(false);
             var rail = await railTask.ConfigureAwait(false);
             var m = work?.Metadata;
-            // One AniList media id is one season (sequels carry their own id), so a verified episode count is an
-            // honest numbered Season 1 list. Other seasons answer as themselves with no episodes.
+            // The franchise view numbers the page: a first season shows the matched show's seasons, names and stills; a
+            // sequel entry, or a show with no confident match, keeps the entry's own Season 1 with the banner as art.
             var series = work?.IsSeries == true;
-            int? animeSeason = series ? (q.Season is >= 1 ? q.Season : 1) : null;
-            var count = series ? work!.EpisodeCount : null;
-            var animeEpisodes = count is { } c && animeSeason == 1
-                ? Enumerable.Range(1, Math.Min(c, AnimeEpisodePlaceholderCap))
-                    .Select(i => new TitleEpisodeMeta(i, null, null, null, null, null, HasAired: i <= (work!.AiredEpisodeCount ?? 0))).ToList()
+            var seasons = series ? view?.Seasons ?? [] : [];
+            int? animeSeason = series ? (q.Season is >= 1 ? q.Season : seasons.Cast<int?>().FirstOrDefault() ?? 1) : null;
+            var animeEpisodes = series && view is not null && animeSeason is { } shown
+                ? view.EpisodesOf(shown).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, e.Overview, e.AirDate, e.RuntimeMin, e.StillUrl,
+                    e.AirStamp, HasAired: e.Aired)).ToList()
                 : [];
             return empty with
             {
@@ -127,9 +130,10 @@ public sealed class TitleExtrasService(
                 Overview = m?.Synopsis, Rating = m?.Rating, RatingSource = m?.Rating is null ? null : "anilist",
                 ReleaseDate = m?.ReleaseDate, Genres = m?.Genres ?? [],
                 Season = animeSeason,
-                SeasonCount = count is null ? null : 1,
-                Seasons = count is null ? [] : [1],
-                AiredEpisodes = series && work!.AiredEpisodeCount is { } airedCount ? new Dictionary<int, int> { [1] = airedCount } : new Dictionary<int, int>(),
+                SeasonCount = seasons.Count == 0 ? null : seasons.Count,
+                Seasons = seasons,
+                AiredEpisodes = series && view is not null
+                    ? view.Episodes.GroupBy(e => e.Season).ToDictionary(g => g.Key, g => g.Count(e => e.Aired)) : new Dictionary<int, int>(),
                 Episodes = animeEpisodes,
                 Resolved = m is not null && (!series || animeEpisodes.Count > 0),
             };

@@ -10,6 +10,16 @@ Requesters receive approval, decline and fulfillment updates, plus an update if
 an approved request cannot find a download. Notifications start when this version is installed;
 historical activity remains in the download log.
 
+Each season download (a Download season click or an approved request's season) is
+one run with a persisted id (`AcquisitionTarget.RunId`). After the wanted queue's
+first pass for that run the owner gets exactly one `download.summary` notification
+with counts only, built by `SeasonFailureSummary.Counts`: "Frieren: Beyond
+Journey's End S1: 36 started, 2 not found yet". Its link
+(`/title/{workKey}?s={season}&run={runId}`) is unique to the run, so later finds
+(queue retries, a season pack, a hand-picked release) change the numbers of that
+same notification in place, keeping its time and read state, and push nothing new.
+The reasons for what is still missing stay on the title page.
+
 ## API
 
 All endpoints require the existing local-owner or verified remote session.

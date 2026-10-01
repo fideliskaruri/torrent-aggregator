@@ -232,6 +232,8 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
                     ["episode"] = e["episode"]?.DeepClone(),
                     ["label"] = e["label"]?.DeepClone(),
                     ["available"] = available,
+                    // Role-aware redaction of the owner's transfer: the plain state only, never its queue position or wait reason.
+                    ["state"] = (e["transfer"] as JsonObject)?["state"]?.DeepClone(),
                 });
             }
             next["episodes"] = projected;

@@ -35,6 +35,9 @@ public partial class AcquisitionTarget
     /// <summary>Single-episode searches that really ran and found nothing usable (refused or busy searches never count).</summary>
     public int RealMisses { get; set; }
 
+    /// <summary>The season download (a Download season click or a request) that last asked for this row; its one summary notification is keyed by it.</summary>
+    public string? RunId { get; set; }
+
     public string? Error { get; set; }
 
     public DateTime CreatedAt { get; set; }

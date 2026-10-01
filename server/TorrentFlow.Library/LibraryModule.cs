@@ -34,7 +34,9 @@ public static class LibraryModule
         services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();
+        services.TryAddSingleton<ISeasonShapeLookup, DefaultSeasonShapeLookup>();
         services.AddSingleton<EpisodeSearchIdentity>();
+        services.AddSingleton<AnimeEpisodeMappings>();
         services.AddHostedService<AutomationScheduler>();
         return services;
     }

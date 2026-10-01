@@ -9,7 +9,7 @@ public partial class Notification
 
     public string RecipientUserId { get; set; } = null!;
 
-    /// <summary>request.new | request.approved | request.declined | request.fulfilled | request.failed | download.completed | download.failed.</summary>
+    /// <summary>request.new | request.approved | request.declined | request.fulfilled | request.failed | download.completed | download.failed | download.summary.</summary>
     public string Kind { get; set; } = null!;
 
     public string Title { get; set; } = null!;

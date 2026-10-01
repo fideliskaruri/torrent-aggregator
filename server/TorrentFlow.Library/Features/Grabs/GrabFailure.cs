@@ -139,4 +139,9 @@ public sealed record SeasonFailureSummary(string Message, string Action, bool Re
         var action = reasons.FirstOrDefault()?.Action ?? "";
         return new(message, action, failures.Any(f => f.Retryable), reasons);
     }
+
+    /// <summary>A season download's one notification, counts only: "Frieren S1: 36 started, 2 not found yet".</summary>
+    public static SeasonFailureSummary Counts(string title, int season, int started, int notFound) =>
+        new($"{title} S{season}: {started} started" + (notFound > 0 ? $", {notFound} not found yet" : ""),
+            notFound > 0 ? "We'll keep looking for the rest." : "", notFound > 0, []);
 }
