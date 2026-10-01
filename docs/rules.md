@@ -10,6 +10,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - Contrast: text and icons must meet WCAG AA (4.5:1 for text, 3:1 for icons and large text) in every state. Don't put a glyph in the primary colour on a primary fill.
 - Mobile: check at an `innerWidth` of 390 (Windows DPI 1.25 means about a 488px viewport). Touch targets are 44px or more, text is 12px or more, and nothing sits under the bottom nav. Check 1280 too, for desktop regressions.
 - Copy is written from the user's side: plain verbs, sentence case, and one name per action through the whole flow. Errors say what happened and how to fix it.
+- Filters stay quiet: one level reads as tabs, the level under it as light text filters. Never stack rows of identical bordered pills, and never show a raw scrollbar under a chip row.
 - Owner-only tools, such as "View as requester", are never shown to requesters and grant nothing on the server.
 
 ## Verification
