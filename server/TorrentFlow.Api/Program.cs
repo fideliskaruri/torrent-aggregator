@@ -234,7 +234,9 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
     }, statusCode: ready ? 200 : 503);
 }).AllowRequesters();
 app.MapControllers();
-
+// An /api path nothing serves is 404 for every method. The SPA fallback below only takes GET and HEAD, and as a catch-all it
+// matches every path before its api/ exclusion is checked, so without this a POST to a removed route answered 405.
+app.Map("/api/{**rest}", () => Results.NotFound());
 
 // Missing hashed chunks (stale tab after an update, or wrong casing on case-sensitive file systems) must
 // 404 rather than return index.html, which the browser would reject as a script with the wrong MIME type.
