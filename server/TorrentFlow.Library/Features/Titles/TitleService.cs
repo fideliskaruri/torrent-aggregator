@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
@@ -15,13 +16,33 @@ namespace TorrentFlow.Library.Features.Titles;
 public sealed record TitleQuery(string WorkKey, string? Title = null, int? Year = null, string? MediaType = null,
     int? Season = null, int? Remembered = null, MediaMetadata? Provider = null);
 
-public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork)
+public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork, ITorrentEngine engine)
 {
     private static readonly TimeSpan ArtworkBudget = TimeSpan.FromMilliseconds(1200);
 
-    internal static Dictionary<string, object?> Transfer(AcquisitionTarget target) =>
-        LibraryJson.Object(("status", target.Status), ("progress", Math.Clamp(target.Progress, 0, 1)),
-            ("infoHash", target.InfoHash), ("filePath", target.FilePath), ("error", target.Error));
+    /// <summary>
+    /// The one transfer shape of a title payload. <c>status</c> is the acquisition row's own status; <c>state</c> splits its
+    /// "queued" in two: "looking" (no release found yet) and "queued" (a release waits for a download slot, with the engine's
+    /// <c>queuePosition</c> and <c>waitReason</c>). Requesters get only <c>state</c> (RequesterCatalogProjectionMiddleware).
+    /// </summary>
+    internal static Dictionary<string, object?> Transfer(AcquisitionTarget target, IReadOnlyDictionary<string, EngineTorrentInfo> queue) =>
+        Transfer(target.Status, target.Status == "queued" && target.InfoHash == null ? "looking" : target.Status, target.Progress,
+            target.InfoHash, target.FilePath, target.Error, target.InfoHash is { } hash ? queue.GetValueOrDefault(hash) : null);
+
+    private static Dictionary<string, object?> Transfer(string status, string state, double progress, string? infoHash, string? filePath, string? error, EngineTorrentInfo? slot) =>
+        LibraryJson.Object(("status", status), ("state", state), ("progress", Math.Clamp(progress, 0, 1)),
+            ("infoHash", infoHash), ("filePath", filePath), ("error", error),
+            ("queuePosition", slot?.QueuePosition), ("waitReason", slot?.WaitReason));
+
+    /// <summary>Queue slots by hash, read from the engine's own list (as the Downloads page shows them) only when something here waits for one.</summary>
+    private async Task<IReadOnlyDictionary<string, EngineTorrentInfo>> QueueAsync(bool anyQueued, CancellationToken ct)
+    {
+        var slots = new Dictionary<string, EngineTorrentInfo>(StringComparer.OrdinalIgnoreCase);
+        if (!anyQueued) return slots;
+        foreach (var row in await engine.ListAsync(ct))
+            if (row.QueuePosition != null) slots.TryAdd(row.Hash, row);
+        return slots;
+    }
 
     internal static bool FilesAbsent(EngineTorrent row)
     {
@@ -64,12 +85,14 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var seasons = new Dictionary<string, object?>();
         object? transfer = null;
         foreach (var target in targets)
-        {
             Reconcile(target, engines.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
+        var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null), ct);
+        foreach (var target in targets)
+        {
             if (target.Status is not ("queued" or "downloading")) continue;
-            if (target.Scope == "title") transfer = Transfer(target);
-            else if (target.Scope == "season" && target.Season != null) seasons[target.Season.ToString()!] = Transfer(target);
-            else if (target.Season != null && target.Episode != null) episodes[new EpisodeCursor(target.Season.Value, target.Episode.Value).Label] = Transfer(target);
+            if (target.Scope == "title") transfer = Transfer(target, queue);
+            else if (target.Scope == "season" && target.Season != null) seasons[target.Season.ToString()!] = Transfer(target, queue);
+            else if (target.Season != null && target.Episode != null) episodes[new EpisodeCursor(target.Season.Value, target.Episode.Value).Label] = Transfer(target, queue);
         }
         await db.SaveChangesAsync(ct);
         return LibraryJson.Object(("workKey", key), ("transfer", transfer), ("seasonTransfers", seasons), ("episodeTransfers", episodes), ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
@@ -95,6 +118,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             .Where(x => hashes.Contains(x.InfoHash) || watch != null && x.WatchListItemId == watch.Id || ReleaseSelection.MatchesWork(key, x.Title)).ToList();
         foreach (var target in targets) Reconcile(target, engineRows.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
         await db.SaveChangesAsync(ct);
+        var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null) || local.Any(x => x.Status == EngineTorrentStatus.Queued), ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
             watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? progress.FirstOrDefault()?.Title ?? Display(key);
         var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
@@ -168,7 +192,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             return LibraryJson.Object(("season", s), ("knownEpisodes", knownCoordinates.Where(c => c.Season == s).Select(c => c.Episode).Distinct().Count()),
                 ("downloadedEpisodes", downloaded.Count), ("downloadingEpisodes", downloading),
                 ("pack", pack == null ? null : LibraryJson.Object(("name", pack.Name), ("availability", State(pack)), ("infoHash", pack.Hash), ("downloadFraction", Fraction(pack)))),
-                ("transfer", targets.FirstOrDefault(t => t.Scope == "season" && t.Season == s) is { } target ? Transfer(target) : null));
+                ("transfer", targets.FirstOrDefault(t => t.Scope == "season" && t.Season == s) is { } target ? Transfer(target, queue) : null));
         }).ToList();
         var coverage = selected is { } selectedSeason ? PackCoverage(playable, selectedSeason) : [];
         var maxEpisode = coordinates.Where(x => x.Season == selected).Select(x => x.Episode).Concat(coverage.Keys).DefaultIfEmpty(0).Max();
@@ -191,7 +215,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             {
                 state = State(cover.Row); hash = cover.Row.Hash; file = cover.Path; fromPack = true;
             }
-            object? transfer = t == null ? null : Transfer(t);
+            object? transfer = t == null ? null : Transfer(t, queue);
             double? fraction = t?.Status == "downloading" ? t.Progress : Fraction(row);
             if (t == null)
             {
@@ -199,7 +223,10 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
                     row == null ? playable.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress < 1 && x.Origin is not ("stream" or "prewarm")) : null;
                 if (downloading != null)
                 {
-                    transfer = LibraryJson.Object(("status", "downloading"), ("progress", downloading.Progress), ("infoHash", downloading.Hash), ("filePath", null), ("error", null));
+                    // A download started outside this page still says whether it waits for a slot.
+                    transfer = queue.GetValueOrDefault(downloading.Hash) is { } slot
+                        ? Transfer("queued", "queued", downloading.Progress, downloading.Hash, null, null, slot)
+                        : Transfer("downloading", "downloading", downloading.Progress, downloading.Hash, null, null, null);
                     hash = downloading.Hash; fraction = downloading.Progress;
                     if (downloading.Progress > 0) state = "warm";
                 }
@@ -217,7 +244,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)), ("resume", resume),
-            ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt) : null),
+            ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt, queue) : null),
             ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > episodeLimit),
             ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || progress.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));

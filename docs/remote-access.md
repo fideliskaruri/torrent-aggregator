@@ -123,8 +123,9 @@ Access and is not in `OwnerEmails` becomes a requester while `AllowRequesters` i
   `/api/requests` list, deletion.
 - Catalog answers to a requester go through `RequesterCatalogProjectionMiddleware`: magnets, info
   hashes, releases/torrents, file paths, stream URLs and progress/transfer state are removed, and
-  `inLibrary`, `requestStatus` and `requestId` (the caller's own request only) are added. Owner answers
-  are unchanged.
+  `inLibrary`, `requestStatus` and `requestId` (the caller's own request only) are added. Title
+  episodes keep only the plain `state` of the owner's transfer (`looking`, `queued`, `downloading`,
+  `downloaded` or `failed`), never its queue position or wait reason. Owner answers are unchanged.
 - Enforcement is two layers. `RemoteAccessMiddleware` checks the path before static files and routing
   (so a requester cannot reach an `/api` path that routes nowhere, and odd spellings such as `/API`,
   `//api`, `/api.` or `/%61pi` are treated as `/api`). After routing,
