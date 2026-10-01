@@ -22,6 +22,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<string>("ClickedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("clickedAt");
+
                     b.Property<string>("CreatedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

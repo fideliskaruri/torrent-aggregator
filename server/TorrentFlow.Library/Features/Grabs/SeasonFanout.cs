@@ -75,7 +75,7 @@ public static class SeasonFanout
                     transfers[i] = new(wanted[i], result.Ok ? result.Queued ? "queued" : "downloading" : "failed",
                         result.Ok ? result.InfoHash : null, result.Ok ? null : result.Message, result.Failure) { RealMiss = !result.Ok && result.RealMiss };
                 }
-                catch (Exception error) when (!ct.IsCancellationRequested)
+                catch (Exception error) when (!ct.IsCancellationRequested && error is not ShuttingDownException)
                 {
                     var failure = GrabFailure.FromException(error);
                     transfers[i] = new(wanted[i], "failed", null, error.Message, failure);
