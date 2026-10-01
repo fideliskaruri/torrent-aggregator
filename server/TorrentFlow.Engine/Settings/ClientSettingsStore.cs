@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Contracts.Engine;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -159,17 +160,6 @@ public sealed class ClientSettingsStore(
         catch (JsonException) { return []; }
     }
 
-    /// <summary>Join base + category using the separator implied by the base path.</summary>
-    public static string JoinDownloadPath(string @base, string category)
-    {
-        var b = @base.TrimEnd('/', '\\');
-        var cat = category.Trim('/', '\\');
-        if (b.Length == 0) return cat;
-        if (cat.Length == 0) return b;
-        var sep = b.Contains('\\') ? '\\' : '/';
-        return $"{b}{sep}{cat}";
-    }
-
     /// <summary>
     /// Category + save path for a send. Priority: explicit savePath, pathRules[category],
     /// baseDownloadPath/category, then savePath default, then baseDownloadPath alone.
@@ -178,11 +168,9 @@ public sealed class ClientSettingsStore(
     {
         var category = !string.IsNullOrEmpty(categoryOverride) ? categoryOverride : config.Category;
         category = ClientConfig.NullIfBlank(category);
-        string? savePath = ClientConfig.NullIfBlank(savePathOverride);
-        if (savePath is null && category is not null && config.PathRules.TryGetValue(category, out var rule)) savePath = ClientConfig.NullIfBlank(rule);
-        if (savePath is null && category is not null && ClientConfig.NullIfBlank(config.BaseDownloadPath) is { } baseDir)
-            savePath = JoinDownloadPath(baseDir, category);
-        savePath ??= ClientConfig.NullIfBlank(config.SavePath) ?? ClientConfig.NullIfBlank(config.BaseDownloadPath);
+        var savePath = ClientConfig.NullIfBlank(savePathOverride)
+            ?? (category is null ? null : MediaFolders.Library(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(category), category, "", film: false))
+            ?? ClientConfig.NullIfBlank(config.SavePath) ?? ClientConfig.NullIfBlank(config.BaseDownloadPath);
         return new DownloadTarget(category, savePath);
     }
 }

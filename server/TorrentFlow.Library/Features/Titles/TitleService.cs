@@ -142,7 +142,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null) || local.Any(x => x.Status == EngineTorrentStatus.Queued), ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
             watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? TorrentFlow.Core.Text.WorkKeySlug.DisplayTitle(key);
-        var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
+        // An AniList film is a film, the same as its catalog row; the AniList source still makes it anime.
+        var type = (query.Provider is { Format: "MOVIE" } ? "movie" : query.Provider?.MediaType) ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
         var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
         if (identity == null && query.FindIdentity && type != "anime") identity = await FindIdentityAsync(key, title, year, isSeries, ct);

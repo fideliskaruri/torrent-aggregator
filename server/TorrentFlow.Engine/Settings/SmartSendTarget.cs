@@ -36,46 +36,39 @@ public static class SmartSendTargets
         var smart = categorizer.Categorize(new(name, options.Tags ?? [], options.Metadata, options.Source, options.SearchCategory), config.Categories);
         var cat = options.CategoryManual && !string.IsNullOrEmpty(options.Category) ? options.Category : smart.Category;
         var kind = smart.Kind;
-        var sepGuess = (FirstNonEmpty(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(cat)) ?? "").Contains('\\') ? "\\" : "/";
-
         var savePath = string.IsNullOrEmpty(options.SavePath) ? null : options.SavePath;
-        if (savePath is null && config.PathRules.GetValueOrDefault(cat)?.Trim() is { Length: > 0 } ruleRoot)
-            savePath = ResolveSmartPath(categorizer, ruleRoot, kind, "", name, options.Metadata, ruleRoot.Contains('\\') ? "\\" : sepGuess);
-        if (savePath is null && config.BaseDownloadPath?.Trim() is { Length: > 0 } baseDir)
-            savePath = ResolveSmartPath(categorizer, baseDir, kind, cat, name, options.Metadata, baseDir.Contains('\\') ? "\\" : sepGuess);
-        savePath ??= ClientSettingsStore.ResolveDownloadTarget(config, cat, null).SavePath;
+        // A manual non-anime category lays an anime release out as that category.
+        if (kind == "anime" && !string.Equals(cat, categorizer.CategoryLabel("anime", config.Categories), StringComparison.OrdinalIgnoreCase))
+            kind = string.Equals(cat, categorizer.CategoryLabel("movies", config.Categories), StringComparison.OrdinalIgnoreCase) ? "movies" : "tv";
+        savePath ??= ResolveSmartPath(categorizer, config, kind, cat, name, options.Metadata)
+            ?? ClientSettingsStore.ResolveDownloadTarget(config, cat, null).SavePath;
 
         return new(cat, savePath, kind, smart);
     }
 
-    /// <summary>&lt;base&gt;/&lt;category&gt;/&lt;show&gt;/Season NN; an empty category means base is already the category root.</summary>
-    public static string ResolveSmartPath(ISmartCategorizer categorizer, string basePath, string kind, string category,
-        string? title, MediaMetadata? metadata, string sep)
+    /// <summary>
+    /// The save path of a catalog work (every grab: film, episode, season pack, request, queue, picked release). The show
+    /// folder is the catalog title the UI shows and the season is the catalog's own, never read from the torrent's name.
+    /// </summary>
+    public static DownloadTarget ForWork(ClientConfig config, ISmartCategorizer categorizer, WorkPlacement work)
     {
-        var root = (basePath ?? "").TrimEnd('/', '\\');
-        var cat = (category ?? "").Trim('/', '\\');
-        if (root.Length == 0) return cat;
-        var path = cat.Length > 0 ? $"{root}{sep}{cat}" : root;
+        var kind = work.Anime ? "anime" : work.Film ? "movies" : "tv";
+        var category = categorizer.CategoryLabel(kind, config.Categories);
+        var path = MediaFolders.SavePath(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(category), category, kind, work.Film,
+            MediaFolders.Name(work.Title), work.Year, work.Season is int season ? MediaFolders.Season(season) : null);
+        return path is null ? ClientSettingsStore.ResolveDownloadTarget(config, category, null) : new(category, path);
+    }
 
+    /// <summary>A send with no catalog work (search page, automation): the show and season are read from the release name.</summary>
+    public static string? ResolveSmartPath(ISmartCategorizer categorizer, ClientConfig config, string kind, string? category,
+        string? title, MediaMetadata? metadata)
+    {
         var showTitle = FirstNonEmpty(title, metadata?.Title);
-        if (ShowKinds.Contains(kind) && showTitle is not null && categorizer.ShowFolder(showTitle, metadata) is { Length: > 0 } show)
-        {
-            // Movies nest as "Title (Year)" when the year is known (metadata or the release name).
-            if (kind == "movies" && MovieYear(title, metadata) is { } year && !show.Contains($"({year})", StringComparison.Ordinal))
-                show = $"{show} ({year})";
-            path = $"{path}{sep}{show}";
-            if (kind is "tv" or "anime" && !string.IsNullOrEmpty(title) && categorizer.SeasonFolder(title) is { Length: > 0 } season)
-                path = $"{path}{sep}{season}";
-        }
-        return path;
+        var show = ShowKinds.Contains(kind) && showTitle is not null ? categorizer.ShowFolder(showTitle, metadata) : null;
+        var film = kind == "movies" || kind == "anime" && categorizer.IsFilm(title ?? "", metadata);
+        var season = !film && !string.IsNullOrEmpty(title) ? categorizer.SeasonFolder(title) : null;
+        return MediaFolders.SavePath(config.BaseDownloadPath, category is null ? null : config.PathRules.GetValueOrDefault(category), category, kind, film,
+            show, film ? MediaFolders.FilmYear(title, metadata?.Year) : null, season);
     }
-
-    /// <summary>Prefer catalog year; otherwise the release name's year (<see cref="TorrentFlow.Core.ReleaseNames.ReleaseYear"/>).</summary>
-    internal static int? MovieYear(string? title, MediaMetadata? metadata)
-    {
-        if (metadata?.Year is int y && y is >= 1870 and <= 2100) return y;
-        return string.IsNullOrWhiteSpace(title) ? null : TorrentFlow.Core.ReleaseNames.ReleaseYear(title);
-    }
-
     private static string? FirstNonEmpty(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrEmpty(v));
 }

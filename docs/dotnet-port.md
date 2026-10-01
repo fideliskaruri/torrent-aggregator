@@ -826,6 +826,17 @@ transfers the client still holds, and it does not re-check media. It returns
 folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
 uses the recorded paths.
 
-The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
-sent. The layout only works inside the row's save path. Transfers handled by an external client
+The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is built by one function,
+`SmartSendTargets.BuildPath`. Every grab (film, episode, season pack, request, wanted queue, picked release) sends its
+catalog work (`WorkPlacement`), so the show folder is the catalog title the UI shows and the season is the catalog's
+own season, never read from the torrent's name; sends with no work (search page, automation) read both from the
+release. Anime is decided by the one shared rule `AnimeIdentity`. Metadata from an anime source (AniList, Kitsu,
+MyAnimeList, AniDB, an anime addon id such as `kitsu:123`, catalog type anime, or a release from a site's anime
+category such as nyaa) is anime with no other check. Only TMDB or Cinemeta metadata falls back to genres: an Anime
+genre, or Animation made in Japan (TMDB original language ja with genre 16). Anime keeps the single `Anime` category but goes to
+`Anime Series/<Show>/Season NN` or `Anime Movies/<Title (Year)>`. Every library is flat under the download root
+(`Movies`, `TV`, `Anime Series`, `Anime Movies`), one Jellyfin library each, never nested in another; with no download
+root the anime libraries sit beside the Anime path rule's folder. `TV` keeps its existing folder name. A send with no
+catalog work tells a film from a series by the catalog type (AniList format `MOVIE` counts), else by a release with no
+season or episode that names a year or "movie"; a site's Live Action category is never anime. The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.

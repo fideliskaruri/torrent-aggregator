@@ -46,8 +46,8 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
     }
     public static bool MatchesCategory(TorrentResult result, string category)
     {
-        var kind = result.Metadata?.MediaType ?? (result.Source == "nyaa" ? "anime" : EpisodeCursor.Parse(result.Title) != null ? "tv" : result.Source == "yts" ? "movie" : null);
-        return category switch { "anime" => kind == "anime", "movies" => kind == "movie", "tv" => kind is "tv" or "anime", _ => true };
+        var kind = ContentKinds.Detect(result, null);
+        return category switch { "anime" => kind == "anime", "movies" => kind == "movies", "tv" => kind is "tv" or "anime", _ => true };
     }
     public async Task<IReadOnlyList<RuleRunResult>> Rules(CancellationToken ct)
     {
@@ -87,7 +87,7 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                             {
                                 var releaseIdentity = ReleaseNames.IdentityFor(candidate.Title);
                                 var grabbed = await grabs.Grab(new(releaseIdentity.Name,
-                                    rule.Category == "anime" || candidate.Source == "nyaa" ? "anime" : candidate.Metadata?.MediaType ?? "tv",
+                                    rule.Category == "anime" || ContentKinds.Detect(candidate, null) == "anime" ? "anime" : candidate.Metadata?.MediaType ?? "tv",
                                     episode, PreferredResolution: ReleaseSelection.Resolution(rule.Resolution ?? "") ?? preferredResolution,
                                     Background: true, Year: releaseIdentity.Year, Constraints: new()
                                     { MinSeeders = rule.MinSeeders, MaxSizeBytes = rule.MaxSizeBytes, Resolution = rule.Resolution },

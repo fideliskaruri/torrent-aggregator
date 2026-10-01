@@ -89,13 +89,21 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             return Conflict(new { ok = false, message = "Choose an episode or season to download first." });
         var library = (Dictionary<string, object?>)detail["library"]!;
         var watchId = library["watchListItemId"] as string;
+        // The page's own catalog identity (an AniList film from a home rail, say) belongs on the work even when the click
+        // carried no provider claim: the grab decides anime from it, and the Downloaded card draws its poster from it.
+        var provider = verified?.Source ?? (detail.GetValueOrDefault("provider") as string is { } known && IMetadataResolver.SupportsProvider(known) ? known : null);
+        var providerId = verified?.ExternalId ?? (provider == null ? null : detail.GetValueOrDefault("providerId") as string);
+        if (providerId == null) provider = null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        // An identity is unique to one work; a page-derived identity already held by another work key is not copied here.
+        if (verified == null && provider != null && await db.Works.AnyAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type && x.WorkKey != workKey, ct))
+            provider = providerId = null;
         if (work == null)
         {
             work = new() { Id = Ids.New(), WorkKey = workKey, CanonicalTitle = title, MediaType = type, Year = detail["year"] as int?,
                 PosterUrl = detail["posterUrl"] as string, AliasesJson = JsonSerializer.Serialize(detail["aliases"]),
-                Provider = verified?.Source, ProviderId = verified?.ExternalId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+                Provider = provider, ProviderId = providerId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
             try { await db.SaveChangesAsync(ct); }
             catch (DbUpdateException error) when (IsUniqueViolation(error))
@@ -104,10 +112,11 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
                 work = await db.Works.SingleAsync(x => x.WorkKey == workKey, ct);
             }
         }
-        else if (verified != null && work.ProviderId == null)
+        else if (provider != null && work.ProviderId == null)
         {
-            work.Provider = verified.Source;
-            work.ProviderId = verified.ExternalId;
+            work.Provider = provider;
+            work.ProviderId = providerId;
+            work.PosterUrl ??= detail["posterUrl"] as string;
             work.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }

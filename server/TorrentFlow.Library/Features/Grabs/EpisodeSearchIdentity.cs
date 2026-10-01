@@ -28,7 +28,7 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         IReadOnlyList<string>? aliases, CancellationToken ct, string? provider = null, string? providerId = null)
     {
         var existing = UniqueNames(aliases ?? [], title);
-        var known = (mediaType ?? "tv", (IReadOnlyList<string>)existing);
+        var known = (AnimeIdentity.IsAnime(provider, mediaType, providerId) ? "anime" : mediaType ?? "tv", (IReadOnlyList<string>)existing);
         if (known.Item1 == "anime" && existing.Count > 0) return known;
         if (string.IsNullOrWhiteSpace(title)) return known;
         var wanted = EpisodeLadder.NormalizeTitle(title);
@@ -36,15 +36,13 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         {
             try
             {
-                var catalog = await metadata.GetByIdAsync(provider, "tv", providerId, ct);
+                var catalog = await metadata.GetByIdAsync(provider, known.Item1 == "movie" ? "movie" : "tv", providerId, ct);
                 if (catalog != null && (year == null || catalog.Year == null || catalog.Year == year) &&
                     (catalog.Aliases ?? []).Prepend(catalog.Title).Any(n => EpisodeLadder.NormalizeTitle(n) == wanted))
                 {
                     // Requests and automation carry no page aliases; the provider's own names are the same ones the title page sends.
                     if (existing.Count == 0) existing = UniqueNames(catalog.Aliases ?? [], title);
-                    var isAnime = catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
-                        catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true;
-                    known = (isAnime ? "anime" : known.Item1, existing);
+                    known = (AnimeIdentity.IsAnime(catalog) ? "anime" : known.Item1, existing);
                 }
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
@@ -52,7 +50,7 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         IReadOnlyList<MediaMetadata> matches;
         try { matches = await lookup.SearchAsync(title, 5, ct); }
         catch (Exception) when (!ct.IsCancellationRequested) { return known; }
-        var anime = matches.FirstOrDefault(c => c.MediaType == "anime" && (year == null || c.Year == null || c.Year == year) &&
+        var anime = matches.FirstOrDefault(c => AnimeIdentity.IsAnime(c) && (year == null || c.Year == null || c.Year == year) &&
             new[] { c.Title }.Concat(c.Aliases ?? []).Any(name => EpisodeLadder.NormalizeTitle(name) == wanted));
         return anime == null ? known : ("anime", UniqueNames(new[] { anime.Title }.Concat(anime.Aliases ?? []).ToList(), title));
     }

@@ -88,6 +88,8 @@ internal sealed partial class TorrentEngineService(
     /// </summary>
     private DownloadTarget ResolveTarget(ClientConfig config, EngineAddRequest request)
     {
+        if (string.IsNullOrEmpty(request.SavePath) && categorizer is not null && request.Placement is { } work)
+            return SmartSendTargets.ForWork(config, categorizer, work);
         if (!string.IsNullOrEmpty(request.SavePath) || categorizer is null || string.IsNullOrWhiteSpace(request.Name))
             return ClientSettingsStore.ResolveDownloadTarget(config, request.Category, request.SavePath);
         var smart = SmartSendTargets.Resolve(config, categorizer, new SmartSendOptions

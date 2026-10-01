@@ -237,7 +237,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
             {
                 var metadata = new MediaMetadata { Source = found.Provider, ExternalId = found.ProviderId ?? found.WorkKey,
                     Title = found.Title, MediaType = found.MediaType, Year = found.Year, PosterUrl = found.PosterUrl,
-                    Synopsis = found.Overview, Aliases = found.Aliases, ReleaseDate = found.ReleaseDate,
+                    Synopsis = found.Overview, Aliases = found.Aliases, ReleaseDate = found.ReleaseDate, Format = found.Format,
                     AdditionalProperties = found.ExternalIds is null ? null : new() { ["externalIds"] = JsonSerializer.SerializeToElement(found.ExternalIds) } };
                 _memory.Set(key, metadata, MemoryTtl);
                 return metadata;

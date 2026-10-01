@@ -20,6 +20,8 @@ public sealed record MediaMetadata
     public IReadOnlyList<string>? Genres { get; init; }
     public string? OriginalLanguage { get; init; }
     public IReadOnlyList<string>? OriginCountry { get; init; }
+    /// <summary>The source's own format when it has one (AniList: "MOVIE", "TV", "OVA"...), so an anime film is still a film.</summary>
+    public string? Format { get; init; }
     [System.Text.Json.Serialization.JsonExtensionData]
     public Dictionary<string, System.Text.Json.JsonElement>? AdditionalProperties { get; init; }
 }

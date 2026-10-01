@@ -383,6 +383,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             Year = year,
             ReleaseDate = StartDate(m),
             Genres = StrArray(m, "genres"),
+            Format = Str(m, "format").OrEmpty(null),
         };
     }
 }
