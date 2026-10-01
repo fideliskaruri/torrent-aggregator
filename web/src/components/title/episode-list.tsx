@@ -33,6 +33,7 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  Search,
   Tv,
   X,
 } from "lucide-react";
@@ -83,7 +84,7 @@ import {
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
-import type { TitleRetention, TitleSeason } from "./types";
+import type { TitleRetention, TitleSeason, TitleTransferState } from "./types";
 import {
   isSeasonComplete,
   seasonProgressLabel,
@@ -658,7 +659,7 @@ function EpisodeCardImpl({
   const downloadDisplayLabel = transfer?.status === "failed"
     ? "Retry download"
     : transfer?.status === "queued"
-      ? "Queued"
+      ? transferStateLabel(transfer.state, transfer.queuePosition) ?? "Queued"
       : transfer?.status === "downloading"
         ? `Downloading ${formatTransferProgress(transfer.progress)}`
         : held
@@ -736,9 +737,11 @@ function EpisodeCardImpl({
   );
 
   const available = episode.available ?? (episode.availability === "ready" || episode.availability === "warm");
+  // Requesters get the plain state of the owner's download, never its place in line.
+  const requesterLabel = available ? "Available" : transferStateLabel(episode.state);
   const mobileMeta = [
     airDate,
-    canDownload ? downloadDisplayLabel : available ? "Available" : null,
+    canDownload ? downloadDisplayLabel : requesterLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -942,18 +945,21 @@ function EpisodeCardImpl({
             >
               <DownloadGlyph
                 transferStatus={transfer?.status ?? null}
+                transferState={transfer?.state ?? null}
+                queuePosition={transfer?.queuePosition ?? null}
                 progress={transfer?.progress ?? null}
                 held={held}
                 status={effectiveDownloadStatus}
               />
             </Button>
           </span>
-          ) : available ? (
+          ) : requesterLabel ? (
             <Badge
-              data-episode-available
+              data-episode-available={available || undefined}
+              data-episode-state={available ? undefined : episode.state ?? undefined}
               className="absolute bottom-2 right-2 z-10 hidden bg-card/82 backdrop-blur-sm sm:bottom-auto sm:top-2 sm:inline-flex"
             >
-              Available
+              {requesterLabel}
             </Badge>
           ) : null}
         </>
@@ -988,7 +994,8 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
     pe.watchedFraction !== ne.watchedFraction ||
     pe.downloadFraction !== ne.downloadFraction ||
     pe.nextUp !== ne.nextUp ||
-    pe.fromPack !== ne.fromPack
+    pe.fromPack !== ne.fromPack ||
+    (pe.state ?? null) !== (ne.state ?? null)
   ) {
     return false;
   }
@@ -997,6 +1004,8 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   const nt = ne.transfer;
   if (
     (pt?.status ?? null) !== (nt?.status ?? null) ||
+    (pt?.state ?? null) !== (nt?.state ?? null) ||
+    (pt?.queuePosition ?? null) !== (nt?.queuePosition ?? null) ||
     (pt?.progress ?? null) !== (nt?.progress ?? null) ||
     (pt?.infoHash ?? null) !== (nt?.infoHash ?? null) ||
     (pt?.filePath ?? null) !== (nt?.filePath ?? null) ||
@@ -1042,11 +1051,15 @@ const EpisodeStillImage = memo(function EpisodeStillImage({
 /** What a card's compact Download control shows, by state. */
 function DownloadGlyph({
   transferStatus,
+  transferState,
+  queuePosition,
   progress,
   held,
   status,
 }: {
   transferStatus: "queued" | "downloading" | "downloaded" | "failed" | null;
+  transferState: TitleTransferState | null;
+  queuePosition: number | null;
   progress: number | null;
   held: boolean;
   status: TitleActionStatus;
@@ -1065,6 +1078,18 @@ function DownloadGlyph({
       </span>
     );
   }
+  // No release found yet can last days, so it is a still magnifier, not a spinner.
+  if (transferState === "looking") {
+    return <Search className="h-4 w-4" aria-hidden />;
+  }
+  // Found and waiting for a download slot: its place in line.
+  if (transferStatus === "queued" && queuePosition != null) {
+    return (
+      <span className="text-[12px] font-semibold tabular-nums leading-none">
+        #{queuePosition}
+      </span>
+    );
+  }
   // Queued has not started moving yet — a brief spinner is honest here.
   if (transferStatus === "queued" || status === "pending") {
     return <Loader2 className="h-4 w-4 animate-spin" aria-hidden />;
@@ -1078,6 +1103,20 @@ function DownloadGlyph({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
+}
+
+/**
+ * Plain words for a waiting or moving transfer. Only owners have a queue
+ * position, so a requester's queued episode reads "Queued" without it.
+ */
+function transferStateLabel(
+  state: TitleTransferState | null | undefined,
+  queuePosition?: number | null,
+): string | null {
+  if (state === "looking") return "Looking";
+  if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
+  if (state === "downloading") return "Downloading";
+  return null;
 }
 
 /**

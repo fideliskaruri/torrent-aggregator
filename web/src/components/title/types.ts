@@ -50,14 +50,24 @@ export interface TitleEpisode {
   transfer: TitleEpisodeTransfer | null;
   /** Requester view only: the owner already has this episode. */
   available?: boolean;
+  /** Requester view only: the plain state of the owner's download, never its queue position. */
+  state?: TitleTransferState | null;
 }
+
+/** `queued` split in two: `looking` (no release found yet) and `queued` (a release waits for a download slot). */
+export type TitleTransferState = "looking" | "queued" | "downloading" | "downloaded" | "failed";
 
 export interface TitleEpisodeTransfer {
   status: "queued" | "downloading" | "downloaded" | "failed";
+  state?: TitleTransferState;
   progress: number;
   infoHash: string | null;
   filePath: string | null;
   error: string | null;
+  /** Owner only, while waiting for a download slot: 1 is next. */
+  queuePosition?: number | null;
+  /** Owner only, while waiting for a download slot: `queue-full`, `lower-lane` or `outside-window`. */
+  waitReason?: string | null;
 }
 
 /** Lightweight transfer state used while the title page polls active grabs. */
