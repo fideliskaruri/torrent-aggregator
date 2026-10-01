@@ -118,7 +118,7 @@ export function TitleResultCard({
           </div>
         </div>
         {title.overview ? (
-          <p className="hidden line-clamp-2 text-[12px] leading-snug text-subtle-foreground sm:block">
+          <p className="hidden text-[12px] leading-snug text-subtle-foreground sm:line-clamp-2">
             {title.overview}
           </p>
         ) : null}
