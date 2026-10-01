@@ -58,7 +58,10 @@ peers, scene names, magnet links, save paths) stay off-stage.
   The click or approval only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at
   once (202); the title page shows them as `state: "looking"`. A dead release costs the queue a metadata
   timeout, never the click. The queue runs one unit per (title, season), up to 6 season runs side by side (a
-  clicked film or episode, `WantedOrder.Single`, starts even when all 6 are busy), retries misses after 1m,
+  clicked film or episode, `WantedOrder.Single`, starts even when all 6 are busy). A clicked episode is a unit
+  of its own: the click restarts only that episode, its season's other queued episodes keep their retry time
+  and their place behind the cap, and the season's runs skip it until it settles (it waits only for a season
+  run already in flight). The queue retries misses after 1m,
   5m, 15m, 1h, 3h and then every 6h, and after 3 fruitless tries (not counting busy search sites or dead
   swarms) notifies the owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
   Each season order is a run (`AcquisitionTarget.RunId`) with one counts-only summary notification (see
