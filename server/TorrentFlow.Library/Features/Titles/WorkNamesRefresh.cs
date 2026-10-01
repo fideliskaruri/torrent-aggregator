@@ -42,9 +42,10 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
 
     /// <summary>
     /// Saves <paramref name="fresh"/> when it is this work's own provider record; with <paramref name="fetch"/>, looks a
-    /// stale work up first (throttled). Never throws for a provider failure: the stored names stay as they were.
+    /// stale work up first (throttled; <paramref name="unthrottled"/> skips the once-a-day limit, for a grab that cannot
+    /// place its download without the anime verdict). Never throws for a provider failure: the stored names stay as they were.
     /// </summary>
-    public async Task RefreshAsync(string workKey, MediaMetadata? fresh, bool fetch, CancellationToken ct)
+    public async Task RefreshAsync(string workKey, MediaMetadata? fresh, bool fetch, CancellationToken ct, bool unthrottled = false)
     {
         Work? work;
         await using (var read = await factory.CreateDbContextAsync(ct))
@@ -54,7 +55,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         if (own == null)
         {
             if (!fetch || !Stale(work) || !IMetadataResolver.SupportsProvider(work.Provider)) return;
-            if (!Claim(work.Id, time.GetUtcNow())) return;
+            if (!Claim(work.Id, time.GetUtcNow()) && !unthrottled) return;
 
             try
             {
@@ -108,6 +109,6 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         var names = saved.ReadNames();
         logger?.LogInformation("Names of {WorkKey}: {Names}; ids {Ids}; format {Format}; original language {Language}; searched as anime: {AnimeSearch}; otherwise: {OtherSearch}; this work is {Kind}",
             workKey, string.Join(" | ", names.All.Select(n => $"{n.Kind}: {n.Text}")), saved.IdsJson, saved.Format, saved.OriginalLanguage,
-            string.Join(" | ", names.SearchNames(true)), string.Join(" | ", names.SearchNames(false)), saved.IsAnime() ? "anime" : "non-anime");
+            string.Join(" | ", names.SearchNames(true)), string.Join(" | ", names.SearchNames(false)), saved.IsAnime() switch { true => "anime", false => "non-anime", null => "unknown" });
     }
 }

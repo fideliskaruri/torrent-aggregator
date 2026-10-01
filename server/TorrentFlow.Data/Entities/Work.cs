@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using TorrentFlow.Core.Contracts.Metadata;
 
@@ -56,8 +56,8 @@ public partial class Work
     /// <summary>Film or series: <see cref="WorkKinds.IsSeries"/>.</summary>
     public bool IsSeries() => WorkKinds.IsSeries(Format, MediaType);
 
-    /// <summary>Anime (the folder only): <see cref="WorkKinds.IsAnime"/>.</summary>
-    public bool IsAnime() => WorkKinds.IsAnime(Provider, ProviderId, Anime, MediaType);
+    /// <summary>Anime (the folder only), null while unknown: <see cref="WorkKinds.IsAnime"/>.</summary>
+    public bool? IsAnime() => WorkKinds.IsAnime(Provider, ProviderId, Anime, MediaType);
 
     public virtual ICollection<AcquisitionTarget> AcquisitionTargets { get; set; } = new List<AcquisitionTarget>();
 

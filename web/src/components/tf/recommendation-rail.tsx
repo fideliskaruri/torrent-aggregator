@@ -70,6 +70,10 @@ export function RecommendationRailSection({
           body: JSON.stringify({
             mediaType: item.mediaType,
             externalId: item.externalId,
+            // The catalog work it is, so its hunts know its provider (and whether it is anime).
+            workKey: workKeyFor(item.title, item.isSeries ? null : item.year),
+            provider: item.provider,
+            providerId: item.externalId,
             title: item.title,
             posterUrl: item.posterUrl,
             // A suggestion has not earned disk: it goes in as something to

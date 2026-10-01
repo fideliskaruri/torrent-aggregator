@@ -130,6 +130,9 @@ export interface TitleLibraryState {
     posterUrl: string | null;
     synopsis: string | null;
     rating: number | null;
+    workKey?: string;
+    provider?: string | null;
+    providerId?: string | null;
   };
 }
 

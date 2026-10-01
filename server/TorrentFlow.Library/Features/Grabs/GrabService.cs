@@ -15,6 +15,7 @@ using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
 using TorrentFlow.Library.Features.Storage;
 using TorrentFlow.Library.Features.Automation;
+using TorrentFlow.Library.Features.Titles;
 using System.Text.Json;
 
 namespace TorrentFlow.Library.Features.Grabs;
@@ -24,8 +25,8 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false, bool Anime = false,
-    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null, bool Catalogued = false)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false, bool? Anime = null,
+    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -53,7 +54,7 @@ public sealed class RungDiagnostic
 public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
     EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null, IHostApplicationLifetime? lifetime = null,
-    IMetadataResolver? metadata = null)
+    IMetadataResolver? metadata = null, WorkNamesRefresh? names = null)
 {
     /// <summary>True once the app began shutting down: probes are cancelled and the client stops before callers' tokens fire.</summary>
     private bool Stopping => lifetime?.ApplicationStopping.IsCancellationRequested == true;
@@ -131,18 +132,21 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
             Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
         var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
-        // Anime is the work's own (WorkKinds), never a title search in the anime catalog. Only a grab with no catalog
-        // identity at all keeps what its caller said, and only it may take a release's site category (Placement).
-        var catalogued = work != null || input.Provider != null && input.ProviderId != null;
-        var animeWork = work?.IsAnime() ?? (input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType, input.ProviderId));
-        input = input with { Anime = animeWork, Catalogued = catalogued };
+        if (work is { Provider: not null, ProviderId: not null } && work.IsAnime() == null && names != null)
+            work = await HydrateAnimeAsync(db, work, ct);
+        // Anime is the work's own (WorkKinds), never a title search in the anime catalog. A grab without a catalog work
+        // keeps only a positive call from its caller or its own anime source; null (unknown) lets the release's site
+        // category decide in Placement, and never reads as "not anime".
+        var animeWork = work?.IsAnime() is { } known ? known
+            : input.Anime == true || AnimeIdentity.IsAnime(input.Provider ?? work?.Provider, input.MediaType, input.ProviderId ?? work?.ProviderId) ? true : (bool?)null;
+        input = input with { Anime = animeWork };
         if (input.Cursor != null)
         {
             var savedAliases = work?.ReadNames().Others(work.CanonicalTitle) ?? [];
             input = input with { Aliases = (input.Aliases ?? []).Concat(savedAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
             // The search identity finds names to search by (and the anime ladder); it decides neither kind nor anime.
             var identity = await (searchIdentity ?? new EpisodeSearchIdentity(anime)).ResolveAsync(input.Title,
-                input.Year ?? work?.Year, animeWork ? "anime" : input.MediaType, input.Aliases, ct,
+                input.Year ?? work?.Year, animeWork == true ? "anime" : input.MediaType, input.Aliases, ct,
                 input.Provider ?? work?.Provider, input.ProviderId ?? work?.ProviderId);
             input = input with { MediaType = identity.MediaType, Aliases = identity.Aliases };
             var provider = input.Provider ?? work?.Provider;
@@ -175,6 +179,27 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.MediaType, input.Provider ?? work?.Provider,
             input.ProviderId ?? work?.ProviderId, ct, work?.OriginalLanguage, input.Anime), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
         return (input, settings, floor, null);
+    }
+
+    /// <summary>
+    /// A catalog work whose anime verdict was never taken from its provider asks the provider now, within the same 2 s
+    /// budget the wanted queue gives its name refresh, before the grab decides its folder. A slow or failed lookup leaves
+    /// the verdict unknown (the release's site category then decides); it never fails the grab.
+    /// </summary>
+    private async Task<Work> HydrateAnimeAsync(TorrentFlowDbContext db, Work work, CancellationToken ct)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(2));
+        try
+        {
+            await names!.RefreshAsync(work.WorkKey, null, fetch: true, budget.Token, unthrottled: true);
+            return await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == work.Id, ct) ?? work;
+        }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            logger?.LogInformation("Anime verdict of {WorkKey} before its grab stopped: {Error}", work.WorkKey, error.Message);
+            return work;
+        }
     }
 
     /// <summary>
@@ -612,8 +637,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (title.Length == 0) return null;
         var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
         var film = pack == null && input.Cursor == null;
-        // Anime is the work's own (Prepare); a release's site category decides only for a grab with no catalog identity.
-        var anime = input.Anime || !input.Catalogued && AnimeIdentity.IsAnimeSiteCategory(release.Category);
+        // Anime is the work's own (Prepare); a release's site category decides only while that is unknown (WorkKinds).
+        var anime = input.Anime ?? AnimeIdentity.IsAnimeSiteCategory(release.Category);
         return new(title, input.Year, anime, film, film ? null : season);
     }
 

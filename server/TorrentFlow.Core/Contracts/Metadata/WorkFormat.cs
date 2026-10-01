@@ -67,6 +67,9 @@ public static class WorkFormats
 /// addon id) is anime outright, otherwise the classification stored from its provider record
 /// (<see cref="AnimeIdentity.IsAnime(MediaMetadata?)"/>); a legacy "anime" media type counts only while that is unknown.
 /// Anime decides the library folder only; film or series decides the layout.
+/// <para>Anime is null while unknown (a TMDB or Cinemeta work its provider was never asked about) and is never read
+/// as "not anime": a grab first asks the provider (bounded), and if the verdict is still unknown the release's own site
+/// category decides the folder, exactly as for a send with no catalog work. A known verdict is never overridden.</para>
 /// </summary>
 public static class WorkKinds
 {
@@ -74,7 +77,8 @@ public static class WorkKinds
         format is { } known ? known != WorkFormat.Movie
         : mediaType?.Trim().ToLowerInvariant() is "tv" or "series" or "show" or "tvshow" or "anime";
 
-    public static bool IsAnime(string? provider, string? providerId, bool? anime, string? mediaType) =>
-        AnimeIdentity.IsAnime(provider, null, providerId)
-        || (anime ?? string.Equals(mediaType, "anime", StringComparison.OrdinalIgnoreCase));
+    /// <summary>True or false when known; null while unknown (never "not anime").</summary>
+    public static bool? IsAnime(string? provider, string? providerId, bool? anime, string? mediaType) =>
+        AnimeIdentity.IsAnime(provider, null, providerId) ? true
+        : anime ?? (string.Equals(mediaType, "anime", StringComparison.OrdinalIgnoreCase) ? true : null);
 }

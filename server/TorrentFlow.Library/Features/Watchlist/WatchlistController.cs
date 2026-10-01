@@ -9,6 +9,8 @@ using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Grabs;
 using TorrentFlow.Library.Features.Automation;
+using TorrentFlow.Library.Features.Titles;
+using TorrentFlow.Core.Text;
 
 namespace TorrentFlow.Library.Features.Watchlist;
 
@@ -42,6 +44,9 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         var poster = patch ? null : f.String("posterUrl", max: 2048, nullable: true);
         var synopsis = patch ? null : f.String("synopsis", max: 20000, nullable: true);
         var rating = patch ? null : f.Number("rating", max: 10, nullable: true);
+        var workKey = patch ? null : f.String("workKey", max: 200, nullable: true);
+        var provider = patch ? null : f.String("provider", max: 32, nullable: true);
+        var providerId = patch ? null : f.String("providerId", max: 200, nullable: true);
         var status = f.Enum("status", ["watching", "planned", "completed", "dropped"]);
         var monitored = f.Bool("monitored");
         var fromSeason = f.Int("fromSeason", 10000);
@@ -88,6 +93,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             if (!string.IsNullOrEmpty(synopsis)) item.Synopsis = synopsis;
             if (rating != null) item.Rating = rating;
         }
+        if (!patch && item.WorkId == null) item.WorkId = await WorkFor(db, workKey, provider, providerId ?? externalId, item, ct);
         if (status != null) item.Status = status;
         if (monitored != null) item.Monitored = monitored;
         if (mode == null && fromSeason != null && HuntCursor.IsNewEpisodesOnly(item.MonitorMode)) mode = HuntCursor.OngoingMode;
@@ -137,6 +143,36 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             await NewEpisodes.PinAsync(db, airDates, item, TimeSpan.FromSeconds(5), ct);
         wake.Wake();
         return Ok(new { item = LibraryJson.Row(item) });
+    }
+
+    /// <summary>
+    /// The work a new row belongs to, so the hunter and on-demand grabs carry its catalog identity (the grab asks that
+    /// provider whether it is anime): the title page's work, else the work holding this catalog id, else a new work with
+    /// only that id, which its first grab or open fills from the provider. An AniList id is what an anime row's external
+    /// id has always been. No catalog id and no work leaves the row unlinked, as before.
+    /// </summary>
+    private static async Task<string?> WorkFor(TorrentFlowDbContext db, string? workKey, string? provider, string? providerId,
+        WatchListItem item, CancellationToken ct)
+    {
+        var identity = TitleIdentity.From(provider, providerId)
+            ?? (item.MediaType == "anime" && int.TryParse(item.ExternalId, out var anilist) && anilist > 0 ? new("anilist", item.ExternalId) : null);
+        var key = workKey?.Trim().ToLowerInvariant() is { Length: > 0 } k ? k
+            : item.ExternalId.StartsWith("work:", StringComparison.Ordinal) ? item.ExternalId[5..] : null;
+        var work = key == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == key, ct);
+        if (work == null && identity != null)
+            work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Provider == identity.Provider && w.ProviderId == identity.ProviderId &&
+                (w.MediaType == item.MediaType || identity.Provider == "anilist"), ct);
+        if (work != null || identity == null) return work?.Id;
+        key ??= WorkKeySlug.WorkKeyFor(item.Title);
+        if (await db.Works.AnyAsync(w => w.WorkKey == key, ct)) return null;
+        var now = DateTime.UtcNow;
+        var created = new Work { Id = Ids.New(), WorkKey = key, CanonicalTitle = item.Title, MediaType = item.MediaType,
+            NamesJson = WorkNames.Legacy(item.Title, null, identity.Provider).ToJson(),
+            IdsJson = WorkIds.From(identity.Provider, identity.ProviderId).ToJson() ?? "{}",
+            Format = WorkFormats.FromMediaType(item.MediaType), Anime = AnimeIdentity.IsAnime(identity.Provider, null, identity.ProviderId) ? true : null,
+            Provider = identity.Provider, ProviderId = identity.ProviderId, PosterUrl = item.PosterUrl, CreatedAt = now, UpdatedAt = now };
+        db.Works.Add(created);
+        return created.Id;
     }
 
     [HttpDelete]
