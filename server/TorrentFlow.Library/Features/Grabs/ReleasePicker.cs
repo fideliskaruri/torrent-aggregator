@@ -58,7 +58,7 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         var others = usable.Where(r => !fits.Contains(r)).ToList();
         var releases = new List<ReleasePickOption>();
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
-        var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct, work.OriginalLanguage);
+        var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct, work.OriginalLanguage, work.IsAnime());
         static string HashOf(TorrentResult r) => LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet)!;
         var blocks = await ReleaseBlocks.GetAsync(db, LocalUser.Id, usable.Select(HashOf), ct);
         // A release whose header the engine read is labelled on its own tracks, the same judge as the engine's check.

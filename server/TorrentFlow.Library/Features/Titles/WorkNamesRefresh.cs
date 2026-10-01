@@ -8,8 +8,8 @@ using TorrentFlow.Data.Entities;
 namespace TorrentFlow.Library.Features.Titles;
 
 /// <summary>
-/// Keeps a work's stored names and ids (<see cref="Work.NamesJson"/>, <see cref="Work.IdsJson"/>), format and original
-/// language in step with its own provider. A provider record already in hand is saved as it is; an AniList or
+/// Keeps a work's stored names and ids (<see cref="Work.NamesJson"/>, <see cref="Work.IdsJson"/>), format, original
+/// language and anime verdict (<see cref="Work.Anime"/>) in step with its own provider. A provider record already in hand is saved as it is; an AniList or
 /// TMDB work whose names never came from its provider (<see cref="Work.NamesRefreshedAt"/> unset) is looked up on the
 /// next grab or title open, at most once a day per work.
 /// </summary>
@@ -24,7 +24,9 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
     /// others give nothing more than ingest stored). Once taken, values the provider doesn't know (TMDB "xx", a country
     /// with no mapped language, no IMDb id) stay unknown rather than being fetched again.
     /// </summary>
-    public static bool Stale(Work work) => work.NamesRefreshedAt == null && work.Provider is "anilist" or "tmdb";
+    public static bool Stale(Work work) =>
+        work.NamesRefreshedAt == null && work.Provider is "anilist" or "tmdb"
+        || work.Anime == null && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider);
 
     /// <summary>Claims this work's once-a-day lookup; only one caller wins a slot, however many race for it.</summary>
     private bool Claim(string workId, DateTimeOffset now)
@@ -56,7 +58,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
 
             try
             {
-                var kind = work.Format == WorkFormat.Movie || work.Format == null && work.MediaType == "movie" ? "movie" : "tv";
+                var kind = work.IsSeries() ? "tv" : "movie";
                 own = await metadata.GetByIdAsync(work.Provider, kind, work.ProviderId, ct);
             }
             catch (Exception error) when (!ct.IsCancellationRequested)
@@ -85,10 +87,13 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
                 WorkLinks.Apply(current, links);
                 var format = WorkFormats.Of(record) ?? current.Format;
                 var language = WorkFormats.LanguageOf(record) ?? current.OriginalLanguage;
-                changed = current.NamesJson != priorNames || current.IdsJson != priorIds || format != current.Format || language != current.OriginalLanguage;
+                var anime = AnimeIdentity.IsAnime(record);
+                changed = current.NamesJson != priorNames || current.IdsJson != priorIds || format != current.Format || language != current.OriginalLanguage
+                    || anime != current.Anime;
                 if (!changed && current.NamesRefreshedAt != null) return false;
                 current.Format = format;
                 current.OriginalLanguage = language;
+                current.Anime = anime;
                 current.NamesRefreshedAt = time.GetUtcNow().UtcDateTime;
                 return true;
             }, ct);
@@ -101,9 +106,8 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         if (written is not { Saved: true } || !changed) return;
         var saved = written.Work;
         var names = saved.ReadNames();
-        var anime = AnimeIdentity.IsAnime(record) || AnimeIdentity.IsAnime(saved.Provider, saved.MediaType, saved.ProviderId);
-        logger?.LogInformation("Names of {WorkKey}: {Names}; ids {Ids}; format {Format}; original language {Language}; searched as anime: {AnimeSearch}; otherwise: {OtherSearch}; this work searches as {Kind}",
+        logger?.LogInformation("Names of {WorkKey}: {Names}; ids {Ids}; format {Format}; original language {Language}; searched as anime: {AnimeSearch}; otherwise: {OtherSearch}; this work is {Kind}",
             workKey, string.Join(" | ", names.All.Select(n => $"{n.Kind}: {n.Text}")), saved.IdsJson, saved.Format, saved.OriginalLanguage,
-            string.Join(" | ", names.SearchNames(true)), string.Join(" | ", names.SearchNames(false)), anime ? "anime" : "non-anime");
+            string.Join(" | ", names.SearchNames(true)), string.Join(" | ", names.SearchNames(false)), saved.IsAnime() ? "anime" : "non-anime");
     }
 }

@@ -21,7 +21,8 @@ public static class HuntCursor
     private static readonly Regex EpisodePattern = new(@"S(\d{1,3})[ ._-]*E(\d{1,4})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
-    public static bool IsSeries(string? mediaType) => mediaType is "tv" or "anime" or "series";
+    /// <summary>A row with only a media type (no work format to hand): <see cref="TorrentFlow.Core.Contracts.Metadata.WorkKinds.IsSeries"/>.</summary>
+    public static bool IsSeries(string? mediaType) => TorrentFlow.Core.Contracts.Metadata.WorkKinds.IsSeries(null, mediaType);
 
     public static bool IsNewEpisodesOnly(string? monitorMode) => monitorMode == NewEpisodesMode;
 

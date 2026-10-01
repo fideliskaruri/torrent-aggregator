@@ -1578,6 +1578,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("aliasesJson");
 
+                    b.Property<bool?>("Anime")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("anime");
+
                     b.Property<string>("CanonicalTitle")
                         .IsRequired()
                         .HasColumnType("TEXT")

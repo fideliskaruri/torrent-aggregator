@@ -191,8 +191,8 @@ public static class MediaTypes
     public static string? Normalize(string? raw) =>
         string.IsNullOrEmpty(raw) ? null : Aliases.GetValueOrDefault(raw.Trim().ToLowerInvariant());
 
-    /// <summary>media-type.ts isSeriesMediaType.</summary>
-    public static bool IsSeries(string? raw) => Normalize(raw) is "tv" or "anime";
+    /// <summary>media-type.ts isSeriesMediaType, for a row with no format: <see cref="WorkKinds.IsSeries"/>.</summary>
+    public static bool IsSeries(string? raw) => WorkKinds.IsSeries(null, Normalize(raw));
 }
 
 /// <summary>

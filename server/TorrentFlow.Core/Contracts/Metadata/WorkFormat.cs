@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace TorrentFlow.Core.Contracts.Metadata;
 
-/// <summary>What a work is, as its provider tells it. Stored on the work as text; nothing decides by it yet.</summary>
+/// <summary>What a work is, as its provider tells it. Stored on the work as text; <see cref="WorkKinds.IsSeries"/> decides by it.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<WorkFormat>))]
 public enum WorkFormat
 {
@@ -58,4 +58,23 @@ public static class WorkFormats
         "CN" or "TW" => "zh",
         _ => null
     };
+}
+
+/// <summary>
+/// The one owner of "is this work a film or a series" and "is it anime". Film or series is the work's stored
+/// <see cref="WorkFormat"/> (Movie is a film; Series and Special have episodes), falling back to its media type only
+/// while the format is unknown. Anime is the work's own metadata: an anime source (AniList, Kitsu, MAL, AniDB, an anime
+/// addon id) is anime outright, otherwise the classification stored from its provider record
+/// (<see cref="AnimeIdentity.IsAnime(MediaMetadata?)"/>); a legacy "anime" media type counts only while that is unknown.
+/// Anime decides the library folder only; film or series decides the layout.
+/// </summary>
+public static class WorkKinds
+{
+    public static bool IsSeries(WorkFormat? format, string? mediaType) =>
+        format is { } known ? known != WorkFormat.Movie
+        : mediaType?.Trim().ToLowerInvariant() is "tv" or "series" or "show" or "tvshow" or "anime";
+
+    public static bool IsAnime(string? provider, string? providerId, bool? anime, string? mediaType) =>
+        AnimeIdentity.IsAnime(provider, null, providerId)
+        || (anime ?? string.Equals(mediaType, "anime", StringComparison.OrdinalIgnoreCase));
 }

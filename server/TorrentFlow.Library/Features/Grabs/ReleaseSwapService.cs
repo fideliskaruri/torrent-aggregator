@@ -83,7 +83,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         cursor ??= episode.Episode is { } parsedEpisode ? new(episode.Season ?? 1, parsedEpisode) : null;
         if (episode.IsMultiSeason == true || episode.IsBatch && !episode.IsSeasonPack)
             throw new InvalidOperationException("This release has an ambiguous scope. Choose a single episode from its title page.");
-        if (cursor is null && !episode.IsSeasonPack && (identity.IsSeries || row.Work?.MediaType is "tv" or "anime"))
+        if (cursor is null && !episode.IsSeasonPack && (row.Work?.IsSeries() ?? identity.IsSeries))
             throw new InvalidOperationException("Could not identify the exact episode to replace.");
         var scope = cursor?.QueueKey ?? (episode.IsSeasonPack && episode.Season is { } season ? $"season:{season}" : "movie");
         if (episode.IsSeasonPack && episode.Season is null) throw new InvalidOperationException("Could not identify the release's season.");
@@ -142,8 +142,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var currentQuality = ReleaseSelection.Resolution(releaseName) ?? floor;
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         var want = grabs != null
-            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct, row.Work?.OriginalLanguage)
-            : LanguageWant.For(settings?.AudioLanguage, mediaType, row.Work?.OriginalLanguage);
+            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct, row.Work?.OriginalLanguage, row.Work?.IsAnime())
+            : LanguageWant.For(settings?.AudioLanguage, row.Work?.IsAnime() == true ? "anime" : mediaType, row.Work?.OriginalLanguage);
         var header = await MediaProbeTracks.ForAsync(db, open.Concat(held).Select(CandidateHash).Append(hash), ct);
 
         var current = new ReleaseSwapCurrent(releaseName, grabbed?.Source, currentSize, ReleaseSelection.Resolution(releaseName), false,

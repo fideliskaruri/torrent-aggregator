@@ -454,7 +454,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     {
         var settings = options.Value;
         var none = new Dictionary<int, string>();
-        if (!settings.SeasonPackFallback || work.MediaType is not ("tv" or "anime")) return none;
+        if (!settings.SeasonPackFallback || !work.IsSeries()) return none;
         await using var db = await factory.CreateDbContextAsync(ct);
         var due = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == unit.WorkKey && t.Scope == "episode" &&
             t.Season == season && owned.Contains(t.TargetKey) && t.Status == "queued" && t.InfoHash == null && t.Episode != null && t.RealMisses >= settings.SeasonPackMisses).ToListAsync(ct);

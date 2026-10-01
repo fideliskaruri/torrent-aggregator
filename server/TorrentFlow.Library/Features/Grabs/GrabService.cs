@@ -25,7 +25,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
     SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false, bool Anime = false,
-    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null)
+    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null, bool Catalogued = false)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -131,12 +131,18 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
             Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
         var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
+        // Anime is the work's own (WorkKinds), never a title search in the anime catalog. Only a grab with no catalog
+        // identity at all keeps what its caller said, and only it may take a release's site category (Placement).
+        var catalogued = work != null || input.Provider != null && input.ProviderId != null;
+        var animeWork = work?.IsAnime() ?? (input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType, input.ProviderId));
+        input = input with { Anime = animeWork, Catalogued = catalogued };
         if (input.Cursor != null)
         {
             var savedAliases = work?.ReadNames().Others(work.CanonicalTitle) ?? [];
             input = input with { Aliases = (input.Aliases ?? []).Concat(savedAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
+            // The search identity finds names to search by (and the anime ladder); it decides neither kind nor anime.
             var identity = await (searchIdentity ?? new EpisodeSearchIdentity(anime)).ResolveAsync(input.Title,
-                input.Year ?? work?.Year, work?.MediaType == "anime" ? "anime" : input.MediaType, input.Aliases, ct,
+                input.Year ?? work?.Year, animeWork ? "anime" : input.MediaType, input.Aliases, ct,
                 input.Provider ?? work?.Provider, input.ProviderId ?? work?.ProviderId);
             input = input with { MediaType = identity.MediaType, Aliases = identity.Aliases };
             var provider = input.Provider ?? work?.Provider;
@@ -159,23 +165,15 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 // A later cour's names search its own episodes only; the work keeps the names of its own entry.
                 if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 }) saved = input.Aliases;
             }
-            if (work != null && (saved is { Count: > 0 } || work.MediaType != input.MediaType))
+            if (work != null && saved is { Count: > 0 })
             {
                 var namesJson = work.ReadNames().With(saved).ToJson();
-                await db.Works.Where(w => w.Id == work.Id).ExecuteUpdateAsync(s =>
-                    s.SetProperty(w => w.NamesJson, namesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
+                await db.Works.Where(w => w.Id == work.Id).ExecuteUpdateAsync(s => s.SetProperty(w => w.NamesJson, namesJson), ct);
             }
         }
         int? floor = input.PreferredResolution ?? SettingsDefaults.ResolutionOrDefault(settings.PreferredResolution);
-        if (input.Cursor == null)
-        {
-            // A film keeps searching as a film; the shared anime rule only decides where it lands.
-            var film = await (searchIdentity ?? new EpisodeSearchIdentity(anime)).ResolveAsync(input.Title, input.Year, input.MediaType,
-                input.Aliases, ct, input.Provider, input.ProviderId);
-            input = input with { Anime = film.MediaType == "anime" };
-        }
-        input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.Anime ? "anime" : input.MediaType, input.Provider ?? work?.Provider,
-            input.ProviderId ?? work?.ProviderId, ct, work?.OriginalLanguage), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
+        input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.MediaType, input.Provider ?? work?.Provider,
+            input.ProviderId ?? work?.ProviderId, ct, work?.OriginalLanguage, input.Anime), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
         return (input, settings, floor, null);
     }
 
@@ -185,13 +183,14 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// A failed lookup leaves the original language unknown and is tried again next time.
     /// </summary>
     internal async Task<LanguageWant> LanguageWantAsync(string? preference, string? mediaType, string? provider, string? providerId,
-        CancellationToken ct, string? workOriginal = null)
+        CancellationToken ct, string? workOriginal = null, bool? anime = null)
     {
-        // The one anime rule decides first; only a TMDB title needs its catalog entry for that and its original language.
-        var type = AnimeIdentity.IsAnime(provider, mediaType, providerId) ? "anime" : mediaType;
+        // A catalog work's anime is already decided (WorkKinds); otherwise the one anime rule decides first, and only a
+        // TMDB title needs its catalog entry for that and its original language.
+        var type = anime ?? AnimeIdentity.IsAnime(provider, mediaType, providerId) ? "anime"
+            : string.Equals(mediaType, "anime", StringComparison.OrdinalIgnoreCase) ? "tv" : mediaType;
         string? original = LanguageTag.Normalize(workOriginal);
         if (type != "anime" && original == null && metadata != null &&
-
             string.Equals(provider, "tmdb", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(providerId))
         {
             var kind = string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase) ? "movie" : "tv";
@@ -210,7 +209,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 }
             }
             original = known.Original;
-            if (known.Anime) type = "anime";
+            if (known.Anime && anime == null) type = "anime";
         }
         return LanguageWant.For(preference, type, original);
     }
@@ -613,8 +612,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (title.Length == 0) return null;
         var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
         var film = pack == null && input.Cursor == null;
-        // An anime source decides on its own: the work's AniList (or other anime catalog) identity, or a release from a site's anime category.
-        var anime = input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType, input.ProviderId) || AnimeIdentity.IsAnimeSiteCategory(release.Category);
+        // Anime is the work's own (Prepare); a release's site category decides only for a grab with no catalog identity.
+        var anime = input.Anime || !input.Catalogued && AnimeIdentity.IsAnimeSiteCategory(release.Category);
         return new(title, input.Year, anime, film, film ? null : season);
     }
 
