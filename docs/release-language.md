@@ -21,7 +21,7 @@ English-translated category, then known groups. In order:
 4. English subtitles known (name, category, sidecar, header): Pass. Ambiguous English with subtitles not known to be
    another language: Pass.
 5. Foreign audio that is not the work's original language, on one track: Fail (a Russian MVO).
-6. Not anime, nothing stated, and the work's original language is English: Pass. Not known: Unknown.
+6. Not anime, nothing stated, and the work's original language is English: Pass. Another known language: Unknown. Not known: Pass (the old heuristic).
 7. Several audio tracks with subtitles not known: Unknown.
 8. Raws (no subtitles): Fail. Foreign-only subtitles (VOSTFR, CHT): Fail. Mixed: Unknown. Anything else: Unknown,
    "English not stated".
@@ -238,4 +238,4 @@ subtitles only, so the Russian audio sorts as Preferred.
   sends.
 - The search page orders by the same verdict under `auto` (`ReleaseQuality.LanguagePreference`).
 - The work's original language: `GrabService.LanguageWantAsync` reads `Work.OriginalLanguage` (ISO 639-1) and falls back
-  to the TMDB catalog lookup. Unknown original language leaves an untagged non-anime release Unknown.
+  to the TMDB catalog lookup. English means an untagged non-anime release passes, another known language leaves it Unknown, and no original language at all falls back to Pass.
