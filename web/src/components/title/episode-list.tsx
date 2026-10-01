@@ -40,6 +40,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { SeasonSwitcher } from "@/components/tf/season-switcher";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatRuntimeMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCapabilities } from "@/lib/capabilities";
 import { useFeatures } from "@/lib/features";
@@ -633,7 +634,7 @@ function EpisodeCardImpl({
   const overview = meta?.overview?.trim() || null;
   // Roughly two caption lines at 300px; anything longer earns a "More".
   const overviewClamped = overview != null && overview.length > 90;
-  const runtime = meta?.runtimeMin ? `${meta.runtimeMin} min` : null;
+  const runtime = formatRuntimeMinutes(meta?.runtimeMin ?? null);
   const desktopFacts = [airDate, runtime].filter(Boolean).join(" · ");
 
   const still = (

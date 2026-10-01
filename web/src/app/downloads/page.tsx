@@ -53,7 +53,7 @@ import {
 } from "@/components/title/work-key";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
-import { speedLabel } from "@/components/tf/active-row-state";
+import { formatSpeed } from "@/lib/format";
 import { startVisiblePoller } from "./polling";
 import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
@@ -1097,7 +1097,7 @@ export default function ClientPage() {
       ? [{ id: "attention" as const, label: needsAttentionLabel(stats.error), hook: "attention" }]
       : []),
   ];
-  const liveSpeed = stats.downloading > 0 ? speedLabel(stats.dlspeed) : null;
+  const liveSpeed = stats.downloading > 0 ? formatSpeed(stats.dlspeed) : null;
   const clientUnavailable = offline && !isBuiltin;
 
   return (

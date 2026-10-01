@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 interface RecoveryInfo {
   dataDirectory: string;
@@ -271,7 +271,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
                       })} aria-label={`Select ${candidate.name}`} />
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="block break-words font-medium text-foreground">{candidate.name}</span>
-                      <span className="block text-muted-foreground">{formatBytes(candidate.sizeBytes)} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
+                      <span className="block text-muted-foreground">{formatBytes(candidate.sizeBytes) ?? "Unknown size"} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
                       <span className="block break-all font-mono text-subtle-foreground">{candidate.savePath}</span>
                       <span className="block text-subtle-foreground">{candidate.dataExists ? "Hash will be rechecked" : "Will import paused until you restore the files or resume"}{candidate.alreadyImported ? " · Already imported" : ""}</span>
                     </span>
@@ -293,3 +293,4 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     </Dialog>
   </div>;
 }
+

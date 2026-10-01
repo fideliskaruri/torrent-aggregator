@@ -5,7 +5,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Check, Download, Search, Zap } from "lucide-react";
-import { cn, formatBytes, formatDuration } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { useDisplayPath, useFeatures } from "@/lib/features";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
-import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
+import { progressPercent } from "@/components/tf/active-row-state";
 import { seasonProgressLabel } from "@/components/title/season-progress";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
@@ -132,7 +133,7 @@ export function DownloadTransferRow({
   const errorMessage = transferErrorMessage(t);
   const [errorExpanded, setErrorExpanded] = useState(false);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
-  const speed = isDownloading(t.state) ? speedLabel(t.dlspeed) : null;
+  const speed = isDownloading(t.state) ? formatSpeed(t.dlspeed) : null;
   const done = isDownloaded(t.state);
   const quality = releaseDisplayFacts(t, artworkQueryForRelease(t.name, t.category)).qualityChip;
   const heading = transferTitleParts({ title, href: titleHref, posterUrl });
@@ -305,7 +306,7 @@ export function DownloadTransferRow({
                 {quality ? <Badge variant="outline">{quality}</Badge> : null}
                 {t.sizeBytes > 0 || showEta ? (
                   <span className="text-[12px] text-subtle-foreground tabular-nums">
-                    {[t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null, showEta ? `ETA ${formatDuration(t.eta as number)}` : null]
+                    {[t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null, showEta ? formatEta(t.eta) : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -426,7 +427,7 @@ export function DownloadGroupSummary({
             percent={pct}
             tone={transferBarTone(group.state, chip.failing)}
             label={`${group.title} combined download progress`}
-            speed={isDownloading(group.state) ? speedLabel(group.dlspeed) : null}
+            speed={isDownloading(group.state) ? formatSpeed(group.dlspeed) : null}
             className="pt-0.5"
             barClassName="max-w-[18rem]"
           />

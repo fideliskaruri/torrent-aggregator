@@ -1,7 +1,8 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Radar } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatWhen } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
@@ -330,7 +331,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                         dateTime={item.createdAt}
                         className="col-start-2 whitespace-nowrap text-xs text-subtle-foreground sm:col-start-3 sm:row-start-1"
                       >
-                        {formatRelativeTime(item.createdAt)}
+                        {formatWhen(item.createdAt, { style: "relative" })}
                       </time>
                     </li>
                   );
@@ -422,3 +423,4 @@ function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
     </PageSkeletonFrame>
   );
 }
+
