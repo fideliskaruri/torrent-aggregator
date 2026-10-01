@@ -56,10 +56,16 @@ internal interface ITorrentBackend
     IReadOnlyList<BackendSnapshot> List();
     /// <summary>Hashes of the loaded transfers, without building snapshots.</summary>
     IReadOnlyCollection<string> LiveHashes();
-    Task PauseAsync(string hash);
     Task ResumeAsync(string hash);
-    /// <summary>Detaches from the client. Deleting files is the caller's job (it knows the recorded paths).</summary>
-    Task RemoveAsync(string hash);
+    /// <summary>
+    /// The one way a transfer leaves the client (pause, cap demotion, delete, completion, failure). It is gone from
+    /// <see cref="Contains"/> and <see cref="List"/> at once; the returned task completes once the client has let go of
+    /// its files. The stop never waits on a tracker announce, so callers that only need the slot back don't await it.
+    /// <paramref name="keepResumeData"/> keeps the fast-resume and metadata cache so the next load skips the hash check;
+    /// otherwise both are deleted, also when the transfer is no longer loaded. Deleting payload files is the caller's
+    /// job (it knows the recorded paths). Never throws.
+    /// </summary>
+    Task RemoveAsync(string hash, bool keepResumeData = false);
     Task SetSelectedFilesAsync(string hash, IReadOnlySet<int>? selected);
     Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct);
     /// <summary>Raw .torrent metadata once known, so a later rehydrate never needs the network.</summary>

@@ -607,6 +607,51 @@ namespace TorrentFlow.Data.Migrations
                     b.ToTable("DownloadHistory", (string)null);
                 });
 
+            modelBuilder.Entity("TorrentFlow.Data.Entities.EngineDeletion", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BatchId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("DeleteFiles")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FilesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NextAttemptAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SavePath")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "Hash");
+
+                    b.ToTable("EngineDeletion", (string)null);
+                });
+
             modelBuilder.Entity("TorrentFlow.Data.Entities.EngineTorrent", b =>
                 {
                     b.Property<string>("Id")
@@ -639,6 +684,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("ForcedAt")
                         .HasColumnType("DATETIME")
                         .HasColumnName("forcedAt");
+
+                    b.Property<string>("ForcedReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("forcedReason");
 
                     b.Property<string>("Hash")
                         .IsRequired()

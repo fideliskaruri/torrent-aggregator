@@ -56,7 +56,7 @@ internal sealed partial class TorrentEngineService
                     Id = Ids.New(), UserId = old.UserId, Hash = nextHash, Name = request.Name,
                     Magnet = TorrentSource.WidenTrackers(request.Magnet!, Options.EffectivePublicTrackers),
                     SavePath = old.SavePath, Category = old.Category, Origin = old.Origin, WorkId = old.WorkId,
-                    QueueKey = old.QueueKey, Lane = old.Lane, ForcedAt = old.ForcedAt, CreatedAt = old.CreatedAt,
+                    QueueKey = old.QueueKey, Lane = old.Lane, ForcedAt = old.ForcedAt, ForcedReason = old.ForcedReason, CreatedAt = old.CreatedAt,
                     LastUsedAt = Now, UpdatedAt = Now, SizeBytes = request.SizeBytes ?? 0,
                     Status = old.Status == EngineTorrentStatus.Paused ? EngineTorrentStatus.Paused : EngineTorrentStatus.Queued,
                 };

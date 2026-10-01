@@ -76,6 +76,7 @@ public static class EngineModule
         services.AddSingleton<ILayoutTidy>(sp => sp.GetRequiredService<TorrentEngineService>());
         services.AddSingleton<RetentionSweeper>();
         services.AddHostedService<EngineMonitorService>();
+        services.AddHostedService<DeletionCleanupService>();
         return services;
     }
 }

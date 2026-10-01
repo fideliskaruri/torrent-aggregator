@@ -31,6 +31,10 @@ public interface ITorrentEngine
 
     Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default);
 
+    /// <summary>
+    /// Removes a transfer and returns at once: it never lists again, and with <paramref name="deleteFiles"/> its files
+    /// are deleted in the background moments later (a restart in between still finishes the delete).
+    /// </summary>
     Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default);
 
     /// <summary>
@@ -274,8 +278,10 @@ public sealed record EngineTorrentInfo
     public string? WaitReason { get; init; }
     public string? WorkId { get; init; }
     public string? QueueKey { get; init; }
-    /// <summary>True when the owner pressed Download now (ForcedAt is set). Distinct from queue position.</summary>
+    /// <summary>True when the row holds a slot past the cap (ForcedAt is set). Distinct from queue position.</summary>
     public bool Forced { get; init; }
+    /// <summary>Why <see cref="Forced"/>: "now" (the owner pressed Download now) or "legacy" (forced before reasons were stored).</summary>
+    public string? ForcedReason { get; init; }
     /// <summary>True after the engine verified the payload on disk (parked/complete). Survives restart without a live client.</summary>
     public bool Verified { get; init; }
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }

@@ -28,6 +28,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public DbSet<ReleaseAttempt> ReleaseAttempts { get; set; }
 
+    public DbSet<EngineDeletion> EngineDeletions { get; set; }
+
     public virtual DbSet<GrabJob> GrabJobs { get; set; }
 
     public virtual DbSet<MediaProbe> MediaProbes { get; set; }
@@ -60,6 +62,12 @@ public partial class TorrentFlowDbContext : DbContext
         {
             entity.ToTable("ReleaseAttempt");
             entity.HasKey(e => new { e.UserId, e.WorkKey, e.Scope, e.Hash });
+        });
+
+        modelBuilder.Entity<EngineDeletion>(entity =>
+        {
+            entity.ToTable("EngineDeletion");
+            entity.HasKey(e => new { e.UserId, e.Hash });
         });
 
         modelBuilder.Entity<AcquisitionTarget>(entity =>
@@ -347,6 +355,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.ForcedAt)
                 .HasColumnType("DATETIME")
                 .HasColumnName("forcedAt");
+            entity.Property(e => e.ForcedReason).HasColumnName("forcedReason");
             entity.Property(e => e.Hash).HasColumnName("hash");
             entity.Property(e => e.LastUsedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")

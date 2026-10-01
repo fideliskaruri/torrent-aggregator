@@ -53,6 +53,12 @@ public partial class EngineTorrent
 
     public DateTime? ForcedAt { get; set; }
 
+    /// <summary>
+    /// Why <see cref="ForcedAt"/> is set: "now" when the owner pressed Download now, "legacy" for rows forced before
+    /// the reason was stored (an old resume). Cleared with ForcedAt.
+    /// </summary>
+    public string? ForcedReason { get; set; }
+
     /// <summary>Queue lane rank (TorrentLane.Rank): 0 owner, 1 request, 2 automation. Lower starts first.</summary>
     public int Lane { get; set; }
 

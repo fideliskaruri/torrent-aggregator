@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Queue;
 using ManifestFile = TorrentFlow.Engine.TorrentEngineService.ManifestFile;
 
 namespace TorrentFlow.Engine.Layout;
@@ -326,7 +327,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         // No longer "downloaded": nothing may play it or treat it as complete. The manifest stays so a delete finds the files.
         row.VerifiedAt = null;
         row.VerifiedBitfield = null;
-        row.ForcedAt = null;
+        row.ClearForced();
         row.UpdatedAt = now;
         var hash = row.Hash.ToLowerInvariant();
         var upper = row.Hash.ToUpperInvariant();
