@@ -93,6 +93,8 @@ import {
   rethrowAcquisitionFetchError,
 } from "./title-action-request";
 import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
+import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
+import { ReleaseSwapDialog, type ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -200,6 +202,8 @@ export function TitleDetail(props: TitleDetailProps) {
   // Season requests still waiting on the server; a toast Retry may pass a
   // spent (partially started) season but never one of these.
   const inFlightSeasonGrabs = useRef(new Set<string>());
+  // The download "Find another source" is open for: the film, or one episode. Owner only.
+  const [swapSubject, setSwapSubject] = useState<ReleaseSwapSubject | null>(null);
 
   // Resync on props change — the SPA half of cookie persistence. A cached RSC
   // payload can carry an old server cookie, so the live browser cookie wins.
@@ -745,11 +749,25 @@ export function TitleDetail(props: TitleDetailProps) {
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
           onLibraryChanged={refetch}
+          onFindAnotherSource={setSwapSubject}
           provider={props.provider ?? null}
           providerId={props.providerId ?? null}
           routeTitle={props.title ?? null}
         />
       )}
+
+      {swapSubject && caps.canDownload ? (
+        <ReleaseSwapDialog
+          key={swapSubject.hash}
+          subject={swapSubject}
+          onClose={() => setSwapSubject(null)}
+          onSwapped={() => {
+            setSwapSubject(null);
+            startTransferPoll();
+            void refetch();
+          }}
+        />
+      ) : null}
 
       <StorageCapDialog {...cap.dialogProps} />
     </div>
@@ -778,6 +796,7 @@ function TitleContent({
   onSeasonGrab,
   onAction,
   onLibraryChanged,
+  onFindAnotherSource,
   provider,
   providerId,
   routeTitle,
@@ -815,6 +834,8 @@ function TitleContent({
     resolution?: number,
   ) => void;
   onLibraryChanged: () => void;
+  /** Opens Find another source for the film's or an episode's download. Stable: a state setter. */
+  onFindAnotherSource: (subject: ReleaseSwapSubject) => void;
 }) {
   const caps = useCapabilities();
   const { openFolder } = useFeatures();
@@ -856,6 +877,13 @@ function TitleContent({
   const knownTitle = headingTitle(payload.title, routeTitle);
   const titlePending = knownTitle == null && (refreshing || extrasLoading || !extrasSettled);
   const title = knownTitle != null ? cleanDisplayTitle(knownTitle) : "Unknown title";
+  // Stable across polls like handleEpisodeListAction, so the memoised episode
+  // cards don't re-render for it. Names the episode the way Downloads does.
+  const handleFindEpisodeSource = useCallback(
+    (hash: string, episodeLabel: string) =>
+      onFindAnotherSource({ hash, workTitle: title, label: `${title} ${episodeLabel}` }),
+    [onFindAnotherSource, title],
+  );
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -1049,6 +1077,17 @@ function TitleContent({
   // and a ready local row are built-in downloads, and the info hash names it.
   const openHash = titleTransfer?.status === "downloaded" ? titleTransfer.infoHash : null;
   const canOpenFile = showDownload && caps.canSeePaths && openFolder && !!openHash;
+  // The film's download can be replaced by another release. Owner only, and
+  // the shared rule decides which states offer it.
+  const findSourceHash = showDownload && caps.canDownload ? (titleTransfer?.infoHash ?? null) : null;
+  const canFindSource =
+    findSourceHash != null &&
+    canFindAnotherSource({
+      builtin: true,
+      hash: findSourceHash,
+      pack: false,
+      finished: titleTransfer?.status === "downloaded" || (titleTransfer?.progress ?? 0) >= 0.9999,
+    });
   const openTitleFile = async (mode: OpenDownloadMode) => {
     if (!openHash || openingFile) return;
     setOpeningFile(mode);
@@ -1331,6 +1370,21 @@ function TitleContent({
                   </Button>
                 ) : null}
 
+                {canFindSource && findSourceHash ? (
+                  <Button
+                    type="button"
+                    size="lg"
+                    variant="outline"
+                    data-title-find-source
+                    aria-label={`${FIND_ANOTHER_SOURCE_LABEL} for ${title}`}
+                    onClick={() => onFindAnotherSource({ hash: findSourceHash, workTitle: title, label: title })}
+                    className="relative w-full min-w-0 md:w-auto"
+                  >
+                    <Search aria-hidden />
+                    {FIND_ANOTHER_SOURCE_LABEL}
+                  </Button>
+                ) : null}
+
                 {caps.canManage ? (
                   <LibraryControls
                     library={payload.library}
@@ -1428,6 +1482,7 @@ function TitleContent({
             onSeasonChange={onSeasonChange}
             onSeasonGrab={requestSeasonGrab}
             onAction={handleEpisodeListAction}
+            onFindAnotherSource={caps.canDownload ? handleFindEpisodeSource : undefined}
           />
         ) : null}
 
