@@ -45,18 +45,23 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
         var claims = new List<LinkClaim>(mapClaims);
 
         // A title search runs once per work, and only when the work has no TMDB or AniList record of its own or verified.
+        // A search that failed (error, timeout, rate limit) leaves the work unlinked so the next open or backfill searches
+        // again; only a search that answered, with or without a match, counts as done.
         if (work.LinksVersion == null)
         {
             var seeded = WorkLinks.Claims(WorkIds.FromJson(work.IdsJson), ownType, WorkLinks.FromProvider).ToList();
             var verified = known.Where(l => !l.Rejected && l.Verified).Select(l => l.Provider).Concat(seeded.Concat(claims).Select(c => c.Provider)).ToHashSet();
             if (own.Tmdb == null && !verified.Contains("tmdb") && own.AniList == null && !verified.Contains("anilist"))
             {
-                var (found, foundAnime) = await SuggestTmdbAsync(work, ownType, ct);
-                claims.AddRange(found);
-                anime |= foundAnime;
+                if (await SuggestTmdbAsync(work, ownType, ct) is not { } search) return;
+                claims.AddRange(search.Claims);
+                anime |= search.Anime;
             }
             if (anime && own.AniList == null && !verified.Contains("anilist") && !claims.Any(c => c.Provider == "anilist"))
-                claims.AddRange(await SuggestAniListAsync(work, ownType, ct));
+            {
+                if (await SuggestAniListAsync(work, ownType, ct) is not { } suggested) return;
+                claims.AddRange(suggested);
+            }
         }
         claims = await WithNamesAsync(claims, ct);
 
@@ -167,7 +172,7 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     /// (or one year off for an animated Japanese film, whose festival and release dates differ). Kept only when exactly
     /// one record matches; an anime match brings the map's AniList record as a suggestion too.
     /// </summary>
-    private async Task<(IEnumerable<LinkClaim> Claims, bool Anime)> SuggestTmdbAsync(Work work, string type, CancellationToken ct)
+    private async Task<(IEnumerable<LinkClaim> Claims, bool Anime)?> SuggestTmdbAsync(Work work, string type, CancellationToken ct)
     {
         if (work.Year == null) return ([], false);
         foreach (var name in SearchNames(work))
@@ -176,8 +181,8 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
             try { hits = await tmdb.SearchByTypeAsync(type, name, 10, ct); }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
-                logger.LogInformation("TMDB search for {WorkKey} failed: {Error}", work.WorkKey, error.Message);
-                return ([], false);
+                logger.LogInformation("TMDB search for {WorkKey} failed: {Error}; linking is tried again later", work.WorkKey, error.Message);
+                return null;
             }
             var strong = hits.Where(h => h.MediaType == type && SameName(name, WorkNames.Of(h)) && YearFits(work.Year, h.Year, type, AnimeIdentity.IsAnime(h)))
                 .DistinctBy(h => h.ExternalId).ToList();
@@ -193,7 +198,7 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     }
 
     /// <summary>An AniList search by the same names and rules (film format for a film); exactly one strong match.</summary>
-    private async Task<IEnumerable<LinkClaim>> SuggestAniListAsync(Work work, string type, CancellationToken ct)
+    private async Task<IEnumerable<LinkClaim>?> SuggestAniListAsync(Work work, string type, CancellationToken ct)
     {
         if (work.Year == null) return [];
         foreach (var name in SearchNames(work))
@@ -202,8 +207,8 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
             try { hits = await anilist.SearchWorksAsync(name, 8, ct); }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
-                logger.LogInformation("AniList search for {WorkKey} failed: {Error}", work.WorkKey, error.Message);
-                return [];
+                logger.LogInformation("AniList search for {WorkKey} failed: {Error}; linking is tried again later", work.WorkKey, error.Message);
+                return null;
             }
             var strong = hits.Where(h => (h.Format == "MOVIE") == (type == "movie") && SameName(name, WorkNames.Of(h.Metadata))
                     && YearFits(work.Year, h.Metadata.Year, type, anime: true))
