@@ -27,7 +27,7 @@ internal sealed record BackendSnapshot(
     long DownloadRate,
     long UploadRate,
     int Peers,
-    /// <summary>metaDL | checkingDL | downloading | stalledDL | paused | complete | error</summary>
+    /// <summary>metaDL (also while being started) | checkingDL | downloading | stalledDL | complete | error</summary>
     string State,
     bool HasMetadata,
     string SavePath,

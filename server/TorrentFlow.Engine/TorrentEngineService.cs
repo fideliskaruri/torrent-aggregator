@@ -1095,7 +1095,7 @@ internal sealed partial class TorrentEngineService(
                 var seeding = IsDownloaded(row);
                 if (seeding && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                     return new EngineActionResult(true, "Already downloaded");
-                if (row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
+                if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
                 {
                     if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
                     await backend.ResumeAsync(hash);

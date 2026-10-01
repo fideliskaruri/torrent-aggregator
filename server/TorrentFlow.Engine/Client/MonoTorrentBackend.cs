@@ -615,10 +615,11 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         {
             TorrentState.Metadata => "metaDL",
             TorrentState.Hashing or TorrentState.FetchingHashes or TorrentState.HashingPaused => "checkingDL",
-            TorrentState.Stopped or TorrentState.Stopping or TorrentState.Paused => complete ? "complete" : "paused",
             TorrentState.Error => "error",
             _ when complete => "complete",
-            TorrentState.Starting => "metaDL",
+            // Nothing pauses a loaded transfer (pause and cap demotion take it out of the client), so a stopped one is
+            // being started: an add loads it stopped and starts it last, and a magnet's wrapper drop restarts it.
+            TorrentState.Starting or TorrentState.Stopped or TorrentState.Stopping or TorrentState.Paused => "metaDL",
             _ => rate > 0 ? "downloading" : "stalledDL",
         };
         _errors.TryGetValue(hash, out var err);
