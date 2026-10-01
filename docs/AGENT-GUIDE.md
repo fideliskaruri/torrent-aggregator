@@ -56,8 +56,13 @@ peers, scene names, magnet links, save paths) stay off-stage.
   all season packs"); it goes to the Activity log ("What we saw: ...") and `GET /api/wanted` (`why`).
 - **Every Download (a film, one episode, a season) and approved requests are fire and forget** (`WantedQueue`).
   The click or approval only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at
-  once (202); the title page shows them as `state: "looking"`. A dead release costs the queue a metadata
-  timeout, never the click. The queue runs one unit per (title, season), up to 6 season runs side by side (a
+  once (202); the title page shows them as `state: "looking"`, and Downloads lists them under Looking for a release
+  (`GET /api/wanted`: `looking` while a search runs, else `why` and `nextAttemptAt`). A clicked film or episode searches
+  as `SearchOptions.Urgent`: its site requests go first in each site's line, so a season fan-out never holds it up.
+  A found magnet is admitted at once, so its row is on
+  Downloads within seconds (Finding files); the file rules run when its file list arrives. A dead release fails after
+  the metadata timeout, hands its wanted items back, the queue wakes at once and the engine refuses that release to
+  automatic picks while its error row is there, so the next pick moves on. The queue runs one unit per (title, season), up to 6 season runs side by side (a
   clicked film or episode, `WantedOrder.Single`, starts even when all 6 are busy). A clicked episode is a unit
   of its own: the click restarts only that episode, its season's other queued episodes keep their retry time
   and their place behind the cap, and the season's runs skip it until it settles (it waits only for a season
@@ -66,6 +71,11 @@ peers, scene names, magnet links, save paths) stay off-stage.
   swarms) notifies the owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
   Each season order is a run (`AcquisitionTarget.RunId`) with one counts-only summary notification (see
   notifications.md); a single click is not a run.
+  A click stamps `AcquisitionTarget.ClickedAt` (cleared once a release is sent or a season order takes the row), so
+  after a restart the startup scan rebuilds it as its own `Single` unit ahead of the season runs. A search or send
+  cut short by shutdown (`ApplicationStopping`) throws `ShuttingDownException`: nothing is logged as failed or
+  skipped and no retry wait is set. Dead releases keep their engine error row, so after a restart they are refused at
+  once instead of waiting out the metadata timeout again.
 - **The server decides a season's episodes** (`ISeasonShapeLookup`, `SeasonShapeService`). Download season
   ignores any episode list the browser sends, and requests read the same shape. For anime it is
   `AnimeFranchiseService`: the AniList first season and its released TV/ONA sequels laid over the one TMDB

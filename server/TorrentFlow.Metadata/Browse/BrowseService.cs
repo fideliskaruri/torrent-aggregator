@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Globalization;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -113,13 +114,25 @@ public sealed partial class BrowseService(
         var size = view.GenreRail is null ? DiscoveryRailSize : GenrePageSize;
         // Rails hold more than they show and a rail only claims the cards it shows, so a later rail that overlaps an
         // earlier one still fills from its own spare rows.
-        var rails = DistinctAcrossRails(personal.Concat(discovery), rail => rail.Kind is null ? int.MaxValue : size);
+        var rails = await WithWorkPostersAsync(DistinctAcrossRails(personal.Concat(discovery), rail => rail.Kind is null ? int.MaxValue : size), ct)
+            .ConfigureAwait(false);
         return new BrowsePayload(rails, time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))
         {
             View = view.Type,
             Genre = view.GenreRail?.Genre?.Id,
             Genres = all ? [] : HomeRails.GenresOf(view.Type),
         };
+    }
+
+    /// <summary>Every card shows its work's one poster (<see cref="WorkPosters"/>), the same one every other page shows.</summary>
+    private async Task<List<Rail>> WithWorkPostersAsync(List<Rail> rails, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var known = await WorkPosters.LoadAsync(db, rails.SelectMany(r => r.Cards).Select(c => c.WorkKey), ct).ConfigureAwait(false);
+        return rails.Select(r => r with
+        {
+            Items = r.Cards.Select(c => (object)(c with { PosterUrl = WorkPosters.Pick(known, c.WorkKey, c.PosterUrl) })).ToList(),
+        }).ToList();
     }
 
     public const string YourLibraryRailId = "your-library";
@@ -281,7 +294,7 @@ public sealed partial class BrowseService(
     public static bool LibraryTorrentCanSurface(EngineTorrent t) => t.Progress >= 1 && t.Status != "removed" && t.Status != "error";
 
     /// <summary>A season pack represents the work over single episodes.</summary>
-    public static bool LibraryRepresentativePreference(string name) => ReleaseNames.ParseEpisode(name).IsSeasonPack;
+    public static bool LibraryRepresentativePreference(string name) => ReleaseEpisodeParser.Parse(name).IsSeasonPack;
 
     [GeneratedRegex(@"\b(2160p|1080p|720p|576p|480p|4k)\b", RegexOptions.IgnoreCase)] private static partial Regex ResolutionPattern();
 
@@ -308,18 +321,18 @@ public sealed partial class BrowseService(
         var episodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var release in releases)
         {
-            var fallbackSeason = ReleaseNames.ParseEpisode(release.Name).Season;
-            var videos = LocalFiles.RecordedFilePaths(release.VerifiedFilesJson).Where(ReleaseNames.IsSupportedVideoFileName)
+            var fallbackSeason = ReleaseEpisodeParser.Parse(release.Name).Season;
+            var videos = LocalFiles.RecordedFilePaths(release.VerifiedFilesJson).Where(MediaFileRules.IsVideo)
                 .Select(p => Path.GetFileNameWithoutExtension(p.Replace('\\', '/').Split('/')[^1])).ToList();
             if (videos.Count == 0)
             {
-                var parsed = ReleaseNames.ParseEpisode(release.Name);
+                var parsed = ReleaseEpisodeParser.Parse(release.Name);
                 if (parsed.Episode is int single) episodes.Add($"{parsed.Season ?? fallbackSeason}x{single}");
                 continue;
             }
             foreach (var name in videos)
             {
-                var parsed = ReleaseNames.ParseEpisode(name);
+                var parsed = ReleaseEpisodeParser.Parse(name);
                 episodes.Add(parsed.Episode is int episode ? $"{parsed.Season ?? fallbackSeason}x{episode}" : $"file:{name.ToLowerInvariant()}");
             }
         }
@@ -345,7 +358,7 @@ public sealed partial class BrowseService(
             {
                 slot = queries.Count;
                 slotByKey[key] = slot;
-                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ReleaseNames.DetectContentKind(name))));
+                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ReleaseKinds.DetectContentKind(name))));
             }
             slots.Add(slot);
         }

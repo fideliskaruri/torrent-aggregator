@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+using TorrentFlow.Core.Text;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Data;
@@ -16,7 +18,7 @@ internal sealed class LibraryDownloadRecovery(IDbContextFactory<TorrentFlowDbCon
         foreach (var row in rows)
         {
             var identity = ReleaseNames.IdentityFor(row.Name);
-            var key = ReleaseNames.WorkKeyFor(identity.Name, identity.Year);
+            var key = WorkKeySlug.WorkKeyFor(identity.Name, identity.Year);
             if (key.Length == 0) key = "local-" + row.Hash;
             var now = DateTime.UtcNow;
             var work = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == key, ct);

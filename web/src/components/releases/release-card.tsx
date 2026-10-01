@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
-import { cn, formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export interface ReleaseCardData {
   token: string;
@@ -65,7 +66,7 @@ export function ReleaseCard({
         {release.quality ? <Badge variant="outline">{release.quality}p</Badge> : null}
         <span>{release.seeders} {release.seeders === 1 ? "seeder" : "seeders"}</span>
         <span aria-hidden>·</span>
-        <span>{release.sizeBytes != null ? formatBytes(release.sizeBytes) : "Size unknown"}</span>
+        <span>{formatBytes(release.sizeBytes) ?? "Size unknown"}</span>
         {release.source ? (
           <>
             <span aria-hidden>·</span>
@@ -95,3 +96,4 @@ export function ReleaseCard({
     </li>
   );
 }
+

@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
+using static TorrentFlow.Core.ReleaseEpisodeParser;
 
 namespace TorrentFlow.Search;
 
@@ -15,8 +16,6 @@ public sealed record SeasonPlan(int Season, int[] Wanted,
 
 public static class EpisodeSelection
 {
-    public static bool IsEpisodeRange(string title) => Match(title,
-        @"\bS\d{1,3}\s*E\d{1,4}\s*[-–—~]\s*(?:S\d{1,3}\s*)?E?\d{1,4}\b|\b\d{1,3}x\d{1,4}\s*[-–—~]\s*(?:\d{1,3}x)?\d{1,4}\b|\b(?:episodes?|eps?|e)\s*\.?\s*\d{1,4}\s*[-–—~]\s*(?:episodes?|eps?|e)?\s*\.?\s*\d{1,4}\b").Success;
     public static SeasonCoverage? Coverage(string title, EpisodeInfo? episode = null)
     {
         var ep = episode ?? Parse(title);
@@ -32,7 +31,7 @@ public static class EpisodeSelection
     public static bool MatchesTarget(TorrentResult result, int season, int episode)
     {
         var ep = result.Episode ?? Parse(result.Title);
-        return !ep.IsBatch && !ep.IsSeasonPack && ep.IsMultiSeason != true && !IsEpisodeRange(result.Title)
+        return !IsMultiEpisode(result.Title, ep)
             && ep.Episode == episode && (ep.Season == season || ep.Season == null && season == 1);
     }
     public static TorrentResult? SelectCandidate(IEnumerable<TorrentResult> results, int season, int episode) =>

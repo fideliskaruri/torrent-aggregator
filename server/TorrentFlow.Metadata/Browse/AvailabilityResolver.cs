@@ -1,6 +1,8 @@
+using TorrentFlow.Core;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -32,7 +34,6 @@ public sealed class AvailabilityResolver(
     LocalFilePresenceCache files,
     TimeProvider time)
 {
-    public const int MinViableSeeders = 3;
     private static readonly TimeSpan MemoryTtl = TimeSpan.FromSeconds(30);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, Availability Value)> _memory = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, IReadOnlyList<CachedSearchHit> Value)> _searchMemory = new(StringComparer.Ordinal);
@@ -151,7 +152,7 @@ public sealed class AvailabilityResolver(
     {
         if (!NormalizeTitle(torrentName).Contains(NormalizeTitle(query.Title), StringComparison.Ordinal)) return false;
         if (query.Season is null && query.Episode is null) return true;
-        var parsed = ReleaseNames.ParseEpisode(torrentName);
+        var parsed = ReleaseEpisodeParser.Parse(torrentName);
         if (parsed.IsSeasonPack && parsed.Season is { } packSeason)
         {
             if (query.Season == packSeason) return true;
@@ -190,7 +191,7 @@ public sealed class AvailabilityResolver(
         foreach (var r in results)
         {
             if (!NormalizeTitle(r.Title).Contains(title, StringComparison.Ordinal)) continue;
-            if (r.Seeders < MinViableSeeders) continue;
+            if (!ReleaseSeeders.IsViable(r.Seeders)) continue;
             if (query.Season is not null || query.Episode is not null)
             {
                 var parsed = r.Episode ?? Facts(r.Title);
@@ -209,7 +210,7 @@ public sealed class AvailabilityResolver(
 
     private static EpisodeFacts Facts(string title)
     {
-        var ep = ReleaseNames.ParseEpisode(title);
+        var ep = ReleaseEpisodeParser.Parse(title);
         return new(ep.Season, ep.Episode, ep.IsSeasonPack);
     }
 

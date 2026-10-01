@@ -26,7 +26,8 @@ import { readJsonBody } from "@/lib/api-json";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { toast } from "@/lib/toast";
-import { cn, formatBytes, formatDuration } from "@/lib/utils";
+import { formatDuration, formatSpeed } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { isDownloaded } from "./grouping";
 import { stateLabel } from "./release-display";
 import type { ClientTorrent } from "./types";
@@ -486,7 +487,7 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
   const stalledText = !health
     ? checking ? "Checking…" : "Unknown"
     : health.stalledForSeconds > 0
-      ? formatDuration(health.stalledForSeconds)
+      ? formatDuration(health.stalledForSeconds) ?? "Not stalled"
       : "Not stalled";
   const status = stateLabel(health?.state ?? torrent.state, torrent.queuePosition);
 
@@ -504,7 +505,7 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
         </div>
         <div className="min-w-0">
           <dt className="text-xs text-subtle-foreground">Speed</dt>
-          <dd className="text-foreground" data-health-speed>{formatBytes(speed)}/s</dd>
+          <dd className="text-foreground" data-health-speed>{formatSpeed(speed) ?? "Idle"}</dd>
         </div>
         <div className="min-w-0">
           <dt className="text-xs text-subtle-foreground">Stalled for</dt>
@@ -514,3 +515,4 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
     </section>
   );
 }
+

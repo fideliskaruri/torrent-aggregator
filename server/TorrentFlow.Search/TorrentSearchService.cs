@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -48,7 +49,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested) { logger.LogWarning(e, "Search settings unavailable; using defaults"); }
         var target = options.TargetResolution is 480 or 720 or 1080 or 2160 ? options.TargetResolution.Value
-            : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
+            : SettingsDefaults.ResolutionOrDefault(settings?.PreferredResolution);
         if (options.Enrich && options.Page <= 1) enricher.Prime(options.Query, options.Category);
         var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}") + (registry is null ? "" : $":sources:{registry.Revision}");
         var pool = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, token: cancellationToken);
@@ -56,7 +57,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         if (pool == null)
         {
             // Deadline and freshness policies must not coalesce with automation.
-            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}|{options.WaitForBudget}";
+            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}|{options.WaitForBudget}|{options.Urgent}";
             Task<SearchResponse> work;
             while (true)
             {
@@ -274,7 +275,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             var lineWait = options.WaitForBudget ? PatientSourceWait
                 : TimeSpan.FromMilliseconds(options.AdapterDeadlineMs is > 0 and var deadline ? deadline : InteractiveAdapterDeadlineMs);
             scope = IndexerHttp.Use(new(options.WaitForBudget, lineWait,
-                async ct => await TakeSlotAsync(adapter, ct, null, token), () => lifetime.CancelAfter(attemptMs)));
+                async ct => await TakeSlotAsync(adapter, ct, null, token), () => lifetime.CancelAfter(attemptMs), options.Urgent));
         }
         try { return await adapter.SearchAsync(options, lifetime.Token); }
         catch (OperationCanceledException) when (attemptTimeoutMs is not null && !token.IsCancellationRequested)

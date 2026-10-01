@@ -35,7 +35,8 @@
  * means a new refusal reason cannot quietly inherit "overridable" by default,
  * and the rule can be tested on its own.
  */
-import { formatBytesShort, type StorageLimitKind } from "./storage-format";
+import { formatBytes } from "@/lib/format";
+import { type StorageLimitKind } from "./storage-format";
 
 /**
  * Where the cap actually lives. `?tab=folders` is the existing deep link for the
@@ -139,7 +140,7 @@ function claimedBytes(facts: StorageOverrideFacts): number | null {
 function downloadAndQueueCopy(facts: StorageOverrideFacts): string {
   const parts: string[] = [];
   if (facts.incomingBytes != null && facts.incomingBytes > 0) {
-    const size = formatBytesShort(facts.incomingBytes);
+    const size = formatBytes(facts.incomingBytes) ?? "Unknown size";
     parts.push(
       facts.incomingEstimated
         ? `This download: ${size} (size unknown).`
@@ -147,7 +148,7 @@ function downloadAndQueueCopy(facts: StorageOverrideFacts): string {
     );
   }
   if (facts.reservedQueuedBytes != null && facts.reservedQueuedBytes > 0) {
-    parts.push(`Already queued: ${formatBytesShort(facts.reservedQueuedBytes)}.`);
+    parts.push(`Already queued: ${formatBytes(facts.reservedQueuedBytes) ?? "Unknown size"}.`);
   }
   return parts.length > 0 ? ` ${parts.join(" ")}` : "";
 }
@@ -157,7 +158,7 @@ function positive(value: number | null | undefined): number {
 }
 
 function incomingValue(facts: StorageOverrideFacts): string {
-  const size = formatBytesShort(positive(facts.incomingBytes));
+  const size = formatBytes(positive(facts.incomingBytes)) ?? "Unknown size";
   return facts.incomingEstimated ? `about ${size}` : size;
 }
 
@@ -167,7 +168,11 @@ function downloadAndQueueRows(facts: StorageOverrideFacts): StorageBreakdownRow[
     rows.push({ key: "incoming", label: "This download", value: incomingValue(facts) });
   }
   if (positive(facts.reservedQueuedBytes) > 0) {
-    rows.push({ key: "queued", label: "Already queued", value: formatBytesShort(positive(facts.reservedQueuedBytes)) });
+    rows.push({
+      key: "queued",
+      label: "Already queued",
+      value: formatBytes(positive(facts.reservedQueuedBytes)) ?? "Unknown size",
+    });
   }
   return rows;
 }
@@ -180,18 +185,20 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
   const incoming = positive(facts.incomingBytes);
   const queued = positive(facts.reservedQueuedBytes);
   if (facts.limit === "reserve") {
-    const free = facts.freeBytes != null ? formatBytesShort(facts.freeBytes) : "the space";
+    const free = facts.freeBytes != null ? (formatBytes(facts.freeBytes) ?? "Unknown size") : "the space";
     const claim = claimedBytes(facts);
     const after =
       facts.freeBytes != null && claim != null
-        ? ` That would leave about ${formatBytesShort(Math.max(0, facts.freeBytes - claim))} free.`
+        ? ` That would leave about ${formatBytes(Math.max(0, facts.freeBytes - claim)) ?? "Unknown size"} free.`
         : "";
     const freeBytes = positive(facts.freeBytes);
     const left = facts.freeBytes != null && claim != null ? Math.max(0, facts.freeBytes - claim) : null;
     const rows: StorageBreakdownRow[] = [
       ...(facts.freeBytes != null ? [{ key: "free" as const, label: "Free on drive", value: free }] : []),
       ...downloadAndQueueRows(facts),
-      ...(left != null ? [{ key: "left" as const, label: "Left after", value: formatBytesShort(left) }] : []),
+      ...(left != null
+        ? [{ key: "left" as const, label: "Left after", value: formatBytes(left) ?? "Unknown size" }]
+        : []),
     ];
     const bar: StorageBar | null =
       freeBytes > 0 && incoming + queued > 0
@@ -205,7 +212,7 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
         : null;
     return {
       title: "Low on free space",
-      summary: left != null ? `About ${formatBytesShort(left)} would be left free.` : "It fits, with little room to spare.",
+      summary: left != null ? `About ${formatBytes(left) ?? "Unknown size"} would be left free.` : "It fits, with little room to spare.",
       rows,
       bar,
       note: "It fits, but dips into the spare margin TorrentFlow normally keeps.",
@@ -220,8 +227,8 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
     };
   }
 
-  const used = formatBytesShort(facts.usedBytes);
-  const cap = facts.capBytes != null ? formatBytesShort(facts.capBytes) : "your cap";
+  const used = formatBytes(facts.usedBytes) ?? "Unknown size";
+  const cap = facts.capBytes != null ? (formatBytes(facts.capBytes) ?? "Unknown size") : "your cap";
   // Why the arithmetic looks the way it does. Without this the dialog could
   // read "You are using 0 B of 1 MB" when a large queue tip the cap. Keep this
   // download and already-queued reservations as separate sentences.
@@ -247,7 +254,7 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
     title: "Over your storage cap",
     summary:
       over != null && over > 0
-        ? `Downloading this puts you ${formatBytesShort(over)} over the cap.`
+        ? `Downloading this puts you ${formatBytes(over) ?? "Unknown size"} over the cap.`
         : "Downloading this goes over the cap you set.",
     rows: [
       { key: "used", label: "Used", value: used },
@@ -365,3 +372,5 @@ export async function runWithStorageOverride<T>(
     return { status: "done", value: await attempt({ overrideStorageCap: true }) };
   }
 }
+
+

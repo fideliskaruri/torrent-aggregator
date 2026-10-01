@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -23,9 +24,6 @@ public sealed class SettingsClientController(
     TimeProvider time,
     Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engineOptions) : ControllerBase
 {
-    internal static readonly int[] SelectableResolutions = [480, 720, 1080, 2160];
-    internal const int DefaultResolution = 1080;
-    internal static readonly int[] AutomationIntervals = [0, 30, 120, 360];
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
@@ -65,8 +63,8 @@ public sealed class SettingsClientController(
             ["storageCapConfigured"] = cap is not null,
             ["setupComplete"] = hasFolder && cap is > 0,
             ["verboseDiagnostics"] = s.VerboseDiagnostics == true,
-            ["preferredResolution"] = s.PreferredResolution is { } r && SelectableResolutions.Contains(r) ? r : DefaultResolution,
-            ["automationIntervalMinutes"] = s.AutomationIntervalMinutes is { } m && AutomationIntervals.Contains(m) ? m : 0,
+            ["preferredResolution"] = SettingsDefaults.ResolutionOrDefault(s.PreferredResolution),
+            ["automationIntervalMinutes"] = SettingsDefaults.AutomationIntervalOrDefault(s.AutomationIntervalMinutes),
             ["maxActiveDownloads"] = s.MaxActiveDownloads is >= DownloadLimits.MinActiveDownloads and <= DownloadLimits.MaxActiveDownloads
                 ? s.MaxActiveDownloads : DefaultMaxActive(),
             ["maxActiveDownloadsDefault"] = DefaultMaxActive(),
@@ -216,7 +214,7 @@ public sealed class SettingsClientController(
         if (body.Bool("verboseDiagnostics") is { } verbose) row.VerboseDiagnostics = verbose;
         if (body.Has("preferredResolution"))
         {
-            var r = body.Num("preferredResolution") ?? DefaultResolution;
+            var r = body.Num("preferredResolution") ?? SettingsDefaults.Resolution;
             row.PreferredResolution = (int)r;
         }
         if (body.Has("automationIntervalMinutes"))

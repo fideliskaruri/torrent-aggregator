@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TorrentFlow.Core;
 
 namespace TorrentFlow.Engine.Controllers;
 
@@ -48,8 +49,8 @@ internal static class SettingsInput
             var max = name == "maxStorageGb" ? 9007199.25474099 : 9007199254740991d;
             if (name.StartsWith("maxStorage", StringComparison.Ordinal) && number > max)
                 return new($"{name} must be at most {max.ToString(System.Globalization.CultureInfo.InvariantCulture)}", name);
-            var choices = name == "preferredResolution" ? SettingsClientController.SelectableResolutions
-                : name == "automationIntervalMinutes" ? SettingsClientController.AutomationIntervals : null;
+            var choices = name == "preferredResolution" ? SettingsDefaults.SelectableResolutions
+                : name == "automationIntervalMinutes" ? SettingsDefaults.AutomationIntervals : null;
             if (choices is not null && !choices.Any(n => n == number))
                 return new($"{name} must be one of: {string.Join(", ", choices)}", name);
         }

@@ -2,7 +2,8 @@ import { CalendarClock, Info } from "lucide-react";
 import { Link } from "react-router";
 import { PosterImage } from "@/components/browse/poster-image";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -34,10 +35,6 @@ export default function UpcomingPage() {
         </Button>
       </div>
 
-      {list.error ? (
-        <TfErrorState title={rows.length ? "Couldn't refresh upcoming" : "Couldn't load upcoming"}
-          message={list.error} onRetry={list.refetch} retrying={list.refreshing} />
-      ) : null}
       {list.data?.airTimesUnavailable ? (
         <Alert role="status" data-upcoming-metadata-warning>
           <Info aria-hidden />
@@ -47,8 +44,13 @@ export default function UpcomingPage() {
         </Alert>
       ) : null}
 
-      {list.loading && !list.data ? (
-        <ul className="space-y-3" aria-busy="true" aria-label="Loading upcoming events" data-upcoming-loading>
+      <PageQueryBoundary
+        query={list}
+        errorTitle="Couldn't load upcoming"
+        refreshErrorTitle="Couldn't refresh upcoming"
+        isEmpty={(data) => (data.entries ?? []).length === 0}
+        skeleton={(visible) => (
+        <ul className={cn("space-y-3", !visible && "invisible")} aria-busy="true" aria-label="Loading upcoming events" data-upcoming-loading>
           {Array.from({ length: 3 }, (_, index) => (
             <li key={index} aria-hidden>
               <Card size="sm" className="flex-row gap-3 p-3 sm:gap-4">
@@ -62,11 +64,14 @@ export default function UpcomingPage() {
             </li>
           ))}
         </ul>
-      ) : !list.error && rows.length === 0 ? (
+        )}
+        empty={
         <TfEmptyState icon={CalendarClock} title="Nothing upcoming"
           description="Monitor a title in Library to schedule release checks, or add a download to start your queue."
           actionLabel="Open Library" actionHref="/watchlist" />
-      ) : (
+        }
+      >
+        {() => (
         <div className="space-y-8" data-upcoming-groups>
           {groups.map((group) => (
             <section key={group.label} aria-labelledby={`upcoming-${group.label}`} data-upcoming-group={group.label}>
@@ -114,7 +119,8 @@ export default function UpcomingPage() {
             </section>
           ))}
         </div>
-      )}
+        )}
+      </PageQueryBoundary>
     </div>
   );
 }

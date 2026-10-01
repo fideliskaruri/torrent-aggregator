@@ -214,7 +214,7 @@ public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb
                 var airDate = CatalogText.ParseReleaseDate(TmdbClient.Str(row, "air_date"));
                 episodes.Add(new(number, episode, null, FranchiseView.HasAired(airDate, null, now), null, null,
                     TmdbClient.Str(row, "name"), TmdbClient.Str(row, "overview").OrEmpty(null), airDate, null,
-                    TmdbClient.Int(row, "runtime"), TmdbClient.StillUrl(TmdbClient.Str(row, "still_path"))));
+                    TmdbClient.Int(row, "runtime"), tmdb.ImageUrl(TmdbClient.Str(row, "still_path"), Artwork.ArtRole.Thumb)));
             }
         }
         return Regular("tmdb", episodes);

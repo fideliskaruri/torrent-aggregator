@@ -141,7 +141,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         await db.SaveChangesAsync(ct);
         var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null) || local.Any(x => x.Status == EngineTorrentStatus.Queued), ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
-            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? Display(key);
+            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? TorrentFlow.Core.Text.WorkKeySlug.DisplayTitle(key);
         var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
         var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
@@ -164,6 +164,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
+        poster = await WorkPosters.ResolveAsync(db, key, poster, ct);
         var overview = query.Provider?.Synopsis ?? cat?.Overview ?? cached?.Synopsis;
         // The rating travels with the provider that supplied it, so the page never labels one provider's score with another's name.
         var (rating, ratingSource) = query.Provider?.Rating is { } providerRating ? (providerRating, query.Provider.Source)
@@ -187,7 +188,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var best = onDisk.FirstOrDefault(x => x.Progress > 0);
         string? State(EngineTorrent? row) => row == null ? null : row.Progress >= 1 ? "ready" : row.Progress > 0 ? "warm" : null;
         double? Fraction(EngineTorrent? row) => row != null && row.Progress > 0 && row.Progress < 1 ? row.Progress : null;
-        var availability = State(best) ?? (releases.Any(x => x.Seeders >= 3) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
+        var availability = State(best) ?? (releases.Any(x => ReleaseSeeders.IsViable(x.Seeders)) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
         var knownCoordinates = local.Select(x => EpisodeCursor.Parse(x.Name)).Concat(releases.Select(x => EpisodeCursor.Parse(x.Title)))
             .OfType<EpisodeCursor>().ToArray();
         var coordinates = knownCoordinates.Select(x => (EpisodeCursor?)x).Concat(targets.Where(x => x.Season != null && x.Episode != null).Select(x => (EpisodeCursor?)new EpisodeCursor(x.Season!.Value, x.Episode!.Value)))
@@ -223,7 +224,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             var row = linkedHash != null ? onDisk.FirstOrDefault(x => x.Hash.Equals(linkedHash, StringComparison.OrdinalIgnoreCase)) :
                 onDisk.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress > 0);
             var state = t?.Status == "downloaded" ? "ready" : t?.Status == "downloading" && t.Progress > 0 ? "warm" :
-                State(row) ?? (releases.Any(x => x.Seeders >= 3 && (ReleaseSelection.ExactEpisode(x, cursor) || PackSeason(x.Title) == cursor.Season)) ? "fetchable" : null);
+                State(row) ?? (releases.Any(x => ReleaseSeeders.IsViable(x.Seeders) && (ReleaseSelection.ExactEpisode(x, cursor) || PackSeason(x.Title) == cursor.Season)) ? "fetchable" : null);
             var hash = t?.InfoHash ?? row?.Hash;
             var file = t?.FilePath;
             var fromPack = t?.InfoHash != null && row != null && (PackSeason(row.Name) != null || MultiSeason(row.Name));
@@ -317,16 +318,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         }
         return result;
     }
-    private static int? ReleaseYear(string name)
-    {
-        if (EpisodeCursor.Parse(name) != null) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(name, @"\b((?:19|20)\d{2})\b");
-        return m.Success ? int.Parse(m.Groups[1].Value) : null;
-    }
-    private static string Display(string key)
-    {
-        string[] minor = ["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"];
-        return string.Join(' ', System.Text.RegularExpressions.Regex.Split(Uri.UnescapeDataString(key).Trim(), @"[-_\s]+")
-            .Select((x, i) => i > 0 && minor.Contains(x.ToLowerInvariant()) ? x.ToLowerInvariant() : x.Length > 0 ? char.ToUpperInvariant(x[0]) + x[1..] : x));
-    }
+    /// <summary>A film release's year; episodes carry none.</summary>
+    private static int? ReleaseYear(string name) =>
+        EpisodeCursor.Parse(name) != null ? null : TorrentFlow.Core.ReleaseNames.ReleaseYear(name);
 }

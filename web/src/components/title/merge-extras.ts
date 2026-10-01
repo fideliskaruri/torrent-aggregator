@@ -15,6 +15,7 @@
  * damaging — an episode row that offers "Download" for something that has not
  * aired, or a season tab that shows another season's files.
  */
+import { formatWhen } from "@/lib/format";
 import type {
   TitleEpisode,
   TitleEpisodeMeta,
@@ -179,37 +180,11 @@ function isoDay(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-const MONTHS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
 /**
- * `2026-03-12` → `12 Mar 2026`.
- *
- * Deliberately not `toLocaleDateString`: this string is produced on the client
- * from data fetched on the client, and a locale-dependent render is a
- * hydration mismatch waiting for the first user whose machine disagrees with
- * the server's.
+ * `2026-03-12` → `12 Mar 2026`. Hydration-safe; owned by `@/lib/format`.
  */
 export function formatAirDate(airDate: string | null): string | null {
-  if (!airDate) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(airDate);
-  if (!match) return null;
-  const [, year, month, day] = match;
-  const index = Number.parseInt(month, 10) - 1;
-  if (index < 0 || index > 11) return null;
-  return `${Number.parseInt(day, 10)} ${MONTHS[index]} ${year}`;
+  return formatWhen(airDate, { style: "air" });
 }
 
 function pad(n: number): string {

@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
@@ -8,9 +10,9 @@ public readonly record struct FilmRejection(int Total, int NoMagnet, int Unseede
 /// <summary>Port of the film half of app/api/title/[workKey]/grab.ts: selectWorkCandidate and its failure sentences.</summary>
 public static class FilmSelection
 {
-    private static EpisodeInfo Episode(TorrentResult r) => r.Episode ?? ReleaseNames.ParseEpisode(r.Title);
+    private static EpisodeInfo Episode(TorrentResult r) => r.Episode ?? ReleaseEpisodeParser.Parse(r.Title);
     private static bool IsFilmShaped(TorrentResult r) => Episode(r) is var ep && !ep.IsSeasonPack && ep.IsMultiSeason != true && ep.Episode == null;
-    private static bool IsMine(TorrentResult r, string workKey) => ReleaseNames.IdentityFor(r.Title) is var id && ReleaseNames.WorkKeyMatches(workKey, id.Name, id.Year);
+    private static bool IsMine(TorrentResult r, string workKey) => ReleaseNames.IdentityFor(r.Title) is var id && WorkKeySlug.Matches(workKey, id.Name, id.Year);
 
     /// <summary>
     /// The best result that genuinely belongs to this work. Results arrive ranked, so the first survivor is the best one:

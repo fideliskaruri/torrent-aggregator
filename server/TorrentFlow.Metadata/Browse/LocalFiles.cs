@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Text.Json;
 using TorrentFlow.Core.Contracts.Metadata;
 
@@ -74,7 +75,7 @@ public static class LocalFiles
     {
         var paths = RecordedFilePaths(verifiedFilesJson, trim: false);
         return progress >= 0.9999 && !string.IsNullOrWhiteSpace(verifiedBitfield) && paths.Count > 0
-            && paths.Any(ReleaseNames.IsSupportedVideoFileName);
+            && paths.Any(MediaFileRules.IsVideo);
     }
 }
 

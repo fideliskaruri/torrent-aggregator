@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Data;
 using TorrentFlow.Metadata.Search;
 
 namespace TorrentFlow.Metadata.Controllers;
 
 [ApiController]
-public sealed class TitleSearchController(WorkSearchService works, SuggestService suggest, RateLimiter rateLimiter) : ControllerBase
+public sealed class TitleSearchController(WorkSearchService works, SuggestService suggest, RateLimiter rateLimiter,
+    IDbContextFactory<TorrentFlowDbContext> dbFactory) : ControllerBase
 {
     /// <summary>GET /api/search/titles?q=&amp;category=&amp;limit=</summary>
     [HttpGet("/api/search/titles")]
@@ -20,9 +23,11 @@ public sealed class TitleSearchController(WorkSearchService works, SuggestServic
         try
         {
             var outcome = await works.SearchAsync(scope, query, take, ct);
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var posters = await WorkPosters.LoadAsync(db, outcome.Results.Select(r => r.WorkKey), ct);
             return Ok(new
             {
-                results = outcome.Results,
+                results = outcome.Results.Select(r => r with { PosterUrl = WorkPosters.Pick(posters, r.WorkKey, r.PosterUrl) }).ToList(),
                 query = outcome.DisplayQuery,
                 canonicalQuery = outcome.Query,
                 category = scope,

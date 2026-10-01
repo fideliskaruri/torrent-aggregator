@@ -1,6 +1,8 @@
+using TorrentFlow.Core;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
+using static TorrentFlow.Core.ReleaseEpisodeParser;
 using static TorrentFlow.Search.ReleaseQuality;
 
 namespace TorrentFlow.Search;
@@ -16,13 +18,6 @@ public static class ReleaseRanking
             result = Replace(result, @"(?<=\S)-([A-Za-z0-9]{2,12})\s*$").Trim();
         return result;
     }
-    public static int? ReleaseYear(string title)
-    {
-        var t = Replace(title, @"[._]+");
-        t = Replace(t, @"\b(?:\d{3,4}p|x?26[45]|h\.?26[45]|10bit|8bit|5\.1|7\.1|2\.0|ddp?5|dts|aac2|mp3|hdr10\+?|\d+(?:\.\d+)?\s*(?:gb|mb|gib|mib))\b");
-        var matches = Regex.Matches(t, @"(?<![\d.])(?:19|20)\d{2}(?![\d.])");
-        return matches.Select(m => int.Parse(m.Value)).Where(y => y >= 1900 && y <= DateTime.UtcNow.Year + 2).Select(y => (int?)y).LastOrDefault();
-    }
     public static string GroupKey(string title, EpisodeInfo ep)
     {
         var normalized = NormalizeTitle(StripReleaseGroup(title));
@@ -30,10 +25,10 @@ public static class ReleaseRanking
         name = Replace(name, $@"\b(?:{Tokens})\b");
         if (ep.Episode != null) name = Replace(name, $@"\b0*{ep.Episode}\b");
         if (ep.AbsoluteEpisode != null) name = Replace(name, $@"\b0*{ep.AbsoluteEpisode}\b");
-        var year = ReleaseYear(title);
+        var year = ReleaseNames.ReleaseYear(title);
         if (year != null) name = Replace(name, $@"(?<![\d.]){year}(?![\d.])");
         name = Replace(name, @"\s+").Trim();
-        name = WorkIdentityParser.StripTrailingJunkNumber(title, name);
+        name = ReleaseNames.StripTrailingJunkNumber(title, name);
         if (name.Length == 0) name = normalized.Length == 0 ? title : normalized;
         return ep.IsSeasonPack ? $"{name}|S{ep.Season?.ToString() ?? "X"}-pack"
             : ep.Season != null && ep.Episode != null ? $"{name}|S{ep.Season}E{ep.Episode}"
@@ -42,7 +37,7 @@ public static class ReleaseRanking
     }
     public static int ComputeHealth(TorrentResult r) => r.Seeders <= 0 ? r.Leechers > 0 ? 10 : 0
         : Round(Math.Min(100, Math.Min(70, Math.Log10(r.Seeders + 1d) * 28) + Math.Min(30, Math.Log10(r.Seeders / (double)Math.Max(r.Leechers, 1) + 1) * 20)));
-    /// <summary>Below this a release is "weak": a better-seeded one at another resolution wins.</summary>
+    /// <summary>Below this a release is "weak": a better-seeded one at another resolution wins. A different bar from ReleaseSeeders.MinViable (3), which only decides whether a release is worth fetching at all.</summary>
     public const int UsableSeeders = 10;
     /// <summary>0 dead, 1 weak (1–9), 2 usable (10+). HTTP webseeds earn nothing: the built-in engine could not pull from them in testing.</summary>
     public static int SwarmClass(TorrentResult r) => r.Seeders >= UsableSeeders ? 2 : r.Seeders >= 1 ? 1 : 0;

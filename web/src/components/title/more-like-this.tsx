@@ -44,7 +44,9 @@ export function MoreLikeThis({
   if (loading && items.length === 0) {
     return (
       <section aria-labelledby="title-similar-heading" data-title-similar aria-busy="true">
-        <Skeleton className="h-5 w-28 rounded" aria-hidden />
+        <div className="text-title flex h-lh items-center" aria-hidden>
+          <Skeleton className="h-5 w-28 rounded" />
+        </div>
         {/* Skeleton grid: same grid-cols and aspect-ratio as the real grid so
             the section's height matches exactly once items arrive. */}
         <ul
@@ -54,8 +56,15 @@ export function MoreLikeThis({
           {Array.from({ length: 8 }, (_, i) => (
             <li key={i}>
               <Skeleton className="aspect-[2/3] w-full rounded-lg" />
-              <Skeleton className="mt-1.5 h-3 w-4/5 rounded" />
-              <Skeleton className="mt-1 h-2.5 w-1/2 rounded" />
+              {/* The caption's two title lines and its facts line, at their text size. */}
+              <div className="mt-1.5 h-[2lh] text-[12px] leading-snug">
+                <div className="flex h-lh items-center">
+                  <Skeleton className="h-3 w-4/5 rounded" />
+                </div>
+              </div>
+              <div className="mt-0.5 flex h-lh items-center text-[12px] leading-snug">
+                <Skeleton className="h-2.5 w-1/2 rounded" />
+              </div>
             </li>
           ))}
         </ul>
@@ -88,7 +97,7 @@ export function MoreLikeThis({
                 />
               </div>
               <p
-                className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground transition-colors group-hover:text-foreground"
+                className="mt-1.5 line-clamp-2 min-h-[2lh] text-[12px] leading-snug text-muted-foreground transition-colors group-hover:text-foreground"
                 title={item.title}
               >
                 {item.title}
@@ -98,17 +107,16 @@ export function MoreLikeThis({
                   anonymous boxes for whitespace-only text. The separator is a
                   real element with real text so it survives — and so a screen
                   reader hears something between "2024" and "8.1". */}
-              {item.year != null || item.rating != null ? (
-                <span className="mt-0.5 flex items-center text-[12px] tabular-nums text-subtle-foreground">
-                  {item.year != null ? <span>{item.year}</span> : null}
-                  {item.year != null && item.rating != null ? (
-                    <span className="mx-1">·</span>
-                  ) : null}
-                  {item.rating != null ? (
-                    <span>{item.rating.toFixed(1)}</span>
-                  ) : null}
-                </span>
-              ) : null}
+              {/* Always drawn, empty or not, so every card is the skeleton's height. */}
+              <span className="mt-0.5 flex h-lh items-center text-[12px] leading-snug tabular-nums text-subtle-foreground">
+                {item.year != null ? <span>{item.year}</span> : null}
+                {item.year != null && item.rating != null ? (
+                  <span className="mx-1">·</span>
+                ) : null}
+                {item.rating != null ? (
+                  <span>{item.rating.toFixed(1)}</span>
+                ) : null}
+              </span>
             </Link>
           </li>
         ))}

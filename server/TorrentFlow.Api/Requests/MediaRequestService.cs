@@ -121,7 +121,8 @@ public sealed class MediaRequestService(
         await using var db = await factory.CreateDbContextAsync(ct);
         var rows = await db.MediaRequests.AsNoTracking().Where(r => r.RequestedByUserId == userId)
             .OrderByDescending(r => r.CreatedAt).Take(200).ToListAsync(ct);
-        return rows.Select(ToRequester).ToList();
+        var posters = await WorkPosters.LoadAsync(db, rows.Select(r => r.WorkKey), ct);
+        return rows.Select(r => ToRequester(r) with { PosterUrl = WorkPosters.Pick(posters, r.WorkKey, r.PosterUrl) }).ToList();
     }
 
     public async Task<IReadOnlyList<OwnerRequest>> AllAsync(string? status, CancellationToken ct)
@@ -131,8 +132,9 @@ public sealed class MediaRequestService(
         if (status is not null) query = query.Where(r => r.Status == status);
         var rows = await query.OrderByDescending(r => r.CreatedAt).Take(500)
             .Select(r => new { Row = r, Email = r.RequestedBy.Email }).ToListAsync(ct);
+        var posters = await WorkPosters.LoadAsync(db, rows.Select(x => x.Row.WorkKey), ct);
         return rows.Select(x => new OwnerRequest(x.Row.Id, x.Email ?? "", x.Row.Title, x.Row.Year, x.Row.MediaType, x.Row.Provider,
-            x.Row.ProviderId, x.Row.WorkKey, x.Row.PosterUrl, x.Row.Scope, RequestRules.ParseSeasons(x.Row.Seasons), x.Row.Note, x.Row.Status,
+            x.Row.ProviderId, x.Row.WorkKey, WorkPosters.Pick(posters, x.Row.WorkKey, x.Row.PosterUrl), x.Row.Scope, RequestRules.ParseSeasons(x.Row.Seasons), x.Row.Note, x.Row.Status,
             x.Row.DecisionReason, x.Row.DecidedAt, x.Row.CreatedAt, x.Row.UpdatedAt, x.Row.WatchListItemId, x.Row.AcquisitionTargetId)).ToList();
     }
 

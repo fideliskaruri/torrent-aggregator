@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 interface RecoveryInfo {
   dataDirectory: string;
@@ -37,14 +37,53 @@ interface SourceScan {
   warnings: string[];
 }
 
+type RecoveryResult = { info: RecoveryInfo | null; error: boolean };
+let prefetched: { promise: Promise<RecoveryResult>; result: RecoveryResult | null } | null = null;
+
+async function fetchRecovery(signal?: AbortSignal): Promise<RecoveryResult> {
+  try {
+    const response = await fetch("/api/settings/download-recovery", { signal, cache: "no-store" });
+    if (response.status === 404 || response.status === 403) return { info: null, error: false }; // Owner-only, hidden on remote access.
+    if (!response.ok) throw new Error("Could not inspect download storage");
+    return { info: await readJsonBody<RecoveryInfo>(response), error: false };
+  } catch {
+    return { info: null, error: !signal?.aborted };
+  }
+}
+
+/**
+ * Starts the recovery lookup so a page can hold its skeleton until this block
+ * is known too. Without it the block arrives after the page and pushes every
+ * field below it down.
+ */
+export function prefetchDownloadRecovery(): Promise<RecoveryResult> {
+  const entry: NonNullable<typeof prefetched> = {
+    promise: fetchRecovery().then((result) => {
+      entry.result = result;
+      return result;
+    }),
+    result: null,
+  };
+  prefetched = entry;
+  return entry.promise;
+}
+
+function takePrefetched(): RecoveryResult | null {
+  const result = prefetched?.result ?? null;
+  if (result) prefetched = null;
+  return result;
+}
+
 export function DownloadRecovery({ mode = "all", onImported, revision }: {
   mode?: "empty" | "all";
   onImported?: () => void;
   revision?: string;
 }) {
-  const [info, setInfo] = useState<RecoveryInfo | null>(null);
+  const [initial] = useState(takePrefetched);
+  const [info, setInfo] = useState<RecoveryInfo | null>(initial?.info ?? null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState(initial?.error ?? false);
+  const [skipFirstFetch] = useState(() => ({ current: initial != null }));
   const [retry, setRetry] = useState(0);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourceState, setSourceState] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -53,16 +92,19 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
   const [acknowledged, setAcknowledged] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
   useEffect(() => {
+    if (skipFirstFetch.current) {
+      skipFirstFetch.current = false;
+      return;
+    }
     const abort = new AbortController();
     setError(false);
-    void fetch("/api/settings/download-recovery", { signal: abort.signal, cache: "no-store" })
-      .then(async (response) => {
-        if (response.status === 404 || response.status === 403) { setInfo(null); return; } // Owner-only, hidden on remote access.
-        if (!response.ok) throw new Error("Could not inspect download storage");
-        setInfo(await readJsonBody<RecoveryInfo>(response));
-      }).catch(() => { if (!abort.signal.aborted) setError(true); });
+    void fetchRecovery(abort.signal).then((result) => {
+      if (abort.signal.aborted) return;
+      setInfo(result.info);
+      setError(result.error);
+    });
     return () => abort.abort();
-  }, [retry, revision]);
+  }, [retry, revision, skipFirstFetch]);
 
   async function scanSources() {
     setSourceState("loading");
@@ -229,7 +271,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
                       })} aria-label={`Select ${candidate.name}`} />
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="block break-words font-medium text-foreground">{candidate.name}</span>
-                      <span className="block text-muted-foreground">{formatBytes(candidate.sizeBytes)} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
+                      <span className="block text-muted-foreground">{formatBytes(candidate.sizeBytes) ?? "Unknown size"} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
                       <span className="block break-all font-mono text-subtle-foreground">{candidate.savePath}</span>
                       <span className="block text-subtle-foreground">{candidate.dataExists ? "Hash will be rechecked" : "Will import paused until you restore the files or resume"}{candidate.alreadyImported ? " · Already imported" : ""}</span>
                     </span>
@@ -251,3 +293,4 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     </Dialog>
   </div>;
 }
+

@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
@@ -43,7 +44,7 @@ public sealed class DownloadNotificationWatcher(
     {
         var identity = ReleaseNames.IdentityFor(releaseName);
         var label = identity.IsSeries
-            ? ReleaseNames.ParseEpisode(releaseName).Label is { Length: > 0 } episode ? $"{identity.Name} {episode}" : identity.Name
+            ? ReleaseEpisodeParser.Parse(releaseName).Label is { Length: > 0 } episode ? $"{identity.Name} {episode}" : identity.Name
             : identity.Year is { } year ? $"{identity.Name} ({year})" : identity.Name;
         return string.IsNullOrWhiteSpace(label) ? releaseName : label;
     }

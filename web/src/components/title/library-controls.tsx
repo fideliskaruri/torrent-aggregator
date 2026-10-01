@@ -14,6 +14,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
+import { SeasonSwitcher } from "@/components/tf/season-switcher";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -24,16 +25,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -249,22 +241,14 @@ export function LibraryControls({
             {bySeason.length > 1 ? (
               <div className="pt-3">
                 <p className="mb-2 text-[12px] text-subtle-foreground">Or start from a season</p>
-                <div className="flex flex-wrap gap-2">
-                  {bySeason.map((option) => (
-                    <Label
-                      key={option.value}
-                      data-add-option={option.value}
-                      className="h-11 min-w-[44px] cursor-pointer justify-center rounded-full border border-border bg-background px-3.5 text-[13px] font-normal tabular-nums text-muted-foreground transition-colors hover:border-input hover:text-foreground has-data-checked:border-brand has-data-checked:bg-brand-dim has-data-checked:text-foreground has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
-                    >
-                      <RadioGroupItem
-                        value={option.value}
-                        aria-label={option.label}
-                        className="sr-only"
-                      />
-                      {option.label.replace(/^From season /, "Season ")}
-                    </Label>
-                  ))}
-                </div>
+                <SeasonSwitcher
+                  variant="pills"
+                  options={bySeason.map((option) => ({
+                    value: option.value,
+                    label: option.label.replace(/^From season /, "Season "),
+                    attrs: { "data-add-option": option.value },
+                  }))}
+                />
               </div>
             ) : null}
             </RadioGroup>
@@ -385,39 +369,19 @@ export function LibraryControls({
         </Dialog>
       )}
 
-      <AlertDialog
+      <ConfirmDialog
         open={confirmingRemove}
-        onOpenChange={(open) => {
-          if (!busy) setConfirmingRemove(open);
-        }}
-      >
-        <AlertDialogContent
-          data-remove-library-dialog
-          onCloseAutoFocus={returnFocus}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove from library?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`${title?.trim() ? `“${title.trim()}”` : "This title"} leaves your library and TorrentFlow stops looking for it. Downloaded files are kept.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-remove-library-confirm
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                remove();
-              }}
-              className="bg-destructive text-white hover:bg-[#e85d66]"
-            >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              Remove, keep files
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmingRemove}
+        contentData={{ "data-remove-library-dialog": true }}
+        confirmData={{ "data-remove-library-confirm": true }}
+        onCloseAutoFocus={returnFocus}
+        title="Remove from library?"
+        description={`${title?.trim() ? `“${title.trim()}”` : "This title"} leaves your library and TorrentFlow stops looking for it. Downloaded files are kept.`}
+        variant="destructive"
+        busy={busy}
+        confirmLabel="Remove, keep files"
+        onConfirm={remove}
+      />
     </div>
   );
 }

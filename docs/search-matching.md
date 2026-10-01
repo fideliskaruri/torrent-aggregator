@@ -213,7 +213,7 @@ Each source is asked for 50–80 results, even when the caller asks for fewer (`
 
 ### Episode/release parsing
 
-The search parser is `server/TorrentFlow.Search/EpisodeParser.cs:36–105`. Ordered branches:
+The one episode parser is `server/TorrentFlow.Core/ReleaseEpisodeParser.cs` (`Parse`; Search, Library and Metadata all call it). Ordered branches:
 
 1. `2nd Season - 05`; optionally an explicit `episode/ep/absolute episode N` supplies `AbsoluteEpisode`.
 2. Season ranges/lists.
@@ -226,7 +226,7 @@ The search parser is `server/TorrentFlow.Search/EpisodeParser.cs:36–105`. Orde
 
 Ordinary `- 36` goes into **Episode=36, Season=null**, not `AbsoluteEpisode=36`. No provider mapping is consulted. Only the ordinal branch reads an explicit alternative absolute label; the acquisition matcher **does not compare that field**.
 
-`EpisodeLadder.MatchesTargetEpisode` (`:198–205`) rejects batch, season pack, multi-season and recognized episode ranges; then requires **Episode equality** and **Season equality**, except seasonless releases can satisfy **target Season 1 only**. Separate range detection is in `Library/Features/Grabs/ReleaseNames.cs:122–131`. Packs are intentionally never promoted to an episode candidate.
+`EpisodeLadder.MatchesTargetEpisode` (`:198–205`) rejects batch, season pack, multi-season and recognized episode ranges; then requires **Episode equality** and **Season equality**, except seasonless releases can satisfy **target Season 1 only**. Range detection is `ReleaseEpisodeParser.IsEpisodeRange`, and `ReleaseEpisodeParser.IsMultiEpisode` is the one "not a single episode" check (batch, season pack, multi-season or range). Packs are intentionally never promoted to an episode candidate.
 
 Concrete parser defects seen in the run:
 
@@ -239,7 +239,7 @@ Concrete parser defects seen in the run:
 Do not confuse discovery relevance with acquisition identity:
 
 * Search ranking: `ReleaseQuality.RelevanceTier` (`server/TorrentFlow.Search/ReleaseQuality.cs:126–138`) gives 3 for normalized substring, 2 if all query tokens occur, 1 if at least half occur, else 0. **Ranking signal, not a candidate acceptance threshold.**
-* Episode acquisition: `EpisodeLadder.ReleaseMatchesWork` (`:209–213`) cleans the release into an identity and requires a work-key match against accepted title forms. `Library/Features/Grabs/ReleaseNames.cs:302–325,334–369` strips release noise/episode structure, folds/slugifies the name, and compares keys, with legacy-key/yearless compatibility. This is exact normalized identity, **not edit distance/Dice >= X**.
+* Episode acquisition: `EpisodeLadder.ReleaseMatchesWork` (`:209–213`) cleans the release into an identity and requires a work-key match against accepted title forms. `Core/ReleaseNames.cs` (`IdentityFor`/`WorkIdentity`) strips release noise/episode structure and `Core/Text/WorkKeySlug.cs` folds/slugifies the name and compares keys, with legacy-key/yearless compatibility. This is exact normalized identity, **not edit distance/Dice >= X**.
 * Scheduler: `ReleaseSelection.SameWork` (`:54–59`) uses its own simpler CleanTitle+Normalize equality. This can disagree with the episode ladder.
 * Metadata artwork selection has a different algorithm: `server/TorrentFlow.Metadata/Artwork/ArtworkResolver.cs:47,136–185`: exact=100, article-equivalent=72, accepted subtitle=80, otherwise token Dice ×70; accepted at 60 after year adjustment in artwork selection. That threshold does **not** choose a torrent for Download.
 
@@ -297,9 +297,9 @@ Inventory of the release matching/parsing family in the inspected server and web
 
 | Concern | Implementations |
 |---|---|
-| Full episode-name parsing | `server/TorrentFlow.Search/EpisodeParser.cs:36`; `server/TorrentFlow.Library/Features/Grabs/ReleaseNames.cs:59`; `server/TorrentFlow.Metadata/Browse/ReleaseNames.cs:32`; `server/TorrentFlow.Media/Common/Episodes.cs:15`; `server/TorrentFlow.Media/Features/Prewarm/ReleaseText.cs:199–218` (another independent shape-only parser, not a wrapper); `web/src/lib/torrents/episodes.ts:355`. |
+| Full episode-name parsing | `server/TorrentFlow.Core/ReleaseEpisodeParser.cs` (the one server owner; the Search, Library and Metadata copies are gone); `server/TorrentFlow.Media/Common/Episodes.cs:15`; `server/TorrentFlow.Media/Features/Prewarm/ReleaseText.cs:199–218` (another independent shape-only parser, not a wrapper); `web/src/lib/torrents/episodes.ts:355`. |
 | Narrow/adapter episode parsing | `Library/Features/Watchlist/EpisodeCursor.cs:14` only S/E; `Search/Adapters/TorrentAdapters.cs:157–172` EZTV query parser; `Library/Features/Titles/TitleService.cs:220–258` local pack/multi-season/year helpers; `Engine/Layout/ContentLayoutPolicy.cs:49–77` layout episode-key extraction. `web/src/lib/library/cursor.ts` also has cursor logic. These are not an episode-mapping service. |
-| Work identity/cleaning | `Search/WorkIdentity.cs:68,89` (`WorkIdentityParser.Parse/Matches`); `Library/Features/Grabs/ReleaseNames.cs:302–369`; `Metadata/Browse/ReleaseNames.cs:239`; `Library/Features/Grabs/ReleaseSelection.cs:11–40,54`; `Media/Features/Prewarm/ReleaseText.cs:98`; `Media/Playback/Releases.cs:217`; `Engine/Layout/ContentLayoutPolicy.cs:136` has a separate exact-token folder-release comparison; `web/src/lib/torrents/work-identity.ts:317`; `web/src/components/title/work-key.ts:79`. |
+| Work identity/cleaning | `Core/ReleaseNames.cs` (one owner: `WorkIdentity`, `IdentityFor`, `CleanTitle`, `CleanDisplayTitle`, `ReleaseYear`, `NormalizeKey`); `Search/WorkIdentity.cs` (`WorkIdentityParser.Parse` adds only the metadata rename, plus `Matches`); `Library/Features/Grabs/ReleaseSelection.cs:11–40,54`; `Media/Features/Prewarm/ReleaseText.cs:98`; `Media/Playback/Releases.cs:217`; `Engine/Layout/ContentLayoutPolicy.cs:136` has a separate exact-token folder-release comparison; `web/src/lib/torrents/work-identity.ts:317`; `web/src/components/title/work-key.ts:79`. |
 | Resolution parsing | `Search/ReleaseQuality.cs:13`; `Library/Features/Grabs/ReleaseSelection.cs:42`; `Media/Playback/Releases.cs:77`; `Media/Features/Prewarm/ReleaseText.cs:32`; `web/src/lib/torrents/quality.ts:65`. Library's small parser demonstrably disagrees with search's richer one. |
 | Candidate selection | EpisodeLadder.Select, FilmSelection.Select, GrabService.Hunt, AutomationService.Rules, ReleaseSwapService.Select, Media.Playback.Releases.SelectBestRelease, Media.Prewarm.PreRanker.SelectBestRelease. |
 | Additional normalization/ranking | EpisodeLadder.NormalizeTitle vs ReleaseSelection.Normalize/CleanTitle vs Search.ReleaseQuality.NormalizeTitle; Search.ReleaseRanking versus Media's verdict/resolution ordering; artwork/discovery matching is yet another policy and must not silently become acquisition matching. |
@@ -593,8 +593,8 @@ paths and permitted HTTP ports.
    once. The same happened for `Example Show 001-036 (1080p)` and
    `Example Show 01-36 [1080p]`; the single `Example Show - 36 [1080p]`
    correctly passed as the control. `DashEpisode` consumes the final number
-   (`ReleaseNames.cs:36,110–111`); the range guard only recognizes scene/cross/
-   episode-word prefixes (`ReleaseNames.cs:125–133`), and
+   (then in `ReleaseNames.cs`, now `Core/ReleaseEpisodeParser.cs`); the range guard only recognized scene/cross/
+   episode-word prefixes (now `ReleaseEpisodeParser.IsEpisodeRange`), and
    `EpisodeLadder.cs:199–205` trusts it. **Bleach's “eligible” live result below
    is therefore a failed safety test, not a successful exact-episode grab.**
 2. **Concurrent new title/target creation returns real 500s.**
@@ -613,7 +613,7 @@ paths and permitted HTTP ports.
    `ReleaseMatchesWork(..., ["日本語のタイトル"])` returned false. Its work key
    was an uppercase percent-escaped string. `KeyAliases` lowercases that key,
    while `WorkKeyMatches` compares it ordinally with freshly generated
-   uppercase escapes (`ReleaseNames.cs:340–366`). Pokémon and Shōgun correctly
+   uppercase escapes (then in `ReleaseNames.cs`, now `Core/Text/WorkKeySlug.cs`). Pokémon and Shōgun correctly
    fold to `pokemon`/`shogun` and pass. This is distinct from the legitimate
    rejection of Pokémon *sequel/spinoff* releases in the live corpus.
 4. **Approval restart has an unresumed pre-hash state.**

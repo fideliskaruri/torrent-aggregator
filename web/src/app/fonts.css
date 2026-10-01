@@ -1,5 +1,25 @@
+/* Self-hosted Geist faces (@fontsource, imported in layout.tsx) load with
+   font-display: swap. Until they arrive, text draws in a local face scaled to
+   Geist's metrics, so the swap does not rewrap lines or move anything. */
+@font-face {
+  font-family: "Geist Fallback";
+  src: local("Arial"), local("Helvetica"), local("Liberation Sans");
+  ascent-override: 97.67%;
+  descent-override: 28.67%;
+  line-gap-override: 0%;
+  size-adjust: 102.9%;
+}
+
+@font-face {
+  font-family: "Geist Mono Fallback";
+  src: local("Courier New"), local("Menlo"), local("Liberation Mono");
+  ascent-override: 100.5%;
+  descent-override: 29.5%;
+  line-gap-override: 0%;
+  size-adjust: 100%;
+}
+
 :root {
-  /* Self-hosted Geist faces (@fontsource, imported in layout.tsx). */
-  --font-geist-sans: "Geist Variable";
-  --font-geist-mono: "Geist Mono Variable";
+  --font-geist-sans: "Geist Variable", "Geist Fallback";
+  --font-geist-mono: "Geist Mono Variable", "Geist Mono Fallback";
 }
