@@ -60,11 +60,14 @@ public static class SmartSendTargets
         var showTitle = FirstNonEmpty(title, metadata?.Title);
         if (ShowKinds.Contains(kind) && showTitle is not null && categorizer.ShowFolder(showTitle, metadata) is { Length: > 0 } show)
         {
+            // An anime film keeps its category but sits beside the anime series: <Anime>/Movies/<Title (Year)>.
+            var film = kind == "movies" || kind == "anime" && metadata?.MediaType == "movie";
+            if (kind == "anime" && film) path = $"{path}{sep}Movies";
             // Movies nest as "Title (Year)" when the year is known (metadata or the release name).
-            if (kind == "movies" && MovieYear(title, metadata) is { } year && !show.Contains($"({year})", StringComparison.Ordinal))
+            if (film && MovieYear(title, metadata) is { } year && !show.Contains($"({year})", StringComparison.Ordinal))
                 show = $"{show} ({year})";
             path = $"{path}{sep}{show}";
-            if (kind is "tv" or "anime" && !string.IsNullOrEmpty(title) && categorizer.SeasonFolder(title) is { Length: > 0 } season)
+            if (!film && kind is "tv" or "anime" && !string.IsNullOrEmpty(title) && categorizer.SeasonFolder(title) is { Length: > 0 } season)
                 path = $"{path}{sep}{season}";
         }
         return path;

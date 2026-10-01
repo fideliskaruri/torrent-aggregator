@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
 
@@ -39,8 +40,7 @@ public static class ContentClassifier
         return aTokens.Length > 0 && bTokens.Length > 0 && bTokens.Count(aTokens.Contains) / (double)bTokens.Length >= .6;
     }
     private static bool Anime(string title, string hay, EpisodeInfo ep, MediaMetadata? metadata) =>
-        Has(hay, AnimeSignal) || Has(hay, AnimeGroup) || metadata is { Source: "anilist", MediaType: "anime" }
-        || metadata?.OriginalLanguage?.ToLowerInvariant() == "ja" || (metadata?.OriginCountry?.Any(c => c.Equals("JP", StringComparison.OrdinalIgnoreCase)) ?? false)
+        Has(hay, AnimeSignal) || Has(hay, AnimeGroup) || AnimeIdentity.IsAnime(metadata)
         || Has(title, @"[\[(][A-Za-z0-9_-]{2,12}[\])]") && ep.Episode != null && ep.Season == null;
     public static string Detect(TorrentResult r, string? searchCategory)
     {
@@ -49,7 +49,7 @@ public static class ContentClassifier
         var strongTv = StrongTv(title, ep);
         var books = Has(hay, Books) && !Has(hay, @"\b(1080p|720p|bluray|webrip|x264|x265)\b");
         var belongs = MetadataMatches(title, meta);
-        bool AnimeMetadata() => meta?.MediaType == "anime" || meta?.MediaType == "tv"
+        bool AnimeMetadata() => AnimeIdentity.IsAnime(meta) || meta?.MediaType == "tv"
             && (meta.Genres?.Any(g => g.Equals("animation", StringComparison.OrdinalIgnoreCase) || g.Equals("anime", StringComparison.OrdinalIgnoreCase)) ?? false)
             && Anime(title, hay, ep, meta);
         if (strongTv)

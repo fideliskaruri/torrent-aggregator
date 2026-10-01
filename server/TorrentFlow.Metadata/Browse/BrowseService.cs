@@ -205,7 +205,8 @@ public sealed partial class BrowseService(
 
     // ------------------------------------------------------------------ Downloaded
 
-    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType);
+    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType,
+        string? PosterUrl = null, string? Provider = null, string? ProviderId = null);
 
     private async Task<Rail?> BuildYourLibraryAsync(string userId, CancellationToken ct)
     {
@@ -224,7 +225,8 @@ public sealed partial class BrowseService(
                                   from w in joined.DefaultIfEmpty()
                                   where a.UserId == userId && a.InfoHash != null && hashes.Contains(a.InfoHash.ToLower())
                                   orderby a.UpdatedAt descending
-                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType))
+                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType,
+                                      w == null ? null : w.PosterUrl, w == null ? null : w.Provider, w == null ? null : w.ProviderId))
             .ToListAsync(ct).ConfigureAwait(false);
         var workByHash = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
         var canonicalByWorkKey = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
@@ -262,8 +264,11 @@ public sealed partial class BrowseService(
                 WorkKey = canonical?.WorkKey,
                 Title = work.Title,
                 Subtitle = LibrarySubtitle(mediaType, work.Members),
-                PosterUrl = art[i].PosterUrl,
+                // The work fetched from a title page keeps its catalog poster; the name lookup is only for releases without one.
+                PosterUrl = canonical?.PosterUrl ?? art[i].PosterUrl,
                 BackdropUrl = art[i].BackdropUrl,
+                Provider = canonical?.ProviderId == null ? null : canonical.Provider,
+                ProviderId = canonical?.Provider == null ? null : canonical.ProviderId,
                 Availability = "ready",
                 InfoHash = torrent.Hash,
                 MediaType = mediaType,

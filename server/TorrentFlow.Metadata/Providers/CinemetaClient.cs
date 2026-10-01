@@ -192,6 +192,8 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
             PosterUrl = Str(row, "poster"), BackdropUrl = Str(row, "background"), Synopsis = Str(row, "description"),
             Year = YearOf(release), ReleaseDate = Str(row, "released") is { Length: >= 10 } date ? date[..10] : null,
             Rating = rating, Genres = StrArray(row, "genres"),
+            // "Japan" or "Japan, United States": the shared anime rule reads Animation made in Japan as anime.
+            OriginCountry = Str(row, "country") is { Length: > 0 } country ? country.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : null,
             AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { imdb = id }) }
         };
     }

@@ -826,6 +826,8 @@ transfers the client still holds, and it does not re-check media. It returns
 folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
 uses the recorded paths.
 
-The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
-sent. The layout only works inside the row's save path. Transfers handled by an external client
+The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is chosen by the caller when the download is
+sent. Anime, decided by the one shared rule `AnimeIdentity` (AniList or catalog type anime, TMDB original language
+ja with Animation, Cinemeta Animation made in Japan, or the site's anime category), goes to `Anime/<Show>/Season NN`,
+and an anime film to `Anime/Movies/<Title (Year)>`. The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.
