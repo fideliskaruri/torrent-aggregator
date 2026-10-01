@@ -35,7 +35,7 @@ Japanese audio with English subtitles (Preferred) comes before an English dub (B
 - The ladder (`GrabService.Episode`, `Film`, `SeasonPack`) sends only Pass releases, in rung order and rank. A failed
   send still falls through to the next candidate, then the next rung. A release the engine refuses for its files
   (`audio_language`) counts as Fail (`LanguageHold.Refused`).
-- Unknown releases are held across all rungs (`LanguageHold`). After the last rung they are sent, best seeded first,
+- Unknown releases are held across all rungs (`LanguageHold`). After the last rung they are sent, most seeders first,
   only when no healthy Pass release was tried (`LanguageHold.HealthySeeders` = 5 live seeders,
   `TorrentResult.Seeders`). A ladder cut short by a failed search keeps its holds for the retry.
 - Fail releases are never sent automatically. There is no last-resort pass any more.
@@ -205,16 +205,22 @@ subtitles only, so the Russian audio sorts as Preferred.
   <code or no_english>`, message `Its files have no English audio or subtitles (...), so TorrentFlow skipped it.`
 - **Once a magnet's metadata arrives**, the monitor tick runs the same file-list check on the live file list, right
   after `FileListProblem` (the client still holds the transfer at that point). State `pending` becomes `failed`,
-  `passed` (confirmed English: subtitles or audio stated explicitly) or `probing`.
+  `passed` (confirmed English: subtitles or audio stated explicitly) or `probing`. The check also runs for a transfer
+  that finished before the tick saw it, and a finished transfer is not parked or laid out while its state is
+  `pending` or `probing`: it stays loaded until the check settles.
 - **Header probe**: what the file list leaves open goes to a bounded queue (8 entries, one worker). The worker reads
   the headers of up to 3 main videos in a probe client of its own (`ProbeHeadersAsync(..., alongside: true)`,
   `HeaderProbeBudget.Default`: 45 seconds, 32 MB per file), saves the tracks to `HeaderProbeCache`, and judges
-  `ReleaseLanguage.WithHeader(...)`. Pass becomes `passed`; Fail becomes `failed`; anything else, a timeout, no peers
-  or a full queue becomes `unconfirmed`. A restart requeues rows left in `probing`.
+  `ReleaseLanguage.WithHeader(...)`. Only a finished probe settles it: Pass becomes `passed`, Fail becomes `failed`.
+  A partial probe (one file read, another timed out), anything else, a timeout, no peers, a full queue or a probe that
+  throws becomes `unconfirmed`, once, with the reason. Shutting down is not a failure: a restart requeues rows left
+  in `probing`.
 - **A fail** (file list or header) on a transfer still downloading: the row turns to an error (`No English audio or
   subtitles (<reason>). TorrentFlow stopped it and will look for another release.`), the release is blocked
   (`ReleaseBlock`, reason `no_english`, origin `language_check`), its wanted items are released, and the transfer is
-  detached. The finder picks again and skips the blocked release.
+  detached. The finder picks again and skips the blocked release. The stopped release's files stay in the downloads
+  folder until the row is removed, like any failed download. A fail that lands on a transfer already parked or in
+  the library (which the tick does not allow while probing) keeps its files and only blocks the release.
 - **Unconfirmed**: kept; `EngineTorrentInfo.LanguageNote` is `English not confirmed` and the Downloads row shows it.
 - **Hand picks** (`AcceptClash`) are stored as `hand_pick` and never checked, stopped or blocked.
 - Every check logs one Information line (`[builtin-engine] language check ...`, `English check ... from its file
@@ -236,7 +242,9 @@ subtitles only, so the Russian audio sorts as Preferred.
   `unknown`, `fail`) and `englishReason`.
 - The picker (`GET /api/title/{workKey}/releases`) and the Find another source dialog order by the English verdict,
   then fit, then the shared score (`ReleaseSwapService.Rank(..., first: ReleaseLanguage.Order)`), and hide nothing.
-  The dialog never recommends a Fail release as its Best match, and it judges the current release with its site
+  Blocked releases go last in both, and neither a blocked nor a Fail release is ever the Best match. "Find the best
+  one for me" (`SwapBest`) takes that same Best match; with only blocked or Fail releases left it says no better
+  release was found. The dialog judges the current release with its site
   category (kept with the engine row, else read from the search when the same release turns up). A hand pick always
   sends.
 - The search page orders by the same verdict under `auto` (`ReleaseQuality.LanguagePreference`).

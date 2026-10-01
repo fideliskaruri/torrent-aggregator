@@ -1544,8 +1544,9 @@ internal sealed partial class TorrentEngineService(
                     detach.Add(row.Hash);
                     continue;
                 }
-                // The English check once the file list is known: a fail stops and blocks it so the finder picks again.
-                if (live.HasMetadata && live.State != "complete" && row.Status != EngineTorrentStatus.Error
+                // The English check once the file list is known, also for a transfer that finished before this tick: a fail
+                // stops and blocks it so the finder picks again.
+                if (live.HasMetadata && row.Status != EngineTorrentStatus.Error
                     && CheckLanguageOnMetadata(row, live) is { } noEnglish)
                 {
                     failed.Add(new(row.Hash, row.Name, row.Origin));
@@ -1572,6 +1573,11 @@ internal sealed partial class TorrentEngineService(
                     // Its wanted items go back to the wanted queue, which moves on to another release.
                     await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, NoFileListMessage, Now, ct);
                     detach.Add(row.Hash);
+                }
+                else if (live.State == "complete" && EngineLanguageState.Read(row.LanguageCheckJson)?.State is EngineLanguageState.Pending
+                    or EngineLanguageState.Probing)
+                {
+                    // Finished, but the English check is still out: it stays loaded and is parked once the probe settles.
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && SelectionHolds(row, live))
                 {

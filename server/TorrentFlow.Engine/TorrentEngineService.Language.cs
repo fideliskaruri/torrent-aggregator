@@ -81,7 +81,18 @@ internal sealed partial class TorrentEngineService
         await foreach (var hash in _probeQueue.Reader.ReadAllAsync())
         {
             try { await ProbeLanguageAsync(hash); }
-            catch (Exception ex) { logger.LogWarning(ex, "The English header check for {Hash} failed", hash); }
+            // Shutting down is not a failure: the row stays probing and the next start queues it again.
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+            {
+                logger.LogInformation("The English header check for {Hash} stopped: {Why}", hash, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                // Settled once as unconfirmed, so a probe that keeps throwing is not retried every tick.
+                logger.LogWarning(ex, "The English header check for {Hash} failed", hash);
+                try { await SettleLanguageAsync(hash, null, "the header check failed"); }
+                catch (Exception settle) { logger.LogWarning(settle, "Recording the failed English check for {Hash} failed", hash); }
+            }
             finally { _probing.TryRemove(hash, out _); }
         }
     }
@@ -124,10 +135,13 @@ internal sealed partial class TorrentEngineService
             await using var db = await dbFactory.CreateDbContextAsync();
             foreach (var file in read) await HeaderProbeCache.SaveAsync(db, hash, file, Now, CancellationToken.None);
         }
-        if (!result.Checked && read.Count == 0)
+        // Only a finished probe settles it: one file read and another timed out stays unconfirmed, whatever the read one says.
+        if (!result.Checked)
         {
-            logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}) could not finish: {Why}", hash, name, result.Unchecked);
-            await SettleLanguageAsync(hash, state with { State = EngineLanguageState.Unconfirmed, Reason = result.Unchecked });
+            var why = result.Unchecked ?? "only part of it could be read";
+            logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}) could not finish ({Read} of {Files} file(s) read): {Why}",
+                hash, name, read.Count, main.Count, why);
+            await SettleLanguageAsync(hash, state with { State = EngineLanguageState.Unconfirmed, Reason = why });
             return;
         }
 
@@ -145,20 +159,32 @@ internal sealed partial class TorrentEngineService
         });
     }
 
-    /// <summary>Writes the probe's outcome; a fail on a transfer still downloading stops, blocks and releases it.</summary>
-    private async Task SettleLanguageAsync(string hash, EngineLanguageState state)
+    /// <summary>
+    /// Writes the probe's outcome (or, with no <paramref name="state"/>, unconfirmed for <paramref name="unconfirmedWhy"/>).
+    /// A fail stops, blocks and releases a transfer that is still loaded. The tick never parks a transfer while it is probing,
+    /// so a fail can't land on a finished one; if it ever does, the files stay in the library and the release is only blocked.
+    /// </summary>
+    private async Task SettleLanguageAsync(string hash, EngineLanguageState? state, string? unconfirmedWhy = null)
     {
         EngineTorrentFailedEventArgs? stopped = null;
         using (await LockHashAsync(hash, CancellationToken.None))
         {
             await using var db = await dbFactory.CreateDbContextAsync();
             var row = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash);
-            if (row is null || EngineLanguageState.Read(row.LanguageCheckJson) is not { State: EngineLanguageState.Probing }) return;
+            if (row is null || EngineLanguageState.Read(row.LanguageCheckJson) is not { State: EngineLanguageState.Probing } probing) return;
+            state ??= probing with { State = EngineLanguageState.Unconfirmed, Reason = unconfirmedWhy };
             row.LanguageCheckJson = state.Write();
             if (state.State == EngineLanguageState.Failed && row.Status is EngineTorrentStatus.Downloading or EngineTorrentStatus.Queued)
             {
                 await FailLanguageAsync(db, row, state.Reason ?? "no English audio or subtitles", CancellationToken.None);
                 stopped = new(row.Hash, row.Name, row.Origin);
+            }
+            else if (state.State == EngineLanguageState.Failed)
+            {
+                logger.LogWarning("[builtin-engine] {Hash} ({Name}) has no English but is already {Status}; kept, release blocked",
+                    row.Hash, row.Name, row.Status);
+                await CompletedLayoutFinalizer.BlockFailedCheckAsync(db, row, Now, CancellationToken.None, ReleaseBlocks.NoEnglish,
+                    ReleaseBlocks.FromLanguageCheck);
             }
             await db.SaveChangesAsync();
             if (stopped is not null)
