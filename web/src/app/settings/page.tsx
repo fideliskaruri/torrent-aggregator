@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
-import { DownloadRecovery } from "@/components/settings/download-recovery";
+import { DownloadRecovery, prefetchDownloadRecovery } from "@/components/settings/download-recovery";
 import {
   AlertTriangle,
   ChevronDown,
@@ -264,8 +264,11 @@ export default function SettingsPage() {
     let cancelled = false;
 
     async function load() {
+      // Held with the settings so the storage block lands with the form, not after it.
+      const recovery = prefetchDownloadRecovery();
       try {
         const res = await fetch("/api/settings/client");
+        await recovery;
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as {
             error?: string;

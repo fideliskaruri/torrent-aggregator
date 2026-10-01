@@ -50,6 +50,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { PosterImage } from "@/components/browse/poster-image";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
@@ -330,7 +331,6 @@ export default function WatchlistPage() {
   const automationStateId = useId();
   // The library mixes TMDb and AniList CDNs; a dead URL must fall back to the
   // same letter tile a missing URL gets, not paint nothing.
-  const [brokenPosters, setBrokenPosters] = useState<Set<string>>(new Set());
   /** null = not loaded yet; 0 = no schedule. */
   const autoIntervalMinutes = prefsLoaded
     ? (prefs.automationIntervalMinutes ?? 0)
@@ -893,32 +893,11 @@ export default function WatchlistPage() {
                     card left either a grey strip, a cropped cover or a blurred
                     fill band, all of which read as broken. */}
                 <div className="relative aspect-[2/3] w-[4.5rem] shrink-0 overflow-hidden rounded-md bg-muted sm:w-[5.5rem]">
-                  {item.posterUrl && !brokenPosters.has(item.id) ? (
-                    <img
-                      src={item.posterUrl}
-                      alt=""
-                      onError={() =>
-                        setBrokenPosters((prev) => new Set(prev).add(item.id))
-                      }
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="absolute inset-0 flex items-center justify-center px-1"
-                      aria-label="No poster"
-                      title="No poster"
-                    >
-                      {/* A crossed-out-image glyph reads as a *failed load*.
-                          An initial reads as a deliberate placeholder — the
-                          same fallback Plex/Jellyfin use. */}
-                      <span
-                        aria-hidden
-                        className="select-none text-2xl font-semibold text-subtle-foreground"
-                      >
-                        {item.title.trim().charAt(0).toUpperCase() || "?"}
-                      </span>
-                    </div>
-                  )}
+                  <PosterImage
+                    src={item.posterUrl ?? null}
+                    title={item.title}
+                    sizes="(min-width: 640px) 88px, 72px"
+                  />
                   {titleHref ? (
                     <Link
                       to={titleHref}

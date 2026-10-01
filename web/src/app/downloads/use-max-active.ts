@@ -26,6 +26,8 @@ export function useMaxActiveDownloads({
   onSaved: () => void;
 }) {
   const [limits, setLimits] = useState<DownloadLimits | null>(null);
+  /** The first read has answered, either way. */
+  const [settled, setSettled] = useState(false);
   const [draft, setDraft] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The value waiting for the save delay, if any. */
@@ -49,7 +51,9 @@ export function useMaxActiveDownloads({
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const writes = writesRef.current;
     const next = await readDownloadLimits(signal);
-    if (!next || signal?.aborted) return;
+    if (signal?.aborted) return;
+    setSettled(true);
+    if (!next) return;
     if (writes !== writesRef.current || savingRef.current > 0 || pendingRef.current != null) return;
     setLimits(next);
   }, []);
@@ -118,6 +122,8 @@ export function useMaxActiveDownloads({
   return {
     /** Null until the first read lands, and for a server without the setting. */
     limits,
+    /** False until the first read answers, so the page can hold the control's place. */
+    settled,
     /** The value to show: the latest press, else the saved value. */
     value: draft ?? limits?.saved ?? null,
     change,

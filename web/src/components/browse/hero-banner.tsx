@@ -95,7 +95,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
 
       <div className="container-app">
         <motion.div
-          className="flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]"
+          className={HERO_FRAME}
           initial={false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
@@ -191,6 +191,10 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   );
 }
 
+/** One frame for the hero and its skeleton, so the loaded hero lands at exactly the skeleton's size. */
+const HERO_FRAME =
+  "flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]";
+
 /** Hero-shaped placeholder, so loading the payload in cannot shift the page. */
 export function HeroSkeleton() {
   return (
@@ -199,7 +203,7 @@ export function HeroSkeleton() {
       className="border-b border-border bg-card"
     >
       <div className="container-app">
-        <div className="flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]">
+        <div className={HERO_FRAME}>
           <Skeleton className="h-3 w-28 rounded" />
           <Skeleton className="mt-3 h-9 w-3/4 rounded" />
           <Skeleton className="mt-3 h-3 w-40 rounded" />
