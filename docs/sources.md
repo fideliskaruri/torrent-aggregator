@@ -164,3 +164,24 @@ acquisition claims. TVmaze season/episode details work without a TMDB credential
 
 Mutations reject cross-site and same-site browser writes. These are local-owner
 settings; do not expose an unauthenticated host to untrusted networks.
+
+## Browse cards and catalog ids
+
+Catalog rows (`CatalogEntry`: the Trending now, Popular series and Because you're
+watching lists) store the provider and id of the title they list, for example
+Cinemeta with an IMDb `tt` id. Migration `AddCatalogProviderId` clears the old rows
+once so they rebuild with ids. `GET /api/browse` cards carry `workKey`, `year`,
+`provider` and `providerId`, and a card's link passes them to the title page.
+
+`GET /api/title/{workKey}` returns `provider` and `providerId`: the link's id once the
+provider confirms it, else the work's, else the catalog row's, else the link's
+unconfirmed id; both are null when none is known. Request uses that id. With no id
+the page says "Couldn't match this title to a catalog entry. Search for it to
+request it." instead of showing a Request button.
+
+The home page shows each title once. `BrowseService.DistinctAcrossRails` keeps one
+seen set across the rails in order: your own rails first, then Because you're
+watching, Trending now and Popular series. The first card for a
+work stays. Cards are the same work when they share a provider id, a work key, or a
+normalised title and type (plus year for films), so a show listed by both Cinemeta
+and TMDB still appears once. A rail can therefore show fewer than its 24 cards.
