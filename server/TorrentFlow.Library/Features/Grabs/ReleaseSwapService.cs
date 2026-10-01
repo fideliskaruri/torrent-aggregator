@@ -142,8 +142,9 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var currentQuality = ReleaseSelection.Resolution(releaseName) ?? floor;
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         var want = grabs != null
-            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct)
-            : LanguageWant.For(settings?.AudioLanguage, mediaType, null);
+            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct, row.Work?.OriginalLanguage)
+            : LanguageWant.For(settings?.AudioLanguage, mediaType, row.Work?.OriginalLanguage);
+
         var current = new ReleaseSwapCurrent(releaseName, grabbed?.Source, currentSize, ReleaseSelection.Resolution(releaseName), false,
             ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, releaseName, currentCategory, info.Files?.Select(f => f.Path))));
         // The English rule orders the list like the picker and the automatic picks (Pass, then unknown, then fail), then the

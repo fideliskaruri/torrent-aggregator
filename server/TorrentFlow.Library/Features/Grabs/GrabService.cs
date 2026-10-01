@@ -175,22 +175,23 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             input = input with { Anime = film.MediaType == "anime" };
         }
         input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.Anime ? "anime" : input.MediaType, input.Provider ?? work?.Provider,
-            input.ProviderId ?? work?.ProviderId, ct), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
+            input.ProviderId ?? work?.ProviderId, ct, work?.OriginalLanguage), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
         return (input, settings, floor, null);
     }
 
     /// <summary>
     /// What the owner wants to hear for a title (docs/release-language.md): the audio language setting, whether it is
-    /// anime, and for a TMDB title its original language, which is the backup outside anime. A failed lookup leaves the
-    /// original language unknown and is tried again next time.
+    /// anime, and its original language: the work's own (<c>Work.OriginalLanguage</c>), else a TMDB title's catalog entry.
+    /// A failed lookup leaves the original language unknown and is tried again next time.
     /// </summary>
     internal async Task<LanguageWant> LanguageWantAsync(string? preference, string? mediaType, string? provider, string? providerId,
-        CancellationToken ct)
+        CancellationToken ct, string? workOriginal = null)
     {
         // The one anime rule decides first; only a TMDB title needs its catalog entry for that and its original language.
         var type = AnimeIdentity.IsAnime(provider, mediaType, providerId) ? "anime" : mediaType;
-        string? original = null;
-        if (type != "anime" && metadata != null &&
+        string? original = LanguageTag.Normalize(workOriginal);
+        if (type != "anime" && original == null && metadata != null &&
+
             string.Equals(provider, "tmdb", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(providerId))
         {
             var kind = string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase) ? "movie" : "tv";

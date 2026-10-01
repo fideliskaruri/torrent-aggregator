@@ -248,8 +248,10 @@ public static partial class ReleaseLanguage
         if (foreign.Count > 0 && !several)
             return new(EnglishVerdict.Fail, $"{LanguageName(foreign[0].Language)} audio", foreign[0].Confidence);
         // A title made in English carries English audio unless the name says otherwise (VOSTFR on an English film is English audio).
-        if (!want.Anime && original is null or "en")
-            return new(EnglishVerdict.Pass, original == "en" ? "English original" : "Language not stated", LanguageConfidence.None);
+        // An unknown original language proves nothing, so that release stays Unknown.
+        if (!want.Anime && original == "en")
+            return new(EnglishVerdict.Pass, "English original", LanguageConfidence.None);
+
         if (several && subs != SubtitleState.KnownNonEnglish)
             return new(EnglishVerdict.Unknown, "Several audio tracks, English not stated", (f.MultiAudio ?? f.StrongestAudio)?.Confidence ?? LanguageConfidence.None);
         if (f.Raw != null && subs != SubtitleState.KnownEnglish) return new(EnglishVerdict.Fail, "Raw, no subtitles", f.Raw.Confidence);

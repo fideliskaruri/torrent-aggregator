@@ -57,7 +57,8 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         var others = usable.Where(r => !fits.Contains(r)).ToList();
         var releases = new List<ReleasePickOption>();
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
-        var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct);
+        var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct, work.OriginalLanguage);
+
         foreach (var (group, fit) in new[] { (fits, true), (others, false) })
         {
             // The English rule orders the list like the automatic picks (Pass, then unknown, then fail; within each, the

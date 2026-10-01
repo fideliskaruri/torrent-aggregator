@@ -21,7 +21,7 @@ English-translated category, then known groups. In order:
 4. English subtitles known (name, category, sidecar, header): Pass. Ambiguous English with subtitles not known to be
    another language: Pass.
 5. Foreign audio that is not the work's original language, on one track: Fail (a Russian MVO).
-6. Not anime, nothing stated, and the work's original language is English (or not known yet): Pass.
+6. Not anime, nothing stated, and the work's original language is English: Pass. Not known: Unknown.
 7. Several audio tracks with subtitles not known: Unknown.
 8. Raws (no subtitles): Fail. Foreign-only subtitles (VOSTFR, CHT): Fail. Mixed: Unknown. Anything else: Unknown,
    "English not stated".
@@ -91,9 +91,8 @@ page order and (later) release swap all call it. Language codes go through `Lang
   judges them. `Judge(want, facts)` judges facts read elsewhere.
 - `LanguageWant.For(preference, mediaType, originalLanguage)`: the preference (`auto`, `english`, `any`), whether the
   title is anime, and the title's original language. `GrabService.LanguageWantAsync` asks the one anime rule
-  (`AnimeIdentity`, plus the film identity's anime call) first, and fills the original language from TMDB
-  `original_language` for TMDB titles. Titles from other catalogs (cinemeta, tvmaze, anilist) have none, so for a
-  non-anime title only English counts as wanted.
+  (`AnimeIdentity`, plus the film identity's anime call) first, and fills the original language from `Work.OriginalLanguage`,
+  else TMDB `original_language` for TMDB titles. Without either, for a non-anime title only English counts as wanted.
 - `LanguageVerdict`: `Fit` (Preferred, Neutral, Backup, Clash), `Code` (`audio_fr`, `subs_zh`, `dub`, `multi`,
   `no_subs`; null when it fits), `Label` in plain words, `Basis` (`name`, `category`, `files`, `group`, `none`),
   `Confidence` (`high`, `medium`, `low`), `Refusable`, and the facts: `Audio`, `Subtitles`, `SubtitleState`.
@@ -238,5 +237,5 @@ subtitles only, so the Russian audio sorts as Preferred.
   category (kept with the engine row, else read from the search when the same release turns up). A hand pick always
   sends.
 - The search page orders by the same verdict under `auto` (`ReleaseQuality.LanguagePreference`).
-- The work's original language: `GrabService.LanguageWantAsync` reads it from the catalog lookup. Unknown original
-  language counts as English for untagged non-anime releases until `Work.OriginalLanguage` is read.
+- The work's original language: `GrabService.LanguageWantAsync` reads `Work.OriginalLanguage` (ISO 639-1) and falls back
+  to the TMDB catalog lookup. Unknown original language leaves an untagged non-anime release Unknown.
