@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace TorrentFlow.Data.Entities;
@@ -64,6 +64,12 @@ public partial class EngineTorrent
 
     /// <summary>JSON array of the torrent file indexes to download. Null means every file (all ordinary transfers).</summary>
     public string? SelectedFilesJson { get; set; }
+
+    /// <summary>
+    /// The English check this transfer still owes (docs/release-language.md): the want, the site category and its state,
+    /// as JSON. Null for transfers that were never checked (imports, older rows).
+    /// </summary>
+    public string? LanguageCheckJson { get; set; }
 
     public virtual User User { get; set; } = null!;
 

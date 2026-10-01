@@ -85,6 +85,8 @@ internal interface ITorrentBackend
     /// that is already loaded comes back unchecked. Never throws: a budget hit, no peers, a cancelled token or a header
     /// it can't read comes back unchecked with a reason.
     /// </summary>
+    /// <param name="alongside">The transfer is already loaded (a magnet checked once its file list arrived): probe it in a
+    /// client of its own anyway.</param>
     Task<HeaderProbeResult> ProbeHeadersAsync(byte[]? torrent, IReadOnlyList<int> fileIndices, HeaderProbeBudget? budget,
-        CancellationToken ct) => Task.FromResult(HeaderProbeResult.Skipped(null, HeaderProbeResult.NotSupported));
+        CancellationToken ct, bool alongside = false) => Task.FromResult(HeaderProbeResult.Skipped(null, HeaderProbeResult.NotSupported));
 }

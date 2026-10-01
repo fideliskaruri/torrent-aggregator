@@ -385,6 +385,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.QueueKey).HasColumnName("queueKey");
             entity.Property(e => e.Lane).HasColumnName("lane");
             entity.Property(e => e.SelectedFilesJson).HasColumnName("selectedFilesJson");
+            entity.Property(e => e.LanguageCheckJson).HasColumnName("languageCheckJson");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.SizeBytes)
                 .HasColumnType("BIGINT")

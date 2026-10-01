@@ -144,6 +144,7 @@ internal sealed partial class TorrentEngineService(
         EngineAddResult result;
         var failed = false;
         string? languageClash = null;
+        string? languageState = null;
         using (await LockHashAsync(hash, ct))
         {
             // A magnet is admitted at once, so the row shows on Downloads while its file list arrives; the client holds it
@@ -167,25 +168,28 @@ internal sealed partial class TorrentEngineService(
                 logger.LogWarning("[builtin-engine] refused {Hash} ({Name}) before downloading: {Problem}", hash, request.Name, problem);
                 return new(false, MediaFileRules.Message(problem), Hash: hash) { Unusable = MediaFileRules.Code(problem) };
             }
-            // The language check over the file list (docs/release-language.md): only explicit audio in the files refuses, and
-            // never on the last-resort pass or a hand pick, which accept the clash and record it.
+            // The English check over the file list (docs/release-language.md): a release whose files show no English audio or
+            // subtitles is refused, never a hand pick, which accepts the clash and records it. A magnet is checked once its
+            // file list arrives (TorrentEngineService.Language), and anything the list leaves open goes to the header probe.
             if (request.Language is { } check)
             {
+                languageState = EngineLanguageState.For(check, request.Name, request.SourceCategory, EngineLanguageState.Pending).Write();
                 var verdict = (bytes ?? LoadTorrentFile(hash)) is { } named ? FileListLanguage(named, request) : null;
                 logger.LogInformation("[builtin-engine] language check {Hash} ({Name}): category {Category}, name {NameFit} {NameLabel}, " +
                     "files {Fit} {Label} ({Basis}, {Confidence}), accept clash {AcceptClash}", hash, request.Name, request.SourceCategory ?? "none",
                     check.NameFit?.ToString() ?? "none", check.NameLabel ?? "", verdict?.Fit.ToString() ?? "unchecked", verdict?.Label ?? "no file list",
                     verdict?.Basis ?? "none", verdict?.Confidence ?? "low", check.AcceptClash);
-                if (verdict is { Refusable: true })
+                if (verdict is { Refusable: true } or { English.Verdict: EnglishVerdict.Fail })
                 {
                     if (!check.AcceptClash)
-                        return new(false, $"Its files have {verdict.Label}, so TorrentFlow skipped it.", Hash: hash)
-                            { Unusable = "audio_language", Language = verdict.Code };
-                    languageClash = verdict.Code;
+                        return new(false, verdict.Refusable ? $"Its files have {verdict.Label}, so TorrentFlow skipped it."
+                            : $"Its files have no English audio or subtitles ({verdict.English.Reason}), so TorrentFlow skipped it.", Hash: hash)
+                            { Unusable = "audio_language", Language = verdict.Code ?? "no_english" };
+                    languageClash = verdict.Code ?? "no_english";
                 }
             }
             await _queueGate.WaitAsync(ct);
-            try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, ct); }
+            try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, languageState, ct); }
             finally { _queueGate.Release(); }
 
             if (admission.StartRow is not { } row)
@@ -306,7 +310,7 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>Runs under the hash lock and the queue gate: decides start / queue and persists the row.</summary>
     private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet,
-        ClientConfig config, DownloadTarget target, string savePath, CancellationToken ct)
+        ClientConfig config, DownloadTarget target, string savePath, string? languageState, CancellationToken ct)
     {
         static Admission Done(EngineAddResult result) => new(result, null, []);
 
@@ -378,6 +382,9 @@ internal sealed partial class TorrentEngineService(
             // The reservation covers the pieces the selection touches, not the whole release.
             if (request.ExpectedSizeBytes is > 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
         }
+        // A fresh admission owes the English check after add; a row already queued keeps the one it has.
+        if (languageState != null && (existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error))
+            row.LanguageCheckJson = languageState;
         if (request.Forced) row.MarkForcedNow(Now);
         row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
         row.Error = null;
@@ -446,19 +453,33 @@ internal sealed partial class TorrentEngineService(
     /// The language verdict over a release's main videos (the selected ones, or the largest and any at least half its
     /// size), each read with its own subtitle and audio files. The worst one counts; null when the list can't be read.
     /// </summary>
-    internal static LanguageVerdict? FileListLanguage(IEnumerable<(int Index, string Path, long Length)> files, EngineAddRequest request)
+    internal static LanguageVerdict? FileListLanguage(IEnumerable<(int Index, string Path, long Length)> files, EngineAddRequest request) =>
+        request.Language is { } check
+            ? FileListLanguage(files, check.Want, request.Name, request.SourceCategory, request.SelectedFiles is { Count: > 0 } chosen ? chosen.ToHashSet() : null)
+            : null;
+
+    /// <summary>The worst verdict over the main videos, each read with its own subtitle and audio files.</summary>
+    internal static LanguageVerdict FileListLanguage(IEnumerable<(int Index, string Path, long Length)> files, LanguageWant want,
+        string? name, string? sourceCategory, IReadOnlySet<int>? selected)
     {
-        if (request.Language is not { } check) return null;
         var list = files.ToList();
-        var selected = request.SelectedFiles is { Count: > 0 } chosen ? chosen : null;
-        var videos = list.Where(f => MediaFileRules.IsVideo(f.Path) && (selected == null || selected.Contains(f.Index))).ToList();
-        if (videos.Count == 0) return ReleaseLanguage.Verdict(check.Want, request.Name, request.SourceCategory);
-        var largest = videos.Max(f => f.Length);
-        var main = selected != null ? videos : videos.Where(f => f.Length * 2 >= largest).ToList();
+        var main = MainVideos(list, selected);
+        if (main.Count == 0) return ReleaseLanguage.Verdict(want, name, sourceCategory);
         var paths = list.Select(f => f.Path).ToList();
-        return main.Select(f => ReleaseLanguage.Verdict(check.Want, request.Name, request.SourceCategory,
-            ReleaseLanguage.WithSidecars(f.Path, paths, main.Count == 1))).MaxBy(v => (v.Fit, v.Refusable));
+        return main.Select(f => ReleaseLanguage.Verdict(want, name, sourceCategory,
+            ReleaseLanguage.WithSidecars(f.Path, paths, main.Count == 1))).MaxBy(v => (v.English.Verdict, v.Fit, v.Refusable))!;
     }
+
+    /// <summary>A release's main videos: the selected ones, or the largest and any at least half its size.</summary>
+    internal static List<(int Index, string Path, long Length)> MainVideos(IReadOnlyList<(int Index, string Path, long Length)> list,
+        IReadOnlySet<int>? selected)
+    {
+        var videos = list.Where(f => MediaFileRules.IsVideo(f.Path) && (selected == null || selected.Contains(f.Index))).ToList();
+        if (videos.Count == 0) return videos;
+        var largest = videos.Max(f => f.Length);
+        return selected != null ? videos : videos.Where(f => f.Length * 2 >= largest).ToList();
+    }
+
 
     private LanguageVerdict? FileListLanguage(byte[] torrent, EngineAddRequest request)
     {
@@ -999,6 +1020,7 @@ internal sealed partial class TorrentEngineService(
                 ForcedReason = row.ForcedAt is null ? null : row.ForcedReason ?? ForcedReasons.Legacy,
                 Verified = row.VerifiedAt is not null,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
+                LanguageNote = EngineLanguageState.Note(row.LanguageCheckJson),
                 BytesReceived = live.BytesReceived,
             };
         }
@@ -1519,6 +1541,15 @@ internal sealed partial class TorrentEngineService(
                     row.ForcedAt = null;
                     await CompletedLayoutFinalizer.BlockFailedCheckAsync(db, row, Now, ct);
                     await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, message, Now, ct);
+                    detach.Add(row.Hash);
+                    continue;
+                }
+                // The English check once the file list is known: a fail stops and blocks it so the finder picks again.
+                if (live.HasMetadata && live.State != "complete" && row.Status != EngineTorrentStatus.Error
+                    && CheckLanguageOnMetadata(row, live) is { } noEnglish)
+                {
+                    failed.Add(new(row.Hash, row.Name, row.Origin));
+                    await FailLanguageAsync(db, row, noEnglish, ct);
                     detach.Add(row.Hash);
                     continue;
                 }
