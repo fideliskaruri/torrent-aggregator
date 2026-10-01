@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Catalog;
@@ -113,7 +114,11 @@ public sealed partial class RecommendationService(
         var items = found.Where(r => !string.IsNullOrEmpty(r.PosterUrl))
             .Where(r => { var k = LibraryKey(r.MediaType, r.ExternalId); return !exclude.Contains(k) && seen.Add(k); })
             .Take(limit).ToList();
-        return items.Count > 0 ? new RecommendationRail(title, items) : null;
+        if (items.Count == 0) return null;
+        // The same poster the title page and browse show for each work, not the provider's rail art.
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var known = await WorkPosters.LoadAsync(db, items.Select(r => WorkKeySlug.WorkKeyFor(r.Title, r.Year)), ct).ConfigureAwait(false);
+        return new RecommendationRail(title, items.Select(r => r with { PosterUrl = WorkPosters.Pick(known, WorkKeySlug.WorkKeyFor(r.Title, r.Year), r.PosterUrl) }).ToList());
     }
 
     private async Task<List<Recommendation>> FromAniListAsync(string id, CancellationToken ct)
@@ -149,7 +154,7 @@ public sealed partial class RecommendationService(
             int? year = m.TryGetProperty("startDate", out var sd) && sd.ValueKind == JsonValueKind.Object ? TmdbClient.Int(sd, "year") : null;
             var score = TmdbClient.Num(m, "averageScore");
             output.Add(new Recommendation("anilist", "anime", "anime", isSeries ? "anime" : "movie",
-                idEl.GetRawText(), title, poster, year,
+                idEl.GetRawText(), title, Artwork.ProviderImages.Sized(poster, Artwork.ArtRole.Poster), year,
                 score is { } s ? Math.Round(s, MidpointRounding.AwayFromZero) / 10 : null, format, isSeries));
         }
         return output;

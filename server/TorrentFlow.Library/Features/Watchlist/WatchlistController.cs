@@ -21,8 +21,10 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var items = await db.WatchListItems.AsNoTracking().Include(x => x.Work).Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).ToListAsync(ct);
-        var posters = await WorkPosters.LoadAsync(db, items.Select(x => x.Work?.WorkKey), ct);
-        foreach (var item in items) item.PosterUrl = WorkPosters.Pick(posters, item.Work?.WorkKey, item.PosterUrl);
+        var posters = await WorkPosters.LoadAsync(db, items.Select(x => WorkPosters.KeyFor(x.Work?.WorkKey, x.Title)), ct);
+        var resolved = items.Select(x => (x.Id, Stored: x.PosterUrl, Resolved: WorkPosters.Pick(posters, WorkPosters.KeyFor(x.Work?.WorkKey, x.Title), x.PosterUrl))).ToList();
+        await WorkPosters.StoreOnWatchlistAsync(db, resolved, ct);
+        foreach (var (item, art) in items.Zip(resolved)) item.PosterUrl = art.Resolved;
         return Ok(new { items = items.Select(LibraryJson.Row) });
     }
 

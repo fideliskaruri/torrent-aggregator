@@ -147,8 +147,9 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                 (x.Status == "watching" || x.Status == "planned"));
             if (itemIds != null) query = query.Where(x => itemIds.Contains(x.Id));
             var items = await query.OrderBy(x => x.NextCheckAt).ThenBy(x => x.LastChecked).ToListAsync(ct);
-            var interval = await db.ClientSettings.Where(x => x.UserId == LocalUser.Id)
-                .Select(x => x.AutomationIntervalMinutes).FirstOrDefaultAsync(ct) ?? 15;
+            var stored = await db.ClientSettings.Where(x => x.UserId == LocalUser.Id)
+                .Select(x => x.AutomationIntervalMinutes).FirstOrDefaultAsync(ct);
+            var interval = SettingsDefaults.AutomationIntervalOrDefault(stored);
             int checkedCount = 0, sent = 0, skipped = 0, failed = 0, deferred = 0;
             var searched = false;
             foreach (var item in items)

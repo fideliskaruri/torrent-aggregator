@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using TorrentFlow.Core.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -159,7 +160,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                     s.SetProperty(w => w.AliasesJson, aliasesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
             }
         }
-        int? floor = input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
+        int? floor = input.PreferredResolution ?? SettingsDefaults.ResolutionOrDefault(settings.PreferredResolution);
         return (input, settings, floor, null);
     }
 
@@ -372,7 +373,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 {
                     var minutes = Math.Max(1, Math.Ceiling(options.SeederWaitTimeoutMinutes - (DateTime.UtcNow - since).TotalMinutes));
                     var message = $"Waiting for seeders: {candidate.Seeders} of {options.MinimumSeeders} are sharing it. Trying again in about {minutes} min.";
-                    var next = CheckSchedule.Next(DateTime.UtcNow, null, watch.CursorMisses, since, settings.AutomationIntervalMinutes ?? 15, options);
+                    var next = CheckSchedule.Next(DateTime.UtcNow, null, watch.CursorMisses, since, SettingsDefaults.AutomationIntervalOrDefault(settings.AutomationIntervalMinutes), options);
                     await db.WatchListItems.Where(x => x.Id == watch.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.SeederWaitSince, since)
                         .SetProperty(w => w.NextCheckAt, next.At).SetProperty(w => w.NextCheckReason, next.Reason)
                         .SetProperty(w => w.LastChecked, DateTime.UtcNow), ct);
