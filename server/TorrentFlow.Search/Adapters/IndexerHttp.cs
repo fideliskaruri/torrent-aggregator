@@ -66,16 +66,16 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         public void Dispose() => undo();
     }
 
-    public Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null)
+    public Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null, string? jsonBody = null)
     {
-        if (ambient.Value is not { } scope) return SendAsync(url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken);
-        var key = $"{url}\n{accept}\n{validateApi}\n{bearerToken}";
+        if (ambient.Value is not { } scope) return SendAsync(url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken, jsonBody);
+        var key = $"{url}\n{accept}\n{validateApi}\n{bearerToken}\n{jsonBody}";
         var now = DateTimeOffset.UtcNow;
         if (answers.TryGetValue(key, out var known) && now - known.At < AnswerReuse && !known.Body.IsFaulted && !known.Body.IsCanceled)
             return known.Body.WaitAsync(cancellationToken);
         if (answers.Count > 1024)
             foreach (var stale in answers.Where(a => now - a.Value.At >= AnswerReuse).Select(a => a.Key).ToArray()) answers.TryRemove(stale, out _);
-        var fresh = new Answer(now, SendScopedAsync(scope, url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken));
+        var fresh = new Answer(now, SendScopedAsync(scope, url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken, jsonBody));
         var shared = known == null ? answers.GetOrAdd(key, fresh) : answers.TryUpdate(key, fresh, known) ? fresh : answers.GetValueOrDefault(key) ?? fresh;
         if (!ReferenceEquals(shared, fresh))
         {
@@ -88,7 +88,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         return fresh.Body;
     }
 
-    private async Task<string> SendScopedAsync(SearchScope scope, string url, string agent, int timeoutMs, string accept, CancellationToken ct, bool validateApi, string? bearerToken)
+    private async Task<string> SendScopedAsync(SearchScope scope, string url, string agent, int timeoutMs, string accept, CancellationToken ct, bool validateApi, string? bearerToken, string? jsonBody)
     {
         IDisposable? turn = null, slot = null;
         try
@@ -105,7 +105,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
             if (scope.Slot != null) slot = await scope.Slot(ct);
             scope.Started?.Invoke();
             var budget = TorrentFlow.Core.Sources.SourceExecution.Current?.TimeoutMs is int configured ? Math.Min(configured, timeoutMs) : timeoutMs;
-            return await SendAsync(url, agent, budget, accept, ct, validateApi, bearerToken);
+            return await SendAsync(url, agent, budget, accept, ct, validateApi, bearerToken, jsonBody);
         }
         finally
         {
@@ -114,12 +114,13 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         }
     }
 
-    private async Task<string> SendAsync(string url, string agent, int timeoutMs, string accept, CancellationToken cancellationToken, bool validateApi, string? bearerToken)
+    private async Task<string> SendAsync(string url, string agent, int timeoutMs, string accept, CancellationToken cancellationToken, bool validateApi, string? bearerToken, string? jsonBody = null)
     {
         ThrowIfCoolingDown(url);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(timeoutMs);
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(jsonBody is null ? HttpMethod.Get : HttpMethod.Post, url)
+            { Content = jsonBody is null ? null : new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json") };
         request.Headers.TryAddWithoutValidation("User-Agent", agent);
         request.Headers.TryAddWithoutValidation("Accept", accept);
         if (bearerToken is not null) request.Headers.Authorization = new("Bearer", bearerToken);

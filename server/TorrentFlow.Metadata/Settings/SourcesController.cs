@@ -75,7 +75,7 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                     "tvmaze" => "/shows/1", "cinemeta" => "/meta/movie/tt0038650.json",
                     "tmdb" => "/configuration", "torznab" => "?t=caps", "nyaa" => "/?page=rss",
                     "apibay" => "/q.php?q=public%20domain&cat=0", "yts" => "/list_movies.json?limit=1",
-                    "eztv" => "/get-torrents?limit=1&page=1", _ => ""
+                    "eztv" => "/get-torrents?limit=1&page=1", "animetosho" => "/json?q=test", _ => ""
                 };
                 using var request = source.Type == "tmdb" && !string.IsNullOrEmpty(credential)
                     ? TmdbClient.BuildRequest(credential, source.BaseUrl.TrimEnd('/') + suffix, [])

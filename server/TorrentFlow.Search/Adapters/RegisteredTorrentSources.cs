@@ -13,6 +13,8 @@ public sealed class RegisteredTorrentSources(IServiceProvider services, SourceRe
         ["nyaa"] = typeof(NyaaAdapter), ["apibay"] = typeof(ApiBayAdapter), ["torrentscsv"] = typeof(TorrentsCsvAdapter),
         ["yts"] = typeof(YtsAdapter), ["eztv"] = typeof(EztvAdapter), ["1337x"] = typeof(X1337Adapter),
         ["archive"] = typeof(ArchiveAdapter), ["torznab"] = typeof(TorznabAdapter),
+        ["knaben"] = typeof(KnabenAdapter), ["bitsearch"] = typeof(BitSearchAdapter), ["limetorrents"] = typeof(LimeTorrentsAdapter),
+        ["torrentdownloads"] = typeof(TorrentDownloadsAdapter), ["animetosho"] = typeof(AnimeToshoAdapter),
     };
     public IReadOnlyList<ITorrentSourceAdapter> For(string category) => registry.Active("torrent", category)
         .Select(e => (ITorrentSourceAdapter)new Registered(e, services)).ToArray();
@@ -31,7 +33,7 @@ public sealed class RegisteredTorrentSources(IServiceProvider services, SourceRe
                 var config = new SearchModuleOptions
                 {
                     NyaaBaseUrl = endpoint, ApiBayBaseUrl = endpoint, TorrentsCsvBaseUrl = endpoint,
-                    YtsBaseUrl = endpoint, EztvBaseUrl = endpoint, X1337BaseUrl = endpoint,
+                    YtsBaseUrl = endpoint, EztvBaseUrl = endpoint, X1337BaseUrl = endpoint, SourceBaseUrl = endpoint,
                     ArchiveBaseUrl = endpoint, TorznabUrl = endpoint, TorznabApiKey = entry.Credential,
                     Use1337Browser = entry.Options.TryGetValue("useBrowser", out var browser) && browser.ValueKind == JsonValueKind.True ? "1" : "0",
                 };
