@@ -91,16 +91,22 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
 
     /// <summary>
     /// Whether the work is anime by the one rule (<see cref="AnimeIdentity"/>): an anime source, or its own TMDB or
-    /// Cinemeta record's genres. Null when that record could not be read.
+    /// Cinemeta record's genres. Null (unknown) when that record could not be read or was not found: linking then waits
+    /// for a later open or backfill rather than deciding "not anime" and retiring the work's map rows.
     /// </summary>
     private async Task<bool?> AnimeAsync(Work work, string type, CancellationToken ct)
     {
         if (AnimeIdentity.IsAnime(work.Provider, work.MediaType, work.ProviderId)) return true;
         if (work.Provider == null || work.ProviderId == null || !IMetadataResolver.SupportsProvider(work.Provider)) return false;
-        try { return AnimeIdentity.IsAnime(await metadata.GetByIdAsync(work.Provider, type, work.ProviderId, ct)); }
+        try
+        {
+            if (await metadata.GetByIdAsync(work.Provider, type, work.ProviderId, ct) is { } record) return AnimeIdentity.IsAnime(record);
+            logger.LogInformation("Could not tell whether {WorkKey} is anime: {Provider} returned no record; linking is tried again later", work.WorkKey, work.Provider);
+            return null;
+        }
         catch (Exception error) when (!ct.IsCancellationRequested)
         {
-            logger.LogInformation("Could not tell whether {WorkKey} is anime: {Error}", work.WorkKey, error.Message);
+            logger.LogInformation("Could not tell whether {WorkKey} is anime: {Error}; linking is tried again later", work.WorkKey, error.Message);
             return null;
         }
     }

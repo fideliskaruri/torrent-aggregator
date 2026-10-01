@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data.Entities;
@@ -30,7 +29,37 @@ public static class WorkLinks
     public static Task<List<WorkLink>> LoadAsync(TorrentFlowDbContext db, Work work, CancellationToken ct) =>
         db.WorkLinks.Where(l => l.WorkId == work.Id).OrderBy(l => l.CreatedAt).ToListAsync(ct);
 
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>One work's write lock and how many callers hold it or wait for it; removed when the last one leaves.</summary>
+    private sealed class Gate
+    {
+        public readonly SemaphoreSlim Lock = new(1, 1);
+        public int Users;
+    }
+
+    private static readonly Dictionary<string, Gate> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    private static Gate Enter(string workKey)
+    {
+        lock (Gates)
+        {
+            if (!Gates.TryGetValue(workKey, out var gate)) Gates[workKey] = gate = new Gate();
+            gate.Users++;
+            return gate;
+        }
+    }
+
+    // Users is counted under the dictionary's lock before waiting, so a gate is only removed (and disposed) when nobody
+    // holds or waits on it; a caller arriving after that makes a fresh one.
+    private static void Leave(string workKey, Gate gate, bool held)
+    {
+        if (held) gate.Lock.Release();
+        lock (Gates)
+        {
+            if (--gate.Users > 0) return;
+            Gates.Remove(workKey);
+        }
+        gate.Lock.Dispose();
+    }
 
     /// <summary>
     /// The only way a work's links, ids and linked names are changed: one writer at a time per work (names refresh, title
@@ -42,10 +71,12 @@ public static class WorkLinks
     public static async Task<LinkWrite?> WriteAsync(IDbContextFactory<TorrentFlowDbContext> factory, string workKey,
         Func<TorrentFlowDbContext, Work, List<WorkLink>, bool> write, CancellationToken ct)
     {
-        var gate = Gates.GetOrAdd(workKey, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
+        var gate = Enter(workKey);
+        var held = false;
         try
         {
+            await gate.Lock.WaitAsync(ct);
+            held = true;
             for (var attempt = 1; ; attempt++)
             {
                 await using var db = await factory.CreateDbContextAsync(ct);
@@ -61,7 +92,7 @@ public static class WorkLinks
                 catch (DbUpdateException) when (attempt == 1) { }
             }
         }
-        finally { gate.Release(); }
+        finally { Leave(workKey, gate, held); }
     }
 
     /// <summary>Whether the claim is the work's own catalog identity (already its id; never a link).</summary>
