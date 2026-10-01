@@ -18,7 +18,6 @@ import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
-  ExternalLink,
   Magnet,
   MoreHorizontal,
   Pause,
@@ -57,7 +56,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
-import { LoadingGlyph } from "@/components/ui/loading";
+import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
@@ -507,20 +506,7 @@ function EpisodeCard({
             </Button>
           ) : null}
           {canOpen ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={busy}
-              aria-busy={busy || undefined}
-              onClick={() => onOpenFile(t, "open")}
-              aria-label={`Open ${epLabel} in your own player`}
-              title="Open in your own player"
-              data-open-file
-            >
-              {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-              Open
-            </Button>
+            <TfOpenFileButton name={epLabel} busy={busy} onClick={() => onOpenFile(t, "open")} />
           ) : null}
         </div>
         <DropdownMenu>
@@ -740,7 +726,7 @@ export function SeriesDownloadDialog({
           className="shrink-0 gap-2 border-b border-border px-4 pb-3 pr-14 pt-3 sm:hidden"
           data-mobile-series-header
         >
-          <h2 className="truncate pr-1 text-[15px] font-semibold text-foreground">
+          <h2 className="line-clamp-2 break-words pr-1 text-[15px] font-semibold text-foreground">
             {titleHref ? (
               <Link
                 to={titleHref}
@@ -753,24 +739,32 @@ export function SeriesDownloadDialog({
               group.title
             )}
           </h2>
+          {/* The facts wrap under the state chip rather than truncate: on a
+              phone the size is the part most worth reading, and it was the part
+              an ellipsis ate. The actions menu stays pinned to the right. */}
           <div className="flex min-w-0 items-center gap-2">
-            <Badge
-              variant={chip.variant}
-              data-mobile-group-state
-              className="min-w-0 max-w-[65%] truncate"
-            >
-              {chip.label}
-            </Badge>
-            <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-subtle-foreground">
-              {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-              {formatBytes(group.sizeBytes)}
-              {showBar ? ` · ${pct}%` : null}
-            </span>
-            {isDownloading(group.state) && speed ? (
-              <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                ↓ {speed}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+              <Badge
+                variant={chip.variant}
+                data-mobile-group-state
+                className="min-w-0 truncate"
+              >
+                {chip.label}
+              </Badge>
+              <span
+                className="min-w-0 text-[12px] tabular-nums text-subtle-foreground"
+                data-mobile-group-facts
+              >
+                {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
+                {formatBytes(group.sizeBytes)}
+                {showBar ? ` · ${pct}%` : null}
               </span>
-            ) : null}
+              {isDownloading(group.state) && speed ? (
+                <span className="text-[12px] tabular-nums font-mono text-brand-foreground">
+                  ↓ {speed}
+                </span>
+              ) : null}
+            </div>
             <SeriesActionsMenu
               group={group}
               onActionMany={onActionMany}

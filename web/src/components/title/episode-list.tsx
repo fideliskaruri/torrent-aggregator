@@ -48,6 +48,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useCapabilities } from "@/lib/capabilities";
+import { useFeatures } from "@/lib/features";
+import { openDownload } from "@/lib/open-download";
+import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import {
   formatAirDate,
   isUnaired,
@@ -497,6 +500,24 @@ function StripArrow({
 /** Shared card width so skeletons and real cards reserve identical geometry. */
 const CARD_WIDTH = "w-full sm:w-[300px] sm:shrink-0 sm:snap-start";
 
+/**
+ * The frosted pill a card's one action wears, Download and Open alike: neutral
+ * in every state, never a brand fill behind the glyph (docs/rules.md).
+ */
+const CARD_ACTION_PILL = cn(
+  "h-11 gap-1 rounded-full border-foreground/14 dark:border-foreground/14",
+  // Near-opaque canvas under the glyph: on a bright still the
+  // old 82% elevated frost washed the icon out.
+  "bg-background/86 text-foreground shadow-sm backdrop-blur-sm dark:bg-background/86",
+  "hover:border-input hover:bg-background dark:hover:bg-background",
+  // Busy/done states are disabled but still report status, so they stay
+  // fully opaque: fading them let a bright still wash the glyph below AA.
+  "disabled:cursor-default disabled:opacity-100",
+);
+
+/** Where the action pill sits: the bottom corner of a phone row, the top corner of a desktop still. */
+const CARD_ACTION_SLOT = "absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2";
+
 function EpisodeSkeletonStrip({
   count,
   label,
@@ -551,7 +572,8 @@ function EpisodeCardImpl({
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
 }) {
-  const { canDownload } = useCapabilities();
+  const { canDownload, canSeePaths } = useCapabilities();
+  const { openFolder } = useFeatures();
   const transfer = episode.transfer;
   const downloadAction: TitleAction = {
     kind: "get",
@@ -582,6 +604,22 @@ function EpisodeCardImpl({
     transfer?.status !== "queued" &&
     transfer?.status !== "downloading" &&
     shouldRunTitleAction(downloadStatus);
+
+  // A finished episode file opens in the owner's own player, the same Open as
+  // Downloads (docs/api-open-file.md). A pack's file is one episode of many, so
+  // an episode held inside a pack keeps the plain Downloaded check.
+  const openHash = held && !episode.fromPack ? (transfer?.infoHash ?? episode.infoHash) : null;
+  const canOpen = canSeePaths && openFolder && Boolean(openHash);
+  const [opening, setOpening] = useState(false);
+  const openEpisodeFile = async () => {
+    if (!openHash || opening) return;
+    setOpening(true);
+    try {
+      await openDownload(openHash, "open");
+    } finally {
+      setOpening(false);
+    }
+  };
 
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
@@ -776,9 +814,26 @@ function EpisodeCardImpl({
 
           {/* Compact Download affordance. Icon-only to stay out of the card's
               way, but a 44px touch target and a full aria-label so it is neither
-              too small to hit nor mute to assistive tech. */}
-          {canDownload ? (
-          <span className="absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2">
+              too small to hit nor mute to assistive tech. A finished episode
+              the owner can open swaps it for Open. */}
+          {canOpen ? (
+            <span className={CARD_ACTION_SLOT}>
+              <TfOpenFileButton
+                name={episode.label}
+                busy={opening}
+                variant="outline"
+                size="icon-lg"
+                data-episode-action
+                data-action="open"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void openEpisodeFile();
+                }}
+                className={cn(CARD_ACTION_PILL, "w-auto px-3 text-[13px]")}
+              />
+            </span>
+          ) : canDownload ? (
+          <span className={CARD_ACTION_SLOT}>
             <Button
               type="button"
               variant="outline"
@@ -794,14 +849,7 @@ function EpisodeCardImpl({
                 onAction(downloadAction, episode.label);
               }}
               className={cn(
-                "h-11 gap-1 rounded-full border-foreground/14 dark:border-foreground/14",
-                // Near-opaque canvas under the glyph: on a bright still the
-                // old 82% elevated frost washed the icon out.
-                "bg-background/86 text-foreground shadow-sm backdrop-blur-sm dark:bg-background/86",
-                "hover:border-input hover:bg-background dark:hover:bg-background",
-                // Busy/done states are disabled but still report status, so they stay
-                // fully opaque: fading them let a bright still wash the glyph below AA.
-                "disabled:cursor-default disabled:opacity-100",
+                CARD_ACTION_PILL,
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"

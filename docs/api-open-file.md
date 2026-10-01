@@ -60,6 +60,11 @@ Only on finished built-in rows (`ownerClientType === "builtin"` and `state === "
 `POST /api/settings/open-folder`). When `openFolder` is false, show the copy-path fallback the folder button already uses.
 `GET /api/features` no longer has `streaming`.
 
+The title page offers Open in two places, both with the info hash as `{id}`: the hero of a downloaded film, and
+each finished episode card (the card's Download pill becomes **Open**). An episode held only inside a season pack
+keeps the plain Downloaded check, since the pack's file is not that one episode. Every Open in the web is the one
+`TfOpenFileButton` (`web/src/components/tf/open-file-button.tsx`) calling `openDownload` (`web/src/lib/open-download.ts`).
+
 ## Downloads row fields (`GET /api/client/torrents`)
 
 - `addedAt: string | null`: when the transfer was added, ISO 8601 UTC (for example `2025-09-30T18:04:05.123Z`).
