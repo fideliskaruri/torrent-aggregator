@@ -18,7 +18,6 @@ import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
-  ExternalLink,
   Magnet,
   MoreHorizontal,
   Pause,
@@ -57,7 +56,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
-import { LoadingGlyph } from "@/components/ui/loading";
+import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
@@ -507,20 +506,7 @@ function EpisodeCard({
             </Button>
           ) : null}
           {canOpen ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={busy}
-              aria-busy={busy || undefined}
-              onClick={() => onOpenFile(t, "open")}
-              aria-label={`Open ${epLabel} in your own player`}
-              title="Open in your own player"
-              data-open-file
-            >
-              {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-              Open
-            </Button>
+            <TfOpenFileButton name={epLabel} busy={busy} onClick={() => onOpenFile(t, "open")} />
           ) : null}
         </div>
         <DropdownMenu>

@@ -23,7 +23,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, Search } from "lucide-react";
+import { CheckCircle2, Download, FolderOpen, Loader2, Search } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import { useFeatures } from "@/lib/features";
@@ -34,6 +34,7 @@ import { cleanDisplayTitle } from "@/components/browse/availability";
 import { headingTitle } from "./heading-title";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
+import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1250,21 +1251,16 @@ function TitleContent({
                 ) : null}
                 {canOpenFile ? (
                   <>
-                    <Button
-                      type="button"
+                    <TfOpenFileButton
+                      name={title}
+                      busy={openingFile === "open"}
+                      disabled={openingFile !== null}
+                      variant="default"
                       size="lg"
                       data-title-open
-                      aria-label={`Open ${title} in your own player`}
-                      title="Open in your own player"
-                      aria-busy={openingFile === "open" || undefined}
-                      disabled={openingFile !== null}
                       onClick={() => void openTitleFile("open")}
-                      className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
-                    >
-                      <ButtonBody pending={openingFile === "open"} icon={<ExternalLink aria-hidden />}>
-                        Open
-                      </ButtonBody>
-                    </Button>
+                      className="w-full min-w-0 md:w-auto md:min-w-[8rem]"
+                    />
                     <Button
                       type="button"
                       size="lg"

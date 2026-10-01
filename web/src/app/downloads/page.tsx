@@ -9,7 +9,6 @@ import {
   ArrowDownUp,
   ChevronRight,
   Download,
-  ExternalLink,
   FolderTree,
   HardDriveDownload,
   Magnet,
@@ -66,6 +65,7 @@ import {
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
+import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import {
   titleHrefForName,
   titlePath,
@@ -2314,21 +2314,12 @@ function FilmRow({
           </Button>
         ) : null}
         {canOpen ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
+          <TfOpenFileButton
+            name={display.title}
+            busy={busy}
             className="lg:mr-1.5"
-            disabled={busy}
-            aria-busy={busy || undefined}
             onClick={() => onOpenFile(t, "open")}
-            aria-label={`Open ${display.title} in your own player`}
-            title="Open in your own player"
-            data-open-file
-          >
-            {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
-            Open
-          </Button>
+          />
         ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
