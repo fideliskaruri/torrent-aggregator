@@ -2,7 +2,6 @@ using TorrentFlow.Core;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
