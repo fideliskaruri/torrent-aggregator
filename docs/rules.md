@@ -19,6 +19,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - Fix the whole class of a problem, not only the example the owner gave.
 - Tests must be exhaustive. For every flow, cover the happy path, every error path and edge cases: empty, long and unicode titles, duplicates, double submits, expired state, restarts mid-flow, concurrency, both roles and both widths. Use at least three titles per content type (movie, western series, long-running anime, anime with sequel seasons). Report a coverage table marking each case pass, fail or blocked.
 - A dedicated QA agent verifies after implementation. Findings are logged as bugs.
+- Whenever work lands on main, restart the owner's test instance (port 3930, data `D:\code\memtest\stable\data`) on the new main build right away, so the owner can see and test the changes. Ship each finished lane on its own; don't hold it back for slower lanes.
 
 ## Engineering
 
