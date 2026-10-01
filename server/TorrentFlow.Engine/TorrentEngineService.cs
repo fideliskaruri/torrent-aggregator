@@ -45,7 +45,7 @@ internal sealed partial class TorrentEngineService(
     private readonly SemaphoreSlim _metadataGate = new(4, 4);
     private readonly TransferHealthTracker _health = new();
     // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock, except by
-    // RemoveManyAsync, which holds _removeGate and takes its hashes in ordinal order.
+    // RemoveManyAsync, SwapAsync and the deletion cleanup, which take their hashes in ordinal order under _removeGate.
     private readonly SemaphoreSlim _removeGate = new(1, 1);
     // Entries are ref-counted (holder + waiters) and dropped at zero, so the map never outgrows the in-flight work.
     private readonly Dictionary<string, HashLock> _hashLocks = new(StringComparer.Ordinal);
@@ -73,7 +73,7 @@ internal sealed partial class TorrentEngineService(
     private ScheduleState Schedule => limits is null ? ScheduleState.Unrestricted : DownloadWindows.Evaluate(limits.Windows, time.GetLocalNow());
     /// <summary>An open window's own downloads-at-once wins over the saved cap, which wins over the configured default.</summary>
     private int CapFor(ScheduleState schedule) =>
-        Math.Max(1, schedule.Active?.MaxActiveDownloads ?? limits?.MaxActiveOverride ?? Options.MaxActiveDownloads);
+        DownloadLimits.Effective(schedule, limits?.MaxActiveOverride, Options.MaxActiveDownloads).MaxActive;
     private int Cap => CapFor(Schedule);
     // The window speed caps last pushed to the client; null until the first tick applies them.
     private (long? Down, long? Up)? _appliedRates;
@@ -305,9 +305,9 @@ internal sealed partial class TorrentEngineService(
 
         if (backend.Get(hash) is { } live)
         {
-            if (request.Forced && existing is not null && existing.ForcedAt is null)
+            if (request.Forced && existing is not null && existing.ForcedReason != ForcedReasons.Now)
             {
-                existing.ForcedAt = Now;
+                existing.MarkForcedNow(Now);
                 await db.SaveChangesAsync(ct);
             }
             return Done(live.State == "complete"
@@ -351,7 +351,7 @@ internal sealed partial class TorrentEngineService(
             // The reservation covers the pieces the selection touches, not the whole release.
             if (request.ExpectedSizeBytes is > 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
         }
-        if (request.Forced) row.ForcedAt = Now;
+        if (request.Forced) row.MarkForcedNow(Now);
         row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
         row.Error = null;
         row.UpdatedAt = Now;
@@ -378,8 +378,10 @@ internal sealed partial class TorrentEngineService(
         return new Admission(QueuedResult(hash, position), null, claimed);
     }
 
+    private static string QueuedMessage(int? position) => position is { } p ? $"Queued — #{p} in line" : "Queued";
+
     private static EngineAddResult QueuedResult(string hash, int? position) =>
-        new(true, position is { } p ? $"Queued — #{p} in line" : "Queued", new EngineAddDetails(EngineAddDetails.Queued, 0, 0, position), hash);
+        new(true, QueuedMessage(position), new EngineAddDetails(EngineAddDetails.Queued, 0, 0, position), hash);
 
     internal const string FakeReleaseMessage = "This release already turned out not to be a real video file, so TorrentFlow won't download it again.";
 
@@ -592,7 +594,7 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>
     /// Loads the owner's saved downloads-at-once cap and applies it the moment it changes: raising it starts queued
-    /// downloads right away, lowering it sends the running tail (never forced rows) back to the queue.
+    /// downloads right away, lowering it sends the running tail back to the queue (never a row forced with Download now).
     /// </summary>
     internal async Task AttachLimitsAsync(CancellationToken ct = default)
     {
@@ -622,8 +624,9 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>
     /// Returns running downloads over the cap to the queue. Rows are marked queued under the queue gate, then each is
-    /// detached under its own hash lock only if it is still queued (a resume or "Download now" in between wins).
-    /// Files and progress stay on disk, so the transfer picks up where it stopped when its turn comes.
+    /// unloaded under its own hash lock only if it is still queued (a resume or "Download now" in between wins), without
+    /// waiting for the client to let go. Files and progress stay on disk, so the transfer picks up where it stopped
+    /// when its turn comes.
     /// </summary>
     internal async Task<IReadOnlyList<string>> DemoteOverCapAsync()
     {
@@ -653,9 +656,7 @@ internal sealed partial class TorrentEngineService(
             {
                 await using var db = await dbFactory.CreateDbContextAsync();
                 if ((await FindAsync(db, hash, CancellationToken.None))?.Status != EngineTorrentStatus.Queued) continue;
-                if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-                _startedAt.TryRemove(hash, out _);
-                _health.Forget(hash);
+                Unload(hash);
             }
         }
         logger.LogInformation("Download cap lowered: returned {Count} running downloads to the queue", demoted.Count);
@@ -955,6 +956,7 @@ internal sealed partial class TorrentEngineService(
                 WorkId = row.WorkId,
                 QueueKey = row.QueueKey,
                 Forced = row.ForcedAt is not null,
+                ForcedReason = row.ForcedAt is null ? null : row.ForcedReason ?? ForcedReasons.Legacy,
                 Verified = row.VerifiedAt is not null,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
                 BytesReceived = live.BytesReceived,
@@ -980,6 +982,7 @@ internal sealed partial class TorrentEngineService(
             WorkId = row.WorkId,
             QueueKey = row.QueueKey,
             Forced = row.ForcedAt is not null,
+            ForcedReason = row.ForcedAt is null ? null : row.ForcedReason ?? ForcedReasons.Legacy,
             Verified = row.VerifiedAt is not null,
             Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, f.FullPath is not null, IsDownloaded(row) && f.FullPath is not null ? 1 : 0, f.FullPath)).ToList() : null,
         };
@@ -1064,6 +1067,10 @@ internal sealed partial class TorrentEngineService(
         }
     }
 
+    /// <summary>
+    /// The owner's stop. The row is saved paused first, then the transfer leaves the client without waiting on its
+    /// trackers (files and fast-resume data stay, so a resume carries on without a re-check) and its slot is refilled.
+    /// </summary>
     public async Task<EngineActionResult> PauseAsync(string infoHash, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
@@ -1072,29 +1079,104 @@ internal sealed partial class TorrentEngineService(
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var row = await FindAsync(db, hash, ct);
             if (row is null) return new EngineActionResult(false, NotFound);
-            if (IsDownloaded(row) || backend.Get(hash)?.State == "complete") return new EngineActionResult(false, DownloadedCannotPause);
+            var live = backend.Get(hash);
+            if (IsDownloaded(row) || live?.State == "complete") return new EngineActionResult(false, DownloadedCannotPause);
             row.Status = EngineTorrentStatus.Paused;
             // A paused item is the owner's decision; it must not jump back ahead of the queue as "forced".
-            row.ForcedAt = null;
+            row.ClearForced();
+            if (live is not null) row.Progress = Math.Round(live.Progress, 4);
             row.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
-            if (backend.Contains(hash)) await backend.PauseAsync(hash);
+            Unload(hash);
         }
-        await PromoteAsync(CancellationToken.None);
+        PromoteInBackground();
         return new EngineActionResult(true, "Paused");
     }
 
     /// <summary>
-    /// Resume is the owner's explicit decision, so it overrides the queue: the transfer starts now even when every
-    /// slot is taken (it is marked forced, like "Download now"). Queued rows wait behind it; nothing is preempted.
+    /// Takes a transfer out of the client without waiting for it to let go. Pause and cap demotion keep its fast-resume
+    /// data, so its next start skips the hash check; a delete drops it. Caller holds the hash lock and has saved the row.
     /// </summary>
-    public Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default) =>
-        StartNowAsync(infoHash, "Resumed", reannounceIfLive: true, ct);
+    private void Unload(string hash, bool keepResumeData = true)
+    {
+        _ = backend.RemoveAsync(hash, keepResumeData);
+        _startedAt.TryRemove(hash, out _);
+        _health.Forget(hash);
+    }
 
-    public Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default) =>
-        StartNowAsync(infoHash, "Downloading now", reannounceIfLive: false, ct);
+    /// <summary>Refills freed slots without holding up the owner's pause or delete; a slow start never delays the reply.</summary>
+    private void PromoteInBackground() =>
+        _ = Task.Run(() => PromoteAsync(CancellationToken.None)).ContinueWith(
+            t => logger.LogWarning(t.Exception, "Refilling the download queue failed"), TaskContinuationOptions.OnlyOnFaulted);
 
-    private async Task<EngineActionResult> StartNowAsync(string infoHash, string okMessage, bool reannounceIfLive, CancellationToken ct)
+    /// <summary>
+    /// Resume joins the queue like any kept download: it starts now only when a slot is free and nothing waits ahead of
+    /// it (outside the download hours it waits); otherwise it is queued in order. Only "Download now"
+    /// (<see cref="ForceAsync"/>) passes the cap. A row that already holds a slot keeps it, a live one is re-announced,
+    /// and streams, prewarm and a finished import going back to seeding never queue.
+    /// </summary>
+    public async Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default)
+    {
+        var hash = infoHash.Trim().ToLowerInvariant();
+        EngineActionResult? result = null;
+        EngineTorrent? start = null;
+        List<EngineTorrent> claimed = [];
+        using (await LockHashAsync(hash, ct))
+        {
+            await _queueGate.WaitAsync(ct);
+            try
+            {
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                var row = await FindAsync(db, hash, ct);
+                if (row is null) return new EngineActionResult(false, NotFound);
+                var seeding = IsDownloaded(row);
+                if (seeding && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
+                    return new EngineActionResult(true, "Already downloaded");
+                if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
+                {
+                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
+                    await backend.ResumeAsync(hash);
+                    return new EngineActionResult(true, "Re-announced");
+                }
+                var schedule = Schedule;
+                var queue = !seeding && row.Status != EngineTorrentStatus.Downloading
+                    && DownloadQueue.ShouldQueueNewDownload((await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash).ToList(),
+                        CapFor(schedule), row.Origin, forced: false, schedule.Open);
+                row.Status = seeding ? "seeding" : queue ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
+                row.Error = null;
+                row.UpdatedAt = Now;
+                await db.SaveChangesAsync(ct);
+                if (queue)
+                {
+                    // Rows are waiting or every slot is taken: the head of the queue takes any free slot, maybe this one.
+                    claimed = await ClaimPromotionsAsync(db);
+                    start = claimed.FirstOrDefault(r => r.Hash == hash);
+                    if (start is not null) claimed.Remove(start);
+                    else result = new EngineActionResult(true, QueuedMessage(await QueuePositionAsync(db, hash, CancellationToken.None)));
+                }
+                else
+                {
+                    _starting.TryAdd(hash, 0);
+                    start = row;
+                }
+            }
+            finally
+            {
+                _queueGate.Release();
+            }
+            WakeMonitor();
+            if (start is not null) result = await StartOrResumeAsync(start, "Resumed");
+        }
+        await StartClaimedAsync(claimed);
+        if (!result!.Ok) await PromoteAsync(CancellationToken.None);
+        return result;
+    }
+
+    /// <summary>
+    /// The owner's "Download now", the one override of the queue: the transfer starts at once even when every slot is
+    /// taken, and keeps its slot when the cap is lowered until it finishes, fails or is paused. Nothing is preempted.
+    /// </summary>
+    public async Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
         EngineActionResult result;
@@ -1110,13 +1192,7 @@ internal sealed partial class TorrentEngineService(
                 row = found;
                 if (IsDownloaded(row) && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                     return new EngineActionResult(true, "Already downloaded");
-                if (reannounceIfLive && row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
-                {
-                    await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
-                    await backend.ResumeAsync(hash);
-                    return new EngineActionResult(true, "Re-announced");
-                }
-                row.ForcedAt = Now;
+                row.MarkForcedNow(Now);
                 row.Status = EngineTorrentStatus.Downloading;
                 row.Error = null;
                 row.UpdatedAt = Now;
@@ -1128,7 +1204,7 @@ internal sealed partial class TorrentEngineService(
                 _queueGate.Release();
             }
             WakeMonitor();
-            result = await StartOrResumeAsync(row, okMessage);
+            result = await StartOrResumeAsync(row, "Downloading now");
         }
         if (!result.Ok) await PromoteAsync(CancellationToken.None);
         return result;
@@ -1163,68 +1239,71 @@ internal sealed partial class TorrentEngineService(
         (await RemoveManyAsync([infoHash], deleteFiles, ct))[0].Result;
 
     /// <summary>
-    /// Removes several transfers as one delete. Every row goes before any file does, so a season folder the batch
-    /// shares only with itself is proven its own and removed whole (sidecars included), and the queue is refilled once
-    /// at the end instead of starting a sibling that is about to be deleted. Deletes are serialized, so concurrent
-    /// single deletes of one season still see each other gone and the last one takes the folder.
+    /// Removes several transfers as one delete and returns without waiting on the client or the disk. One save drops
+    /// every row and records a tombstone in its place (what to delete and where), so the transfers never list again and
+    /// a crash cannot lose the delete. Each transfer then leaves the client without waiting on its trackers, the freed
+    /// slots are refilled, and the cleanup worker (<see cref="RunDeletionCleanupAsync"/>) deletes the files. The batch
+    /// is cleaned up together, so a season folder it shares only with itself is proven its own and removed whole
+    /// (sidecars included). A hash whose delete is still being cleaned up counts as removed.
     /// </summary>
     public async Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyAsync(
         IReadOnlyCollection<string> infoHashes, bool deleteFiles, CancellationToken ct = default)
     {
         var hashes = infoHashes.Select(h => h.Trim().ToLowerInvariant()).ToList();
-        var results = hashes.Select(h => (Hash: h, Result: new EngineActionResult(false, NotFound))).ToList();
-        var removed = new List<(string Hash, string? SavePath, IReadOnlyList<string> Files)>();
+        var wanted = hashes.Where(h => h.Length > 0).Distinct().Order(StringComparer.Ordinal).ToList();
+        var removed = new HashSet<string>(StringComparer.Ordinal);
+        var detached = 0;
         var held = new List<IDisposable>();
         await _removeGate.WaitAsync(ct);
         try
         {
-            foreach (var hash in hashes.Where(h => h.Length > 0).Distinct().Order(StringComparer.Ordinal))
+            foreach (var hash in wanted) held.Add(await LockHashAsync(hash, ct));
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && wanted.Contains(r.Hash)).ToListAsync(ct);
+            var tombstones = await db.EngineDeletions.Where(d => d.UserId == LocalUser.Id && wanted.Contains(d.Hash)).ToListAsync(ct);
+            foreach (var row in rows)
             {
-                held.Add(await LockHashAsync(hash, ct));
-                await using var db = await dbFactory.CreateDbContextAsync(ct);
-                var row = await FindAsync(db, hash, ct);
-                if (row is null) continue;
-                var files = backend.Get(hash)?.Files.Select(f => f.FullPath).ToList()
-                    ?? VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!).ToList();
-                if (files.Count == 0 && LoadTorrentFile(hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
+                var files = backend.Get(row.Hash)?.Files.Select(f => f.FullPath).ToList()
+                    ?? VerifiedFiles(row).Select(f => f.FullPath).OfType<string>().ToList();
+                if (files.Count == 0 && LoadTorrentFile(row.Hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
+                // Deleted again after a re-add while the first delete is still being cleaned up: one tombstone covers both.
+                var tombstone = tombstones.FirstOrDefault(d => d.Hash == row.Hash);
+                if (tombstone is null)
+                {
+                    tombstone = new EngineDeletion { UserId = LocalUser.Id, Hash = row.Hash, CreatedAt = Now };
+                    db.EngineDeletions.Add(tombstone);
+                    tombstones.Add(tombstone);
+                }
+                tombstone.Name = row.Name;
+                tombstone.SavePath = row.SavePath ?? tombstone.SavePath;
+                tombstone.FilesJson = JsonSerializer.Serialize(DeletionFiles(tombstone).Concat(files).Distinct().ToList(), JsonOptions);
                 db.EngineTorrents.Remove(row);
-                await db.SaveChangesAsync(ct);
-                if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-                _startedAt.TryRemove(hash, out _);
-                removed.Add((hash, row.SavePath, files));
-                for (var i = 0; i < results.Count; i++)
-                    if (results[i].Hash == hash) results[i] = (hash, new EngineActionResult(true, "Removed"));
             }
-
-            if (deleteFiles && removed.Count > 0)
+            var batchId = Ids.New();
+            foreach (var tombstone in tombstones)
             {
-                var baseRoot = (await settings.GetConfigAsync(CancellationToken.None)).DownloadRoot;
-                List<string> otherPaths = [];
-                if (!string.IsNullOrWhiteSpace(baseRoot))
-                {
-                    await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
-                    foreach (var other in await db.EngineTorrents.AsNoTracking().ToListAsync(CancellationToken.None))
-                    {
-                        if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
-                        otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!));
-                    }
-                }
-                await DeleteReleasesAsync(removed.Select(r => (r.SavePath, r.Files)).ToList(), baseRoot, otherPaths);
-                foreach (var r in removed)
-                {
-                    TryDelete(TorrentFilePath(r.Hash));
-                    _layoutManifest.Forget(r.Hash, r.SavePath);
-                }
+                tombstone.BatchId = batchId;
+                tombstone.DeleteFiles |= deleteFiles;
+                tombstone.Attempts = 0;
+                tombstone.LastError = null;
+                tombstone.NextAttemptAt = Now;
+                removed.Add(tombstone.Hash);
             }
+            await db.SaveChangesAsync(ct);
+            foreach (var row in rows)
+            {
+                Unload(row.Hash, keepResumeData: false);
+            }
+            detached = rows.Count;
         }
         finally
         {
             foreach (var h in held) h.Dispose();
             _removeGate.Release();
         }
-        storage.ResetDirectorySizeCache();
-        if (removed.Count > 0) await PromoteAsync(CancellationToken.None);
-        return results;
+        if (removed.Count > 0) SignalCleanup();
+        if (detached > 0) PromoteInBackground();
+        return hashes.Select(h => (h, removed.Contains(h) ? new EngineActionResult(true, "Removed") : new EngineActionResult(false, NotFound))).ToList();
     }
 
     public async Task<EngineActionResult> SelectFilesAsync(string infoHash, IReadOnlyCollection<int> fileIndices, CancellationToken ct = default)
@@ -1317,7 +1396,7 @@ internal sealed partial class TorrentEngineService(
                 var wasError = row.Status == EngineTorrentStatus.Error;
                 row.Status = EngineTorrentStatus.Error;
                 row.Error = message;
-                row.ForcedAt = null;
+                row.ClearForced();
                 row.UpdatedAt = Now;
                 await db.SaveChangesAsync(CancellationToken.None);
                 if (!wasError) RaiseFailed(new(row.Hash, row.Name, row.Origin));
@@ -1408,7 +1487,7 @@ internal sealed partial class TorrentEngineService(
                     if (row.Status != EngineTorrentStatus.Error) failed.Add(new(row.Hash, row.Name, row.Origin));
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = live.Error ?? "The torrent client reported an error.";
-                    row.ForcedAt = null;
+                    row.ClearForced();
                     detach.Add(row.Hash);
                 }
                 else if (!live.HasMetadata && row.Status == EngineTorrentStatus.Downloading
@@ -1417,7 +1496,7 @@ internal sealed partial class TorrentEngineService(
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = "Couldn't get this torrent's file list from peers. Check the magnet or try another release.";
                     failed.Add(new(row.Hash, row.Name, row.Origin));
-                    row.ForcedAt = null;
+                    row.ClearForced();
                     detach.Add(row.Hash);
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && SelectionHolds(row, live))
@@ -1431,7 +1510,7 @@ internal sealed partial class TorrentEngineService(
                         row.VerifiedAt = Now;
                         row.Progress = 1;
                         row.Status = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) ? "seeding" : EngineTorrentStatus.Parked;
-                        row.ForcedAt = null;
+                        row.ClearForced();
                         row.Error = null;
                         if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                         {
@@ -1643,15 +1722,17 @@ internal sealed partial class TorrentEngineService(
     /// Deletes a batch of releases whose rows are already gone, so <paramref name="otherPaths"/> never holds a sibling
     /// from the same batch and a season folder holding only this batch's episodes is proven theirs. A file the client
     /// is still letting go of (Windows keeps a handle for a moment after a stop) is retried briefly, not left behind.
+    /// Returns the release files still on disk: empty when the delete is done.
     /// </summary>
-    internal static async Task DeleteReleasesAsync(IReadOnlyList<(string? SavePath, IReadOnlyList<string> Files)> releases,
+    internal static async Task<IReadOnlyList<string>> DeleteReleasesAsync(IReadOnlyList<(string? SavePath, IReadOnlyList<string> Files)> releases,
         string? baseRoot, IReadOnlyList<string> otherPaths, int attempts = 12, int delayMs = 250)
     {
         var owned = releases.SelectMany(r => ReleaseFileRemoval.Plan(r.Files, r.SavePath, baseRoot, []).Files).ToList();
         for (var attempt = 0; ; attempt++)
         {
             foreach (var (savePath, files) in releases) DeleteReleaseFiles(files, savePath, baseRoot, otherPaths);
-            if (attempt + 1 >= attempts || !owned.Any(File.Exists)) return;
+            var left = owned.Where(File.Exists).ToList();
+            if (attempt + 1 >= attempts || left.Count == 0) return left;
             await Task.Delay(delayMs);
         }
     }

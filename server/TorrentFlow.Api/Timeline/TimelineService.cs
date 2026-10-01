@@ -78,7 +78,7 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
         }
         var windows = limits.Windows;
         var schedule = DownloadWindows.Evaluate(windows, time.GetLocalNow());
-        var cap = Math.Max(1, schedule.Active?.MaxActiveDownloads ?? limits.MaxActiveOverride ?? engineOptions.CurrentValue.MaxActiveDownloads);
+        var cap = DownloadLimits.Effective(schedule, limits.MaxActiveOverride, engineOptions.CurrentValue.MaxActiveDownloads).MaxActive;
         var opening = schedule.Open ? null : DownloadWindows.NextStart(windows, now, time.LocalTimeZone);
         var rows = torrents.Select(t => new QueueRow(t.Hash, t.Status, t.Origin, t.CreatedAt,
             t.WorkId, t.QueueKey, t.ForcedAt, t.SizeBytes, t.Lane)).ToList();

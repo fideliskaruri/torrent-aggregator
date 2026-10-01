@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Queue;
 using ManifestFile = TorrentFlow.Engine.TorrentEngineService.ManifestFile;
 
 namespace TorrentFlow.Engine.Layout;
@@ -346,7 +347,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         row.Progress = 1;
         row.VerifiedAt = null;
         row.VerifiedBitfield = null;
-        row.ForcedAt = null;
+        row.ClearForced();
         row.UpdatedAt = now;
         if (releaseTargets) await ReleaseTargetsAsync(db, row.Hash, message, now, ct);
         await db.SaveChangesAsync(ct);

@@ -23,6 +23,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
     private readonly ConcurrentDictionary<string, IReadOnlySet<int>> _selections = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Magnets whose file list has not been checked yet (<see cref="MediaFileRules"/>).</summary>
     private readonly ConcurrentDictionary<string, byte> _checkFiles = new(StringComparer.OrdinalIgnoreCase);
+    // Transfers leaving the client: out of _managers at once, the task completes once MonoTorrent has let go of the files.
+    private readonly ConcurrentDictionary<string, Task> _detaching = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public MonoTorrentBackend(IOptions<EngineOptions> options, ILogger<MonoTorrentBackend> logger)
@@ -135,7 +137,15 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
     public async Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)
     {
         TorrentManager manager;
-        await _gate.WaitAsync(ct);
+        // MonoTorrent refuses a hash it still holds, so a re-add waits for that hash's detach (never under the gate:
+        // the detach takes it last to drop side state).
+        while (true)
+        {
+            if (_detaching.TryGetValue(spec.Hash, out var leaving)) await leaving.WaitAsync(ct);
+            await _gate.WaitAsync(ct);
+            if (!_detaching.ContainsKey(spec.Hash)) break;
+            _gate.Release();
+        }
         try
         {
             if (_managers.TryGetValue(spec.Hash, out var existing))
@@ -437,32 +447,55 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public IReadOnlyCollection<string> LiveHashes() => _managers.Keys.ToList();
 
-    public async Task PauseAsync(string hash)
-    {
-        // Stop, not Pause: a MonoTorrent pause keeps peer connections open, which is exactly the memory we want back.
-        if (_managers.TryGetValue(hash, out var m) && m.State is not (TorrentState.Stopped or TorrentState.Stopping))
-            await m.StopAsync(TimeSpan.FromSeconds(10));
-    }
-
     public async Task ResumeAsync(string hash)
     {
         if (!_managers.TryGetValue(hash, out var m)) return;
-        // A pause stops the manager, which announces "stopped" to every tracker first; resuming in that window used to
-        // be a silent no-op, leaving the torrent paused after the owner pressed resume.
+        // A stop in flight (it announces "stopped" to every tracker first) makes StartAsync a silent no-op, which used to
+        // leave a transfer stopped after the owner pressed resume; wait for it to land.
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (m.State is TorrentState.Stopping && DateTime.UtcNow < deadline) await Task.Delay(100);
         if (m.State is TorrentState.Stopped or TorrentState.Paused or TorrentState.Error)
             await m.StartAsync();
     }
 
-    public async Task RemoveAsync(string hash)
+    public Task RemoveAsync(string hash, bool keepResumeData = false)
     {
-        if (!_managers.TryRemove(hash, out var m)) return;
+        if (!_managers.TryRemove(hash, out var m))
+        {
+            // Not loaded (paused or queued rows are detached): a delete still owes the cache a pause kept, also when
+            // that pause is still letting go.
+            if (_detaching.TryGetValue(hash, out var leaving)) return keepResumeData ? leaving : DeleteCachedStateAfterAsync(hash, leaving);
+            if (!keepResumeData) DeleteCachedState(hash);
+            return Task.CompletedTask;
+        }
         m.TorrentStateChanged -= OnStateChanged;
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _detaching[hash] = done.Task;
+        _ = Task.Run(async () =>
+        {
+            try { await DetachAsync(hash, m, keepResumeData); }
+            finally
+            {
+                // Out of the map before the task completes, so a re-add awaiting it never sees it again.
+                _detaching.TryRemove(new KeyValuePair<string, Task>(hash, done.Task));
+                done.TrySetResult();
+            }
+        });
+        return done.Task;
+    }
+
+    private async Task DetachAsync(string hash, TorrentManager m, bool keepResumeData)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            if (m.State is not TorrentState.Stopped) await m.StopAsync(TimeSpan.FromSeconds(10));
-            await Engine.RemoveAsync(m, RemoveMode.CacheDataOnly);
+            // StopAsync throws on a manager that is already stopping (a wrapper drop restarting it); let that land first.
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (m.State is TorrentState.Stopping && DateTime.UtcNow < deadline) await Task.Delay(50);
+            // Zero timeout: the "stopped" announce is sent but never awaited, so a slow tracker can't hold the files.
+            // The stop still closes the files and writes fast-resume data before it returns.
+            if (m.State is not TorrentState.Stopped) await m.StopAsync(TimeSpan.Zero);
+            await Engine.RemoveAsync(m, keepResumeData ? RemoveMode.KeepAllData : RemoveMode.CacheDataOnly);
         }
         catch (Exception ex)
         {
@@ -485,6 +518,32 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         finally
         {
             _gate.Release();
+        }
+        _logger.LogInformation("Detached {Hash} from the client in {Ms:0} ms (resume data {Kept})", hash,
+            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, keepResumeData ? "kept" : "dropped");
+    }
+
+    private async Task DeleteCachedStateAfterAsync(string hash, Task leaving)
+    {
+        await leaving;
+        if (!_managers.ContainsKey(hash)) DeleteCachedState(hash);
+    }
+
+    /// <summary>The fast-resume and metadata cache MonoTorrent keeps per hash, for a transfer that is no longer loaded.</summary>
+    private void DeleteCachedState(string hash)
+    {
+        var name = hash.ToUpperInvariant();
+        foreach (var path in new[]
+        {
+            Path.Combine(Engine.Settings.FastResumeCacheDirectory, name + ".fresume"),
+            Path.Combine(Engine.Settings.MetadataCacheDirectory, name + ".torrent"),
+        })
+        {
+            try { File.Delete(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogInformation(ex, "Could not delete cached client state {Path}", path);
+            }
         }
     }
 
@@ -542,10 +601,11 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         {
             TorrentState.Metadata => "metaDL",
             TorrentState.Hashing or TorrentState.FetchingHashes or TorrentState.HashingPaused => "checkingDL",
-            TorrentState.Stopped or TorrentState.Stopping or TorrentState.Paused => complete ? "complete" : "paused",
             TorrentState.Error => "error",
             _ when complete => "complete",
-            TorrentState.Starting => "metaDL",
+            // Nothing pauses a loaded transfer (pause and cap demotion take it out of the client), so a stopped one is
+            // being started: an add loads it stopped and starts it last, and a magnet's wrapper drop restarts it.
+            TorrentState.Starting or TorrentState.Stopped or TorrentState.Stopping or TorrentState.Paused => "metaDL",
             _ => rate > 0 ? "downloading" : "stalledDL",
         };
         _errors.TryGetValue(hash, out var err);
@@ -578,6 +638,15 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        try
+        {
+            // Detaches in flight finish first, so their files are released and their resume data is written.
+            await Task.WhenAll(_detaching.Values).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Shutting down with {Count} transfers still leaving the client", _detaching.Count);
+        }
         try
         {
             // Stopping writes fast-resume data; the DB rows (not engine state) drive rehydration.

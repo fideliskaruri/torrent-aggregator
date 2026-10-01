@@ -155,6 +155,7 @@ Built-in rows follow the Next `ClientTorrent` shape plus:
 | `state` | string | `downloaded` \| `downloading` \| `stalledDL` \| `metaDL` \| `checkingDL` \| `paused` \| `queued` \| **`error`** |
 | `error` | string? | Plain message when `state` is `error` (metadata timeout, client fault, layout refusal). **Not** a paused state — UI must group `error` separately from paused. |
 | `forced` | bool | `true` when the owner pressed Download now (`ForcedAt` set). |
+| `forcedReason` | string? | Why a forced row passes the cap: `now` (Download now), or `legacy` for a row an older build's Resume forced (backfilled by the migration). Omitted when not forced. |
 | `verified` | bool | `true` after on-disk verification (`VerifiedAt`); survives restart without a live client. |
 | `progress` | 0..1 | For verified/parked rows stays `1` after restart. |
 | `workKey` / `season` / `episode` | string? / int? / int? | Acquisition intent when known (owner targets or request-lane `QueueKey`). |
@@ -579,25 +580,47 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
 - Downloads sends a multi-select or whole-series delete as one request:
   `POST /api/client/torrents {action:"delete", hashes:[...], ownerClientType:"builtin", deleteFiles}`.
   The response lists `results[]` per hash. External clients still get one request per transfer.
-- `RemoveManyAsync` removes every row first and deletes files after, so a season folder that only the
-  batch uses is removed whole, sidecar files included. A folder that a download outside the batch still
-  records is kept. The queue is refilled once at the end, so a sibling about to be deleted never starts.
-- Deletes are serialized. A file the client is still releasing after a stop is retried for up to 3 s.
+- `RemoveManyAsync` returns without waiting on the client or the disk. One save removes every row and
+  writes an `EngineDeletion` tombstone per hash (name, save path, file list, `deleteFiles`, batch), so a
+  deleted row never lists again in `/api/client/torrents` and a crash cannot lose the delete. Each
+  transfer leaves the client through the shared detach (no wait on tracker announces; resume data
+  dropped) and the freed slots are refilled in the background.
+- The cleanup worker (`DeletionCleanupService`) finishes a batch: it waits for its transfers to leave the
+  client, deletes the files, the saved `.torrent` and the engine cache, then drops the tombstones. The
+  batch is cleaned up together, so a season folder that only the batch uses is removed whole, sidecar
+  files included. A folder that a download outside the batch still records is kept.
+- A file still held after a 3 s inline retry (another program has it open) keeps the batch's tombstones
+  and is retried after 5 s, doubling up to 15 min. On start the worker first takes every tombstone left
+  from before a restart. Every step is safe to repeat. Recovery never re-imports a hash whose delete is
+  pending; adding the same hash again before the cleanup runs ends that delete without touching the
+  files (they belong to the new transfer).
+- The library delete (`POST /api/library/delete`) uses the same batch delete.
 
 ### Download queue and speed
 
 - Downloads at once: Settings saves `maxActiveDownloads` (1 to 20) on `ClientSettings`; null falls
   back to `TorrentFlow:Engine:MaxActiveDownloads` / `TORRENTFLOW_MAX_ACTIVE_DOWNLOADS` (default 2).
-  Raising it starts queued rows immediately; lowering it immediately returns the running tail to the queue (forced rows keep their slot; progress stays on disk).
-- Resume is an owner override, unlike the Next engine: it starts the transfer now (marked forced,
-  like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
+  Raising it starts queued rows immediately; lowering it immediately returns the running non-forced
+  tail to the queue (they keep their row, files and fast-resume data). Rows forced by Download now keep their slot until they finish, fail or are paused. `GET /api/settings/client` also
+  returns `effectiveMaxActive` (the cap the queue enforces now) and `maxActiveSource` (`schedule` when
+  an open download window sets its own limit, else `setting`).
+- Resume and Resume all join the queue: a resumed row starts only when a slot is free and nothing
+  waits ahead of it, else it is queued in order (`Queued — #n in line`). Only Download now passes the
+  cap: it stores `ForcedAt` with `ForcedReason` `now`, starts at once even when every slot is taken,
+  and nothing is preempted. Rows an older build's Resume forced are backfilled as `legacy` and keep
+  their slot until they finish. Pause clears the forced flag.
+- Pause and cap demotion take the transfer out of the client through the one detach
+  (`ITorrentBackend.RemoveAsync`), which does not wait on tracker announces, so they return at once;
+  the files and fast-resume data stay, so the next start skips the hash check. A loaded transfer that
+  is stopped is one being started and lists as `metaDL`; `paused` only ever comes from the row.
 - Download hours (`ClientSettings.downloadWindows`, JSON; Settings → Downloads): weekly rules of
   days + start/end hour in the server's local time (end ≤ start runs overnight; days are the start
   day). With no rules nothing changes. With rules, outside every window the queue holds new kept
   starts (an explicit gate in `ShouldQueueNewDownload`, promotion and rehydrate — never cap = 0);
-  running transfers keep going, a restart outside the window starts only forced rows, and Resume /
-  Download now still start immediately. The engine tick promotes when the window opens. The first
-  matching rule is active; its optional `maxActiveDownloads` beats the saved override, and its
+  running transfers keep going, a restart outside the window starts only forced rows, Download now
+  still starts immediately and Resume waits for the window. The engine tick promotes when the window
+  opens. The first matching rule is active; its optional `maxActiveDownloads` beats the saved
+  override, and its
   optional `maxDownloadRate` / `maxUploadRate` (bytes/s; the UI edits MB/s) are applied with
   `ClientEngine.UpdateSettingsAsync` on a copy of the live settings (the listen port is never
   rebuilt). Effective rate = the stricter of the base option and the window cap; the base (download

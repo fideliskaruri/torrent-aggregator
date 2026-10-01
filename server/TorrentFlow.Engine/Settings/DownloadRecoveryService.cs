@@ -42,7 +42,10 @@ internal sealed class DownloadRecoveryService(
             var files = SettingsDiskInventory.MediaFiles(root, ct);
             await using var db = await factory.CreateDbContextAsync(ct);
             var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && r.Status != EngineTorrentStatus.Removed).ToListAsync(ct);
+            // A delete still being cleaned up: its files are about to go, and neither they nor its metadata come back.
+            var deleting = await db.EngineDeletions.AsNoTracking().Where(d => d.UserId == LocalUser.Id).ToListAsync(ct);
             var tracked = rows.SelectMany(TorrentEngineService.VerifiedFiles).Select(f => f.FullPath ?? (Path.IsPathRooted(f.Path) ? f.Path : null))
+                .Concat(deleting.SelectMany(TorrentEngineService.DeletionFiles))
                 .OfType<string>().Select(Path.GetFullPath).ToHashSet(PathComparer);
             foreach (var row in rows)
             {
@@ -72,7 +75,7 @@ internal sealed class DownloadRecoveryService(
                         var bytes = await File.ReadAllBytesAsync(metadata.FullName, ct);
                         var torrent = Torrent.Load(bytes);
                         var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
-                        if (rows.Any(r => r.Hash == hash)) continue;
+                        if (rows.Any(r => r.Hash == hash) || deleting.Any(d => d.Hash == hash)) continue;
                         var match = MatchTorrent(torrent, available, root);
                         if (match is null) continue;
                         if (match.Value.Paths.Any(Claimed)) continue;

@@ -131,8 +131,9 @@ public static class DownloadQueue
     }
 
     /// <summary>
-    /// Running downloads that no longer fit after the cap was lowered: forced rows (the owner's "Download now" /
-    /// resume) always keep their slot, the rest keep queue order and the tail goes back to waiting.
+    /// Running downloads that no longer fit after the cap was lowered: forced rows (the owner's "Download now", and rows
+    /// an old resume forced before resume queued) keep their slot until they finish; the rest keep queue order and the
+    /// tail goes back to waiting.
     /// </summary>
     public static List<string> DemotionCandidates(IReadOnlyCollection<QueueRow> rows, int cap)
     {
@@ -144,10 +145,10 @@ public static class DownloadQueue
     }
 
     /// <summary>
-    /// Whether a fresh add (or resume) has to join the queue. Forced adds never do, nor anything that is not a kept
-    /// download. When rows are already waiting it queues even if a slot is free, so the caller's promotion pass gives
-    /// that slot to the queue head (lowest queueKey in the earliest work) instead of whoever arrived last. Outside the
-    /// owner's download hours every non-forced kept add waits.
+    /// Whether a fresh add or a resume has to join the queue. Only "Download now" (forced) never does, nor anything
+    /// that is not a kept download. When rows are already waiting it queues even if a slot is free, so the caller's
+    /// promotion pass gives that slot to the queue head (lowest queueKey in the earliest work) instead of whoever
+    /// arrived last. Outside the owner's download hours every non-forced kept add or resume waits.
     /// </summary>
     public static bool ShouldQueueNewDownload(IReadOnlyCollection<QueueRow> rows, int cap, string origin, bool forced, bool windowOpen = true)
     {

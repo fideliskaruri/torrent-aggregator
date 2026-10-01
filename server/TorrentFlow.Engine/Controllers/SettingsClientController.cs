@@ -46,6 +46,9 @@ public sealed class SettingsClientController(
         var config = await store.GetConfigAsync(ct);
         var cap = config.MaxStorageBytes;
         var hasFolder = config.DownloadRoot is not null;
+        // What the running queue enforces now (its in-memory limits), so the UI never guesses the window/setting rule.
+        var effective = DownloadLimits.Effective(DownloadWindows.Evaluate(limits.Windows, time.GetLocalNow()),
+            limits.MaxActiveOverride, engineOptions.CurrentValue.MaxActiveDownloads);
         return new Dictionary<string, object?>
         {
             ["clientType"] = config.ClientType,
@@ -67,6 +70,8 @@ public sealed class SettingsClientController(
             ["maxActiveDownloads"] = s.MaxActiveDownloads is >= DownloadLimits.MinActiveDownloads and <= DownloadLimits.MaxActiveDownloads
                 ? s.MaxActiveDownloads : DefaultMaxActive(),
             ["maxActiveDownloadsDefault"] = DefaultMaxActive(),
+            ["effectiveMaxActive"] = effective.MaxActive,
+            ["maxActiveSource"] = effective.Source,
             ["downloadWindows"] = DownloadWindows.Parse(s.DownloadWindows),
             ["downloadWindowOpen"] = DownloadWindows.Evaluate(DownloadWindows.Parse(s.DownloadWindows), time.GetLocalNow()).Open,
             ["categories"] = config.Categories,

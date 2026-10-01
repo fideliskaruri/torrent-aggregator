@@ -170,13 +170,21 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
         var deleted = new List<object>();
         var failed = new List<object>();
         long freedBytes = 0; var freedFiles = 0;
+        // One batch delete, so a season folder holding only these releases goes whole.
+        var results = new Dictionary<string, EngineActionResult>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var (hash, result) in await engine.RemoveManyAsync(plan.Releases.Select(r => r.Hash).ToList(), true, ct))
+                results.TryAdd(hash, result);
+        }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            foreach (var release in plan.Releases) results.TryAdd(release.Hash, new(false, error.Message));
+        }
         foreach (var release in plan.Releases)
         {
-            EngineActionResult result;
-            try { result = await engine.RemoveAsync(release.Hash, true, ct); }
-            catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
+            var result = results.GetValueOrDefault(release.Hash.Trim()) ?? new(false, "Not removed");
             if (!result.Ok) { failed.Add(new { name = release.Name, message = result.Message }); continue; }
-            await db.EngineTorrents.Where(x => x.UserId == LocalUser.Id && x.Hash == release.Hash).ExecuteDeleteAsync(ct);
             deleted.Add(new { name = release.Name, bytes = release.Bytes, fileCount = release.FileCount });
             freedBytes += release.Bytes; freedFiles += release.FileCount;
         }
