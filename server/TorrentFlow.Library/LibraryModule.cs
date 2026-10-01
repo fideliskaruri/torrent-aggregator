@@ -38,6 +38,7 @@ public static class LibraryModule
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();
         services.TryAddSingleton<ISeasonShapeLookup, DefaultSeasonShapeLookup>();
         services.AddSingleton<EpisodeSearchIdentity>();
+        services.AddSingleton<AnimeEpisodeMappings>();
         services.AddSingleton<PlaybackNotifications>();
         services.AddHostedService(sp => sp.GetRequiredService<PlaybackNotifications>());
         services.AddHostedService<AutomationScheduler>();

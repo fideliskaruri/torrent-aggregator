@@ -192,42 +192,48 @@ public static class EpisodeLadder
             if (t != null && season == 1 && minimumResolution == null) Push("absolute", $"{Absolute(t)} 1080p", cat, absFilters);
         }
 
-        if (mapping is { FranchiseSeason: { } mappedFirst } && season == 1 &&
-            RankAliases(mapping.FranchiseTitles.Take(2)).FirstOrDefault() is { } franchiseName)
+        // A mapping speaks for its entry's episodes on the page season it was placed on; `local` is the entry's own number.
+        var mapped = mapping != null && season == mapping.TargetSeason ? mapping : null;
+        var local = mapped?.Local(episode) ?? episode;
+        if (mapped is { FranchiseSeason: { } mappedFirst } && local >= 1 &&
+            RankAliases(mapped.FranchiseTitles.Take(2)).FirstOrDefault() is { } franchiseName)
         {
-            var mapped = new EpisodeCursor(mappedFirst, episode + mapping.SeasonEpisodeOffset);
-            Push("mapped-season", mapped.Query(franchiseName), primaryCat,
-                new() { HasMagnet = true, MinSeeders = 1, Season = mapped.Season, Episode = mapped.Episode });
+            var first = new EpisodeCursor(mappedFirst, local + mapped.SeasonEpisodeOffset);
+            Push("mapped-season", first.Query(franchiseName), primaryCat,
+                new() { HasMagnet = true, MinSeeders = 1, Season = first.Season, Episode = first.Episode });
         }
         if (preferRequestedQuality && minimumResolution is { } preferred)
             Push("preferred-quality", $"{cursor.Query(primaryTitle)} {preferred}p", primaryCat, epFilters);
         Exact(primaryTitle, primaryCat);
-        if (mapping?.IsSequel == true && season == 1)
+        if (mapped?.IsSequel == true && local >= 1)
         {
-            // Entry English/romaji names qualify a cour; short franchise synonyms often do not.
-            foreach (var entryTitle in mapping.EntryTitles.Take(2))
+            // Entry English/romaji names qualify a cour and number it from its own episode 1.
+            var entryCursor = new EpisodeCursor(1, local);
+            var entryFilters = epFilters with { Season = 1, Episode = local };
+            var entryAbsolute = absFilters with { Episode = local };
+            foreach (var entryTitle in mapped.EntryTitles.Take(2))
             {
-                Exact(entryTitle, animeCat ?? primaryCat);
-                AbsoluteRung(entryTitle, animeCat ?? primaryCat);
+                Push("exact", entryCursor.Query(entryTitle), animeCat ?? primaryCat, entryFilters);
+                Push("absolute", $"{entryTitle.Trim()} - {local:00}", animeCat ?? primaryCat, entryAbsolute);
                 // Internal hyphens in provider names can exclude the spaced release spelling on Nyaa.
                 var spaced = Whitespace.Replace(NonAlnumSpace.Replace(entryTitle, " "), " ").Trim();
-                AbsoluteRung(spaced, animeCat ?? primaryCat);
+                Push("absolute", $"{spaced} - {local:00}", animeCat ?? primaryCat, entryAbsolute);
             }
         }
-        if (mapping != null && season == 1)
+        if (mapped != null && local >= 1)
         {
             foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>()
-                .Concat(RankAliases(mapping.FranchiseTitles)).DistinctBy(Squash))
+                .Concat(RankAliases(mapped.FranchiseTitles)).DistinctBy(Squash))
             {
-                if (mapping.FranchiseSeason is { } mappedSeason)
+                if (mapped.FranchiseSeason is { } mappedSeason)
                 {
-                    var mapped = new EpisodeCursor(mappedSeason, episode + mapping.SeasonEpisodeOffset);
-                    Push("mapped-season", mapped.Query(name), primaryCat,
-                        new() { HasMagnet = true, MinSeeders = 1, Season = mapped.Season, Episode = mapped.Episode });
+                    var franchiseCursor = new EpisodeCursor(mappedSeason, local + mapped.SeasonEpisodeOffset);
+                    Push("mapped-season", franchiseCursor.Query(name), primaryCat,
+                        new() { HasMagnet = true, MinSeeders = 1, Season = franchiseCursor.Season, Episode = franchiseCursor.Episode });
                 }
-                if (mapping.AbsoluteOffset is { } offset)
-                    Push("mapped-absolute", $"{name} - {offset + episode:00}", animeCat ?? primaryCat,
-                        new() { HasMagnet = true, MinSeeders = 1, Episode = offset + episode });
+                if (mapped.AbsoluteOffset is { } offset)
+                    Push("mapped-absolute", $"{name} - {offset + local:00}", animeCat ?? primaryCat,
+                        new() { HasMagnet = true, MinSeeders = 1, Episode = offset + local });
             }
         }
         if (bestAlias != null)
@@ -272,12 +278,17 @@ public static class EpisodeLadder
         var parsed = ReleaseNames.ParseEpisode(result.Title);
         var ep = result.Episode ?? parsed;
         if (parsed.IsBatch || ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(result.Title)) return false;
-        if (mapping != null && target.Season == 1)
+        var local = target.Episode;
+        if (mapping != null && target.Season == mapping.TargetSeason)
         {
+            local = mapping.Local(target.Episode);
             if (mapping.FranchiseSeason is { } season && ep.Season == season &&
-                ep.Episode == target.Episode + mapping.SeasonEpisodeOffset) return true;
+                ep.Episode == local + mapping.SeasonEpisodeOffset) return true;
             if (mapping.AbsoluteOffset is { } offset &&
-                (ep.AbsoluteEpisode == offset + target.Episode || ep.Season == null && ep.Episode == offset + target.Episode)) return true;
+                (ep.AbsoluteEpisode == offset + local || ep.Season == null && ep.Episode == offset + local)) return true;
+            // A page placed by the show's numbering (TMDB S01E29) is also how some releases number it.
+            if ((mapping.TargetSeason != 1 || mapping.EntryEpisodeOffset != 0) && ep.Season == target.Season && ep.Episode == target.Episode)
+                return true;
             // A base-franchise S01E05 isn't the sequel's local E05. Only an entry-qualified name may use local numbering.
             if (mapping.IsSequel || mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1)
             {
@@ -285,6 +296,7 @@ public static class EpisodeLadder
                 var bases = mapping.FranchiseTitles.Concat(mapping.PrequelTitles ?? []).Select(ReleaseSelection.Normalize).ToHashSet();
                 if (!mapping.EntryTitles.Select(ReleaseSelection.Normalize)
                     .Any(t => t.Length > 0 && !bases.Contains(t) && name.Contains(t, StringComparison.Ordinal))) return false;
+                return ep.Episode == local && ep.Season is null or 1;
             }
         }
         if (ep.Episode != target.Episode) return false;

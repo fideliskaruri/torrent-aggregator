@@ -43,7 +43,7 @@ public sealed class RungDiagnostic
 
 public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
-    EpisodeSearchIdentity? searchIdentity = null)
+    EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null)
 {
     private readonly object episodeGate = new();
     private readonly Dictionary<string, Task<GrabResult>> episodeFlights = [];
@@ -126,17 +126,27 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             input = input with { MediaType = identity.MediaType, Aliases = identity.Aliases };
             var provider = input.Provider ?? work?.Provider;
             var providerId = input.ProviderId ?? work?.ProviderId;
-            if (provider == "anilist" && providerId != null && input.Cursor is { Season: 1 } && input.EpisodeMapping == null)
+            if (input.EpisodeMapping == null)
             {
-                try { input = input with { EpisodeMapping = await anime.GetEpisodeMappingAsync(providerId, ct) }; }
+                try
+                {
+                    input = input with { EpisodeMapping = await (episodeMappings ?? new AnimeEpisodeMappings(anime)).ForAsync(
+                        work?.WorkKey ?? input.WorkKey, work?.CanonicalTitle ?? input.Title, input.Year ?? work?.Year, input.MediaType,
+                        provider, providerId, input.Cursor.Value, ct) };
+                }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
             }
+            var saved = input.Aliases;
             if (input.EpisodeMapping is { } mapping)
+            {
                 input = input with { Aliases = (input.Aliases ?? []).Concat(mapping.EntryTitles).Concat(mapping.FranchiseTitles)
                     .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
-            if (work != null && (input.Aliases is { Count: > 0 } || work.MediaType != input.MediaType))
+                // A later cour's names search its own episodes only; the work keeps the names of its own entry.
+                if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 }) saved = input.Aliases;
+            }
+            if (work != null && (saved is { Count: > 0 } || work.MediaType != input.MediaType))
             {
-                var aliasesJson = JsonSerializer.Serialize(input.Aliases);
+                var aliasesJson = JsonSerializer.Serialize(saved);
                 await db.Works.Where(w => w.Id == work.Id).ExecuteUpdateAsync(s =>
                     s.SetProperty(w => w.AliasesJson, aliasesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
             }

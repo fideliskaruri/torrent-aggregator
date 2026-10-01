@@ -20,7 +20,8 @@ public sealed record RankedRelease(TorrentResult Result, double Score, string Wh
 public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search,
     ITorrentEngine engine, IMemoryCache cache, TorrentFlow.Core.Sources.SourceRegistry? registry = null,
     EpisodeSearchIdentity? searchIdentity = null, TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup? anime = null,
-    Microsoft.Extensions.Options.IOptions<TorrentFlow.Library.Features.Automation.AutomationOptions>? options = null)
+    Microsoft.Extensions.Options.IOptions<TorrentFlow.Library.Features.Automation.AutomationOptions>? options = null,
+    AnimeEpisodeMappings? episodeMappings = null)
 {
     private sealed record Choice(string CurrentHash, EngineReleaseSwap Swap);
 
@@ -74,8 +75,9 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             (mediaType, aliases) = await searchIdentity.ResolveAsync(title, row.Work?.Year, mediaType, aliases, ct,
                 row.Work?.Provider, row.Work?.ProviderId);
         TorrentFlow.Core.Contracts.Library.AnimeEpisodeMapping? mapping = null;
-        if (cursor is { Season: 1 } && row.Work?.Provider == "anilist" && row.Work.ProviderId is { } providerId && anime != null)
-            mapping = await anime.GetEpisodeMappingAsync(providerId, ct);
+        if (cursor is { } mappedCursor && anime != null)
+            mapping = await (episodeMappings ?? new AnimeEpisodeMappings(anime)).ForAsync(workKey, title, row.Work?.Year, mediaType,
+                row.Work?.Provider, row.Work?.ProviderId, mappedCursor, ct);
         var query = cursor?.Query(title) ?? (scope.StartsWith("season:", StringComparison.Ordinal) ? $"{title} S{episode.Season:00}" : title);
         var rungs = cursor is { } targetEpisode ? EpisodeLadder.BuildEpisodeRungs(title, targetEpisode, mediaType, aliases, floor, mapping, preferRequestedQuality: true)
             : [new LadderRung("exact", query, EpisodeLadder.SearchCategory(mediaType) ?? "all",
