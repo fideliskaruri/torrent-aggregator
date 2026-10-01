@@ -27,6 +27,7 @@ public sealed class SourceRegistry
     private readonly string path;
     private readonly IConfiguration configuration;
     private readonly JsonArray defaults;
+    private readonly Dictionary<string, (string Live, string[] Hosts)> retired;
     private JsonArray overlay = [];
     private SourceEntry[] entries = [];
     private string? lastContent;
@@ -39,6 +40,10 @@ public sealed class SourceRegistry
         path = Path.Combine(configuration["TorrentFlow:DataDirectory"] ?? Path.Combine(AppContext.BaseDirectory, "data"), "sources.json");
         using var stream = typeof(SourceRegistry).Assembly.GetManifestResourceStream("TorrentFlow.Core.Sources.sources.default.json")!;
         defaults = JsonNode.Parse(stream)!.AsArray();
+        retired = new(StringComparer.Ordinal);
+        foreach (var item in defaults.OfType<JsonObject>())
+            if (item["retired"] is JsonArray dead && item.Remove("retired"))
+                retired[item["id"]!.GetValue<string>()] = (item["baseUrl"]!.GetValue<string>(), dead.Select(h => h!.GetValue<string>()).ToArray());
         var legacy = new Dictionary<string, string> { ["nyaa"] = "NYAA_BASE_URL", ["apibay"] = "APIBAY_BASE_URL",
             ["torrentscsv"] = "TORRENTS_CSV_BASE_URL", ["yts"] = "YTS_BASE_URL", ["eztv"] = "EZTV_BASE_URL",
             ["1337x"] = "X1337_BASE_URL", ["archive"] = "ARCHIVE_BASE_URL", ["tmdb"] = "TMDB_BASE_URL" };
@@ -98,9 +103,24 @@ public sealed class SourceRegistry
             if (!map.TryGetValue(id, out var item)) map[id] = item = new JsonObject();
             foreach (var pair in patch) item[pair.Key] = pair.Value?.DeepClone();
         }
-        var result = map.Values.Select(n => n.Deserialize<SourceEntry>(Json) ?? throw new ArgumentException("Invalid source.")).ToArray();
+        var result = map.Values.Select(n => Heal(n.Deserialize<SourceEntry>(Json) ?? throw new ArgumentException("Invalid source."))).ToArray();
         foreach (var e in result) Validate(e);
         return result;
+    }
+
+    /// <summary>
+    /// Moves a source off hosts its site has abandoned (a default's <c>retired</c> list). A saved sources.json, a legacy
+    /// *_BASE_URL setting or a hand edit that still names one gets the shipped base URL in its place, so the live host is
+    /// tried first. The file is left alone; the next save from Settings writes the live URL.
+    /// </summary>
+    private SourceEntry Heal(SourceEntry e)
+    {
+        if (e.Id is null || e.BaseUrl is null || e.Mirrors is null || !retired.TryGetValue(e.Id, out var site)) return e;
+        var urls = new[] { e.BaseUrl }.Concat(e.Mirrors)
+            .Select(url => Uri.TryCreate(url, UriKind.Absolute, out var uri) && site.Hosts.Any(h => uri.IdnHost.Equals(h, StringComparison.OrdinalIgnoreCase)
+                || uri.IdnHost.EndsWith("." + h, StringComparison.OrdinalIgnoreCase)) ? site.Live : url)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return e with { BaseUrl = urls[0], Mirrors = urls[1..] };
     }
 
     private static void Validate(SourceEntry e)
