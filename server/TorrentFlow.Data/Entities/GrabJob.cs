@@ -37,5 +37,11 @@ public partial class GrabJob
 
     public string? Retention { get; set; }
 
+    /// <summary>The ladder rung that found this release, "kind: query" ("exact: Frieren S01E05").</summary>
+    public string? Rung { get; set; }
+
+    /// <summary>The language verdict and its basis ("Japanese audio, English subtitles (name)", or "fallback: ...").</summary>
+    public string? Language { get; set; }
+
     public virtual User User { get; set; } = null!;
 }

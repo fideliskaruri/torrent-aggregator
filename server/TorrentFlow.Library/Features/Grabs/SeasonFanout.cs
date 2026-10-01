@@ -35,8 +35,8 @@ public sealed record GrabResult(bool Ok, string Message)
     public bool Skipped { get; init; }
     /// <summary>
     /// A real miss: every search ran without a site error and nothing usable came back (no release, below the quality
-    /// floor, no seeders, only dubbed, or every probed release failed to send its file list). Refused or busy searches,
-    /// storage, setup and unknown errors are never a real miss.
+    /// floor, no seeders, or every probed release failed to send its file list). Refused or busy searches, storage,
+    /// setup and unknown errors are never a real miss, and neither is a release held back or refused for its language.
     /// </summary>
     [JsonIgnore]
     public bool RealMiss { get; init; }

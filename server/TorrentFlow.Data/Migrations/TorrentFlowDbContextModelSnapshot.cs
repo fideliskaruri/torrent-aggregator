@@ -424,6 +424,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<string>("AudioLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audioLanguage");
+
                     b.Property<int?>("AutomationIntervalMinutes")
                         .HasColumnType("INTEGER")
                         .HasColumnName("automationIntervalMinutes");
@@ -835,6 +839,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("kind");
 
+                    b.Property<string>("Language")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("language");
+
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")
                         .HasColumnName("magnet");
@@ -851,6 +859,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("Retention")
                         .HasColumnType("TEXT")
                         .HasColumnName("retention");
+
+                    b.Property<string>("Rung")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rung");
 
                     b.Property<string>("SavePath")
                         .HasColumnType("TEXT")

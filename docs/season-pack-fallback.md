@@ -29,9 +29,9 @@ References to them below, and the playback rows in the plan and test tables, are
   `AcquisitionTarget.RealMisses >= SeasonPackMisses`.
 - `RealMisses` grows in `WantedQueue.SettleAsync` when `EpisodeTransfer.RealMiss` is set. `GrabService.Episode` sets
   it only when the searches really ran (`SearchRung` answered, no site refused) and the result was
-  `no_release`, `quality_floor`, `no_seeders` or `audio_preference` (`GrabFailure.IsRealMiss`), or
-  `metadata_unavailable` when every probed candidate failed metadata. Refused, busy, no source, storage, setup and
-  unknown errors never count.
+  `no_release`, `quality_floor` or `no_seeders` (`GrabFailure.IsRealMiss`), or `metadata_unavailable` when every
+  probed candidate failed metadata. Refused, busy, no source, storage, setup and unknown errors never count, and
+  neither does an attempt where a release was held back or refused for its language (docs/release-language.md).
 
 ### Fully aired gate (fails closed)
 
@@ -143,8 +143,8 @@ The season-speed branch changes `RunAsync` so that each episode settles as soon 
 
 An episode attempt is a real miss only when the search actually happened and found nothing usable:
 
-- Counts: failure codes `no_release`, `quality_floor`, `no_seeders`, `audio_preference` (from `GrabFailure.cs:37-46`), and `metadata_unavailable` when every candidate that was probed failed metadata (the swarm is dead, not the search).
-- Does not count: `sources_unavailable`, `search_busy` (already the `Unsearched` set, `WantedQueue.cs:55`), any attempt where any source reported an error (`searchFailed`, `GrabService.cs:185`, reported as `search_incomplete`), `no_sources`, `storage_limit`, `download_folder`, `setup_required`, and `download_failed` (unknown engine failure). With season-speed, a busy host is a `SourceBusyException` source error, so it lands in the "does not count" side automatically.
+- Counts: failure codes `no_release`, `quality_floor`, `no_seeders` (from `GrabFailure.cs:37-46`), and `metadata_unavailable` when every candidate that was probed failed metadata (the swarm is dead, not the search).
+- Does not count: `sources_unavailable`, `search_busy` (already the `Unsearched` set, `WantedQueue.cs:55`), any attempt where any source reported an error (`searchFailed`, `GrabService.cs:185`, reported as `search_incomplete`), `no_sources`, `storage_limit`, `download_folder`, `setup_required`, and `download_failed` (unknown engine failure), and any attempt where a release was held back or refused for its language (docs/release-language.md). With season-speed, a busy host is a `SourceBusyException` source error, so it lands in the "does not count" side automatically.
 
 Implementation: `GrabResult` already carries `NoReleaseFound.reason` (`no_release` vs `search_incomplete`, `GrabService.cs:241-245`). Add one boolean to `EpisodeTransfer` (for example `RealMiss`) computed in one place (`GrabFailure.IsRealMiss(result)`), so `WantedQueue` does not re-derive it.
 

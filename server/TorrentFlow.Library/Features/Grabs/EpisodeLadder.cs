@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
 
@@ -31,10 +32,13 @@ public static class EpisodeLadder
     private static readonly Regex Whitespace = new(@"\s+");
     private static readonly Regex NonAlnum = new(@"[^\p{L}\p{N}]+");
 
-    /// <summary>Port of <c>searchTitleVariants</c>: formal title first, then the short forms indexers rank.</summary>
+    /// <summary>
+    /// Port of <c>searchTitleVariants</c>: formal title first, then the short forms indexers rank. Apostrophes are made
+    /// plain first (<see cref="Apostrophes"/>), so every query and alias form built from a title carries <c>'</c>.
+    /// </summary>
     public static IReadOnlyList<string> SearchTitleVariants(string title)
     {
-        var raw = (title ?? "").Trim();
+        var raw = Apostrophes.Normalize(title).Trim();
         var output = new List<string>();
         if (raw.Length == 0) return output;
         void Add(string value)
@@ -195,8 +199,9 @@ public static class EpisodeLadder
         // A mapping speaks for its entry's episodes on the page season it was placed on; `local` is the entry's own number.
         var mapped = mapping != null && season == mapping.TargetSeason ? mapping : null;
         var local = mapped?.Local(episode) ?? episode;
+        var franchiseTitles = mapped?.FranchiseTitles.Select(Apostrophes.Normalize).ToList() ?? [];
         if (mapped is { FranchiseSeason: { } mappedFirst } && local >= 1 &&
-            RankAliases(mapped.FranchiseTitles.Take(2)).FirstOrDefault() is { } franchiseName)
+            RankAliases(franchiseTitles.Take(2)).FirstOrDefault() is { } franchiseName)
         {
             var first = new EpisodeCursor(mappedFirst, local + mapped.SeasonEpisodeOffset);
             Push("mapped-season", first.Query(franchiseName), primaryCat,
@@ -211,7 +216,7 @@ public static class EpisodeLadder
             var entryCursor = new EpisodeCursor(1, local);
             var entryFilters = epFilters with { Season = 1, Episode = local };
             var entryAbsolute = absFilters with { Episode = local };
-            foreach (var entryTitle in mapped.EntryTitles.Take(2))
+            foreach (var entryTitle in mapped.EntryTitles.Take(2).Select(Apostrophes.Normalize))
             {
                 Push("exact", entryCursor.Query(entryTitle), animeCat ?? primaryCat, entryFilters);
                 Push("absolute", $"{entryTitle.Trim()} - {local:00}", animeCat ?? primaryCat, entryAbsolute);
@@ -223,7 +228,7 @@ public static class EpisodeLadder
         if (mapped != null && local >= 1)
         {
             foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>()
-                .Concat(RankAliases(mapped.FranchiseTitles)).DistinctBy(Squash))
+                .Concat(RankAliases(franchiseTitles)).DistinctBy(Squash))
             {
                 if (mapped.FranchiseSeason is { } mappedSeason)
                 {

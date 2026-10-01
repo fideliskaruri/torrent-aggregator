@@ -11,7 +11,8 @@ namespace TorrentFlow.Library.Features.Activity;
 public sealed record ActivityCursor(DateTime Time, string? Id);
 public sealed record ActivityRow(string Id, string Type, string Title, string Status, string? Message,
     string? Source, string? Kind, string? Query, string? Magnet, string? InfoHash, string? SavePath,
-    string? Category, string? Context, string? ClientType, string? SendKind, DateTime CreatedAt)
+    string? Category, string? Context, string? ClientType, string? SendKind, DateTime CreatedAt,
+    string? Rung = null, string? Language = null)
 {
     public Dictionary<string, object?> Json() => LibraryJson.Row(this);
 }
@@ -63,7 +64,7 @@ public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> fact
         return result.Concat(history).OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id, StringComparer.Ordinal).ToList();
     }
     private static ActivityRow Map(GrabJob x) => new($"grab-{x.Id}", "grab", x.Title, x.Status, EngineAddMessages.LoggedOutcome(x.Message), x.Source, x.Kind, x.Query,
-        x.Magnet, LibraryJson.Hash(x.InfoHash) ?? LibraryJson.Hash(x.Magnet), x.SavePath, x.Category, null, null, null, x.CreatedAt);
+        x.Magnet, LibraryJson.Hash(x.InfoHash) ?? LibraryJson.Hash(x.Magnet), x.SavePath, x.Category, null, null, null, x.CreatedAt, x.Rung, x.Language);
     private static ActivityRow Map(DownloadHistory x) => new($"hist-{x.Id}", "history", x.Title, x.Status, EngineAddMessages.LoggedOutcome(x.Message), x.Source, null, null,
         x.Magnet, LibraryJson.Hash(x.InfoHash) ?? LibraryJson.Hash(x.Magnet), x.SavePath, x.Category, x.Context, x.ClientType, x.SendKind, x.CreatedAt);
 

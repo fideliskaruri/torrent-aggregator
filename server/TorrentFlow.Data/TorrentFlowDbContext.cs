@@ -290,6 +290,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.VerboseDiagnostics)
                 .HasColumnType("BOOLEAN")
                 .HasColumnName("verboseDiagnostics");
+            entity.Property(e => e.AudioLanguage).HasColumnName("audioLanguage");
 
             entity.HasOne(d => d.User).WithOne(p => p.ClientSetting).HasForeignKey<ClientSetting>(d => d.UserId);
         });
@@ -418,6 +419,8 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Message).HasColumnName("message");
             entity.Property(e => e.Query).HasColumnName("query");
             entity.Property(e => e.Retention).HasColumnName("retention");
+            entity.Property(e => e.Rung).HasColumnName("rung");
+            entity.Property(e => e.Language).HasColumnName("language");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.Source).HasColumnName("source");
             entity.Property(e => e.Status).HasColumnName("status");
