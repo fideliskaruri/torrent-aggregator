@@ -245,16 +245,8 @@ public sealed class CatalogService(
     public async Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.CatalogEntries.AsNoTracking()
-            .Where(e => e.WorkKey == workKey)
-            .OrderBy(e => e.Source == "related").ThenBy(e => e.Rank)
-            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
-        if (row is null)
-        {
-            var recent = await db.CatalogEntries.AsNoTracking().OrderByDescending(e => e.RefreshedAt).Take(400).ToListAsync(ct).ConfigureAwait(false);
-            row = recent.FirstOrDefault(e => WorkKeySlug.Matches(workKey, e.Title, e.Year));
-        }
-        return row is null ? null : ToWork(row);
+        var rows = await WorkPosters.FindCatalogAsync(db, [workKey], ct).ConfigureAwait(false);
+        return rows.TryGetValue(workKey, out var row) ? ToWork(row) : null;
     }
 
     public static CatalogWork ToWork(CatalogEntry e) =>

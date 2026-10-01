@@ -164,6 +164,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
+        poster = await WorkPosters.ResolveAsync(db, key, poster, ct);
         var overview = query.Provider?.Synopsis ?? cat?.Overview ?? cached?.Synopsis;
         // The rating travels with the provider that supplied it, so the page never labels one provider's score with another's name.
         var (rating, ratingSource) = query.Provider?.Rating is { } providerRating ? (providerRating, query.Provider.Source)

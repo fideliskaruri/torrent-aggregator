@@ -39,6 +39,10 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
         var interval = await db.ClientSettings.Where(s => s.UserId == LocalUser.Id)
             .Select(s => s.AutomationIntervalMinutes).FirstOrDefaultAsync(ct);
         var checksEnabled = interval > 0 && !configuration.GetValue<bool>("TorrentFlow:Library:DisableScheduler");
+        var watchedIds = monitored.Select(w => w.WorkId).OfType<string>().Distinct().ToList();
+        var keyOfWork = await db.Works.AsNoTracking().Where(w => watchedIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.WorkKey, ct);
+        string? WatchKey(Data.Entities.WatchListItem item) => item.WorkId is { } id && keyOfWork.TryGetValue(id, out var k) ? k : null;
+        var posters = await WorkPosters.LoadAsync(db, monitored.Select(WatchKey).Concat(torrents.Select(t => t.Work?.WorkKey)), ct);
         var entries = new List<TimelineEntry>();
         var options = automationOptions.Value;
         var unavailable = 0;
@@ -70,10 +74,10 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
                 MinimumSeeders = options.MinimumSeeders, SeederWaitTimeoutMinutes = options.SeederWaitTimeoutMinutes
             }, now.UtcDateTime);
             if (checksEnabled)
-                entries.Add(new($"check:{item.Id}", "check", item.Title, cursor?.Label, item.PosterUrl,
+                entries.Add(new($"check:{item.Id}", "check", item.Title, cursor?.Label, WorkPosters.Pick(posters, WatchKey(item), item.PosterUrl),
                     Utc(item.NextCheckAt) ?? now.UtcDateTime, null, wait));
             if (WaitReasonService.IsFuture(air, now.UtcDateTime))
-                entries.Add(new($"airs:{item.Id}", "airs", item.Title, cursor?.Label, item.PosterUrl, air, null,
+                entries.Add(new($"airs:{item.Id}", "airs", item.Title, cursor?.Label, WorkPosters.Pick(posters, WatchKey(item), item.PosterUrl), air, null,
                     WaitReasonService.Evaluate(new() { AirDate = air }, now.UtcDateTime)));
         }
         var windows = limits.Windows;
@@ -96,7 +100,7 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
             }, now.UtcDateTime);
             var episode = EpisodeCursor.FromQueueKey(row.QueueKey) ?? EpisodeCursor.Parse(torrent.Name);
             entries.Add(new($"queued:{row.Hash}", "queued", torrent.Work?.CanonicalTitle ?? torrent.Name,
-                episode?.Label, torrent.Work?.PosterUrl, wait.Until, TorrentLane.FromRank(row.Lane), wait, index + 1));
+                episode?.Label, WorkPosters.Pick(posters, torrent.Work?.WorkKey, torrent.Work?.PosterUrl), wait.Until, TorrentLane.FromRank(row.Lane), wait, index + 1));
         }
         return new(Order(entries), unavailable != 0);
     }
