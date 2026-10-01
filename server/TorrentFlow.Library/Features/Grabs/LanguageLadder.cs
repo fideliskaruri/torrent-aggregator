@@ -101,7 +101,7 @@ internal sealed class LanguageHold
     }
 
     /// <summary>The Unknown releases to send, best seeded first, or none when a healthy Pass release exists.</summary>
-    public IEnumerable<Held> Sendable() => HealthyPass ? [] : held.OrderByDescending(h => h.Release.Seeders >= HealthySeeders).ToList();
+    public IEnumerable<Held> Sendable() => HealthyPass ? [] : held.OrderByDescending(h => h.Release.Seeders).ToList();
 
     /// <summary>
     /// Asked only when nothing was sent: releases without English turned up, and every English or Unknown one was not

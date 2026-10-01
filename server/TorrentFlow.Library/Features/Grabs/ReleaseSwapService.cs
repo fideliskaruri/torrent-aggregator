@@ -180,15 +180,18 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var sourceList = ids.Select(id => new ReleaseSwapSource(id, id, counts.TryGetValue(id, out var n) ? n : null)).ToList();
         // Never recommends a release without English: with none left there is no best match.
         return new(info.Health ?? new(null, info.Peers, info.Dlspeed, 0, info.State), alternatives, sourceList,
-            alternatives.FirstOrDefault(a => a.Blocked is null && a.Languages?.English != "fail")?.Token, current);
+            alternatives.FirstOrDefault(Recommendable)?.Token, current);
     }
+
+    /// <summary>What "Best match" and "Find the best one for me" may land on: not blocked, and not a release without English.</summary>
+    private static bool Recommendable(ReleaseAlternative a) => a.Blocked is null && a.Languages?.English != "fail";
 
     /// <summary>Searches, then swaps to the recommended release when it has more seeders than the current swarm offers.</summary>
     public async Task<EngineAddResult> SwapBest(string hash, string? source, CancellationToken ct)
     {
         var found = await Alternatives(hash, source, ct);
         var where = string.IsNullOrWhiteSpace(source) || source.Equals("all", StringComparison.OrdinalIgnoreCase) ? "on any source" : $"on {source.Trim()}";
-        var best = found.Alternatives.FirstOrDefault(a => a.Blocked is null);
+        var best = found.RecommendedToken is { } token ? found.Alternatives.FirstOrDefault(a => a.Token == token) : null;
         if (best is null || best.Seeders <= (found.Health.ConnectedSeeders ?? 0))
             return new(false, $"No better release was found {where}. Your current download was kept.");
         return await Swap(hash, best.Token, ct);

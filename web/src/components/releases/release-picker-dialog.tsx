@@ -144,8 +144,8 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
       <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
       <ol className="space-y-2">
         {list.map((release, index) => {
-          // The server lists English first; a release without English is never the best match.
-          const best = offset === 0 && index === 0 && release.fits && !hasNoEnglish(release.languages);
+          // The server lists English first and blocked releases last; neither a blocked release nor one without English is the best match.
+          const best = offset === 0 && index === 0 && release.fits && !release.blocked && !hasNoEnglish(release.languages);
           return (
             <ReleaseCard
               key={release.token}

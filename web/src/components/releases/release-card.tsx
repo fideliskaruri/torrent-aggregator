@@ -14,9 +14,9 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ReleaseLanguages, type ReleaseLanguageInfo } from "./release-language";
 
-/** Why automatic picks skip a release: the owner replaced it, or it failed the video check. */
+/** Why automatic picks skip a release: the owner replaced it, it failed the video check, or it has no English. */
 export interface ReleaseBlockInfo {
-  reason: "replaced" | "failed_video_check";
+  reason: "replaced" | "failed_video_check" | "no_english";
   /** When it was blocked, ISO 8601. */
   at: string;
   /** Plain words from the server explaining the block. */
