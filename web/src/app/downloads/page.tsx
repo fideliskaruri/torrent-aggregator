@@ -1145,8 +1145,10 @@ export default function ClientPage() {
               Can&apos;t reach {clientLabel(clientType)}. Retrying automatically.
             </p>
           ) : (
+            // Dots only from lg, where the line fits on one row: below that it
+            // wraps, and a wrapped row must not start with a stray dot.
             <div
-              className="flex flex-wrap items-center gap-x-3 text-[13px] tabular-nums text-muted-foreground sm:gap-x-1"
+              className="flex flex-wrap items-center gap-x-3 text-[13px] tabular-nums text-muted-foreground lg:gap-x-1"
               data-client-status="connected"
               data-downloads-summary
             >
@@ -1160,7 +1162,7 @@ export default function ClientPage() {
               </span>
               {summaryParts.map((part) => (
                 <span key={part.id} className="inline-flex items-center">
-                  <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span>
+                  <span aria-hidden className="hidden px-1 text-subtle-foreground lg:inline">·</span>
                   <Button
                     type="button"
                     variant="link"
@@ -1181,7 +1183,7 @@ export default function ClientPage() {
               ))}
               {liveSpeed ? (
                 <span className="inline-flex items-center font-mono text-brand-foreground" data-summary-speed>
-                  <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground sm:inline">·</span>
+                  <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground lg:inline">·</span>
                   ↓ {liveSpeed}
                 </span>
               ) : null}
@@ -1190,7 +1192,7 @@ export default function ClientPage() {
                   className="inline-flex items-center whitespace-nowrap"
                   data-max-active-inline={maxActive.limits.source}
                 >
-                  <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span>
+                  <span aria-hidden className="hidden px-1 text-subtle-foreground lg:inline">·</span>
                   {maxActive.limits.source === "schedule" ? (
                     // Open download hours set their own cap, so a stepper here would do nothing.
                     <>
