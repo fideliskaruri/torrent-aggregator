@@ -6,6 +6,15 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
+| Full QA sweep of every film and series type (FEAT-33): films OPS-566, series OPS-567, anime OPS-568, real requester run | qa-films, qa-series, qa-anime (Opus 5.5) | Done; bugs OPS-569 to OPS-596 split into fix lanes below |
+| T3 AniList/TMDB crosswalk links with provenance, names from verified links, owner unlink (OPS-557) | t3-id-link (Opus 5.5) | Merged after two Luna reviews |
+| T6 English audio or subtitles rule, header probe, wait for an English release (OPS-555, OPS-582) | english-rule (Opus 5.5) | In Luna review |
+| T4a one owner for film or series and anime; WALL·E in Anime Movies (OPS-558, OPS-580) | kind-owner (Opus 5.5) | In Luna review |
+| Anime sequel seasons file under the root show (OPS-571, OPS-572) | anime-seasons (Opus 5.5) | Running |
+| Catalog search: same-name titles, alternate and romaji titles, years, Se7en gate (OPS-443, 569, 574, 581, 588) | catalog-search (Opus 5.5) | Running |
+| Downloads rows: cancel looking rows, attention count, refused rows, year and title, Library empty (OPS-409, 575, 585, 586, 589) | downloads-rows (Opus 5.5) | Running |
+| Requests: status follows real state, shared requests, requester Library, duplicate episodes (OPS-590 to OPS-595) | requests-state (Opus 5.5) | Running |
+| T2 labelled work names and ids, format, original language (OPS-556) | work-names (Opus 5.5) | Merged 93866a0, live on 3930 |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
