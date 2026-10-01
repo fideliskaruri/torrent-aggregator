@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace TorrentFlow.Core.Contracts.Engine;
 
@@ -29,7 +30,7 @@ public sealed record EngineLanguageState(string Preference, bool Anime, string? 
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public LanguageWant Want => new(Preference, Anime, OriginalLanguage);
+    [JsonIgnore] public LanguageWant Want => new(Preference, Anime, OriginalLanguage);
 
     public static EngineLanguageState For(EngineLanguageCheck check, string? name, string? sourceCategory, string state) =>
         new(check.Want.Preference, check.Want.Anime, check.Want.OriginalLanguage, name, sourceCategory, check.AcceptClash,
