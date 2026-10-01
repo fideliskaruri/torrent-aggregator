@@ -11,7 +11,6 @@ import type { BrowseGenre } from "@/lib/browse";
 import {
   BROWSE_VIEWS,
   browseHref,
-  browseViewLabel,
   type BrowseQuery,
 } from "@/lib/browse/views";
 import { cn } from "@/lib/utils";
@@ -27,18 +26,6 @@ function sectionClass(active: boolean) {
     active
       ? "bg-foreground/15 font-semibold text-foreground"
       : "text-muted-foreground hover:text-foreground",
-  );
-}
-
-/** The section's title at the top of the page. Nothing on All. */
-export function BrowseNav({ query }: { query: BrowseQuery }) {
-  if (query.view === "all") return null;
-  return (
-    <div className="container-app min-w-0 pt-4 sm:pt-5" data-browse-nav>
-      <h2 className="mb-3 text-[28px] leading-tight font-bold tracking-tight text-foreground sm:text-[34px]">
-        {browseViewLabel(query.view)}
-      </h2>
-    </div>
   );
 }
 

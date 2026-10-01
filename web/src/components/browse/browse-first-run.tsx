@@ -28,7 +28,7 @@ import {
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { BrowseBoard } from "./browse-board";
 import { BrowseEmptyState, type BrowseEmptyView } from "./browse-empty-state";
-import { BrowseNav, GenreFilters } from "./browse-nav";
+import { GenreFilters } from "./browse-nav";
 import { BrowseSkeleton } from "./browse-skeleton";
 import { isFirstRun } from "./first-run";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -85,7 +85,6 @@ function BrowseFirstRunView({
 
   return (
     <>
-      <BrowseNav query={query} />
       <PageQueryBoundary
         query={{
           data,
