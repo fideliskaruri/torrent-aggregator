@@ -205,7 +205,7 @@ public sealed partial class BrowseService(
 
     // ------------------------------------------------------------------ Downloaded
 
-    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType);
+    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType, string? PosterUrl);
 
     private async Task<Rail?> BuildYourLibraryAsync(string userId, CancellationToken ct)
     {
@@ -224,7 +224,7 @@ public sealed partial class BrowseService(
                                   from w in joined.DefaultIfEmpty()
                                   where a.UserId == userId && a.InfoHash != null && hashes.Contains(a.InfoHash.ToLower())
                                   orderby a.UpdatedAt descending
-                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType))
+                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType, w == null ? null : w.PosterUrl))
             .ToListAsync(ct).ConfigureAwait(false);
         var workByHash = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
         var canonicalByWorkKey = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
@@ -262,7 +262,9 @@ public sealed partial class BrowseService(
                 WorkKey = canonical?.WorkKey,
                 Title = work.Title,
                 Subtitle = LibrarySubtitle(mediaType, work.Members),
-                PosterUrl = art[i].PosterUrl,
+                // The work's own poster first: it came from the provider that named the work
+                // (AniList for an anime film), where a lookup by release name can miss.
+                PosterUrl = canonical?.PosterUrl ?? art[i].PosterUrl,
                 BackdropUrl = art[i].BackdropUrl,
                 Availability = "ready",
                 InfoHash = torrent.Hash,

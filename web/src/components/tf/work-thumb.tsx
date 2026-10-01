@@ -1,8 +1,4 @@
-import {
-  isOptimizableImageUrl,
-  posterInitial,
-  posterTint,
-} from "@/components/browse/poster";
+import { PosterImage } from "@/components/browse/poster-image";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,15 +6,10 @@ import { cn } from "@/lib/utils";
  *
  * Browse had artwork and every other surface did not, so Client, Activity and
  * the Download log read as log files rather than as a media library. This is
- * the shared thumbnail those rows use.
- *
- * Two rules it exists to keep:
- *
- *  - **A tile is not a caption.** The fallback draws one large initial as a
- *    graphic element, not the title again in a box — the row already says the
- *    title, and repeating it in a square is noise pretending to be design.
- *  - **Known provider hosts get the sized image, others a plain `<img>`.**
- *    The host list lives in `components/browse/poster.ts`.
+ * the shared thumbnail those rows use: a fixed 2:3 frame around the same
+ * `PosterImage` every poster box uses, so a row keeps its height while the art
+ * loads, fades it in over a skeleton, and falls back to the initial tile when
+ * there is none.
  */
 export function TfWorkThumb({
   title,
@@ -32,53 +23,15 @@ export function TfWorkThumb({
   /** Rendered width. Height is always 3:2 of it — posters are 2:3. */
   sizePx?: number;
 }) {
-  const width = sizePx;
-  const height = Math.round(sizePx * 1.5);
-
-  const frame = cn(
-    "relative shrink-0 overflow-hidden rounded-[calc(var(--radius)-3px)] border border-[var(--border)]",
-    className,
-  );
-
-  if (!posterUrl) {
-    return (
-      <div
-        className={frame}
-        style={{ width, height, background: posterTint(title) }}
-        aria-hidden="true"
-      >
-        <span
-          className="absolute inset-0 flex items-center justify-center font-semibold text-[var(--text-tertiary)]"
-          style={{ fontSize: Math.round(sizePx * 0.42) }}
-        >
-          {posterInitial(title)}
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className={frame} style={{ width, height, background: "var(--bg-muted)" }}>
-      {isOptimizableImageUrl(posterUrl) ? (
-        <img
-          src={posterUrl}
-          loading="lazy"
-          decoding="async"
-          style={{ color: "transparent" }}
-          alt=""
-          width={width}
-          height={height}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <img
-          src={posterUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
+    <div
+      className={cn(
+        "relative shrink-0 overflow-hidden rounded-[calc(var(--radius)-3px)] border border-[var(--border)] bg-muted",
+        className,
       )}
+      style={{ width: sizePx, height: Math.round(sizePx * 1.5) }}
+    >
+      <PosterImage src={posterUrl ?? null} title={title} sizes={`${sizePx}px`} />
     </div>
   );
 }

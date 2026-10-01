@@ -209,6 +209,10 @@ body {
   /* `min-width: 0` is the actual fix for horizontal overflow in a flex child;
    * `overflow-x: hidden` here only hid it, at the cost of breaking sticky. */
   min-width: 0;
+  /* At least a screen tall, so the footer starts below the fold while a page
+   * is still loading instead of sitting mid-screen and jumping down when the
+   * content lands. */
+  min-height: calc(100dvh - var(--header-h));
   scroll-margin-top: calc(var(--header-h) + 0.75rem);
 }
 

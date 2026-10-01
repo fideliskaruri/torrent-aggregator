@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { isOptimizableImageUrl, posterInitial, posterTint } from "./poster";
 
@@ -11,23 +11,21 @@ const FILL: CSSProperties = {
 };
 
 /**
- * Artwork for a card or hero, with the no-artwork case treated as normal.
- *
- * Most torrent releases have no poster — the engine rows that feed
- * "Downloaded" store none at all, and the metadata join that might supply one misses
- * often — so the fallback is not an error path, it is a layout a large share of
- * cards will actually use. It therefore gets a designed surface instead of a
- * grey box: a deterministic tint keyed off the title, a hairline, and the
- * initial ghosted into the corner as a mark. A rail full of these should still
- * look composed. It deliberately sets no words: every caller already prints the
- * title next to it.
- *
- * Three states, not two: a filled, priority-aware image for known provider
- * hosts, a plain image for anything else, and the designed tile when there is no URL *or* the
- * URL fails to load.
+ * Artwork for a card, row thumbnail or hero, with the no-artwork case treated
+ * as normal.
  *
  * The caller owns the box and its aspect ratio; this fills it absolutely, so
- * nothing reflows when an image arrives late.
+ * nothing reflows when an image arrives late. Inside that box there are three
+ * states, and each one has a look:
+ *
+ *  - **Loading:** a pulsing skeleton in the poster's own box. The image fades
+ *    in over it once decoded, so a rail fills in quietly instead of popping
+ *    card by card.
+ *  - **Loaded:** the image, `object-cover`.
+ *  - **No artwork, or the URL failed:** the designed tile below.
+ *
+ * Only the hero and the first visible row pass `priority`; everything else is
+ * lazy and decodes off the main thread.
  */
 export function PosterImage({
   src,
@@ -43,72 +41,78 @@ export function PosterImage({
   sizes: string;
   priority?: boolean;
   /**
-   * Sizes the ghosted initial on the no-artwork tile. `plain` is the hero's
-   * much larger mark; `card` is the rail poster's.
+   * `plain` is the hero backdrop: a large ghosted initial and no words, since
+   * the hero sets the title over it. `card` is every poster box, from a 40px
+   * row thumbnail to a rail poster; it sizes itself to its box.
    */
   variant?: "card" | "plain";
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const usable = src && !failed ? src : null;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const usable = src && failedSrc !== src ? src : null;
+  const loaded = usable != null && loadedSrc === usable;
+
+  // A cached image can finish before React attaches onLoad; check on mount.
+  const imgRef = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (img && usable && img.complete && img.naturalWidth > 0) setLoadedSrc(usable);
+    },
+    [usable],
+  );
 
   if (!usable) {
     return <FallbackTile title={title} variant={variant} className={className} />;
   }
 
-  if (isOptimizableImageUrl(usable)) {
-    return (
-      <img
-        src={usable}
-        loading={priority ? "eager" : "lazy"}
-        fetchPriority={priority ? "high" : undefined}
-        decoding="async"
-        style={FILL}
-        alt=""
-        sizes={sizes}
-        onError={() => setFailed(true)}
-        className={cn("object-cover", className)}
-      />
-    );
-  }
-
+  const optimizable = isOptimizableImageUrl(usable);
   return (
-    // A self-hosted install can point at any image host; unknown hosts get a
-    // plain tag that can only ever fall through to the tile above.
-    <img
-      src={usable}
-      alt=""
-      loading={priority ? "eager" : "lazy"}
-      decoding="async"
-      onError={() => setFailed(true)}
-      className={cn("absolute inset-0 h-full w-full object-cover", className)}
-    />
+    <>
+      {loaded ? null : (
+        <span
+          aria-hidden
+          data-poster-pending
+          className="absolute inset-0 animate-pulse bg-muted motion-reduce:animate-none"
+        />
+      )}
+      <img
+        ref={imgRef}
+        src={usable}
+        alt=""
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+        decoding="async"
+        // Known provider hosts get the sizes hint; any other host a
+        // self-hosted install points at gets a plain tag.
+        sizes={optimizable ? sizes : undefined}
+        style={FILL}
+        onLoad={() => setLoadedSrc(usable)}
+        onError={() => setFailedSrc(usable)}
+        className={cn(
+          "object-cover transition-opacity duration-300 ease-out motion-reduce:transition-none",
+          loaded ? "opacity-100" : "opacity-0",
+          className,
+        )}
+      />
+    </>
   );
 }
 
 /**
  * The designed no-artwork tile.
  *
- * Same language as the initial tile already used by search rows, library cards
- * and the recommendation rail (`docs/handover.md`: a missing poster renders an
- * initial, never an empty box, because an empty box is pixel-identical to the
- * loading skeleton). Those live in 40–56px thumbnails where a centred letter is
- * all that fits; a 124–168px browse poster has room to say more, so the same
- * `--bg-muted`-based surface and `--text-tertiary` initial carry the release
- * text as well. Posters miss reliably for manually-added magnets, so this is a
- * layout a large share of cards will use, not a degraded one.
+ * Posters miss reliably for manually added magnets and for releases the
+ * metadata join cannot name, so this is a layout a large share of boxes will
+ * use, not a degraded one. It must never look like an empty box: an empty
+ * tinted box is indistinguishable from a card that failed to render.
  *
- * Layout is built around what sits on top of it in a card: the availability
- * chip claims the top-left, a search affordance the top-right, and the action
- * row the bottom strip. The tile therefore carries no words of its own — the
- * card sets the title and subtitle in a caption immediately below it, and the
- * hero sets the title in an h1 directly over it, so printing them here too
- * rendered every poster-less card with its name twice, eight pixels apart.
- * That read as a rendering bug rather than a design, which is precisely the
- * reason the hero variant already existed. What is left is the mark: a
- * deterministic tint and the ghosted initial, pushed to the lower-right where
- * nothing else lands. `aria-hidden` throughout — the card's own label already
- * carries the title, and reading it twice helps nobody.
+ * It is a size container and adapts to its box. A poster big enough to read
+ * (a rail card, the title page) sets the title itself in the middle of the
+ * tile, clear of the availability chip at the top and the action row at the
+ * bottom, with the ghosted initial as a mark in the corner. A row thumbnail
+ * (40 to 88px) has room only for the initial, centred. The hero (`plain`)
+ * keeps the large mark and no words, because its h1 sits directly over it.
+ * `aria-hidden` throughout: the card's own label already carries the title.
  */
 function FallbackTile({
   title,
@@ -122,23 +126,35 @@ function FallbackTile({
   return (
     <div
       aria-hidden
-      className={cn("absolute inset-0 select-none overflow-hidden", className)}
+      data-poster-fallback
+      className={cn("@container absolute inset-0 select-none overflow-hidden", className)}
       style={{ background: posterTint(title) }}
     >
       {/* A hairline inside the tile, so a tinted surface still reads as a
           deliberate object next to cards that do have art. */}
       <span className="absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-foreground/7" />
 
-      <span
-        className={cn(
-          "pointer-events-none absolute select-none font-semibold leading-none text-subtle-foreground",
-          variant === "card"
-            ? "-bottom-[0.18em] -right-[0.06em] text-[5.5rem] opacity-25"
-            : "-bottom-[0.16em] -right-[0.04em] text-[12rem] opacity-15",
-        )}
-      >
-        {posterInitial(title)}
-      </span>
+      {variant === "plain" ? (
+        <span className="pointer-events-none absolute -bottom-[0.16em] -right-[0.04em] font-semibold leading-none text-subtle-foreground text-[12rem] opacity-15">
+          {posterInitial(title)}
+        </span>
+      ) : (
+        <>
+          {/* Thumbnail: the initial alone, centred. */}
+          <span className="absolute inset-0 flex items-center justify-center font-semibold leading-none text-subtle-foreground text-[42cqw] @min-[6rem]:hidden">
+            {posterInitial(title)}
+          </span>
+          {/* Poster: the title in words, with the initial as a quiet mark. */}
+          <span className="pointer-events-none absolute -bottom-[0.18em] -right-[0.06em] hidden font-semibold leading-none text-subtle-foreground text-[60cqw] opacity-20 @min-[6rem]:block">
+            {posterInitial(title)}
+          </span>
+          <span className="absolute inset-x-0 top-1/2 hidden -translate-y-1/2 px-3 text-center @min-[6rem]:block">
+            <span className="line-clamp-4 text-balance break-words text-[13px] font-semibold leading-snug text-foreground @min-[10rem]:text-[15px]">
+              {title}
+            </span>
+          </span>
+        </>
+      )}
     </div>
   );
 }

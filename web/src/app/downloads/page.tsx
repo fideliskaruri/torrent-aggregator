@@ -1190,16 +1190,23 @@ export default function ClientPage() {
                   ↓ {liveSpeed}
                 </span>
               ) : null}
-              {isBuiltin && maxActive.limits && maxActive.value != null ? (
+              {isBuiltin && ((maxActive.limits && maxActive.value != null) || !maxActive.settled) ? (
                 <span
-                  className="inline-flex items-center whitespace-nowrap"
-                  data-max-active-inline={maxActive.limits.source}
+                  className={cn(
+                    "inline-flex items-center whitespace-nowrap",
+                    // Held, invisible, until the limit is read: the stepper
+                    // can wrap the line on a phone, so it must not arrive late.
+                    !maxActive.settled && "invisible",
+                  )}
+                  aria-hidden={!maxActive.settled || undefined}
+                  inert={!maxActive.settled}
+                  data-max-active-inline={maxActive.limits?.source ?? "pending"}
                 >
                   <span aria-hidden className="hidden px-1 text-subtle-foreground lg:inline">·</span>
-                  {maxActive.limits.source === "schedule" ? (
+                  {maxActive.limits?.source === "schedule" ? (
                     // Open download hours set their own cap, so a stepper here would do nothing.
                     <>
-                      up to {maxActive.limits.effective} at once (
+                      up to {maxActive.limits?.effective} at once (
                       <Button
                         asChild
                         variant="link"
@@ -1217,7 +1224,7 @@ export default function ClientPage() {
                       up to
                       <MaxActiveDownloadsControl
                         variant="inline"
-                        value={maxActive.value}
+                        value={maxActive.value ?? 1}
                         onChange={maxActive.change}
                         className="mx-1.5"
                       />

@@ -1005,6 +1005,9 @@ function TitleContent({
   // carried no year (a derivation, not an invented value).
   const metaYear = payload.year ?? releaseYear(releaseDate);
   const genres = extras?.genres ?? [];
+  // The extras (synopsis, genres, rating, facts) are still on their way: the
+  // hero holds their space until they land or the request settles empty.
+  const heroExtrasPending = extras == null && !extrasError && (extrasLoading || !extrasSettled);
   const metaListPresent = Boolean(
     extras?.originalLanguage ||
       formatReleaseDate(releaseDate) ||
@@ -1182,7 +1185,13 @@ function TitleContent({
               {/* The rating/meta line sits directly under the title, SILO-style:
                   `TMDB {score} ({votes}) · {year} · {N Seasons|runtime}`. A gated
                   title keeps its "Coming {date}" / "In cinemas" chip beside it. */}
-              <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
+              <div
+                className={cn(
+                  "mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2",
+                  // The rating badge arrives with the extras; hold its 28px.
+                  heroExtrasPending && "min-h-7",
+                )}
+              >
                 {gated ? (
                   <Badge
                     data-title-coming
@@ -1349,7 +1358,10 @@ function TitleContent({
                 width so synopsis/meta never get squeezed beside the compact
                 poster, then returns to the desktop content column at md+. */}
             <div className="min-w-0 flex flex-col gap-4 md:col-start-2 md:flex-row md:gap-8">
-                <div className="min-w-0 flex-1 md:max-w-2xl">
+                {/* From md the band holds a five-line synopsis and a row of genres
+                    whether or not they have landed yet, so the poster and title
+                    beside it never move when the extras arrive. */}
+                <div className="min-w-0 flex-1 md:max-w-2xl md:min-h-[9.40625rem]">
                   {payload.overview ?? extras?.overview ? (
                     <p
                       data-title-overview
@@ -1357,16 +1369,24 @@ function TitleContent({
                     >
                       {payload.overview ?? extras?.overview}
                     </p>
-                  ) : !extras ? (
-                    // Reserve the paragraph's space while the extras round trip
-                    // is still in flight, so the hero does not reflow when the
-                    // synopsis lands. Same placeholder behaviour as before, only
-                    // relocated into the left column of the band.
-                    <p
-                      aria-hidden
-                      data-title-overview-placeholder
-                      className="min-h-0 md:min-h-[5.25rem]"
-                    />
+                  ) : heroExtrasPending ? (
+                    // Hold the synopsis, genre and facts space while the extras
+                    // round trip is in flight, at the size they land at, so the
+                    // hero and everything under it do not move when they do.
+                    <div aria-hidden data-title-overview-placeholder className="max-w-xl">
+                      <div className="text-body">
+                        {["w-full", "w-full", "w-11/12", "w-full", "w-2/3"].map((width, i) => (
+                          <div key={i} className="flex h-lh items-center">
+                            <Skeleton className={cn("h-3 rounded", width)} />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <Skeleton className="h-[1.625rem] w-16 rounded-full" />
+                        <Skeleton className="h-[1.625rem] w-20 rounded-full" />
+                        <Skeleton className="h-[1.625rem] w-14 rounded-full" />
+                      </div>
+                    </div>
                   ) : null}
 
                   <GenreChips genres={genres} />
@@ -1379,6 +1399,14 @@ function TitleContent({
                       releaseDate={releaseDate}
                       certification={extras?.certification ?? null}
                     />
+                  </div>
+                ) : heroExtrasPending ? (
+                  <div aria-hidden className="grid w-full gap-y-2 text-[13px] md:w-[260px] md:shrink-0">
+                    {["w-40", "w-48", "w-32"].map((width) => (
+                      <div key={width} className="flex h-lh items-center">
+                        <Skeleton className={cn("h-3 rounded", width)} />
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>
