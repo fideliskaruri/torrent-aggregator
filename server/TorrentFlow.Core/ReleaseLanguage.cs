@@ -32,6 +32,10 @@ public sealed record LanguageFacts
     public LanguageClaim? AmbiguousEnglish { get; init; }
     /// <summary>Subtitles burned into the picture (内嵌, Baha).</summary>
     public bool HardSubbed { get; init; }
+    /// <summary>The header probe read the file's own track list (<see cref="ReleaseLanguage.WithHeader"/>).</summary>
+    public bool HeaderRead { get; init; }
+    /// <summary>The header listed a subtitle track with no language tag: it may be English.</summary>
+    public bool HeaderUntaggedSubtitles { get; init; }
 
     public bool HasAudio(string language) => Audio.Any(c => c.Language == language);
     public LanguageClaim? StrongestAudio => Audio.Count > 0 ? Audio[0] : null;
@@ -64,6 +68,19 @@ public sealed record LanguageWant(string Preference, bool Anime, string? Origina
     }
 }
 
+/// <summary>Does a release carry English audio or English subtitles? Best first, so it sorts.</summary>
+public enum EnglishVerdict { Pass, Unknown, Fail }
+
+/// <summary>One release under the owner's rule (docs/release-language.md, "The English rule").</summary>
+/// <param name="Reason">Plain words: "English subtitles", "French subtitles only", "English not stated".</param>
+/// <param name="Evidence">How sure the deciding fact is; a Pass below <see cref="LanguageConfidence.ExplicitSubs"/> is worth a header check.</param>
+public sealed record EnglishCheck(EnglishVerdict Verdict, string Reason, LanguageConfidence Evidence)
+{
+    public static readonly EnglishCheck NotStated = new(EnglishVerdict.Unknown, "English not stated", LanguageConfidence.None);
+    /// <summary>A Pass on a name marker, a sidecar file or the header, not on a group or site category alone.</summary>
+    public bool Confirmed => Verdict == EnglishVerdict.Pass && Evidence >= LanguageConfidence.ExplicitSubs;
+}
+
 /// <summary>One release's language call under a want.</summary>
 /// <param name="Code">The reason code for held and refused releases (audio_fr, subs_zh, no_subs, dub, multi); null when it fits.</param>
 /// <param name="Label">Plain words for the owner: "French audio", "Japanese audio, English subtitles".</param>
@@ -73,6 +90,9 @@ public sealed record LanguageWant(string Preference, bool Anime, string? Origina
 public sealed record LanguageVerdict(LanguageFit Fit, string? Code, string Label, string Basis, string Confidence, bool Refusable,
     LanguageFacts Facts)
 {
+    /// <summary>The owner's rule: English audio or English subtitles (<see cref="ReleaseLanguage.EnglishRule"/>).</summary>
+    public EnglishCheck English { get; init; } = EnglishCheck.NotStated;
+
     public IReadOnlyList<string> Audio => Facts.Audio.Select(c => c.Language).ToArray();
     public IReadOnlyList<string> Subtitles => Facts.Subtitles.Select(c => c.Language).ToArray();
     public SubtitleState SubtitleState => Facts.SubtitleState;
@@ -146,9 +166,14 @@ public static partial class ReleaseLanguage
     public static bool IsSidecar(string path) => Extension(path) is { } extension &&
         (SubtitleExtensions.Contains(extension) || AudioExtensions.Contains(extension));
 
+    /// <summary>The one order for releases under a want: the English rule first (Pass, Unknown, Fail), then the fit.</summary>
+    public static int Order(LanguageVerdict verdict) => (int)verdict.English.Verdict * 10 + (int)verdict.Fit;
+
     /// <summary>"audio_fr" gives "French audio", "subs_zh" "Chinese subtitles only", "no_subs" "raw, no subtitles".</summary>
     public static string ReasonLabel(string code) => code switch
     {
+        "no_english" => "no English audio or subtitles",
+        "english_unknown" => "English not stated",
         "dub" => "English dub",
         "multi" => "several audio tracks",
         "no_subs" => "raw, no subtitles",
@@ -159,7 +184,8 @@ public static partial class ReleaseLanguage
     };
 
     /// <summary>True for a language reason code (<see cref="ReasonLabel"/>).</summary>
-    public static bool IsReason(string? code) => code is "dub" or "multi" or "no_subs" ||
+    public static bool IsReason(string? code) => code is "dub" or "multi" or "no_subs" or "no_english" or "english_unknown" ||
+
         code?.StartsWith("audio_", StringComparison.Ordinal) == true || code?.StartsWith("subs_", StringComparison.Ordinal) == true;
 
     public static string LanguageName(string? code) => code == null ? "unknown" : code == "other" ? "non-English"
@@ -171,8 +197,96 @@ public static partial class ReleaseLanguage
     public static LanguageVerdict Judge(LanguageWant want, LanguageFacts facts)
     {
         var preference = NormalizePreference(want.Preference) ?? Auto;
-        if (preference == Any) return Make(LanguageFit.Neutral, null, Describe(facts), facts, Decider(facts));
-        return want.Anime ? JudgeAnime(preference, facts) : JudgeOther(preference, LanguageTag.Normalize(want.OriginalLanguage), facts);
+        facts = WithDualAudio(facts, want.Anime);
+        var verdict = preference == Any ? Make(LanguageFit.Neutral, null, Describe(facts), facts, Decider(facts))
+            : want.Anime ? JudgeAnime(preference, facts) : JudgeOther(preference, LanguageTag.Normalize(want.OriginalLanguage), facts);
+        return verdict with { English = EnglishRule(want, facts) };
+    }
+
+    /// <summary>"Dual Audio" names its languages for anime: Japanese and English. Elsewhere it at least carries English.</summary>
+    private static LanguageFacts WithDualAudio(LanguageFacts f, bool anime)
+    {
+        if (f.DualAudio is not { } dual) return f;
+        var audio = f.Audio.ToList();
+        var add = anime ? new[] { "ja", "en" } : ["en"];
+        foreach (var language in add)
+            if (audio.All(c => c.Language != language)) audio.Add(new(language, dual.Confidence, dual.Basis));
+        return audio.Count == f.Audio.Count ? f : f with { Audio = audio.OrderByDescending(Strength).ToArray() };
+    }
+
+    /// <summary>
+    /// The owner's rule (docs/release-language.md, "The English rule"): Pass when the release has English audio or English
+    /// subtitles, Fail when it shows it has neither (a raw, foreign subtitles only, a foreign dub, or a header without
+    /// English), Unknown otherwise. An untagged release of a title made in English passes: its audio is the original.
+    /// </summary>
+    public static EnglishCheck EnglishRule(LanguageWant want, LanguageFacts f)
+    {
+        if ((NormalizePreference(want.Preference) ?? Auto) == Any) return new(EnglishVerdict.Pass, "Any language is fine", LanguageConfidence.None);
+        var headerAudio = f.Audio.Where(c => c.Basis == "header").ToList();
+        var headerTold = f.HeaderRead && headerAudio.Count > 0;
+        var englishAudio = f.Audio.FirstOrDefault(c => c.Language == "en") ?? (f.Dub?.Language == "en" ? f.Dub : null);
+        // Once the header listed the audio tracks, a name's English audio claim no longer counts.
+        if (englishAudio != null && (!headerTold || englishAudio.Basis is "header" or "files"))
+            return new(EnglishVerdict.Pass, f.Dub?.Language == "en" && englishAudio.Basis != "header" ? "English dub" : "English audio", englishAudio.Confidence);
+        var englishSubs = f.Subtitles.FirstOrDefault(c => c.Language == "en");
+        var subs = f.SubtitleState;
+        // The header read every track: no English audio, no English subtitle track, and none left untagged. Only a sidecar
+        // file, an explicit name marker on burned-in subtitles, or the header itself still counts for English subtitles.
+        if (headerTold && !f.HeaderUntaggedSubtitles &&
+            (englishSubs == null || englishSubs.Basis is not ("header" or "files") && !(f.HardSubbed && englishSubs.Confidence >= LanguageConfidence.ExplicitSubs)))
+            return new(EnglishVerdict.Fail, $"The file has {Join(headerAudio.Select(c => LanguageName(c.Language)))} audio and no English subtitles",
+                LanguageConfidence.HeaderFact);
+        if (subs == SubtitleState.KnownEnglish && englishSubs != null)
+            return new(EnglishVerdict.Pass, "English subtitles", englishSubs.Confidence);
+        if (f.AmbiguousEnglish != null && subs != SubtitleState.KnownNonEnglish)
+            return new(EnglishVerdict.Pass, "English audio or subtitles", f.AmbiguousEnglish.Confidence);
+        var original = want.Anime ? "ja" : LanguageTag.Normalize(want.OriginalLanguage);
+        var several = f.MultiAudio != null || f.DualAudio != null || f.Audio.Count >= 2;
+        var foreign = f.Audio.Where(c => c.Language != original).ToList();
+        var (_, subsName, subsClaim) = ForeignSubs(f);
+        // A dub in a third language and nothing else: Russian MVO, a French dub.
+        if (foreign.Count > 0 && !several)
+            return new(EnglishVerdict.Fail, $"{LanguageName(foreign[0].Language)} audio", foreign[0].Confidence);
+        // A title made in English carries English audio unless the name says otherwise (VOSTFR on an English film is English audio).
+        if (!want.Anime && original is null or "en")
+            return new(EnglishVerdict.Pass, original == "en" ? "English original" : "Language not stated", LanguageConfidence.None);
+        if (several && subs != SubtitleState.KnownNonEnglish)
+            return new(EnglishVerdict.Unknown, "Several audio tracks, English not stated", (f.MultiAudio ?? f.StrongestAudio)?.Confidence ?? LanguageConfidence.None);
+        if (f.Raw != null && subs != SubtitleState.KnownEnglish) return new(EnglishVerdict.Fail, "Raw, no subtitles", f.Raw.Confidence);
+        if (subs == SubtitleState.KnownNonEnglish)
+            return new(EnglishVerdict.Fail, $"{char.ToUpperInvariant(subsName[0])}{subsName[1..]} subtitles only", subsClaim?.Confidence ?? LanguageConfidence.None);
+        if (subs == SubtitleState.Mixed)
+            return new(EnglishVerdict.Unknown, $"{subsName} subtitles, maybe English too", subsClaim?.Confidence ?? LanguageConfidence.None);
+        return EnglishCheck.NotStated;
+    }
+
+    /// <summary>
+    /// Adds what the header probe read from the file itself, the strongest evidence there is. An untagged subtitle track
+    /// may be English, so it keeps the subtitles open.
+    /// </summary>
+    public static LanguageFacts WithHeader(LanguageFacts facts, IEnumerable<MediaTrack> tracks)
+    {
+        var audio = facts.Audio.ToDictionary(c => c.Language, StringComparer.Ordinal);
+        var subtitles = facts.Subtitles.ToDictionary(c => c.Language, StringComparer.Ordinal);
+        var untagged = false;
+        foreach (var track in tracks)
+        {
+            var language = track.Language;
+            if (track.Kind == MediaTrackKind.Subtitle)
+            {
+                if (language is null) untagged = true;
+                else subtitles[language] = new(language, LanguageConfidence.HeaderFact, "header");
+            }
+            else if (track.Kind == MediaTrackKind.Audio && language is not null)
+                audio[language] = new(language, LanguageConfidence.HeaderFact, "header");
+        }
+        return facts with
+        {
+            Audio = audio.Values.OrderByDescending(Strength).ToArray(),
+            Subtitles = subtitles.Values.OrderByDescending(Strength).ToArray(),
+            HeaderRead = true,
+            HeaderUntaggedSubtitles = untagged
+        };
     }
 
     private static LanguageVerdict JudgeAnime(string preference, LanguageFacts f)

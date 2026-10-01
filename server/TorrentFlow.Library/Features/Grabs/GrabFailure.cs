@@ -41,6 +41,12 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static readonly GrabFailure WrongLanguage = new("audio_language",
         "The release we picked turned out to be in another language.",
         "We'll keep looking. You can also pick a release yourself.") { Brief = "had releases only in another language" };
+    public const string WaitingForEnglishMessage = "Waiting for an English release.";
+    /// <summary>Releases exist, but none has English audio or subtitles: nothing is sent and the wanted queue keeps looking (docs/release-language.md).</summary>
+    public static readonly GrabFailure NoEnglish = new("no_english", WaitingForEnglishMessage,
+        "We'll keep looking. You can also pick a release yourself.") { Brief = "are waiting for an English release" };
+    /// <summary>Whether a wanted row's reason is <see cref="NoEnglish"/>.</summary>
+    public static bool IsWaitingForEnglish(string? error) => error?.StartsWith(WaitingForEnglishMessage, StringComparison.Ordinal) == true;
     public static readonly GrabFailure Unknown = new("download_failed",
         "The download could not be started.",
         "Try again. If it keeps failing, pick a release yourself.");

@@ -3,40 +3,47 @@ using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
-/// <summary>Where one release's language puts it in the ladder: the fit, the reason code for the activity counts, the words and the basis.</summary>
-internal sealed record LanguageCall(LanguageFit Fit, string? Code, string Label, string Basis = "none")
+/// <summary>
+/// Where one release's language puts it in the ladder: the owner's English rule (<see cref="EnglishCheck"/>), then the
+/// fit that orders releases of the same verdict, the reason code for the activity counts, the words and the basis.
+/// </summary>
+internal sealed record LanguageCall(LanguageFit Fit, string? Code, string Label, string Basis, EnglishCheck English)
 {
-    public bool HeldBack => Fit is LanguageFit.Backup or LanguageFit.Clash;
+    public EnglishVerdict Verdict => English.Verdict;
 
-    /// <summary>"French audio (clash, name)".</summary>
-    public string Described => $"{Label} ({Fit.ToString().ToLowerInvariant()}, {Basis})";
+    /// <summary>
+    /// The reason code an automatic pick records for a release it would not send: the fit's code, else no_english for a
+    /// Fail and english_unknown for an Unknown.
+    /// </summary>
+    public string? ReasonCode => Verdict switch
+    {
+        EnglishVerdict.Pass => null,
+        EnglishVerdict.Fail => Code ?? "no_english",
+        _ => Code ?? "english_unknown",
+    };
 
-    public static LanguageCall From(LanguageVerdict verdict) => new(verdict.Fit, verdict.Code, verdict.Label, verdict.Basis);
 
-    /// <summary>The engine refused it: its file list showed this language (<see cref="TorrentFlow.Core.Contracts.Engine.EngineAddResult.Language"/>).</summary>
+    /// <summary>"English subtitles: Japanese audio, English subtitles (preferred, name)".</summary>
+    public string Described => $"{English.Verdict.ToString().ToLowerInvariant()} ({English.Reason}): {Label} ({Fit.ToString().ToLowerInvariant()}, {Basis})";
+
+    public static LanguageCall From(LanguageVerdict verdict) => new(verdict.Fit, verdict.Code, verdict.Label, verdict.Basis, verdict.English);
+
+    /// <summary>The engine refused it: its file list showed no English (<see cref="TorrentFlow.Core.Contracts.Engine.EngineAddResult.Language"/>).</summary>
     public static LanguageCall Refused(string code)
     {
         var label = ReleaseLanguage.ReasonLabel(code);
-        return new(LanguageFit.Clash, code, label.Length == 0 ? label : char.ToUpperInvariant(label[0]) + label[1..], "files");
+        label = label.Length == 0 ? label : char.ToUpperInvariant(label[0]) + label[1..];
+        return new(LanguageFit.Clash, code, label, "files", new(EnglishVerdict.Fail, label, LanguageConfidence.ExplicitAudio));
     }
 }
 
-/// <summary>
-/// What one send records on its GrabJob row: the rung that found the release and its language call. A fallback send
-/// (the last-resort pass) and a hand pick accept a language clash.
-/// </summary>
-/// <param name="Missing">What the fallback stands in for, "no Japanese release found".</param>
-internal sealed record SendContext(string? Rung, LanguageCall? Language, bool Fallback = false, string? Missing = null, bool Picked = false)
+/// <summary>What one send records on its GrabJob row: the rung that found the release and its language call. A hand pick accepts any language.</summary>
+internal sealed record SendContext(string? Rung, LanguageCall? Language, bool Picked = false)
 {
-    public bool AcceptClash => Fallback || Picked;
+    public bool AcceptClash => Picked;
 
-    /// <summary>
-    /// The GrabJob's language column: "Japanese audio, English subtitles (preferred, name)", or for the last-resort pass
-    /// "fallback: French audio (clash, name), no Japanese release with English subtitles found".
-    /// </summary>
-    public string? Note => Language == null ? null
-        : Fallback ? $"fallback: {Language.Described}{(Missing == null ? "" : $", {Missing}")}"
-        : Picked ? $"picked by hand: {Language.Described}" : Language.Described;
+    /// <summary>The GrabJob's language column: "pass (English subtitles): Japanese audio, English subtitles (preferred, name)".</summary>
+    public string? Note => Language == null ? null : Picked ? $"picked by hand: {Language.Described}" : Language.Described;
 
     /// <summary>The note plus what the engine's file-list check found, when it disagreed (<c>files: French audio</c>).</summary>
     public string? NoteWith(string? filesCode) => filesCode == null ? Note
@@ -46,27 +53,56 @@ internal sealed record SendContext(string? Rung, LanguageCall? Language, bool Fa
 }
 
 /// <summary>
-/// The backups and clashes the normal pass held back (docs/release-language.md). They are sent only after every rung is
-/// exhausted with no working send: backups first, then clashes, each in the order the ladder found them. A release the
-/// engine refused for its language joins the clashes after the ones judged by name.
+/// What the English rule did to one automatic pick (docs/release-language.md): Pass releases are sent first. Unknown
+/// releases are held and sent only when no healthy Pass release (<see cref="HealthySeeders"/> or more seeders) turned
+/// up. Fail releases are never sent automatically; when nothing else is left the pick waits for an English release.
 /// </summary>
 internal sealed class LanguageHold
 {
-    internal sealed record Held(TorrentResult Release, LanguageCall Call, string Rung, bool Relaxed, bool Confirmed);
+    /// <summary>Live seeders that make a Pass release healthy enough to rule out the Unknown ones.</summary>
+    public const int HealthySeeders = 5;
+
+    internal sealed record Held(TorrentResult Release, LanguageCall Call, string Rung, bool Relaxed);
 
     private readonly List<Held> held = [];
     private readonly HashSet<string> keys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> failed = new(StringComparer.Ordinal);
 
-    /// <summary>Candidate keys already held, for <see cref="EpisodeLadder.Select"/>.</summary>
+    /// <summary>Candidate keys already held or failed, for <see cref="EpisodeLadder.Select"/>.</summary>
     public ISet<string> Keys => keys;
-    public int Count => held.Count;
+    private readonly Dictionary<string, int> tried = new(StringComparer.Ordinal);
 
-    public void Add(TorrentResult release, LanguageCall call, string rung, bool relaxed, bool confirmed = false)
+    /// <summary>A Pass release with enough seeders was tried, so Unknown releases are not sent.</summary>
+    public bool HealthyPass => tried.Values.Any(s => s >= HealthySeeders);
+    /// <summary>A Pass release was tried and not refused for its language.</summary>
+    public bool TriedPass => tried.Count > 0;
+    /// <summary>Releases that matched but have no English.</summary>
+    public int Failed => failed.Count;
+    public int Unknown => held.Count;
+
+    public void Tried(TorrentResult release) => tried[EpisodeLadder.CandidateKey(release)] = release.Seeders;
+
+    /// <summary>The engine's file-list check showed a tried release has no English: it counts as Fail.</summary>
+    public void Refused(TorrentResult release)
     {
-        if (keys.Add(EpisodeLadder.CandidateKey(release)) || confirmed)
-            held.Add(new(release, call, rung, relaxed, confirmed));
+        var key = EpisodeLadder.CandidateKey(release);
+        tried.Remove(key);
+        keys.Add(key);
+        failed.Add(key);
     }
 
-    public IEnumerable<Held> Ordered() =>
-        held.OrderBy(h => h.Call.Fit == LanguageFit.Backup && !h.Confirmed ? 0 : 1).ThenBy(h => h.Confirmed ? 1 : 0).ToList();
+    /// <summary>Holds an Unknown release, or counts a Fail one.</summary>
+    public void Add(TorrentResult release, LanguageCall call, string rung, bool relaxed)
+    {
+        var key = EpisodeLadder.CandidateKey(release);
+        if (!keys.Add(key)) return;
+        if (call.Verdict == EnglishVerdict.Fail) failed.Add(key);
+        else held.Add(new(release, call, rung, relaxed));
+    }
+
+    /// <summary>The Unknown releases to send, best seeded first, or none when a healthy Pass release exists.</summary>
+    public IEnumerable<Held> Sendable() => HealthyPass ? [] : held.OrderByDescending(h => h.Release.Seeders >= HealthySeeders).ToList();
+
+    /// <summary>Nothing with English could be sent: every match failed the rule, or the Unknown ones were not allowed.</summary>
+    public bool WaitingForEnglish => !TriedPass && held.Count == 0 && failed.Count > 0;
 }

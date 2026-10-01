@@ -49,8 +49,11 @@ public sealed partial class GrabService
             foreach (var pack in Eligible(input, floor, packs, applyMaxSize: false))
                 if (seen.Add(EpisodeLadder.CandidateKey(pack))) candidates.Add((pack, rung));
         }
-        // Preferred and neutral packs are probed first; backups and clashes only stand in when none of those maps.
-        candidates = candidates.OrderBy(c => Judge(input, c.Release).HeldBack ? 1 : 0).ToList();
+        // The English rule: Pass packs are probed first, Unknown ones only when no healthy Pass pack exists, Fail ones never.
+        candidates = candidates.Where(c => Judge(input, c.Release).Verdict != EnglishVerdict.Fail)
+            .OrderBy(c => Judge(input, c.Release).Verdict).ToList();
+        var healthyPass = candidates.Any(c => Judge(input, c.Release).Verdict == EnglishVerdict.Pass && c.Release.Seeders >= LanguageHold.HealthySeeders);
+        if (healthyPass) candidates = candidates.Where(c => Judge(input, c.Release).Verdict == EnglishVerdict.Pass).ToList();
         var notes = new List<string>();
         (TorrentResult Release, EngineInspectResult Files, PackFileMapping Map, LadderRung Rung, LanguageCall Call)? best = null;
         foreach (var (candidate, rung) in candidates.Take(Math.Max(1, maxProbes)))
@@ -66,14 +69,19 @@ public sealed partial class GrabService
             // files, and the worst one is the pack's call (docs/release-language.md).
             var paths = files.Select(f => f.Path).ToList();
             var call = map.Episodes.Values.Select(index => Judge(input, candidate, ReleaseLanguage.WithSidecars(files[index].Path, paths,
-                map.Episodes.Count == 1))).Prepend(Judge(input, candidate)).MaxBy(c => c.Fit)!;
+                map.Episodes.Count == 1))).Prepend(Judge(input, candidate)).MaxBy(c => (c.Verdict, c.Fit))!;
             logger?.LogInformation("Season pack {Title} ({Hash}): {Mapped} of {Missing} missing episodes map; {Language}; {Rejection} {Notes}",
                 candidate.Title, inspected.Hash, map.Episodes.Count, targets.Count, call.Label, map.Rejection ?? "", string.Join("; ", map.Notes.Take(8)));
             if (!map.Ok || map.Episodes.Count == 0) { notes.Add($"{candidate.Title}: {map.Rejection ?? "no_episodes"}"); continue; }
-            if (best == null || best.Value.Call.HeldBack && !call.HeldBack ||
-                best.Value.Call.HeldBack == call.HeldBack && map.Episodes.Count > best.Value.Map.Episodes.Count)
+            if (call.Verdict == EnglishVerdict.Fail || healthyPass && call.Verdict != EnglishVerdict.Pass)
+            {
+                notes.Add($"{candidate.Title}: {call.English.Reason}");
+                continue;
+            }
+            if (best == null || call.Verdict < best.Value.Call.Verdict ||
+                best.Value.Call.Verdict == call.Verdict && map.Episodes.Count > best.Value.Map.Episodes.Count)
                 best = (candidate, inspected, map, rung, call);
-            if (!call.HeldBack && map.Episodes.Count == targets.Count) break;
+            if (call.Verdict == EnglishVerdict.Pass && map.Episodes.Count == targets.Count) break;
         }
         if (best is not { } chosen)
         {
@@ -90,9 +98,8 @@ public sealed partial class GrabService
         var selection = new PackSelection(claimed.Values.Order().ToArray(),
             SeasonPackFiles.PieceSpanBytes(inspectedFiles, chosen.Files.PieceLength, claimed.Values),
             new EpisodeCursor(season, claimed.Keys.Min()).QueueKey);
-        var held = chosen.Call.HeldBack;
         var sent = await Send(db, settings!, input, query, chosen.Release with { InfoHash = hash }, null, relaxed: false, ct, selection,
-            new(SendContext.RungLabel(chosen.Rung), chosen.Call, Fallback: held, Missing: held ? MissingLanguage(input) : null));
+            new(SendContext.RungLabel(chosen.Rung), chosen.Call));
         if (!sent.Ok || !string.Equals(sent.InfoHash, hash, StringComparison.OrdinalIgnoreCase))
         {
             await ReleaseClaimsAsync(db, hash, ct);

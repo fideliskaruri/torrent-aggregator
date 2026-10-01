@@ -241,7 +241,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         GrabFailure? searchFailure = null;
         GrabResult? lastFailure = null;
         var allSendsWithoutFileList = true;
-        // Backups and clashes wait for the last-resort pass (docs/release-language.md).
+        // The English rule (docs/release-language.md): Pass releases go first, Unknown ones wait, Fail ones never go.
         var hold = new LanguageHold();
         foreach (var rung in rungs)
         {
@@ -265,7 +265,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                         row.Reason.Length > 0 ? row.Reason : null, PremiereYear(input));
                 if (IsBlocked(input, row.Result) && !decision.Reasons.Contains("blocked"))
                     decision = decision with { Reasons = decision.Reasons.Append("blocked").ToArray() };
-                if (Judge(input, row.Result) is { HeldBack: true, Code: { } code } && !decision.Reasons.Contains(code))
+                if (Judge(input, row.Result) is { ReasonCode: { } code } && !decision.Reasons.Contains(code))
                     decision = decision with { Reasons = decision.Reasons.Append(code).ToArray() };
                 rungCandidates[key] = decisions[key] = decision;
             }
@@ -276,10 +276,11 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             diagnostics.Add(diagnostic);
             if (logger?.IsEnabled(LogLevel.Debug) == true)
                 logger.LogDebug("Episode search rung: {Diagnostic}", JsonSerializer.Serialize(diagnostic));
-            var normal = quality.Where(r => !Judge(input, r).HeldBack).ToList();
+            var normal = quality.Where(r => Judge(input, r).Verdict == EnglishVerdict.Pass).ToList();
             while (EpisodeLadder.Select(rung, normal, cursor, attempted, input.EpisodeMapping) is { } candidate)
             {
                 attempted.Add(EpisodeLadder.CandidateKey(candidate));
+                hold.Tried(candidate);
                 diagnostic.Attempted++;
                 if (input.Background && await BackgroundPolicy(db, settings, input, query, candidate, ct) is { } waiting)
                     return waiting;
@@ -288,37 +289,36 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 if (result.Ok) return result;
                 if (result.Storage != null || result.Failure?.Code == "download_folder") return result;
                 var key = EpisodeLadder.CandidateKey(candidate);
-                // Its file list showed the wrong audio: it joins the clashes, so the last-resort pass can still send it.
-                if (result.LanguageRefusal is { } refusedFor)
-                    hold.Add(candidate, LanguageCall.Refused(refusedFor), SendContext.RungLabel(rung), rung.Relaxed, confirmed: true);
+                // Its file list showed no English: it counts as a Fail release.
+                if (result.LanguageRefusal != null) hold.Refused(candidate);
                 rungCandidates[key] = decisions[key] = new(candidate.Title, candidate.Source, [result.LanguageRefusal ?? "send_failed"]);
                 diagnostic.Candidates = rungCandidates.Values.ToArray();
                 // One bad pick no longer ends the attempt: fall through to the next candidate, then the next rung.
                 lastFailure = result;
                 allSendsWithoutFileList &= result.Failure?.Code is "metadata_unavailable" or "no_seeders";
             }
-            // The same picker chooses which backups and clashes this rung would have sent; they are held, not sent.
-            var later = quality.Where(r => Judge(input, r).HeldBack).ToList();
+            // The same picker chooses which Unknown and Fail releases this rung would have sent; they are held or counted, not sent.
+            var later = quality.Where(r => Judge(input, r).Verdict != EnglishVerdict.Pass).ToList();
             while (EpisodeLadder.Select(rung, later, cursor, hold.Keys, input.EpisodeMapping) is { } held)
                 hold.Add(held, Judge(input, held), SendContext.RungLabel(rung), rung.Relaxed);
             if (queryFailed) break;
         }
         // A search cut short by shutdown is no miss: the run starts over after the restart.
         if (Stopping) throw new ShuttingDownException(ct);
-        // Last resort: every rung is exhausted with no working send, so the least-bad language goes rather than nothing.
-        // A ladder cut short by a failed search keeps its holds; the retry may still find the preferred release.
-        var languageHeld = hold.Count > 0;
+        // Every rung is exhausted with no working Pass send. Unknown releases go only when no healthy Pass release turned
+        // up; a ladder cut short by a failed search keeps them for the retry, which may still find an English one.
+        var languageHeld = hold.Failed > 0 || hold.Unknown > 0;
         if (searchFailure == null)
-            foreach (var held in hold.Ordered())
+            foreach (var held in hold.Sendable())
             {
                 if (input.Background && await BackgroundPolicy(db, settings, input, query, held.Release, ct) is { } waiting)
                     return waiting;
                 var result = await Send(db, settings, input, query, held.Release, beforeSend, held.Relaxed, ct,
-                    context: new(held.Rung, held.Call, Fallback: true, Missing: MissingLanguage(input)));
+                    context: new(held.Rung, held.Call));
                 if (result.Ok)
                 {
-                    logger?.LogInformation("Episode {Title} {Episode}: sent a language fallback, {Language}: {Release}", input.Title, cursor.Label,
-                        held.Call.Label, held.Release.Title);
+                    logger?.LogInformation("Episode {Title} {Episode}: no healthy English release, sent one with English not stated: {Release}",
+                        input.Title, cursor.Label, held.Release.Title);
                     return result;
                 }
                 if (result.Storage != null || result.Failure?.Code == "download_folder") return result;
@@ -336,6 +336,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var detail = memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
             ? "no search sites turned on" : GrabFailure.Explain(memo.Values.SelectMany(r => r.Sources), decisions.Values, floor);
         failure = failure with { Detail = detail };
+        // Releases exist but none has English: wait for one, never send them (the owner's rule).
+        if (searchFailure == null && lastFailure == null && hold.WaitingForEnglish) failure = GrabFailure.NoEnglish with { Detail = detail };
         var message = failure.Sentence;
         logger?.LogInformation("Episode not found {Title} {Episode}: {Detail}", input.Title, cursor.Label, detail);
         // A language hold or refusal is never a real miss: the release exists, so the season pack fallback must not count it.
@@ -393,7 +395,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
         if (floor != null)
             quality = PreferRequestedQuality(quality, floor.Value).ToList();
-        return quality.OrderBy(x => Judge(input, x).Fit).ToList();
+        return quality.OrderBy(x => ReleaseLanguage.Order(ReleaseLanguage.Verdict(WantOf(input), x.Title, x.Category))).ToList();
     }
 
     /// <summary>
@@ -409,13 +411,6 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     private static bool IsBlocked(GrabInput input, TorrentResult release) => input.Blocked is { Count: > 0 } blocked &&
         (LibraryJson.Hash(release.InfoHash) ?? LibraryJson.Hash(release.Magnet)) is { } hash && blocked.Contains(hash);
 
-    /// <summary>What a fallback stands in for, in the GrabJob's language note.</summary>
-    private static string MissingLanguage(GrabInput input) => WantOf(input) switch
-    {
-        { Preference: ReleaseLanguage.English } => "no English audio release found",
-        { Anime: true } => "no Japanese release with English subtitles found",
-        _ => "no English release found"
-    };
 
     private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
         && input.EpisodeMapping is not { IsSequel: true }
@@ -440,30 +435,30 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).Where(r => !IsBlocked(input, r)).ToList();
         GrabResult? lastFailure = null;
         var rung = $"film: {title}";
-        // Backups and clashes wait until every preferred or neutral release has been tried (docs/release-language.md).
+        // The English rule (docs/release-language.md): Pass releases first, Unknown ones only when no healthy Pass release
+        // turned up, Fail ones never.
         var hold = new LanguageHold();
         while (FilmSelection.Select(releases, key, floor) is { } candidate)
         {
             releases.Remove(candidate);
             var call = Judge(input, candidate);
-            if (call.HeldBack) { hold.Add(candidate, call, rung, relaxed: false); continue; }
+            if (call.Verdict != EnglishVerdict.Pass) { hold.Add(candidate, call, rung, relaxed: false); continue; }
+            hold.Tried(candidate);
             if (input.Background && await BackgroundPolicy(db, settings, input, title, candidate, ct) is { } waiting)
                 return waiting;
             var result = await Send(db, settings, input, title, candidate, beforeSend, false, ct, context: new(rung, call));
             if (result.Ok) return result;
-            if (result.LanguageRefusal is { } refusedFor)
-                hold.Add(candidate, LanguageCall.Refused(refusedFor), rung, relaxed: false, confirmed: true);
+            if (result.LanguageRefusal != null) hold.Refused(candidate);
             lastFailure = result;
         }
-        foreach (var held in hold.Ordered())
+        foreach (var held in hold.Sendable())
         {
             if (input.Background && await BackgroundPolicy(db, settings, input, title, held.Release, ct) is { } waiting)
                 return waiting;
-            var result = await Send(db, settings, input, title, held.Release, beforeSend, false, ct,
-                context: new(rung, held.Call, Fallback: true, Missing: MissingLanguage(input)));
+            var result = await Send(db, settings, input, title, held.Release, beforeSend, false, ct, context: new(rung, held.Call));
             if (result.Ok)
             {
-                logger?.LogInformation("Film {Title}: sent a language fallback, {Language}: {Release}", title, held.Call.Label, held.Release.Title);
+                logger?.LogInformation("Film {Title}: no healthy English release, sent one with English not stated: {Release}", title, held.Release.Title);
                 return result;
             }
             lastFailure = result;
@@ -472,6 +467,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (Stopping) throw new ShuttingDownException(ct);
         var summary = FilmSelection.Summarize(response.Results, key, floor);
         var failure = FilmSelection.NoMatch(title, floor, response.Sources, summary) with { Detail = FilmSelection.Explain(response.Sources, summary, floor) };
+        // Releases exist but none has English: wait for one, never send them (the owner's rule).
+        if (hold.WaitingForEnglish)
+            failure = GrabFailure.NoEnglish with { Detail = $"{hold.Failed} release{(hold.Failed == 1 ? "" : "s")} without English audio or subtitles" };
         logger?.LogInformation("Film not found {Title}: {Detail}", title, failure.Detail);
         await LogSkip(db, input, title, WithDetail(failure.Sentence, failure.Detail), ct);
         return new(false, failure.Sentence) { Query = title, Skipped = true, Failure = failure,
