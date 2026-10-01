@@ -1847,7 +1847,7 @@ function SeriesOverviewRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors",
+        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors max-md:pl-4",
         allSelected ? "bg-brand-dim" : "hover:bg-muted/60",
       )}
       data-download-group
