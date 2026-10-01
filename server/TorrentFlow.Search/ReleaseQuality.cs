@@ -152,9 +152,11 @@ public static class ReleaseQuality
             var other => other
         };
         var actual = Kind(r.Route?.Kind); var requested = Kind(category);
-        var languageTitle = Replace(r.Title, @"[._()[\]\-]+");
-        var language = Match(languageTitle, @"\b(?:vostfr|subfrench|truefrench|french|vf{1,2})\b").Success ? 0
-            : Match(languageTitle, @"\b(?:eng|english|dual\s+audio|dual[-\s]?audio|dub(?:bed)?)\b").Success ? 2 : 1;
+        // Search page order only: the one language rule under the default want (docs/release-language.md).
+        var anime = actual == "anime" || requested == "anime" || string.Equals(r.Metadata?.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+        var fit = TorrentFlow.Core.ReleaseLanguage.Verdict(TorrentFlow.Core.LanguageWant.For(TorrentFlow.Core.ReleaseLanguage.Auto,
+            anime ? "anime" : r.Metadata?.MediaType, r.Metadata?.OriginalLanguage), r.Title, r.Category).Fit;
+        var language = fit == TorrentFlow.Core.LanguageFit.Preferred ? 2 : fit == TorrentFlow.Core.LanguageFit.Clash ? 0 : 1;
         var resolution = ParseResolution(r.Title);
         return new(actual == null || requested == null ? 0 : actual == requested ? 1 : -1,
             RelevanceTier(r.Title, query), language, IsJunkSource(r.Title), IsImplausible(r), TorrentFlow.Core.ReleaseSeeders.IsViable(r.Seeders),

@@ -65,6 +65,7 @@ import {
 
 type ClientType = "qbittorrent" | "transmission" | "builtin";
 type ExternalClientType = Exclude<ClientType, "builtin">;
+type AudioLanguage = "auto" | "english" | "any";
 
 export interface ClientForm {
   clientType: ClientType;
@@ -77,6 +78,7 @@ export interface ClientForm {
   baseDownloadPath: string;
   maxStorageGb: string;
   preferredResolution: number;
+  audioLanguage: AudioLanguage;
   automationIntervalMinutes: number;
   maxActiveDownloads: number;
   downloadWindows: DownloadWindowDraft[];
@@ -99,6 +101,22 @@ const QUALITY_CHOICES = [
   { value: 2160, label: "4K", hint: "Largest files" },
 ] as const;
 
+const AUDIO_LANGUAGE_CHOICES: ReadonlyArray<{ value: AudioLanguage; label: string; hint: string }> = [
+  {
+    value: "auto",
+    label: "Japanese for anime, English for the rest",
+    hint: "Anime comes with English subtitles. An English dub is used only when nothing else is found.",
+  },
+  { value: "english", label: "English", hint: "Pick English dubs first, anime included." },
+  { value: "any", label: "Any language", hint: "Don't check the language." },
+];
+
+/** The server's audio language, or auto when it has none (or one this page doesn't know). */
+function parseAudioLanguage(value: unknown): AudioLanguage {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "english" || normalized === "any" ? normalized : "auto";
+}
+
 const AUTOMATION_INTERVAL_CHOICES = [
   { value: 0, label: "Only when I run it" },
   { value: 30, label: "Every 30 minutes" },
@@ -117,6 +135,7 @@ const EMPTY_FORM: ClientForm = {
   baseDownloadPath: "",
   maxStorageGb: "0",
   preferredResolution: 1080,
+  audioLanguage: "auto",
   automationIntervalMinutes: 0,
   maxActiveDownloads: 2,
   downloadWindows: [],
@@ -309,6 +328,7 @@ export default function SettingsPage() {
                   : "0",
               preferredResolution:
                 settings.preferredResolution ?? EMPTY_FORM.preferredResolution,
+              audioLanguage: parseAudioLanguage(settings.audioLanguage),
               automationIntervalMinutes:
                 settings.automationIntervalMinutes ??
                 EMPTY_FORM.automationIntervalMinutes,
@@ -495,6 +515,7 @@ export default function SettingsPage() {
             return Number.isFinite(value) && value > 0 ? value : 0;
           })(),
           preferredResolution: form.preferredResolution,
+          audioLanguage: form.audioLanguage,
           automationIntervalMinutes: form.automationIntervalMinutes,
           // Only when changed here: the Downloads page sets it too, and an
           // unrelated save must not put back the value this page loaded.
@@ -557,6 +578,10 @@ export default function SettingsPage() {
             : "0",
         preferredResolution:
           settings?.preferredResolution ?? form.preferredResolution,
+        audioLanguage:
+          settings?.audioLanguage != null
+            ? parseAudioLanguage(settings.audioLanguage)
+            : form.audioLanguage,
         automationIntervalMinutes:
           settings?.automationIntervalMinutes ?? form.automationIntervalMinutes,
         maxActiveDownloads:
@@ -845,6 +870,48 @@ export default function SettingsPage() {
                   </Label>
                 ))}
               </RadioGroup>
+            </fieldset>
+
+            <fieldset className="min-w-0 space-y-1.5" data-audio-language>
+              <legend className="mb-1.5 text-xs text-subtle-foreground">
+                Audio language
+              </legend>
+              <RadioGroup
+                name="audio-language"
+                aria-label="Audio language"
+                aria-describedby="audio-language-help"
+                value={form.audioLanguage}
+                onValueChange={(value) =>
+                  updateForm((current) => ({
+                    ...current,
+                    audioLanguage: parseAudioLanguage(value),
+                  }))
+                }
+                className="grid grid-cols-1 gap-2"
+              >
+                {AUDIO_LANGUAGE_CHOICES.map((choice) => (
+                  <Label
+                    key={choice.value}
+                    htmlFor={`audio-language-${choice.value}`}
+                    className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5 font-normal transition-colors hover:border-input has-data-checked:border-brand has-data-checked:bg-brand-dim"
+                  >
+                    <RadioGroupItem
+                      id={`audio-language-${choice.value}`}
+                      value={choice.value}
+                      className="mt-0.5"
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground">{choice.label}</span>
+                      <span className="text-xs text-subtle-foreground">{choice.hint}</span>
+                    </span>
+                  </Label>
+                ))}
+              </RadioGroup>
+              <p id="audio-language-help" className="pt-1 text-xs leading-relaxed text-subtle-foreground">
+                Before downloading, TorrentFlow checks the release name, its file list and the start of the video,
+                and skips other languages. Shows made in another language can also come in their original language
+                with English subtitles.
+              </p>
             </fieldset>
 
           </section>

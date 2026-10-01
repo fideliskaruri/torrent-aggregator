@@ -34,7 +34,7 @@ internal static class ContainerSniffer
     }
 
     private static bool IsVideo(ReadOnlySpan<byte> h) =>
-        h.StartsWith((ReadOnlySpan<byte>)[0x1A, 0x45, 0xDF, 0xA3])                      // Matroska, WebM
+        IsMatroska(h)                                                                  // Matroska, WebM
         || IsIsoMedia(h)                                                               // MP4, M4V, MOV
         || h.Length >= 12 && h.StartsWith("RIFF"u8) && (h[8..12].SequenceEqual("AVI "u8) || h[8..12].SequenceEqual("CDXA"u8))
         || h.StartsWith((ReadOnlySpan<byte>)[0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11]) // ASF (WMV)
@@ -42,7 +42,11 @@ internal static class ContainerSniffer
         || IsTransportStream(h)                                                        // MPEG-TS, M2TS
         || IsProgramStream(h);                                                         // MPEG-PS (VOB, MPG), MPEG video
 
-    private static bool IsIsoMedia(ReadOnlySpan<byte> h)
+    /// <summary>The EBML magic every Matroska and WebM file starts with.</summary>
+    internal static bool IsMatroska(ReadOnlySpan<byte> h) => h.StartsWith((ReadOnlySpan<byte>)[0x1A, 0x45, 0xDF, 0xA3]);
+
+    /// <summary>A first box type that ISO media (MP4, M4V, MOV) starts with.</summary>
+    internal static bool IsIsoMedia(ReadOnlySpan<byte> h)
     {
         if (h.Length < 8) return false;
         Span<char> type = stackalloc char[4];

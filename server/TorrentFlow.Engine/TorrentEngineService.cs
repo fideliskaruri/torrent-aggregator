@@ -113,7 +113,7 @@ internal sealed partial class TorrentEngineService(
                 {
                     var plain = ex.Message is { Length: > 0 and < 240 } m && !m.Contains("HttpRequestException", StringComparison.Ordinal)
                         ? m
-                        : "Could not download the .torrent file. Try another release or a magnet link.";
+                        : "Could not download the .torrent file. Find another source, or paste a magnet link.";
                     return new EngineAddResult(false, plain);
                 }
             }
@@ -143,6 +143,7 @@ internal sealed partial class TorrentEngineService(
         Admission admission;
         EngineAddResult result;
         var failed = false;
+        string? languageClash = null;
         using (await LockHashAsync(hash, ct))
         {
             // A magnet is admitted at once, so the row shows on Downloads while its file list arrives; the client holds it
@@ -165,6 +166,23 @@ internal sealed partial class TorrentEngineService(
             {
                 logger.LogWarning("[builtin-engine] refused {Hash} ({Name}) before downloading: {Problem}", hash, request.Name, problem);
                 return new(false, MediaFileRules.Message(problem), Hash: hash) { Unusable = MediaFileRules.Code(problem) };
+            }
+            // The language check over the file list (docs/release-language.md): only explicit audio in the files refuses, and
+            // never on the last-resort pass or a hand pick, which accept the clash and record it.
+            if (request.Language is { } check)
+            {
+                var verdict = (bytes ?? LoadTorrentFile(hash)) is { } named ? FileListLanguage(named, request) : null;
+                logger.LogInformation("[builtin-engine] language check {Hash} ({Name}): category {Category}, name {NameFit} {NameLabel}, " +
+                    "files {Fit} {Label} ({Basis}, {Confidence}), accept clash {AcceptClash}", hash, request.Name, request.SourceCategory ?? "none",
+                    check.NameFit?.ToString() ?? "none", check.NameLabel ?? "", verdict?.Fit.ToString() ?? "unchecked", verdict?.Label ?? "no file list",
+                    verdict?.Basis ?? "none", verdict?.Confidence ?? "low", check.AcceptClash);
+                if (verdict is { Refusable: true })
+                {
+                    if (!check.AcceptClash)
+                        return new(false, $"Its files have {verdict.Label}, so TorrentFlow skipped it.", Hash: hash)
+                            { Unusable = "audio_language", Language = verdict.Code };
+                    languageClash = verdict.Code;
+                }
             }
             await _queueGate.WaitAsync(ct);
             try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, ct); }
@@ -204,7 +222,8 @@ internal sealed partial class TorrentEngineService(
 
         await StartClaimedAsync(admission.Claimed);
         if (failed) await PromoteAsync(CancellationToken.None);
-        return result;
+        // An accepted clash goes back with its code, so the sender's record says what the files really hold.
+        return languageClash != null && result.Ok ? result with { Language = languageClash } : result;
     }
 
     private sealed record Admission(EngineAddResult? Result, EngineTorrent? StartRow, List<EngineTorrent> Claimed);
@@ -423,6 +442,34 @@ internal sealed partial class TorrentEngineService(
         }
     }
 
+    /// <summary>
+    /// The language verdict over a release's main videos (the selected ones, or the largest and any at least half its
+    /// size), each read with its own subtitle and audio files. The worst one counts; null when the list can't be read.
+    /// </summary>
+    internal static LanguageVerdict? FileListLanguage(IEnumerable<(int Index, string Path, long Length)> files, EngineAddRequest request)
+    {
+        if (request.Language is not { } check) return null;
+        var list = files.ToList();
+        var selected = request.SelectedFiles is { Count: > 0 } chosen ? chosen : null;
+        var videos = list.Where(f => MediaFileRules.IsVideo(f.Path) && (selected == null || selected.Contains(f.Index))).ToList();
+        if (videos.Count == 0) return ReleaseLanguage.Verdict(check.Want, request.Name, request.SourceCategory);
+        var largest = videos.Max(f => f.Length);
+        var main = selected != null ? videos : videos.Where(f => f.Length * 2 >= largest).ToList();
+        var paths = list.Select(f => f.Path).ToList();
+        return main.Select(f => ReleaseLanguage.Verdict(check.Want, request.Name, request.SourceCategory,
+            ReleaseLanguage.WithSidecars(f.Path, paths, main.Count == 1))).MaxBy(v => (v.Fit, v.Refusable));
+    }
+
+    private LanguageVerdict? FileListLanguage(byte[] torrent, EngineAddRequest request)
+    {
+        try { return FileListLanguage(MonoTorrent.Torrent.Load(torrent).Files.Select((f, i) => (i, f.Path, f.Length)), request); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogInformation(ex, "Could not read a .torrent's file list for the language check");
+            return null;
+        }
+    }
+
     private async Task<byte[]> FetchTorrentAsync(string url, CancellationToken ct)
     {
         var client = httpFactory.CreateClient(HttpClientName);
@@ -440,8 +487,8 @@ internal sealed partial class TorrentEngineService(
                     code is 403 or 401
                         ? "That torrent link refused the download. Try another host or paste the magnet instead."
                         : code is 404
-                            ? "That torrent link was not found. It may have expired. Try another release."
-                            : $"Could not download the .torrent file (HTTP {code}). Try another release or a magnet link.",
+                            ? "That torrent link was not found. It may have expired. Find another source."
+                            : $"Could not download the .torrent file (HTTP {code}). Find another source, or paste a magnet link.",
                     null, response.StatusCode);
             }
             return await TorrentHttpLimits.ReadMetadataAsync(response.Content, ct);
@@ -527,7 +574,7 @@ internal sealed partial class TorrentEngineService(
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Adding {Hash} to the client failed", row.Hash);
-            return new BackendAddOutcome(false, "The torrent was added but stopped right away. Try again, or pick another release.");
+            return new BackendAddOutcome(false, "The torrent was added but stopped right away. Try again, or find another source.");
         }
     }
 
@@ -1470,6 +1517,7 @@ internal sealed partial class TorrentEngineService(
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = message;
                     row.ForcedAt = null;
+                    await CompletedLayoutFinalizer.BlockFailedCheckAsync(db, row, Now, ct);
                     await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, message, Now, ct);
                     detach.Add(row.Hash);
                     continue;

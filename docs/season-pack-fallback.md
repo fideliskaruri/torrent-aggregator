@@ -29,9 +29,9 @@ References to them below, and the playback rows in the plan and test tables, are
   `AcquisitionTarget.RealMisses >= SeasonPackMisses`.
 - `RealMisses` grows in `WantedQueue.SettleAsync` when `EpisodeTransfer.RealMiss` is set. `GrabService.Episode` sets
   it only when the searches really ran (`SearchRung` answered, no site refused) and the result was
-  `no_release`, `quality_floor`, `no_seeders` or `audio_preference` (`GrabFailure.IsRealMiss`), or
-  `metadata_unavailable` when every probed candidate failed metadata. Refused, busy, no source, storage, setup and
-  unknown errors never count.
+  `no_release`, `quality_floor` or `no_seeders` (`GrabFailure.IsRealMiss`), or `metadata_unavailable` when every
+  probed candidate failed metadata. Refused, busy, no source, storage, setup and unknown errors never count, and
+  neither does an attempt where a release was held back or refused for its language (docs/release-language.md).
 
 ### Fully aired gate (fails closed)
 
@@ -143,8 +143,8 @@ The season-speed branch changes `RunAsync` so that each episode settles as soon 
 
 An episode attempt is a real miss only when the search actually happened and found nothing usable:
 
-- Counts: failure codes `no_release`, `quality_floor`, `no_seeders`, `audio_preference` (from `GrabFailure.cs:37-46`), and `metadata_unavailable` when every candidate that was probed failed metadata (the swarm is dead, not the search).
-- Does not count: `sources_unavailable`, `search_busy` (already the `Unsearched` set, `WantedQueue.cs:55`), any attempt where any source reported an error (`searchFailed`, `GrabService.cs:185`, reported as `search_incomplete`), `no_sources`, `storage_limit`, `download_folder`, `setup_required`, and `download_failed` (unknown engine failure). With season-speed, a busy host is a `SourceBusyException` source error, so it lands in the "does not count" side automatically.
+- Counts: failure codes `no_release`, `quality_floor`, `no_seeders` (from `GrabFailure.cs:37-46`), and `metadata_unavailable` when every candidate that was probed failed metadata (the swarm is dead, not the search).
+- Does not count: `sources_unavailable`, `search_busy` (already the `Unsearched` set, `WantedQueue.cs:55`), any attempt where any source reported an error (`searchFailed`, `GrabService.cs:185`, reported as `search_incomplete`), `no_sources`, `storage_limit`, `download_folder`, `setup_required`, and `download_failed` (unknown engine failure), and any attempt where a release was held back or refused for its language (docs/release-language.md). With season-speed, a busy host is a `SourceBusyException` source error, so it lands in the "does not count" side automatically.
 
 Implementation: `GrabResult` already carries `NoReleaseFound.reason` (`no_release` vs `search_incomplete`, `GrabService.cs:241-245`). Add one boolean to `EpisodeTransfer` (for example `RealMiss`) computed in one place (`GrabFailure.IsRealMiss(result)`), so `WantedQueue` does not re-derive it.
 
@@ -306,7 +306,7 @@ An episode is owned by at most one transfer at a time. Ownership is the acquisit
 
 #### 4.4 A single-episode release shows up later
 
-No automatic replacement. The pack is the owner and the wanted queue does not search claimed episodes, so nothing races. The owner can still replace one episode by hand with "Find another release" (section 5, swap), which releases that one file from the pack first. If the pack file stalls or fails (section 6), the claim is released and the single pipeline takes the episode back; if a single is found then, it wins normally.
+No automatic replacement. The pack is the owner and the wanted queue does not search claimed episodes, so nothing races. The owner can still replace one episode by hand with "Find another source" (section 5, swap), which releases that one file from the pack first. If the pack file stalls or fails (section 6), the claim is released and the single pipeline takes the episode back; if a single is found then, it wins normally.
 
 ### 5. Data model impact
 
@@ -380,7 +380,7 @@ Copy follows the rules: plain words, what happened, what to do, no em dashes, no
 | Partial neighbour files | boundary pieces (3.5) | Never visible: they stay in the release folder or carry `.!mt`, and are deleted on completion or removal. |
 | Invalid media after completion | `CompletedMediaValidator` marks invalid (`CompletedLayoutFinalizer.cs:321-342`) | Today every target of the hash fails. Change: with `FileIndex`, only the targets whose file failed validation fail and go back to wanted. |
 | User deletes one episode | per-episode delete (5.2) | "Deleted episode 4. The rest of the season pack stays." |
-| User swaps one episode | per-episode "Find another release" (5.2) | Picker shows single releases for that episode; on pick, "Episode 4 now uses the release you picked." Whole-pack swap: "This release covers several episodes. Replace one episode at a time." |
+| User swaps one episode | per-episode "Find another source" (5.2) | Picker shows single releases for that episode; on pick, "Episode 4 now uses the release you picked." Whole-pack swap: "This release covers several episodes. Replace one episode at a time." |
 | Request fulfilment | pack hash in `GrabbedHashes`, completion rule (3.3) | Request moves to fulfilled when the pack's selected files and every other grabbed transfer finish. Partial stays partial with the existing copy. |
 | Restart mid-flow | claims and selection are persisted; `SelectionOf(row)` on re-add (3.2) | Pack resumes with the same files; nothing else starts downloading. |
 | Season still airing or unknown | `GetSeasonAiringAsync` not `Finished` (1.4) | No pack. `why`: "Season still airing, or we could not confirm it has finished. Waiting for single episodes." |
@@ -437,7 +437,7 @@ Run on a fresh instance built from the merged branch, an isolated data directory
 | 8 | Restart mid-download | Stop and start the instance during case 2. | Same selection after restart; unselected episodes never start. |
 | 9 | Explicit click on a claimed episode | Click Download on a pack-owned episode. | "Already downloading as part of Season N"; no new transfer. |
 | 10 | Delete one episode | Delete one pack episode from the Downloads dialog. | Only that file is gone; other cards unchanged; target back to not downloaded. |
-| 11 | Swap one episode | "Find another release" on a pack episode, pick a single. | Pack loses that file; the single owns the episode; the pack keeps the others. |
+| 11 | Swap one episode | "Find another source" on a pack episode, pick a single. | Pack loses that file; the single owns the episode; the pack keeps the others. |
 | 12 | Request | Requester asks for the pack-only season; owner approves (by hand, then with auto-approve). | Request goes partial then fulfilled when the pack's selected files finish; a repeat request creates nothing new. |
 | 13 | Storage cap | Set a cap smaller than the selected set. | Only the episodes that fit are claimed; the rest stay wanted with the storage reason. |
 | 14 | Playback | Play a finished pack episode and a still-downloading one. | The right file plays; the player never lists unowned episodes of the pack. |

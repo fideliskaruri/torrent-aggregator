@@ -64,6 +64,8 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
                     + $" -> {(after.TryGetValue(t, out var a) ? a.ToString(System.Globalization.CultureInfo.InvariantCulture) : "dropped")}")
                 .ToList();
             logger.LogInformation("Database updated. Row changes: {Changes}", changes.Count == 0 ? "none" : string.Join(", ", changes));
+            if (pending.Any(m => m.EndsWith("_" + nameof(Migrations.AddReleaseBlocks), StringComparison.Ordinal)))
+                await LogReleaseBlockBackfillAsync(conn, ct);
         }
 
         if (!await db.Users.AnyAsync(u => u.Id == LocalUser.Id, ct))
@@ -107,6 +109,25 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { logger.LogWarning(ex, "Could not remove old database backup {Path}", old.FullName); }
         }
         return target;
+    }
+
+    /// <summary>Once, after <see cref="Migrations.AddReleaseBlocks"/> ran: what its back-fill blocked and what it left alone.</summary>
+    private async Task LogReleaseBlockBackfillAsync(System.Data.Common.DbConnection conn, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            WITH {Migrations.AddReleaseBlocks.SwapsCte},
+            "Classified" AS ({Migrations.AddReleaseBlocks.ClassifiedAttemptsSelect})
+            SELECT (SELECT count(*) FROM "ReleaseBlock" WHERE "Origin" = 'migrated'),
+                count(CASE WHEN "Class" = 'replaced' THEN 1 END),
+                count(CASE WHEN "Class" = 'owner-selected' THEN 1 END),
+                count(CASE WHEN "Class" = 'ambiguous' THEN 1 END)
+            FROM "Classified"
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return;
+        logger.LogInformation("Release blocks: {Blocks} migrated as replaced (from {Replaced} replaced attempt rows). {OwnerPicked} owner-picked and {Other} other attempts left unblocked.",
+            reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3));
     }
 
     private static async Task<SortedDictionary<string, long>> RowCountsAsync(System.Data.Common.DbConnection conn, CancellationToken ct)

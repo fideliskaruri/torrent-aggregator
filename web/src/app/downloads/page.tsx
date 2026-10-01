@@ -77,7 +77,7 @@ import {
 import {
   releaseDisplayFacts,  pauseResumeTargets,
   rollupChip,  transferLabel,
-  transfersLabel,} from "./release-display";
+  transfersLabel,  swapSubjectFor,} from "./release-display";
 import {
   isValidTorrentSourceInput,
   parseTorrentSourceInput,
@@ -106,7 +106,7 @@ import {
   findLinkedDownload,
   withoutDownloadLink,
 } from "./download-link";
-import { ReleaseSwapDialog } from "./release-swap-dialog";
+import { ReleaseSwapDialog } from "@/components/releases/release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
@@ -1730,9 +1730,10 @@ export default function ClientPage() {
 
       {swapTorrent ? (
         <ReleaseSwapDialog
-          torrent={swapTorrent}
+          key={swapTorrent.hash}
+          subject={swapSubjectFor(swapTorrent)}
           onClose={() => setSwapTorrent(null)}
-          onSwapped={(releaseName) => {
+          onSwapped={(message) => {
             invalidateInFlight();
             const swapped = swapTorrent;
             setSelected((previous) => {
@@ -1742,7 +1743,7 @@ export default function ClientPage() {
               return next;
             });
             setSwapTorrent(null);
-            setAnnouncement(`Switched to ${releaseName}.`);
+            setAnnouncement(message);
             void load();
           }}
         />

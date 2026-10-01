@@ -150,6 +150,10 @@ public sealed record EngineAddRequest
     public string? SavePath { get; init; }
     /// <summary>Smart-target hints (resolveSmartSendTarget) used when no SavePath is given.</summary>
     public string? SearchCategory { get; init; }
+    /// <summary>The search site's own category for the release (nyaa "Anime - English-translated"), read by the language check.</summary>
+    public string? SourceCategory { get; init; }
+    /// <summary>The audio and subtitle language check for this release (docs/release-language.md); null skips it.</summary>
+    public EngineLanguageCheck? Language { get; init; }
     public TorrentFlow.Core.Contracts.Metadata.MediaMetadata? Metadata { get; init; }
     public string? Source { get; init; }
     public IReadOnlyList<string>? Tags { get; init; }
@@ -177,6 +181,11 @@ public sealed record EngineAddRequest
     public IReadOnlyList<int>? SelectedFiles { get; init; }
 }
 
+/// <summary>What the sender wants to hear and what the release name already said (docs/release-language.md).</summary>
+/// <param name="NameFit">The name's fit, logged beside the file list's.</param>
+/// <param name="AcceptClash">The last-resort pass or a hand pick: never refuse for language, only record it.</param>
+public sealed record EngineLanguageCheck(LanguageWant Want, LanguageFit? NameFit, string? NameLabel, bool AcceptClash);
+
 /// <summary>Reads a release's file list without admitting a transfer (season pack verification).</summary>
 public sealed record EngineInspectRequest(string? Magnet, string? TorrentUrl, string? InfoHash, string? Name);
 
@@ -190,8 +199,12 @@ public sealed record EngineInspectResult(string? Hash, long PieceLength, IReadOn
 /// <param name="Offset">Byte offset of the file inside the torrent's concatenated payload.</param>
 public sealed record EngineInspectFile(int Index, string Path, long Length, long Offset);
 
+/// <param name="UseBlocked">
+/// The owner picked this release by hand with "Use it anyway" although it is blocked: the swap may take a release
+/// already tried for this download, and lifts its block in the same commit.
+/// </param>
 public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,
-    long? SizeBytes, string? Source = null);
+    long? SizeBytes, string? Source = null, bool UseBlocked = false);
 
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
 {
@@ -200,9 +213,12 @@ public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? 
     public string? StorageLimit { get; init; }
     /// <summary>
     /// Set when the release itself is unusable, so another release should be tried: dangerous (a program file) |
-    /// no_video (no video, or archives only) | fake (an earlier download of it was not a real video file).
+    /// no_video (no video, or archives only) | fake (an earlier download of it was not a real video file) |
+    /// audio_language (its file list shows audio in a language the owner doesn't want; <see cref="Language"/> says which).
     /// </summary>
     public string? Unusable { get; init; }
+    /// <summary>The language reason code with <c>Unusable = "audio_language"</c>: audio_fr, subs_zh (<see cref="ReleaseLanguage.ReasonLabel"/>).</summary>
+    public string? Language { get; init; }
 }
 
 /// <summary>Mirrors the TypeScript AddTorrentDetails "builtin-transfer" variant.</summary>

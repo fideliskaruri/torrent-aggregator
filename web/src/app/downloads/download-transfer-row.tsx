@@ -37,8 +37,9 @@ import {
   showsProgressBar,
   transferErrorMessage,
   waitReasonLabel,
+  canFindAnotherSourceFor,
 } from "./release-display";
-import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import {
   IconMenuButton,
   rowAttr,
@@ -188,17 +189,17 @@ export function DownloadTransferRow({
           Resume
         </Button>
       ) : null}
-      {isError(t.state) && canFindAnotherRelease(t) ? (
+      {isError(t.state) && canFindAnotherSourceFor(t) ? (
         <Button
           type="button"
           variant="secondary"
           size="sm"
           onClick={() => onAction("swap", t)}
-          aria-label={`Find another release for ${title}`}
+          aria-label={`${FIND_ANOTHER_SOURCE_LABEL} for ${title}`}
           {...rowAttr(kind, "find-release")}
         >
           <Search className="h-3.5 w-3.5" />
-          Find another release
+          {FIND_ANOTHER_SOURCE_LABEL}
         </Button>
       ) : null}
       {canOpen ? (
