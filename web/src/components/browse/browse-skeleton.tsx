@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  *
  * Two rails, not five: it fills the fold at both 390px and 1440px, and
  * promising five rows to a user who is about to be shown one is its own small
- * lie. A genre page is a grid with no hero, so it gets a grid.
+ * lie. A genre page is a grid, so it gets a grid, under the same hero.
  *
  * `filters` sits exactly where the board puts it (under the hero), so the
  * section pills do not jump when the payload lands.
@@ -39,7 +39,7 @@ export function BrowseSkeleton({
         !visible && "opacity-0",
       )}
     >
-      {grid ? null : <HeroSkeleton />}
+      <HeroSkeleton />
       <div className="container-app min-w-0 pb-14">
         {filters}
         {grid ? (

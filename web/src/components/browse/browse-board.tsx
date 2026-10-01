@@ -27,12 +27,10 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
   const { ensureDownloadSetup } = useDownloadSetup();
 
   const rails = payload.rails;
-  // A genre page is one list shown whole: no hero, no rails to scroll.
+  // A genre page is one list shown whole as a grid, led by a hero from that
+  // genre like every other view.
   const genrePage = Boolean(payload.genre);
-  const hero = useMemo(
-    () => (genrePage ? null : pickHeroItem(rails)),
-    [genrePage, rails],
-  );
+  const hero = useMemo(() => pickHeroItem(rails), [rails]);
   // The hero already features its title, so the rail it came from drops that
   // card and keeps the rest in order. A rail left empty is hidden.
   const shownRails = useMemo(
