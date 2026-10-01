@@ -34,6 +34,10 @@ export interface ClientTorrent {
   forced?: boolean;
   /** Checked on disk after completion; survives a restart with no live client. */
   verified?: boolean;
+  /** When the transfer was added, ISO 8601 UTC; null when the client does not say. */
+  addedAt?: string | null;
+  /** A finished built-in download whose kept files are gone from disk. */
+  filesMissing?: boolean;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;

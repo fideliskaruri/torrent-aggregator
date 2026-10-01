@@ -18,8 +18,8 @@ import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
+  ExternalLink,
   Magnet,
-  FolderOpen,
   MoreHorizontal,
   Pause,
   Play,
@@ -72,6 +72,7 @@ import {
 } from "./grouping";
 import {
   canDownloadNow,
+  canOpenFinishedFile,
   forcedStartLabel,
   isVerifiedDownload,
   pauseResumeAction,
@@ -88,6 +89,8 @@ import {
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FolderMenuItem } from "./folder-menu-item";
+import type { OpenDownloadMode } from "@/lib/open-download";
 
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
@@ -107,6 +110,10 @@ export interface SeriesDownloadDialogProps {
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
+  /** Open in the owner's own player, or Show in folder (docs/api-open-file.md). */
+  onOpenFile: (torrent: ClientTorrent, mode: OpenDownloadMode) => void;
+  /** The folder fallback when this computer can't open folders. */
+  onCopyPath: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }
@@ -318,6 +325,8 @@ function EpisodeCard({
   onToggleSelect,
   onAction,
   onOpenFolder,
+  onOpenFile,
+  onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
 }: {
@@ -329,6 +338,8 @@ function EpisodeCard({
   onToggleSelect: (hash: string, additive: boolean) => void;
   onAction: SeriesDownloadDialogProps["onAction"];
   onOpenFolder: SeriesDownloadDialogProps["onOpenFolder"];
+  onOpenFile: SeriesDownloadDialogProps["onOpenFile"];
+  onCopyPath: SeriesDownloadDialogProps["onCopyPath"];
   onCopyMagnet: SeriesDownloadDialogProps["onCopyMagnet"];
   onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
 }) {
@@ -348,6 +359,9 @@ function EpisodeCard({
   const pauseResume = pauseResumeAction(t);
   const { openFolder } = useFeatures();
   const displayPath = useDisplayPath();
+  const busy = openingHash === t.transferId;
+  // A pack's largest file is one episode of many, so a pack only gets Show in folder.
+  const canOpen = openFolder && canOpenFinishedFile(t) && !entry.isSeasonPack && !t.packEpisodes;
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
   const errorMessage = transferErrorMessage(t);
@@ -491,6 +505,22 @@ function EpisodeCard({
               Download now
             </Button>
           ) : null}
+          {canOpen ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              aria-busy={busy || undefined}
+              onClick={() => onOpenFile(t, "open")}
+              aria-label={`Open ${epLabel} in your own player`}
+              title="Open in your own player"
+              data-open-file
+            >
+              {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              Open
+            </Button>
+          ) : null}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -536,15 +566,13 @@ function EpisodeCard({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onOpenFolder(t)}
-              disabled={!openFolder || openingHash === t.transferId}
-            >
-              {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
-              Open folder
-            </DropdownMenuItem>
+            <FolderMenuItem
+              torrent={t}
+              busy={busy}
+              onOpenFolder={onOpenFolder}
+              onOpenFile={onOpenFile}
+              onCopyPath={onCopyPath}
+            />
             <DropdownMenuSeparator />
             {canDownloadNow(t) ? (
               <DropdownMenuItem
@@ -613,6 +641,8 @@ export function SeriesDownloadDialog({
   onAction,
   onActionMany,
   onOpenFolder,
+  onOpenFile,
+  onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
 }: SeriesDownloadDialogProps) {
@@ -863,6 +893,8 @@ export function SeriesDownloadDialog({
                   onToggleSelect={onToggleSelect}
                   onAction={onAction}
                   onOpenFolder={onOpenFolder}
+                  onOpenFile={onOpenFile}
+                  onCopyPath={onCopyPath}
                   onCopyMagnet={onCopyMagnet}
                   onDeleteRequest={onDeleteRequest}
                 />

@@ -158,6 +158,16 @@ export function isVerifiedDownload(torrent: Pick<ClientTorrent, "state" | "verif
   return torrent.verified === true && isDownloaded(torrent.state);
 }
 
+/**
+ * Whether Open and Show in folder apply: a finished built-in download whose
+ * files are still on disk (docs/api-open-file.md). The server checks again.
+ */
+export function canOpenFinishedFile(
+  torrent: Pick<ClientTorrent, "ownerClientType" | "state" | "filesMissing">,
+): boolean {
+  return torrent.ownerClientType === "builtin" && torrent.state === "downloaded" && torrent.filesMissing !== true;
+}
+
 const WAIT_REASON_LABELS: Record<string, string> = {
   "outside-window": "Waiting for download hours",
   "queue-full": "Waiting for a free slot",

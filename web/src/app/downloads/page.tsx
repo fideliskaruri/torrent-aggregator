@@ -3,11 +3,12 @@ import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
+import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import {
   Check,
   ChevronRight,
   Download,
-  FolderOpen,
+  ExternalLink,
   FolderTree,
   HardDriveDownload,
   Magnet,
@@ -86,6 +87,7 @@ import {
   releaseDisplayFacts,
   sourceChip,
   canDownloadNow,
+  canOpenFinishedFile,
   forcedStartLabel,
   isVerifiedDownload,
   pauseResumeAction,
@@ -115,6 +117,7 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
+import { FolderMenuItem } from "./folder-menu-item";
 import {
   downloadLinkFrom,
   downloadLinkKey,
@@ -964,6 +967,21 @@ export default function ClientPage() {
     }
   }
 
+  /** Open in the owner's own player, or Show in folder (docs/api-open-file.md). */
+  async function openFinishedFile(t: ClientTorrent, mode: OpenDownloadMode) {
+    setOpeningHash(t.transferId);
+    try {
+      await openDownload(t.transferId, mode, t.savePath ? displayPath(t.savePath) : null);
+    } finally {
+      setOpeningHash(null);
+    }
+  }
+
+  /** The folder fallback when this computer can't open folders (remote access, a container). */
+  function copyFolderPath(t: ClientTorrent) {
+    if (t.savePath) void copyDownloadPath(displayPath(t.savePath));
+  }
+
   async function copyMagnet(t: ClientTorrent) {
     if (t.imported) { toast.info("Imported local files have no torrent metadata or magnet link."); return; }
     const magnet = magnetFor(t);
@@ -1576,6 +1594,8 @@ export default function ClientPage() {
                       onToggleSelect={toggleSelect}
                       onAction={(act, torrent) => void action(act, torrent)}
                       onOpenFolder={(torrent) => void openDownloadFolder(torrent)}
+                      onOpenFile={(torrent, mode) => void openFinishedFile(torrent, mode)}
+                      onCopyPath={copyFolderPath}
                       onCopyMagnet={(torrent) => void copyMagnet(torrent)}
                       onDeleteRequest={openDeleteDialog}
                     />
@@ -1614,6 +1634,8 @@ export default function ClientPage() {
           onAction={(act, torrent) => void action(act, torrent)}
           onActionMany={(act, transfers) => void actionMany(act, transfers)}
           onOpenFolder={(t) => void openDownloadFolder(t)}
+          onOpenFile={(t, mode) => void openFinishedFile(t, mode)}
+          onCopyPath={copyFolderPath}
           onCopyMagnet={(t) => void copyMagnet(t)}
           onDeleteRequest={openDeleteDialog}
         />
@@ -1948,6 +1970,8 @@ function FilmRow({
   onToggleSelect,
   onAction,
   onOpenFolder,
+  onOpenFile,
+  onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
 }: {
@@ -1960,6 +1984,8 @@ function FilmRow({
   onToggleSelect: (hash: string, additive: boolean) => void;
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onOpenFolder: (t: ClientTorrent) => void;
+  onOpenFile: (t: ClientTorrent, mode: OpenDownloadMode) => void;
+  onCopyPath: (t: ClientTorrent) => void;
   onCopyMagnet: (t: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
@@ -1969,6 +1995,9 @@ function FilmRow({
   const displayPath = useDisplayPath();
   const display = releaseDisplayFacts(t, query);
   const art = artwork[query.key];
+  const busy = openingHash === t.transferId;
+  // A pack's largest file is one episode of many, so a pack only gets Show in folder.
+  const canOpen = openFolder && canOpenFinishedFile(t) && !t.packEpisodes;
   const barTone = isDownloaded(t.state)
     ? "bg-success"
     : isError(t.state)
@@ -2176,6 +2205,23 @@ function FilmRow({
             Resume
           </Button>
         ) : null}
+        {canOpen ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="lg:mr-1.5"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            onClick={() => onOpenFile(t, "open")}
+            aria-label={`Open ${display.title} in your own player`}
+            title="Open in your own player"
+            data-open-file
+          >
+            {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+            Open
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -2221,16 +2267,13 @@ function FilmRow({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onOpenFolder(t)}
-              disabled={!openFolder || openingHash === t.transferId}
-              data-open-folder
-            >
-              {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
-              Open folder
-            </DropdownMenuItem>
+            <FolderMenuItem
+              torrent={t}
+              busy={busy}
+              onOpenFolder={onOpenFolder}
+              onOpenFile={onOpenFile}
+              onCopyPath={onCopyPath}
+            />
             <DropdownMenuSeparator />
             {canDownloadNow(t) ? (
               <DropdownMenuItem

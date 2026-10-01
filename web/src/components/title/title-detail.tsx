@@ -23,9 +23,11 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, Download, Loader2, Search } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, Search } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
+import { useFeatures } from "@/lib/features";
+import { openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import { PosterImage } from "@/components/browse/poster-image";
 import { posterTint } from "@/components/browse/poster";
 import { cleanDisplayTitle } from "@/components/browse/availability";
@@ -808,9 +810,11 @@ function TitleContent({
   onLibraryChanged: () => void;
 }) {
   const caps = useCapabilities();
+  const { openFolder } = useFeatures();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
   // Quality picker for the hero Download button.
   const [heroPicker, setHeroPicker] = useState(false);
+  const [openingFile, setOpeningFile] = useState<OpenDownloadMode | null>(null);
 
   // Stable per-list handler. Passed straight to <EpisodeList>, which hands it
   // to every card. An inline arrow here was recreated on every render, so the
@@ -1015,6 +1019,20 @@ function TitleContent({
   const downloadLabel = downloadControl.label;
   const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
+  // A downloaded film opens in the owner's own player, on the computer running
+  // TorrentFlow only (docs/api-open-file.md). A finished title transfer is
+  // always a built-in download, and its info hash names it.
+  const openHash = titleTransfer?.status === "downloaded" ? titleTransfer.infoHash : null;
+  const canOpenFile = showDownload && caps.canSeePaths && openFolder && !!openHash;
+  const openTitleFile = async (mode: OpenDownloadMode) => {
+    if (!openHash || openingFile) return;
+    setOpeningFile(mode);
+    try {
+      await openDownload(openHash, mode);
+    } finally {
+      setOpeningFile(null);
+    }
+  };
 
   // A film with no similar titles has nothing under the hero once the extras
   // settle. Rendering the empty bottom section left a bordered band of dead
@@ -1156,7 +1174,8 @@ function TitleContent({
               </div>
 
               {/* Actions come next: Find episodes while a series has nothing
-                  listed yet, the film-only Download, then the library controls.
+                  listed yet, the film-only Download (Open and Show in folder
+                  once it is on this computer), then the library controls.
                   The row collapses when none of them applies. */}
               <div
                 className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 empty:hidden md:mt-5 md:flex md:flex-wrap md:items-center"
@@ -1191,7 +1210,40 @@ function TitleContent({
                     </ButtonBody>
                   </Button>
                 ) : null}
-                {showDownload && caps.canDownload && downloadControl.opensDownloads ? (
+                {canOpenFile ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="lg"
+                      data-title-open
+                      aria-label={`Open ${title} in your own player`}
+                      title="Open in your own player"
+                      aria-busy={openingFile === "open" || undefined}
+                      disabled={openingFile !== null}
+                      onClick={() => void openTitleFile("open")}
+                      className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
+                    >
+                      <ButtonBody pending={openingFile === "open"} icon={<ExternalLink aria-hidden />}>
+                        Open
+                      </ButtonBody>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant="secondary"
+                      data-title-reveal
+                      aria-label={`Show ${title} in its folder`}
+                      aria-busy={openingFile === "reveal" || undefined}
+                      disabled={openingFile !== null}
+                      onClick={() => void openTitleFile("reveal")}
+                      className="relative w-full min-w-0 md:w-auto"
+                    >
+                      <ButtonBody pending={openingFile === "reveal"} icon={<FolderOpen aria-hidden />}>
+                        Show in folder
+                      </ButtonBody>
+                    </Button>
+                  </>
+                ) : showDownload && caps.canDownload && downloadControl.opensDownloads ? (
                   <Button
                     asChild
                     size="lg"
