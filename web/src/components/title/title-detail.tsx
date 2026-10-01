@@ -108,6 +108,7 @@ import {
 } from "@/lib/library/storage-override";
 import type {
   TitleDetailPayload,
+  TitleEpisodeTransfer,
   TitleExtrasPayload,
   TitleProgressPayload,
   TitleSeasonGrabResponse,
@@ -1022,8 +1023,18 @@ function TitleContent({
     season: null,
     episode: null,
     infoHash: payload.infoHash,
-  };  const downloadStatus = statusFor(DOWNLOAD_KEY);
-  const titleTransfer = progress?.transfer ?? payload.transfer;
+  };
+  const downloadStatus = statusFor(DOWNLOAD_KEY);
+  const ownTitleTransfer = progress?.transfer ?? payload.transfer;
+  // A film already on this computer reads as downloaded however it got there
+  // (this page's Download, or a torrent sent by hand from Downloads): the same
+  // rule the episode cards use. It offers Open, never a second Download.
+  const titleTransfer: TitleEpisodeTransfer | null =
+    (ownTitleTransfer == null || ownTitleTransfer.status === "failed") &&
+    payload.availability === "ready" &&
+    payload.infoHash
+      ? { status: "downloaded", progress: 1, infoHash: payload.infoHash, filePath: null, error: null }
+      : ownTitleTransfer;
   const downloadControl = resolveTitleTransferControl(titleTransfer, downloadStatus, {
     canSeeTransfers: caps.canSeeTransfers,
   });
@@ -1031,8 +1042,8 @@ function TitleContent({
   const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
   // A downloaded film opens in the owner's own player, on the computer running
-  // TorrentFlow only (docs/api-open-file.md). A finished title transfer is
-  // always a built-in download, and its info hash names it.
+  // TorrentFlow only (docs/api-open-file.md). Both a finished title transfer
+  // and a ready local row are built-in downloads, and the info hash names it.
   const openHash = titleTransfer?.status === "downloaded" ? titleTransfer.infoHash : null;
   const canOpenFile = showDownload && caps.canSeePaths && openFolder && !!openHash;
   const openTitleFile = async (mode: OpenDownloadMode) => {
