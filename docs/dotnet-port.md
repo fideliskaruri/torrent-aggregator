@@ -32,19 +32,29 @@ cannot be disproved; the swap never guesses folder ownership.
 
 - `GET /api/client/torrents/{hash}/alternatives[?source=<id>]` searches the same work and episode/season scope
   (all enabled sources, or only `source`), retains the current/acquisition quality floor, and excludes current,
-  loaded and previously tried hashes.
+  loaded and previously tried hashes. Releases this owner blocked are the exception: when the search finds
+  them they come back after every unblocked release, whatever their score, marked `blocked`.
 - Ranking is one deterministic score: quality match to the current release (+30 same, +15 higher),
   seeders `min(60, 10·log2(1+seeders))`, size sanity against the current release (+10 within 0.4–2.5×,
   −20 outside), plus search health/10. Ties break on seeders, smaller size, then hash. Each item gets a
   specific `why` ("Most seeders (29)", "Same quality, 40% smaller file", "Only other 1080p release", ...).
 - `POST /api/client/torrents/{hash}/alternatives` accepts `{ "token": "..." }`, an opaque selection
-  from GET valid for ten minutes. Stale, foreign and already-tried selections are rejected.
-  `{ "best": true, "source"?: "<id>" }` searches, takes the recommended release and swaps in one step.
+  from GET valid for ten minutes. Stale, foreign and already-tried selections are rejected. A blocked
+  release also needs `"allowBlocked": true` ("Use it anyway"); the swap then lifts its block.
+  `{ "best": true, "source"?: "<id>" }` searches, takes the recommended release and swaps in one step. It never
+  takes a blocked release.
 - Both routes use the host's default owner-only requester middleware; they are not requester-enabled.
 - The engine transaction transfers work/queue/category/path/lane/forced state and updates acquisition,
   grab, watchlist and request hash links. Paused rows remain paused; queued rows retain their enqueue
   timestamp and episode position. Hash locks are ordered under the remove gate, then the queue gate.
 - `ReleaseAttempt` persists per-owner/work/scope hashes across restarts and subsequent swaps.
+- `ReleaseBlock` is the release blocklist, one row per owner and info hash, keeping the work key and scope
+  it was blocked for. `TorrentFlow.Data.ReleaseBlocks` is its only implementation. A swap blocks the
+  release it replaced (`replaced`). A release refused by the video check, meaning the finished-file check
+  or the file list once a magnet's metadata arrives, is blocked as `failed_video_check`. Unreadable files,
+  send failures and language refusals never block. Blocks have no foreign keys, so removing a download or
+  a title keeps them. The `AddReleaseBlocks` migration back-fills `replaced` blocks from the swap history
+  (`release-swap` rows, "Replaced {hash}") and logs once how many attempts it blocked or left alone.
 - Future automatic recovery can call `ReleaseSwapService.Alternatives` and `Swap`; no second ranking
   or deletion implementation is needed. `TransferHealthTracker` is sampled by the engine monitor and
   reports session-observed stalls (reset after restart), not an invented historical duration. Automatic
@@ -99,8 +109,17 @@ state (for example `metaDL`, `stalledDL`, `downloading`, `paused`, `queued`, `ch
 Candidate `seeders` and `peers` are integer indexer/scrape counts; **candidate `peers` means leechers,
 not connected peers**. `sizeBytes` (integer bytes) and `quality` (integer resolution, e.g. 720) are
 optional. All other candidate properties are strings. Preserve the array's rank order.
+A release this owner blocked carries `blocked`, and is omitted otherwise:
+
+```json
+"blocked": { "reason": "replaced", "at": "2026-10-01T16:37:59.089Z", "message": "You replaced this release before." }
+```
+
+`reason` is `replaced` or `failed_video_check`, `at` is when it was blocked (UTC), and `message` is the
+line to show ("This release failed the video check before." for a failed check). Blocked releases always
+come after every unblocked one. Offer "Use it anyway" on them, which POSTs with `allowBlocked: true`.
 An empty result is HTTP 200 with `"alternatives": []`; it is not an error. `recommendedToken` is the
-token of `alternatives[0]` and is omitted when the list is empty. `sources` lists the enabled torrent sources
+token of the first unblocked alternative and is omitted when there is none. `sources` lists the enabled torrent sources
 that can search this media type; `count` is how many alternatives that source returned, omitted when that
 source has not been confirmed in the last ten minutes. Identical listings collapse onto one source in an all-source search, so `0` is only reported after a `?source=` search of that source found nothing (after a `?source=` search the other sources keep their
 last all-source counts). A `source` that is disabled or unsupported for the category returns HTTP 409.
@@ -134,6 +153,10 @@ Expected refusals return HTTP 409:
 ```json
 { "ok": false, "message": "This selection expired. Find releases again." }
 ```
+
+A token for a blocked release without `"allowBlocked": true` returns HTTP 409
+`{ "ok": false, "message": "You blocked this release before. Choose Use it anyway to download it." }`.
+With it, the swap goes ahead and the release is no longer blocked.
 
 `{ "best": true }` returns the same 200 shape after swapping. When there are no alternatives, or the
 recommended one has no more seeders than the current connected seeders, it returns HTTP 409
