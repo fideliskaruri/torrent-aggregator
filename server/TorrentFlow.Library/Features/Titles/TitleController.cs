@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -15,7 +16,7 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, GrabService grabs, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    IHostApplicationLifetime lifetime) : ControllerBase
+    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -53,7 +54,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
             scope switch
             {
                 "episode" when season == null || episode == null || episodes.Length > 0 => "Episode scope requires exactly one season and episode.",
-                "season" when season == null || f.Raw("episode").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null) || episodes.Length == 0 => "Season scope requires a season and its episode list.",
+                "season" when season == null || f.Raw("episode").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null) => "Season scope requires a season.",
                 "title" when f.Raw("season").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null) ||
                     f.Raw("episode").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null) || episodes.Length > 0 => "Title scope cannot include season or episode coordinates.",
                 not ("episode" or "season" or "title") => "An explicit acquisition scope is required.",
@@ -114,6 +115,16 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
         var input = new GrabInput(title, type, null, watchId, work.Id, resolution, retention, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
             Provider: verified?.Source ?? work.Provider, ProviderId: verified?.ExternalId ?? work.ProviderId);
+        if (scope == "season")
+        {
+            // The server decides which episodes a season has; a list the browser rendered is never trusted.
+            var shape = await seasonShapes.GetSeasonAsync(new(workKey, title, work.Year, work.MediaType, input.Provider, input.ProviderId, season!.Value), ct);
+            episodes = shape?.AiredEpisodes.Take(500).ToArray() ?? [];
+            if (episodes.Length == 0)
+                return Conflict(new { ok = false, message = shape is null
+                    ? "We couldn't load this season's episode list right now. Try again in a minute."
+                    : $"No episodes of season {season} have aired yet." });
+        }
         // Download season is fire and forget: record what is wanted and return. The wanted queue runs the shared
         // season path (the single-episode grab for each episode) in the background and keeps retrying whatever is not found yet.
         if (scope == "season" && retention == "keep")

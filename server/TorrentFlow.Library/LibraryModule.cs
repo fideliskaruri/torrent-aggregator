@@ -36,6 +36,7 @@ public static class LibraryModule
         services.TryAddSingleton<ILibraryPlaybackObserver, DefaultPlaybackObserver>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();
+        services.TryAddSingleton<ISeasonShapeLookup, DefaultSeasonShapeLookup>();
         services.AddSingleton<EpisodeSearchIdentity>();
         services.AddSingleton<PlaybackNotifications>();
         services.AddHostedService(sp => sp.GetRequiredService<PlaybackNotifications>());

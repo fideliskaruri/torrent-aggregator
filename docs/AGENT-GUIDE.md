@@ -59,6 +59,14 @@ links, save paths) stay off-stage.
   runs one unit per (title, season), up to 6 side by side, retries misses after 1m, 5m, 15m, 1h, 3h and
   then every 6h, and after 3 fruitless tries (not counting busy search sites or dead swarms) notifies the
   owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
+- **The server decides a season's episodes** (`ISeasonShapeLookup`, `SeasonShapeService`). Download season
+  ignores any episode list the browser sends, and requests read the same shape. For anime it is
+  `AnimeFranchiseService`: the AniList first season and its released TV/ONA sequels laid over the one TMDB
+  (with a key) or TVmaze show they belong to. The show is pinned by the work's own provider id, or found by an
+  exact title and premiere match with one Animation candidate. Specials are dropped, each episode appears
+  once, and each carries the show's season and episode, its absolute number and the AniList entry that
+  numbers it. The title page's AniList episodes (names, stills, overviews, air dates) come from the same view.
+  With no confident show, an AniList entry keeps its own Season 1 and uses its banner as art.
 - **API Bay video categories include HD and UHD siblings.** TV queries must include
   205/208/212, not just 205; movies span 201/202/207/209/210/211. The adapter searches
   broadly and filters these categories before truncation. Otherwise individual

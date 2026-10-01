@@ -9,6 +9,12 @@ internal sealed class DefaultAnimeLookup : ILibraryAnimeLookup
         Task.FromResult<IReadOnlyList<MediaMetadata>>([]);
 }
 
+internal sealed class DefaultSeasonShapeLookup : ISeasonShapeLookup
+{
+    public Task<SeasonShape?> GetSeasonAsync(SeasonShapeQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult<SeasonShape?>(null);
+}
+
 /// <summary>Port of TS resolveEpisodeSearchIdentity (app/api/title/[workKey]/grab.ts).</summary>
 public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataResolver? metadata = null)
 {

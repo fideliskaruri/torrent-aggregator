@@ -58,6 +58,8 @@ public static class MetadataModule
         services.AddSingleton<HomeReleaseCache>();
         services.AddSingleton<BrowseService>();
         services.AddSingleton<TitleExtrasService>();
+        services.AddSingleton<AnimeFranchiseService>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ISeasonShapeLookup, SeasonShapeService>());
         services.Replace(ServiceDescriptor.Singleton<IAirDateLookup, AirDateLookup>());
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Search.ISearchResultEnricher, SearchResultEnricher>());
         return services;

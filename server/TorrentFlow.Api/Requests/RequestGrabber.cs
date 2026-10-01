@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Grabs;
@@ -24,7 +25,7 @@ public interface IRequestGrabber
 /// every aired episode of the chosen seasons. Each episode goes through the single-episode grab; the queue keeps retrying
 /// what is not found yet; what it starts joins the request through <see cref="RequestWantedObserver"/>.
 /// </summary>
-public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras, TimeProvider time,
+public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras, ISeasonShapeLookup seasonShapes, TimeProvider time,
     IDbContextFactory<TorrentFlowDbContext> factory) : IRequestGrabber
 {
     private const int MaxSeriesSeasons = 30;
@@ -43,13 +44,12 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
             seasons = (await Extras(request, null, ct)).Seasons.Where(s => s >= 1).Distinct().Order().Take(MaxSeriesSeasons).ToList();
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
-        var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
         var queued = 0;
         foreach (var season in seasons)
         {
-            var payload = await Extras(request, season, ct);
-            var aired = payload.Episodes.Where(e => Aired(e.AirDate, today) ||
-                request.Provider == "anilist" && e.AirDate == null && e.HasAired == true).Select(e => e.Episode).ToList();
+            var shape = await seasonShapes.GetSeasonAsync(new(request.WorkKey, request.Title, request.Year, request.MediaType,
+                request.Provider, request.ProviderId, season), ct);
+            var aired = shape?.AiredEpisodes ?? [];
             if (aired.Count == 0) continue;
             await wanted.EnqueueAsync(new(request.WorkKey, workId, season, aired, Lane: TorrentLane.Request), ct);
             queued += aired.Count;
@@ -91,8 +91,4 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
         }
         return work.Id;
     }
-
-    private static bool Aired(string? airDate, DateOnly today) =>
-        DateOnly.TryParse(airDate?.Length >= 10 ? airDate[..10] : airDate, System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None, out var aired) && aired <= today;
 }

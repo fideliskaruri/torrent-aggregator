@@ -15,7 +15,8 @@ public sealed record TvmazeCandidate(int Id, string Title, int? Year, string? Po
     IReadOnlyList<string> Genres, double? Rating, string? Premiered, int? RuntimeMin, string? ImdbId = null, int? TvdbId = null,
     int? Weight = null, string? Type = null);
 
-public sealed record TvmazeEpisode(int Season, int Episode, string? Name, string? AirDate, int? RuntimeMin, string? StillUrl, string? AirStamp = null);
+public sealed record TvmazeEpisode(int Season, int Episode, string? Name, string? AirDate, int? RuntimeMin, string? StillUrl, string? AirStamp = null,
+    string? Overview = null);
 
 public sealed record ItunesCandidate(int Id, string Title, int? Year, string? PosterUrl, string Kind, string? Description, string? Genre,
     string? ReleaseDate, int? RuntimeMin);
@@ -108,7 +109,7 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
             string? still = null;
             if (row.TryGetProperty("image", out var img) && img.ValueKind == JsonValueKind.Object) still = Str(img, "original") ?? Str(img, "medium");
             output.Add(new TvmazeEpisode(season.Value, episode.Value, Optional(Str(row, "name")), DateOnlyString(Str(row, "airdate")), PositiveInt(row, "runtime"), still,
-                Str(row, "airstamp")));
+                Str(row, "airstamp"), HtmlText.StripToText(Str(row, "summary"))));
         }
         return output.OrderBy(e => e.Season).ThenBy(e => e.Episode).ToList();
     }
