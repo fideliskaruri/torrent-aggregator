@@ -124,7 +124,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var cat = await catalog.FindByWorkKeyAsync(key, ct);
         // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
         var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key)
-            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.IdsJson }).FirstOrDefaultAsync(ct);
+            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
@@ -263,9 +263,12 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             : query.Provider != null ? WorkNames.Of(query.Provider) : WorkNames.Legacy(title, null);
         var ids = (work != null ? WorkIds.FromJson(work.IdsJson) ?? new() : query.Provider?.Ids ?? new())
             .Merge(WorkIds.From(identity?.Provider, identity?.ProviderId));
+        var format = work?.Format ?? WorkFormats.Of(query.Provider);
+        var language = work?.OriginalLanguage ?? WorkFormats.LanguageOf(query.Provider);
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
             ("names", names.All.Select(n => new { text = n.Text, kind = n.Kind.ToString().ToLowerInvariant() }).ToArray()),
             ("ids", new { tmdb = ids.Tmdb, anilist = ids.AniList, mal = ids.Mal, imdb = ids.Imdb }),
+            ("format", format?.ToString().ToLowerInvariant()), ("originalLanguage", language),
             ("provider", identity?.Provider), ("providerId", identity?.ProviderId),
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)),

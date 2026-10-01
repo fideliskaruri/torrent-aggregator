@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using TorrentFlow.Core.Contracts.Metadata;
 
 namespace TorrentFlow.Data.Entities;
 
@@ -23,6 +24,12 @@ public partial class Work
 
     /// <summary>Ids at every provider; read them through <see cref="ReadIds"/>.</summary>
     public string? IdsJson { get; set; }
+
+    /// <summary>Movie, Series or Special as the provider tells it; null when unknown. Stored only, decided by nothing yet.</summary>
+    public WorkFormat? Format { get; set; }
+
+    /// <summary>ISO 639-1 original language from the provider; null when unknown. Stored only.</summary>
+    public string? OriginalLanguage { get; set; }
 
     public string? Provider { get; set; }
 

@@ -42,6 +42,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
       startDate { year month day }
       genres
       format
+      countryOfOrigin
       status
       episodes
       popularity
@@ -399,6 +400,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             ReleaseDate = StartDate(m),
             Genres = StrArray(m, "genres"),
             Format = Str(m, "format").OrEmpty(null),
+            OriginalLanguage = WorkFormats.LanguageOfCountry(Str(m, "countryOfOrigin")),
         };
     }
 }

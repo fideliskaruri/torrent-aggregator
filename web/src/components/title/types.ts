@@ -157,6 +157,10 @@ export interface TitleDetailPayload {
   names: WorkName[];
   /** The title's ids at each provider that knows it. */
   ids: WorkIds;
+  /** Movie, series or special as the provider tells it; null when unknown. Stored only, nothing decides by it yet. */
+  format: 'movie' | 'series' | 'special' | null;
+  /** ISO 639-1 original language from the provider; null when unknown. */
+  originalLanguage: string | null;
   year: number | null;
   /** Canonical media type, or null when nothing vouches for one. */
   mediaType: string | null;

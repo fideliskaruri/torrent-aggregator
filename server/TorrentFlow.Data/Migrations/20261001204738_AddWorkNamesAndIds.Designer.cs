@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261001202135_AddWorkNamesAndIds")]
+    [Migration("20261001204738_AddWorkNamesAndIds")]
     partial class AddWorkNamesAndIds
     {
         /// <inheritdoc />
@@ -1533,6 +1533,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnName("createdAt")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<string>("Format")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("format");
+
                     b.Property<string>("IdsJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("idsJson");
@@ -1545,6 +1549,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("NamesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("namesJson");
+
+                    b.Property<string>("OriginalLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("originalLanguage");
 
                     b.Property<string>("PosterUrl")
                         .HasColumnType("TEXT")

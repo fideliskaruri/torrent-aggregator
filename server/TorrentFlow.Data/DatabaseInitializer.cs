@@ -83,13 +83,21 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
     /// <summary>
     /// Labels the names and ids of works saved before <c>namesJson</c>/<c>idsJson</c> existed (and of works another path
     /// created without them), from their title, legacy aliases and provider claim. <c>aliasesJson</c> is left as it was.
+    /// A work with no format gets one from its media type (movie, tv), or Series for an anime with an episode or season
+    /// grab; the rest stay null until their provider is asked. Original language is left to that provider refresh.
     /// </summary>
     private async Task BackfillWorkNamesAsync(TorrentFlowDbContext db, CancellationToken ct)
     {
-        var rows = await db.Works.Where(w => w.NamesJson == null || w.IdsJson == null).ToListAsync(ct);
+        var rows = await db.Works.Where(w => w.NamesJson == null || w.IdsJson == null || w.Format == null).ToListAsync(ct);
         if (rows.Count == 0) return;
+        var episodic = rows.Where(w => w.Format == null).Select(w => w.Id).ToList();
+        episodic = await db.AcquisitionTargets.Where(t => t.WorkId != null && episodic.Contains(t.WorkId) && (t.Scope == "episode" || t.Scope == "season"))
+            .Select(t => t.WorkId!).Distinct().ToListAsync(ct);
+        var labelled = 0;
+        var formatted = 0;
         foreach (var work in rows)
         {
+            if (work.NamesJson == null || work.IdsJson == null) labelled++;
             if (work.NamesJson == null)
             {
                 string?[] aliases = [];
@@ -98,9 +106,16 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
                 work.NamesJson = WorkNames.Legacy(work.CanonicalTitle, aliases, work.Provider).ToJson();
             }
             work.IdsJson ??= WorkIds.From(work.Provider, work.ProviderId).ToJson() ?? "{}";
+            if (work.Format == null && (WorkFormats.FromMediaType(work.MediaType) ?? (episodic.Contains(work.Id) ? WorkFormat.Series : null)) is { } format)
+            {
+                work.Format = format;
+                formatted++;
+            }
         }
+        if (labelled == 0 && formatted == 0) return;
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Labelled the names and ids of {Count} works", rows.Count);
+        logger.LogInformation("Labelled the names and ids of {Count} works; set the format of {Formatted}, {Unknown} left unknown",
+            labelled, formatted, rows.Count(w => w.Format == null));
     }
 
     /// <summary> of the database file in <c>backups/</c> beside it, named after the newest pending

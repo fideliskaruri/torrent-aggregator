@@ -115,6 +115,7 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             work = new() { Id = Ids.New(), WorkKey = workKey, CanonicalTitle = title, MediaType = type, Year = detail["year"] as int?,
                 PosterUrl = detail["posterUrl"] as string, NamesJson = workNames.ToJson(),
                 IdsJson = (verified?.Ids ?? new()).Merge(WorkIds.From(provider, providerId)).ToJson() ?? "{}",
+                Format = WorkFormats.Of(verified) ?? WorkFormats.FromMediaType(type), OriginalLanguage = WorkFormats.LanguageOf(verified),
                 Provider = provider, ProviderId = providerId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
             try { await db.SaveChangesAsync(ct); }
