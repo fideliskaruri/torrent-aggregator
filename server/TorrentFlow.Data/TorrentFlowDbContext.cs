@@ -40,13 +40,9 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<PushSubscription> PushSubscriptions { get; set; }
 
-    public virtual DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
-
     public virtual DbSet<RunLock> RunLocks { get; set; }
 
     public virtual DbSet<SearchCache> SearchCaches { get; set; }
-
-    public virtual DbSet<SwarmMeasurement> SwarmMeasurements { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
 
@@ -451,48 +447,6 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Width).HasColumnName("width");
         });
 
-        modelBuilder.Entity<PlaybackProgress>(entity =>
-        {
-            entity.ToTable("PlaybackProgress");
-
-            entity.HasIndex(e => new { e.UserId, e.CompletedAt }, "PlaybackProgress_userId_completedAt_idx");
-
-            entity.HasIndex(e => new { e.UserId, e.InfoHash, e.FilePath }, "PlaybackProgress_userId_infoHash_filePath_key").IsUnique();
-
-            entity.HasIndex(e => new { e.UserId, e.UpdatedAt }, "PlaybackProgress_userId_updatedAt_idx");
-
-            entity.HasIndex(e => e.WorkId, "PlaybackProgress_workId_idx");
-
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.CompletedAt)
-                .HasColumnType("DATETIME")
-                .HasColumnName("completedAt");
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("DATETIME")
-                .HasColumnName("createdAt");
-            entity.Property(e => e.DurationSec).HasColumnName("durationSec");
-            entity.Property(e => e.Episode).HasColumnName("episode");
-            entity.Property(e => e.FilePath).HasColumnName("filePath");
-            entity.Property(e => e.InfoHash).HasColumnName("infoHash");
-            entity.Property(e => e.PositionSec).HasColumnName("positionSec");
-            entity.Property(e => e.PosterUrl).HasColumnName("posterUrl");
-            entity.Property(e => e.Season).HasColumnName("season");
-            entity.Property(e => e.Title).HasColumnName("title");
-            entity.Property(e => e.UpdatedAt)
-                .HasColumnType("DATETIME")
-                .HasColumnName("updatedAt");
-            entity.Property(e => e.UserId).HasColumnName("userId");
-            entity.Property(e => e.WatchListItemId).HasColumnName("watchListItemId");
-            entity.Property(e => e.WorkId).HasColumnName("workId");
-
-            entity.HasOne(d => d.User).WithMany(p => p.PlaybackProgresses).HasForeignKey(d => d.UserId);
-
-            entity.HasOne(d => d.Work).WithMany(p => p.PlaybackProgresses)
-                .HasForeignKey(d => d.WorkId)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
         modelBuilder.Entity<RunLock>(entity =>
         {
             entity.ToTable("RunLock");
@@ -531,42 +485,6 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnName("expiresAt");
             entity.Property(e => e.NormalizedQuery).HasColumnName("normalizedQuery");
             entity.Property(e => e.Payload).HasColumnName("payload");
-        });
-
-        modelBuilder.Entity<SwarmMeasurement>(entity =>
-        {
-            entity.ToTable("SwarmMeasurement");
-
-            entity.HasIndex(e => e.ExpiresAt, "SwarmMeasurement_expiresAt_idx");
-
-            entity.HasIndex(e => e.InfoHash, "SwarmMeasurement_infoHash_key").IsUnique();
-
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.BytesReceived)
-                .HasColumnType("BIGINT")
-                .HasColumnName("bytesReceived");
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("DATETIME")
-                .HasColumnName("createdAt");
-            entity.Property(e => e.EffectiveBps).HasColumnName("effectiveBps");
-            entity.Property(e => e.ElapsedMs).HasColumnName("elapsedMs");
-            entity.Property(e => e.ExpiresAt)
-                .HasColumnType("DATETIME")
-                .HasColumnName("expiresAt");
-            entity.Property(e => e.InfoHash).HasColumnName("infoHash");
-            entity.Property(e => e.MeasuredAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("DATETIME")
-                .HasColumnName("measuredAt");
-            entity.Property(e => e.Name).HasColumnName("name");
-            entity.Property(e => e.PeersConnected).HasColumnName("peersConnected");
-            entity.Property(e => e.PeersUnchoked).HasColumnName("peersUnchoked");
-            entity.Property(e => e.RequiredBps).HasColumnName("requiredBps");
-            entity.Property(e => e.UpdatedAt)
-                .HasColumnType("DATETIME")
-                .HasColumnName("updatedAt");
-            entity.Property(e => e.Verdict).HasColumnName("verdict");
         });
 
         modelBuilder.Entity<MediaRequest>(entity =>

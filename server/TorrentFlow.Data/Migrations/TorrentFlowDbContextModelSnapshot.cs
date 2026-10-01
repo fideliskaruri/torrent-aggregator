@@ -1069,90 +1069,6 @@ namespace TorrentFlow.Data.Migrations
                     b.ToTable("Notification", (string)null);
                 });
 
-            modelBuilder.Entity("TorrentFlow.Data.Entities.PlaybackProgress", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CompletedAt")
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("completedAt");
-
-                    b.Property<string>("CreatedAt")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("createdAt")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<double?>("DurationSec")
-                        .HasColumnType("REAL")
-                        .HasColumnName("durationSec");
-
-                    b.Property<int?>("Episode")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("episode");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("filePath");
-
-                    b.Property<string>("InfoHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("infoHash");
-
-                    b.Property<double>("PositionSec")
-                        .HasColumnType("REAL")
-                        .HasColumnName("positionSec");
-
-                    b.Property<string>("PosterUrl")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("posterUrl");
-
-                    b.Property<int?>("Season")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("season");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("title");
-
-                    b.Property<string>("UpdatedAt")
-                        .IsRequired()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("updatedAt");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("userId");
-
-                    b.Property<string>("WatchListItemId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("watchListItemId");
-
-                    b.Property<string>("WorkId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("workId");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "UserId", "CompletedAt" }, "PlaybackProgress_userId_completedAt_idx");
-
-                    b.HasIndex(new[] { "UserId", "InfoHash", "FilePath" }, "PlaybackProgress_userId_infoHash_filePath_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "UserId", "UpdatedAt" }, "PlaybackProgress_userId_updatedAt_idx");
-
-                    b.HasIndex(new[] { "WorkId" }, "PlaybackProgress_workId_idx");
-
-                    b.ToTable("PlaybackProgress", (string)null);
-                });
-
             modelBuilder.Entity("TorrentFlow.Data.Entities.PushSubscription", b =>
                 {
                     b.Property<string>("Id")
@@ -1328,84 +1244,6 @@ namespace TorrentFlow.Data.Migrations
                     b.HasIndex(new[] { "NormalizedQuery", "ExpiresAt" }, "SearchCache_normalizedQuery_expiresAt_idx");
 
                     b.ToTable("SearchCache", (string)null);
-                });
-
-            modelBuilder.Entity("TorrentFlow.Data.Entities.SwarmMeasurement", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
-
-                    b.Property<long>("BytesReceived")
-                        .HasColumnType("BIGINT")
-                        .HasColumnName("bytesReceived");
-
-                    b.Property<string>("CreatedAt")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("createdAt")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<double>("EffectiveBps")
-                        .HasColumnType("REAL")
-                        .HasColumnName("effectiveBps");
-
-                    b.Property<int>("ElapsedMs")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("elapsedMs");
-
-                    b.Property<string>("ExpiresAt")
-                        .IsRequired()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("expiresAt");
-
-                    b.Property<string>("InfoHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("infoHash");
-
-                    b.Property<string>("MeasuredAt")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("measuredAt")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("Name")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("name");
-
-                    b.Property<int>("PeersConnected")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("peersConnected");
-
-                    b.Property<int>("PeersUnchoked")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("peersUnchoked");
-
-                    b.Property<double>("RequiredBps")
-                        .HasColumnType("REAL")
-                        .HasColumnName("requiredBps");
-
-                    b.Property<string>("UpdatedAt")
-                        .IsRequired()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("updatedAt");
-
-                    b.Property<string>("Verdict")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("verdict");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "ExpiresAt" }, "SwarmMeasurement_expiresAt_idx");
-
-                    b.HasIndex(new[] { "InfoHash" }, "SwarmMeasurement_infoHash_key")
-                        .IsUnique();
-
-                    b.ToTable("SwarmMeasurement", (string)null);
                 });
 
             modelBuilder.Entity("TorrentFlow.Data.Entities.User", b =>
@@ -1787,24 +1625,6 @@ namespace TorrentFlow.Data.Migrations
                     b.Navigation("RequestedBy");
                 });
 
-            modelBuilder.Entity("TorrentFlow.Data.Entities.PlaybackProgress", b =>
-                {
-                    b.HasOne("TorrentFlow.Data.Entities.User", "User")
-                        .WithMany("PlaybackProgresses")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("TorrentFlow.Data.Entities.Work", "Work")
-                        .WithMany("PlaybackProgresses")
-                        .HasForeignKey("WorkId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("User");
-
-                    b.Navigation("Work");
-                });
-
             modelBuilder.Entity("TorrentFlow.Data.Entities.WatchListItem", b =>
                 {
                     b.HasOne("TorrentFlow.Data.Entities.User", "User")
@@ -1839,8 +1659,6 @@ namespace TorrentFlow.Data.Migrations
 
                     b.Navigation("MediaRequests");
 
-                    b.Navigation("PlaybackProgresses");
-
                     b.Navigation("WatchListItems");
                 });
 
@@ -1853,8 +1671,6 @@ namespace TorrentFlow.Data.Migrations
                     b.Navigation("DownloadHistories");
 
                     b.Navigation("EngineTorrents");
-
-                    b.Navigation("PlaybackProgresses");
 
                     b.Navigation("WatchListItems");
                 });

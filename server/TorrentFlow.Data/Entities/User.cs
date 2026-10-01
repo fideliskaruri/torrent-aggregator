@@ -31,7 +31,5 @@ public partial class User
 
     public virtual ICollection<MediaRequest> MediaRequests { get; set; } = new List<MediaRequest>();
 
-    public virtual ICollection<PlaybackProgress> PlaybackProgresses { get; set; } = new List<PlaybackProgress>();
-
     public virtual ICollection<WatchListItem> WatchListItems { get; set; } = new List<WatchListItem>();
 }
