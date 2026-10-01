@@ -30,42 +30,53 @@ internal static class SearchRanking
     /// <summary>Cinemeta, TMDB and iTunes give no popularity figure but already list well-known works first.</summary>
     public static double PositionPrior(int index) => Math.Max(0.1, 0.45 - 0.03 * index);
 
+    /// <summary>A hit the provider found by a name it did not return (TMDB's or IMDb's top hit for "Gisaengchung" is
+    /// Parasite): it matches as well as a close alias would.</summary>
+    private const double AlternateTitleScore = 0.85;
+
     /// <summary>Scores and orders hits, one card per work; hits that do not match the query are dropped.</summary>
     public static List<WorkSearchHit> Rank(IReadOnlyList<WorkSearchHit> hits, string query, IReadOnlyDictionary<string, int> imdbRanks,
         DateTimeOffset now)
     {
+        hits = SplitSameNameSeries(hits, imdbRanks);
         var names = hits.Select(h => (IReadOnlyList<string>)[h.Title, .. h.Aliases]).ToList();
         var tiers = names.Select(n => Relevance.BestTier(query, n)).ToList();
         var typoMode = tiers.All(t => t > 3);
         var years = QueryVariants.QueryYears(query);
         var today = DateOnly.FromDateTime(now.UtcDateTime);
-        var scored = new List<(WorkSearchHit Hit, int Index, double Score)>();
+        var scored = new List<(WorkSearchHit Hit, int Index, double Score, bool Matches)>();
         for (var i = 0; i < hits.Count; i++)
         {
-            if (tiers[i] >= 6) continue;
             var hit = hits[i];
-            var score = Relevance.MatchScore(query, names[i], typoMode) + Popularity(hit, imdbRanks);
+            // A hit no name of which matches can still be the same work as a card (TVmaze's "La Casa de Papel" carries the
+            // IMDb id of "Money Heist"), so it is kept to fold into that card, but never makes a card of its own.
+            var matches = tiers[i] < 6 || hit.AlternateTitleMatch;
+            var match = tiers[i] < 6 ? Relevance.MatchScore(query, names[i], typoMode) : 0;
+            // Trusted fully only when no name matches the typed text literally; otherwise the literal matches lead.
+            if (hit.AlternateTitleMatch) match = Math.Max(match, typoMode ? AlternateTitleScore : AlternateTitleScore - 0.35);
+            var score = match + Popularity(hit, imdbRanks);
             if (hit.Format == "MUSIC") score -= MusicVideoPenalty;
             if (IsUpcoming(hit, today)) score -= UpcomingPenalty;
             if (years.Count > 0 && MatchesYear(hit, years)) score += YearBonus;
-            scored.Add((hit, i, score));
+            scored.Add((hit, i, matches ? score : score - 10, matches));
         }
 
         // One card per work. A hit is the same work as a card when it shares the work key (which the web uses as the card
-        // key), an external id, or is the AniList entry for a TVmaze animated show. Only cards claim external ids, while
-        // every hit claims its work key for the card it folded into, matching the old key-then-id dedupe.
+        // key), an external id, is the AniList entry for a TVmaze animated show, or is the same film named alike from the
+        // same year in another catalog. Every hit claims its work key and ids for the card it folded into.
         var output = new List<WorkSearchHit>();
         var owners = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (hit, _, _) in scored.OrderByDescending(x => x.Score).ThenBy(x => x.Index))
+        foreach (var (hit, _, _, matches) in scored.OrderByDescending(x => x.Score).ThenBy(x => x.Index))
         {
             var key = "key:" + hit.WorkKey;
-            var ids = hit.ExternalIds?.Select(p => $"{p.Key}:{p.Value}").ToList() ?? [];
+            var ids = IdsOf(hit);
             var slot = owners.GetValueOrDefault(key, -1);
             if (slot < 0) slot = ids.Select(id => owners.GetValueOrDefault(id, -1)).FirstOrDefault(s => s >= 0, -1);
             if (slot < 0) slot = SameAnimeSlot(output, hit);
-            var card = slot < 0;
-            if (card)
+            if (slot < 0) slot = SameFilmSlot(output, hit);
+            if (slot < 0)
             {
+                if (!matches) continue;
                 slot = output.Count;
                 output.Add(hit);
             }
@@ -73,14 +84,101 @@ internal static class SearchRanking
             // entry of the same show carries its anime identity (label, seasons, episode numbering), so it takes the card
             // at the better of the two positions.
             else if (hit.Provider == "anilist" && output[slot].Animated && SameEra(output[slot].Year, hit.Year))
-            {
-                output[slot] = hit;
-                card = true;
-            }
+                output[slot] = Absorb(hit, output[slot]);
+            else if (PreferredIdentity(hit, output[slot]))
+                output[slot] = Absorb(hit, output[slot]);
+            else
+                output[slot] = Absorb(output[slot], hit);
             owners.TryAdd(key, slot);
-            if (card) foreach (var id in ids) owners.TryAdd(id, slot);
+            foreach (var id in ids) owners.TryAdd(id, slot);
         }
         return output;
+    }
+
+    private static List<string> IdsOf(WorkSearchHit hit) => hit.ExternalIds?.Select(p => $"{p.Key}:{p.Value}").ToList() ?? [];
+
+    /// <summary>
+    /// Which catalog's record a card shows when several catalogs list the work: the one with its original release year and
+    /// richest identity. AniList owns anime films (its anime series take over TVmaze's above), TVmaze series episodes, TMDB
+    /// dates films by their first release, and Cinemeta (IMDb) dates some films by their US release (Spirited Away 2003).
+    /// </summary>
+    private static bool PreferredIdentity(WorkSearchHit hit, WorkSearchHit card)
+    {
+        if (card.Provider == "anilist") return false;
+        if (hit.Provider == "anilist") return !hit.IsSeries && !card.IsSeries;
+        return IdentityRank(hit) < IdentityRank(card);
+    }
+
+    private static int IdentityRank(WorkSearchHit hit) => hit.Provider switch
+    {
+        "tvmaze" => 1,
+        "tmdb" => 2,
+        "cinemeta" => 3,
+        "itunes" => 4,
+        _ => 5,
+    };
+
+    /// <summary><paramref name="card"/> with the other catalog's ids and names added, so either finds the same card.</summary>
+    private static WorkSearchHit Absorb(WorkSearchHit card, WorkSearchHit other)
+    {
+        var ids = new Dictionary<string, string>(card.ExternalIds ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        foreach (var (k, v) in other.ExternalIds ?? new Dictionary<string, string>()) ids.TryAdd(k, v);
+        var aliases = card.Aliases.Concat([other.Title, .. other.Aliases])
+            .Where(a => !string.Equals(a, card.Title, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return card with
+        {
+            ExternalIds = ids, Aliases = aliases, PosterUrl = card.PosterUrl ?? other.PosterUrl, Overview = card.Overview ?? other.Overview,
+        };
+    }
+
+    /// <summary>
+    /// Series keys carry no year, so Doctor Who (1963), (2005) and (2023) share "doctor-who". The best known of them keeps
+    /// the plain key (the one its library and links already use); a namesake from another era gets its year in its key,
+    /// "doctor-who-1963", and its own card. Popularity, not the query, picks the plain key, so typing a year never moves it.
+    /// </summary>
+    private static IReadOnlyList<WorkSearchHit> SplitSameNameSeries(IReadOnlyList<WorkSearchHit> hits, IReadOnlyDictionary<string, int> imdbRanks)
+    {
+        // Per key, the year of each era in popularity order; the first era keeps the plain key. TMDB may date a show a year
+        // off TVmaze (Doctor Who 2024 and 2023), so a hit joins the era within a year of it.
+        var eras = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        foreach (var hit in hits.Where(h => h.IsSeries && h.Year is not null && h.Provider != "anilist").OrderByDescending(h => Popularity(h, imdbRanks)))
+        {
+            if (!eras.TryGetValue(hit.WorkKey, out var list)) eras[hit.WorkKey] = list = [];
+            if (!list.Any(y => SameEra(y, hit.Year))) list.Add(hit.Year!.Value);
+        }
+        return hits.Select(hit =>
+        {
+            if (!hit.IsSeries || hit.Year is not { } year || hit.Provider == "anilist" || !eras.TryGetValue(hit.WorkKey, out var list)) return hit;
+            var era = list.First(y => SameEra(y, year));
+            return era == list[0] ? hit : hit.WithWorkKey(WorkKeys.WorkKeyFor(hit.Title, era));
+        }).ToList();
+    }
+
+    /// <summary>The card already showing this film from another catalog: the same name released the same year or the next,
+    /// or a name one letter apart from the very same year (TMDB's "Se7en" is IMDb's "Seven", both 1995). "A Silent Voice:
+    /// The Movie" is "A Silent Voice".</summary>
+    private static int SameFilmSlot(List<WorkSearchHit> output, WorkSearchHit hit)
+    {
+        if (hit.IsSeries || hit.Year is null) return -1;
+        var names = hit.Aliases.Prepend(hit.Title).Select(FilmName).Where(n => n.Length > 0).ToList();
+        for (var i = 0; i < output.Count; i++)
+        {
+            var card = output[i];
+            if (card.IsSeries || card.Provider == hit.Provider || card.Year is null || !SameEra(card.Year, hit.Year)) continue;
+            foreach (var name in card.Aliases.Prepend(card.Title).Select(FilmName))
+                if (names.Any(n => n == name || (card.Year == hit.Year && n.Length >= 5 && Relevance.BoundedDamerauLevenshtein(n, name, 1) != null)))
+                    return i;
+        }
+        return -1;
+    }
+
+    private static string FilmName(string name)
+    {
+        var compact = CompactName(name);
+        foreach (var suffix in (string[])["themovie", "movie"])
+            if (compact.Length > suffix.Length + 3 && compact.EndsWith(suffix, StringComparison.Ordinal)) return compact[..^suffix.Length];
+        return compact;
     }
 
     /// <summary>The card already showing this anime under another work key: an AniList entry and a TVmaze animated show

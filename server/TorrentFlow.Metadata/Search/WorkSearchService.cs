@@ -33,6 +33,16 @@ public sealed record WorkSearchHit
     [JsonIgnore] internal bool Animated { get; init; }
     /// <summary>The provider says the work is not released yet.</summary>
     [JsonIgnore] internal bool Upcoming { get; init; }
+    /// <summary>The provider's best hit for the query, found by a name it did not return (an original or romanized title).</summary>
+    [JsonIgnore] internal bool AlternateTitleMatch { get; init; }
+
+    /// <summary>This hit under another work key, its title link following.</summary>
+    internal WorkSearchHit WithWorkKey(string workKey)
+    {
+        if (workKey.Length == 0 || workKey == WorkKey) return this;
+        var query = Href.IndexOf('?', StringComparison.Ordinal);
+        return this with { WorkKey = workKey, Href = $"{WorkKeys.TitleHref}/{WorkKeys.EncodeKeySegment(workKey)}{(query >= 0 ? Href[query..] : "")}" };
+    }
 }
 
 public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query, string DisplayQuery, IReadOnlyList<string> Attempted,
@@ -200,39 +210,51 @@ public sealed class WorkSearchService
         };
     }
 
+    /// <summary>
+    /// Every enabled catalog of the category answers at once and ranking merges them. Stopping at the first catalog with a
+    /// matching name hid the work people meant: TVmaze's "Money Heist: Korea" hid La Casa de Papel, Cinemeta's "Se7en"
+    /// (2022) hid TMDB's 1995 film, and only one of several same-name shows came back. The category fails only when every
+    /// catalog failed, so a rate-limited AniList reports as failed instead of as "no results".
+    /// </summary>
     private static Dictionary<string, WorkSearchProvider> RegistryProviders(SourceRegistry registry, TmdbClient tmdb,
         AniListClient anilist, KeylessClients keyless, CinemetaClient cinemeta) => Categories.ToDictionary(category => category,
         category => (WorkSearchProvider)(async (query, limit, ct) =>
         {
-            var hits = new List<WorkSearchHit>();
-            foreach (var source in registry.Active("metadata", category))
-            {
-                try
-                {
-                    var found = await SourceExecution.RunAsync(source, async token =>
-                    {
-                        var type = category == "series" ? "tv" : "movie";
-                        if (source.Type == "anilist")
-                            return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromAniList(w, category)).OfType<WorkSearchHit>().ToList();
-                        if (source.Type == "tvmaze")
-                            return (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList();
-                        IEnumerable<MediaMetadata> rows = source.Type switch
-                        {
-                            "tmdb" => await tmdb.SearchByTypeAsync(type, query, limit, token),
-                            "cinemeta" => await cinemeta.SearchAsync(query, type, limit, token),
-                            "itunes" => (await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
-                            { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }),
-                            _ => []
-                        };
-                        return HitsInProviderOrder(rows, category);
-                    }, ct);
-                    hits.AddRange(found);
-                    if (HasRelevantHit(query, hits)) break;
-                }
-                catch (Exception) when (!ct.IsCancellationRequested) { }
-            }
-            return hits;
+            var sources = registry.Active("metadata", category).ToList();
+            var settled = await Task.WhenAll(sources.Select(source => Settle(SourceExecution.RunAsync(source,
+                token => SearchSourceAsync(source, category, query, limit, tmdb, anilist, keyless, cinemeta, token), ct)))).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (settled.Length > 0 && settled.All(s => s.Error != null)) throw settled[0].Error!;
+            return settled.SelectMany(s => s.Value ?? []).ToList();
         }));
+
+    private static async Task<List<WorkSearchHit>> SearchSourceAsync(SourceEntry source, string category, string query, int limit,
+        TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, CinemetaClient cinemeta, CancellationToken token)
+    {
+        var type = category == "series" ? "tv" : "movie";
+        switch (source.Type)
+        {
+            case "anilist":
+                return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromAniList(w, category)).OfType<WorkSearchHit>().ToList();
+            case "tvmaze":
+                return (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList();
+            case "tmdb":
+                // TMDB searches original and alternative titles too, so its first hit is the work even when none of the
+                // names it returns is the one typed ("Wo hu cang long").
+                return HitsInProviderOrder(await tmdb.SearchByTypeAsync(type, query, limit, token), category)
+                    .Select((hit, index) => index == 0 ? hit with { AlternateTitleMatch = true } : hit).ToList();
+            case "cinemeta":
+                var rows = cinemeta.SearchAsync(query, type, limit, token);
+                var top = await cinemeta.ImdbTopIdAsync(query, type, token);
+                return HitsInProviderOrder(await rows, category)
+                    .Select(hit => top is not null && hit.ProviderId == top ? hit with { AlternateTitleMatch = true } : hit).ToList();
+            case "itunes":
+                return HitsInProviderOrder((await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
+                    { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }), category);
+            default:
+                return [];
+        }
+    }
 
     public async Task<WorkSearchOutcome> SearchAsync(string scope, string rawQuery, int limit, CancellationToken ct = default)
     {
@@ -260,7 +282,8 @@ public sealed class WorkSearchService
         var ranked = SearchRanking.Rank(merged, query, await AwaitImdbRanks(imdbRanks, ct).ConfigureAwait(false), _time.GetUtcNow());
         var results = ranked.Take(limit).ToList();
         var outcome = new WorkSearchOutcome(results, query, display, attempted, failed, failed.Count > 0);
-        if (cacheKey != null) _cache.Set(cacheKey, (outcome, _time.GetUtcNow() + Fresh), StaleTtl);
+        // A result missing a failed catalog (AniList rate-limited) is kept only as the stale fallback, so the next search asks again.
+        if (cacheKey != null) _cache.Set(cacheKey, (outcome, failed.Count > 0 ? _time.GetUtcNow() : _time.GetUtcNow() + Fresh), StaleTtl);
         return outcome;
     }
 

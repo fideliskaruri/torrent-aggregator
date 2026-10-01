@@ -43,17 +43,28 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         var suggest = SuggestAsync(query, type, ct);
         var rows = await List($"/catalog/{Kind(type)}/top/search={Uri.EscapeDataString(query.Trim())}.json", type, limit, ct);
         var suggested = await suggest;
-        // IMDb's exact title wins for the same id: Cinemeta lists tt1160419 as "Dune: Part One", IMDb as "Dune".
-        var imdbTitles = suggested.Where(s => s.ExternalId is not null).GroupBy(s => s.ExternalId!).ToDictionary(g => g.Key, g => g.First().Title);
-        rows = rows.Select(r => r.ExternalId is { } id && imdbTitles.TryGetValue(id, out var t) && !SameTitle(r.Title, query) ? WithImdbTitle(r, t) : r).ToList();
-        if (rows.Any(r => SameTitle(r.Title, query))) return rows;
-        var extra = suggested.Where(s => rows.All(r => r.ExternalId != s.ExternalId));
+        // IMDb's exact title wins for the same id: Cinemeta lists tt1160419 as "Dune: Part One", IMDb as "Dune". IMDb's year
+        // is the first release; Cinemeta's is sometimes the US one (Spirited Away 2003, Amélie 2002).
+        var imdb = suggested.Where(s => s.ExternalId is not null).GroupBy(s => s.ExternalId!).ToDictionary(g => g.Key, g => g.First());
+        rows = rows.Select(r => r.ExternalId is { } id && imdb.TryGetValue(id, out var s)
+            ? WithImdbYear(SameTitle(r.Title, query) ? r : WithImdbTitle(r, s.Title), s.Year) : r).ToList();
+        // IMDb's first suggestion is the work even when the typed name is one of its other titles ("Gisaengchung" is
+        // Parasite), so it is offered next to the exact title matches.
+        var top = suggested.FirstOrDefault();
+        var extra = suggested.Where((s, i) => rows.All(r => r.ExternalId != s.ExternalId) &&
+            (SameTitle(s.Title, query) || (i == 0 && !rows.Any(r => SameTitle(r.Title, query))))).ToList();
+        if (rows.Any(r => SameTitle(r.Title, query)) && extra.Count == 0) return rows;
         return extra.Concat(rows).Take(limit).ToList();
     }
+
+    /// <summary>The IMDb id IMDb suggests first for the query among films (or series), whatever name matched.</summary>
+    public async Task<string?> ImdbTopIdAsync(string query, string type, CancellationToken ct = default) =>
+        (await SuggestAsync(query, type, ct)).FirstOrDefault()?.ExternalId;
 
     private static readonly HashSet<string> MovieKinds = ["movie", "short", "tvMovie", "video"];
     private static readonly HashSet<string> SeriesKinds = ["tvSeries", "tvMiniSeries"];
 
+    /// <summary>IMDb's suggestions of the type, in IMDb's order.</summary>
     private async Task<List<MediaMetadata>> SuggestAsync(string query, string type, CancellationToken ct)
     {
         if (await SuggestRootAsync(query, ct) is not { ValueKind: JsonValueKind.Object } root ||
@@ -65,7 +76,6 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
             if (hit.ValueKind != JsonValueKind.Object) continue;
             var id = Str(hit, "id"); var title = Str(hit, "l"); var qid = Str(hit, "qid");
             if (id is null || !id.StartsWith("tt", StringComparison.Ordinal) || title is null || qid is null || !kinds.Contains(qid)) continue;
-            if (!SameTitle(title, query)) continue;
             int? year = hit.TryGetProperty("y", out var y) && y.TryGetInt32(out var n) ? n : null;
             var poster = hit.TryGetProperty("i", out var image) && image.ValueKind == JsonValueKind.Object ? Str(image, "imageUrl") : null;
             list.Add(new()
@@ -129,16 +139,21 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { return null; }
     }
 
-    /// <summary>The title IMDb shows for an id, or null when IMDb does not answer.</summary>
-    private async Task<string?> ImdbTitleAsync(string id, CancellationToken ct)
+    /// <summary>The title and year IMDb shows for an id, or null when IMDb does not answer.</summary>
+    private async Task<(string Title, int? Year)?> ImdbTitleAsync(string id, CancellationToken ct)
     {
         if (await SuggestRootAsync(id, ct) is not { ValueKind: JsonValueKind.Object } root ||
             !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return null;
         foreach (var hit in hits.EnumerateArray())
             if (hit.ValueKind == JsonValueKind.Object && Str(hit, "id") == id && Str(hit, "l") is { } label && label.Trim().Length > 0)
-                return label.Trim();
+                return (label.Trim(), hit.TryGetProperty("y", out var y) && y.TryGetInt32(out var n) ? n : null);
         return null;
     }
+
+    /// <summary>IMDb's year (the first release) in place of Cinemeta's when they differ; the release date goes with
+    /// Cinemeta's year, since it is that release's date.</summary>
+    private static MediaMetadata WithImdbYear(MediaMetadata row, int? imdbYear) =>
+        imdbYear is null || row.Year == imdbYear ? row : row with { Year = imdbYear, ReleaseDate = null };
 
     /// <summary>IMDb's title becomes the name and Cinemeta's differing one stays as an alias, so either still identifies the work.</summary>
     private static MediaMetadata WithImdbTitle(MediaMetadata row, string? imdbTitle) =>
@@ -176,7 +191,7 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         var root = await Get($"/meta/{Kind(type)}/{id}.json", ct);
         var meta = root is { ValueKind: JsonValueKind.Object } obj && obj.TryGetProperty("meta", out var row) ? Map(row, type) : null;
         var title = await imdbTitle;
-        return meta is null ? null : WithImdbTitle(meta, title);
+        return meta is null ? null : title is { } imdb ? WithImdbYear(WithImdbTitle(meta, imdb.Title), imdb.Year) : meta;
     }
     private static string Kind(string type) => type is "tv" or "series" ? "series" : "movie";
     private static MediaMetadata? Map(JsonElement row, string type)

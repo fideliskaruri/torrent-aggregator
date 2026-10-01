@@ -17,10 +17,29 @@ providers and torrent indexers. Changes apply immediately; no restart is needed.
   supported; saving a key overrides them and removing it restores the fallback.
 - **EZTV:** obtains a show's IMDb ID from TVmaze, not TMDB.
 
-Metadata search walks enabled providers by priority within each category and falls
-back when a provider is unavailable or has no relevant result. Torrent sources fan
-out in registry order with per-source cancellation deadlines. Existing work keys
-are retained; shared external IDs and work keys deduplicate search results.
+Metadata search asks every enabled provider in a category at once and merges the
+answers (`WorkSearchService.RegistryProviders`, `SearchRanking.Rank`). A category
+fails only when every provider fails; a partial answer lists the failed categories in
+`failedProviders` and is never cached as fresh. Ranking rules:
+
+- A provider's top hit for the query counts as a match even when its name differs,
+  because it was matched by an original, romanized or alternate title (TMDB
+  alternative titles, IMDb AKAs via Cinemeta, AniList romaji and synonyms, TVmaze
+  AKAs): "Money Heist" finds La Casa de Papel, "Gisaengchung" finds Parasite. Other
+  hits whose names don't match only merge into a card; they never add one.
+- Same-name series from different eras stay separate cards (`SplitSameNameSeries`):
+  the most popular keeps the plain work key, the others get `name-year` keys, so
+  Doctor Who 1963, 2005 and 2023 are all listed.
+- The same film from several providers is one card (`SameFilmSlot`: same era and
+  name, or the same year and a one-letter difference such as Se7en and Seven). Its
+  identity prefers an AniList anime film, then TVmaze, TMDB, Cinemeta and iTunes;
+  the others add their IDs, aliases, poster and overview.
+- Cinemeta years come from IMDb's original year, not a later regional release
+  (Spirited Away 2001, not 2003).
+
+Torrent sources fan out in registry order with per-source cancellation deadlines.
+Existing work keys are retained; shared external IDs and work keys deduplicate search
+results.
 Recommendations remain optional and may be empty without a compatible provider.
 
 ## Files and merge rules
@@ -300,6 +319,8 @@ release dates (`HomeReleaseCache`, keyed by the card's TMDB id, or its work key 
 has none, so namesakes never share evidence; checked dates cached 6 h, misses kept in
 memory 15 min and dropped as soon as the key changes). With no dates (no key, or TMDB
 lists none) a film counts as in cinemas for 21 days after its release date
-(`HomeRelease.UncheckedCinemaDays`). Title pages use the same gate
+(`HomeRelease.UncheckedCinemaDays`). A film released more than 180 days ago is never
+in cinemas, even when TMDB lists no home release for it (`HomeRelease.LongestCinemaRunDays`;
+Se7en 1995 lists only theatrical dates). Title pages use the same gate
 (`HomeRelease.TheatricalGateFromSignal`) and evidence, so a card and its title page
 always agree.
