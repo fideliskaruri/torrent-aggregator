@@ -529,6 +529,41 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         return $"/title/{Uri.EscapeDataString(workKey)}?{string.Join('&', parts)}";
     }
 
+    /// <summary>
+    /// Stop looking: drops a film's, a season's or one episode's wanted rows that have no release yet, so neither a
+    /// retry nor a restart brings them back. Rows already downloading are left alone. Returns how many were dropped.
+    /// </summary>
+    public async Task<int> StopAsync(string workKey, int? season, int? episode, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey && t.Status == "queued" && t.InfoHash == null);
+        rows = season == null ? rows.Where(t => t.Scope == "title") : rows.Where(t => t.Scope == "episode" && t.Season == season);
+        if (season != null && episode != null) rows = rows.Where(t => t.Episode == episode);
+        var keys = await rows.Select(t => t.TargetKey).ToListAsync(ct);
+        var removed = await rows.ExecuteDeleteAsync(ct);
+        foreach (var key in keys) why.TryRemove(key, out _);
+        foreach (var unit in plans.Keys.Where(u => u.WorkKey == workKey && u.Season == season && (episode == null || u.Episode == episode)))
+            plans.TryRemove(unit, out _);
+        return removed;
+    }
+
+    /// <summary>Try now: the film's, season's or episode's next try is due at once instead of after its wait.</summary>
+    public void TryNow(string workKey, int? season, int? episode)
+    {
+        var units = plans.Keys.Where(u => u.WorkKey == workKey && u.Season == season && (episode == null || u.Episode == episode)).ToList();
+        if (units.Count == 0)
+        {
+            // Nothing planned yet (a restart before the first scan): a film or one episode tries at once like a click.
+            var single = season == null || episode != null;
+            units.Add(new(workKey, season, season == null ? null : episode));
+            plans.TryAdd(units[0], new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null, Single: single));
+        }
+        foreach (var unit in units)
+            plans.AddOrUpdate(unit, _ => new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null),
+                (_, plan) => plan with { DueAt = DateTime.MinValue });
+        wake.Release();
+    }
+
     /// <summary>What the last search for a wanted target really returned; null before its first try or after a restart.</summary>
     public string? Why(string targetKey) => why.GetValueOrDefault(targetKey);
 
