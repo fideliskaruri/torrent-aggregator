@@ -2,10 +2,13 @@
  * What a download row's numbers say about themselves.
  *
  * Shared by the `/downloads` page, which renders its own state wording
- * (`stateLabel` in `src/app/downloads/page.tsx`) but reuses these two: the
- * exact place this app has repeatedly claimed things that were not true — a
- * floored 0% on a running torrent, a speed on a row that is not moving.
+ * (`stateLabel` in `src/app/downloads/page.tsx`) but reuses progress percent
+ * here. Speed formatting lives in `@/lib/format` (`formatSpeed`);
+ * `speedLabel` is kept as a thin alias so existing downloads call sites stay
+ * a one-line import change.
  */
+
+import { formatSpeed } from "@/lib/format";
 
 /**
  * Percent as a whole number, floored.
@@ -20,16 +23,7 @@ export function progressPercent(progress: number): number {
   return Math.floor(clamped * 100);
 }
 
-/** Human speed, or null when nothing is moving. */
+/** Human speed, or null when nothing is moving. @see formatSpeed */
 export function speedLabel(dlspeed: number): string | null {
-  if (!Number.isFinite(dlspeed) || dlspeed <= 0) return null;
-  const units = ["B", "KB", "MB", "GB"];
-  let value = dlspeed;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  const shown = value >= 100 || unit === 0 ? Math.round(value) : Number(value.toFixed(1));
-  return `${shown} ${units[unit]}/s`;
+  return formatSpeed(dlspeed);
 }

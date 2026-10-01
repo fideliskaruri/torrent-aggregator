@@ -26,7 +26,8 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { cn, formatBytes, formatDuration } from "@/lib/utils";
+import { formatBytes, formatEta } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -364,7 +365,7 @@ function EpisodeCard({
   // A pack's largest file is one episode of many, so a pack only gets Show in folder.
   const canOpen = openFolder && canOpenFinishedFile(t) && !entry.isSeasonPack && !t.packEpisodes;
   const speed = speedLabel(t.dlspeed);
-  const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
+  const etaText = isDownloading(t.state) ? formatEta(t.eta, { prefix: " · " }) : null;
   const errorMessage = transferErrorMessage(t);
   const [errorExpanded, setErrorExpanded] = useState(false);
   const offerSwap = isError(t.state) && canFindAnotherRelease(t);
@@ -439,7 +440,7 @@ function EpisodeCard({
             <span className="text-[12px] tabular-nums text-subtle-foreground">
               {formatBytes(t.sizeBytes)}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}
-              {showEta ? ` · ETA ${formatDuration(t.eta as number)}` : ""}
+              {etaText ?? ""}
             </span>
           </div>
           {errorMessage ? (

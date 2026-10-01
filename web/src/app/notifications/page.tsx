@@ -1,7 +1,8 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Radar } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";

@@ -21,7 +21,8 @@ import {
   Zap,
   ChevronDown,
 } from "lucide-react";
-import { formatBytes, formatDuration, cn } from "@/lib/utils";
+import { formatBytes, formatEta } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
 import { Button } from "@/components/ui/button";
 import { useDownloadSetup } from "@/components/setup/download-setup";
@@ -2244,10 +2245,11 @@ function FilmRow({
                 {t.sizeBytes > 0 || (isDownloading(t.state) && t.eta != null && t.eta > 0) ? (
                   <span className="text-[12px] text-subtle-foreground tabular-nums">
                     {t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null}
-                    {t.sizeBytes > 0 && isDownloading(t.state) && t.eta != null && t.eta > 0 ? " · " : ""}
-                    {isDownloading(t.state) && t.eta != null && t.eta > 0
-                      ? `ETA ${formatDuration(t.eta)}`
-                      : ""}
+                    {isDownloading(t.state)
+                      ? formatEta(t.eta, {
+                          prefix: t.sizeBytes > 0 ? " · " : "",
+                        })
+                      : null}
                   </span>
                 ) : null}
               </div>

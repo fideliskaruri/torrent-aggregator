@@ -17,41 +17,16 @@
  */
 import { Badge } from "@/components/ui/badge";
 import { Star } from "lucide-react";
+import { formatWhen } from "@/lib/format";
 import { factsLine } from "@/lib/utils";
 
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-] as const;
-
 /**
- * "2023-05-04" → "May 4, 2023". Accepts a bare `YYYY-MM-DD` or a full ISO
- * string (only the leading date is read). Returns null for anything that is
- * not a real calendar date, so a malformed value omits the row rather than
- * printing "NaN" or "Invalid Date".
+ * "2023-05-04" → "May 4, 2023". Hydration-safe; owned by `@/lib/format`.
  */
 export function formatReleaseDate(
   iso: string | null | undefined,
 ): string | null {
-  if (!iso) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (month < 1 || month > 12) return null;
-  if (day < 1 || day > 31) return null;
-  return `${MONTHS[month - 1]} ${day}, ${year}`;
+  return formatWhen(iso, { style: "short" });
 }
 
 /**

@@ -1,3 +1,5 @@
+import { formatDayGroupLabel } from "@/lib/format";
+
 function clean(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -114,28 +116,13 @@ export function groupActivityByDay<T extends { createdAt: string }>(
   items: readonly T[],
   now = new Date(),
 ): ActivityDayGroup<T>[] {
-  const todayKey = localDateKey(now);
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = localDateKey(yesterday);
   const groups = new Map<string, ActivityDayGroup<T>>();
 
   for (const item of items) {
     const date = new Date(item.createdAt);
     const valid = Number.isFinite(date.getTime());
     const key = valid ? localDateKey(date) : "unknown";
-    const label =
-      key === todayKey
-        ? "Today"
-        : key === yesterdayKey
-          ? "Yesterday"
-          : valid
-            ? date.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-              })
-            : "Earlier";
+    const label = valid ? formatDayGroupLabel(date, now) : "Earlier";
     const group = groups.get(key) ?? { key, label, items: [] };
     group.items.push(item);
     groups.set(key, group);

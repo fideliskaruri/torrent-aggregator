@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
-import { cn, formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export interface ReleaseCardData {
   token: string;

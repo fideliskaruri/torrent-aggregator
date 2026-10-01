@@ -14,7 +14,8 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
 import { isReleasePickLink, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 

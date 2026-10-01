@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes } from "@/lib/format";
 
 interface RecoveryInfo {
   dataDirectory: string;
