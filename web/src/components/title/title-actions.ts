@@ -113,6 +113,9 @@ export interface TitleTransferControl {
   error: string | null;
 }
 
+/** What a row waiting for an English release says (docs/release-language.md). */
+export const WAITING_FOR_ENGLISH_LABEL = "Waiting for an English release";
+
 /**
  * Plain words for a waiting or moving transfer. "Looking" is a download still
  * searching for a release (Download is fire and forget). Only owners have a
@@ -123,6 +126,7 @@ export function transferStateLabel(
   queuePosition?: number | null,
 ): string | null {
   if (state === "looking") return "Looking";
+  if (state === "waiting_english") return WAITING_FOR_ENGLISH_LABEL;
   if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
   if (state === "downloading") return "Downloading";
   return null;
@@ -145,7 +149,8 @@ export function resolveTitleTransferControl(
       label,
       canRun: false,
       // Still looking for a release: Downloads has no row for it yet.
-      opensDownloads: options.canSeeTransfers && transfer.state !== "looking",
+      opensDownloads: options.canSeeTransfers && transfer.state !== "looking" && transfer.state !== "waiting_english",
+
       error: null,
     };
   }

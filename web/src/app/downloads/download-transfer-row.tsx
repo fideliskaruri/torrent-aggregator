@@ -300,8 +300,14 @@ export function DownloadTransferRow({
                     {waitReasonLabel(t.state, t.waitReason)}
                   </span>
                 ) : null}
+                {t.languageNote ? (
+                  <span className="text-[12px] text-subtle-foreground" data-language-note>
+                    {t.languageNote}
+                  </span>
+                ) : null}
                 {/*
-                  One quality tag at most (resolution). Source tags, peers and
+                  One quality tag at most (resolution).
+ Source tags, peers and
                   the folder path are torrent mechanics: they live in the
                   menu's Details.
                 */}

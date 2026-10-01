@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
+import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
+import { WAITING_FOR_ENGLISH_LABEL } from "@/components/title/title-actions";
+import { useCapabilities } from "@/lib/capabilities";
 import { useVisiblePoll } from "@/hooks/use-visible-poll";
 
 /** One target from GET /api/wanted that has no release yet. */
@@ -22,6 +26,11 @@ interface LookingGroup {
   title: string;
   label: string | null;
   looking: boolean;
+  /** Releases were found but none has English audio or subtitles. */
+  waitingForEnglish: boolean;
+  season: number | null;
+  /** Set when the group is one episode. */
+  episode: number | null;
   why: string | null;
   nextAttemptAt: string | null;
 }
@@ -52,6 +61,9 @@ function groupRows(rows: WantedRow[]): LookingGroup[] {
       title: first.title || first.workKey,
       label,
       looking: items.some((i) => i.looking),
+      waitingForEnglish: items.some((i) => i.error?.startsWith(WAITING_FOR_ENGLISH_LABEL) ?? false),
+      season: first.season ?? null,
+      episode: episodes.length === 1 ? episodes[0] : null,
       why: items.find((i) => i.why)?.why ?? items.find((i) => i.error)?.error ?? null,
       nextAttemptAt: next ?? null,
     };
@@ -71,6 +83,7 @@ function nextTry(iso: string | null): string {
  * "Looking for a release" and moves to the list below when a release is found.
  */
 export function LookingSection() {
+  const { canDownload } = useCapabilities();
   const [rows, setRows] = useState<WantedRow[]>([]);
 
   const load = useCallback(async () => {
@@ -112,13 +125,40 @@ export function LookingSection() {
                 {g.title}
                 {g.label ? <span className="text-subtle-foreground font-normal"> · {g.label}</span> : null}
               </Link>
-              <p className="text-[12px] text-subtle-foreground">
-                {g.looking ? "Looking for a release" : `Not found yet. ${nextTry(g.nextAttemptAt)}.`}
+              <p className="text-[12px] text-subtle-foreground" data-looking-state={g.waitingForEnglish ? "waiting_english" : undefined}>
+                {g.looking
+                  ? "Looking for a release"
+                  : g.waitingForEnglish
+                    ? `${WAITING_FOR_ENGLISH_LABEL}. ${nextTry(g.nextAttemptAt)}.`
+                    : `Not found yet. ${nextTry(g.nextAttemptAt)}.`}
               </p>
-              {!g.looking && g.why ? (
+              {!g.looking && !g.waitingForEnglish && g.why ? (
                 <p className="text-[12px] text-subtle-foreground line-clamp-2">{g.why}</p>
               ) : null}
             </div>
+            {g.waitingForEnglish && canDownload ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-looking-pick-release
+                aria-label={`${PICK_RELEASE_LABEL} for ${g.title}${g.label ? `, ${g.label}` : ""}`}
+                onClick={() =>
+                  openReleasePicker({
+                    workKey: g.workKey,
+                    title: g.title,
+                    season: g.season,
+                    episode: g.episode,
+                    onPicked: () => void load(),
+                  })
+                }
+                className="shrink-0 max-sm:min-h-11"
+              >
+                <Search aria-hidden />
+                Pick a release
+              </Button>
+            ) : null}
+
           </div>
         ))}
       </div>
