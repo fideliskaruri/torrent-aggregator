@@ -31,6 +31,8 @@ public sealed record SearchOptions
     public bool Background { get; init; }
     /// <summary>Acquisition jobs wait for a free search slot and retry transient source failures; interactive searches also queue for capacity.</summary>
     public bool WaitForBudget { get; init; }
+    /// <summary>An owner's click: its site requests go first in each site's line, ahead of background season searches.</summary>
+    public bool Urgent { get; init; }
     public bool IncludeRejectedResults { get; init; }
     public int? AdapterDeadlineMs { get; init; }
     public SearchRoutingPreferences? Routing { get; init; }

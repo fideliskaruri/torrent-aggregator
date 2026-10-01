@@ -143,7 +143,10 @@ internal sealed partial class TorrentEngineService(
         var failed = false;
         using (await LockHashAsync(hash, ct))
         {
-            if (request.RequireMetadata && bytes == null && backend.Get(hash)?.HasMetadata != true)
+            // A magnet is admitted at once, so the row shows on Downloads while its file list arrives; the client holds it
+            // until the file rules pass (MonoTorrentBackend) and the monitor fails it after the metadata deadline. Only a
+            // chosen file set (a season pack) needs the file list before admission.
+            if (request.RequireMetadata && request.SelectedFiles is { Count: > 0 } && bytes == null && backend.Get(hash)?.HasMetadata != true)
             {
                 var (resolved, failure) = await ResolveMetadataAsync(hash, magnet, request.Name, ct);
                 if (resolved == null)
@@ -294,6 +297,9 @@ internal sealed partial class TorrentEngineService(
         // queue and the ladder move on to another release instead of downloading it again.
         if (existing is { Status: EngineTorrentStatus.Error } && RefusedRelease(existing.Error) is { } refused)
             return Done(new EngineAddResult(false, refused.Message, null, hash) { Unusable = refused.Code });
+        // A release that gave no file list in time is skipped by automatic picks while its row is there, so they move on.
+        if (request.RequireMetadata && existing is { Status: EngineTorrentStatus.Error, Error: NoFileListMessage })
+            return Done(new EngineAddResult(false, NoFileListMessage, null, hash));
 
         if (existing is not null && lane < existing.Lane)
         {
@@ -384,6 +390,7 @@ internal sealed partial class TorrentEngineService(
         new(true, QueuedMessage(position), new EngineAddDetails(EngineAddDetails.Queued, 0, 0, position), hash);
 
     internal const string FakeReleaseMessage = "This release already turned out not to be a real video file, so TorrentFlow won't download it again.";
+    internal const string NoFileListMessage = "Couldn't get this torrent's file list from peers. Check the magnet or try another release.";
 
     /// <summary>The refusal for an error row left by the media check, or null when the error was something else.</summary>
     private static (string Message, string Code)? RefusedRelease(string? error)
@@ -1494,9 +1501,11 @@ internal sealed partial class TorrentEngineService(
                     && Now - startedAt > TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds))
                 {
                     row.Status = EngineTorrentStatus.Error;
-                    row.Error = "Couldn't get this torrent's file list from peers. Check the magnet or try another release.";
+                    row.Error = NoFileListMessage;
                     failed.Add(new(row.Hash, row.Name, row.Origin));
                     row.ClearForced();
+                    // Its wanted items go back to the wanted queue, which moves on to another release.
+                    await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, NoFileListMessage, Now, ct);
                     detach.Add(row.Hash);
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && SelectionHolds(row, live))
