@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using System.Text.Json;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
@@ -10,18 +12,42 @@ using TorrentFlow.Library.Features.Watchlist;
 namespace TorrentFlow.Library.Features.Grabs;
 
 public sealed record ReleaseAlternative(string Token, string Hash, string Title, int Seeders, int Peers,
-    long? SizeBytes, int? Quality, string Source, string Why, ReleaseBlockInfo? Blocked = null);
+    long? SizeBytes, int? Quality, string Source, string Why, ReleaseBlockInfo? Blocked = null, ReleaseLanguageInfo? Languages = null);
 public sealed record ReleaseSwapSource(string Id, string Name, int? Count);
+/// <summary>The download being replaced, as the dialog shows it above the alternatives.</summary>
+public sealed record ReleaseSwapCurrent(string Title, string? Source, long? SizeBytes, int? Quality, bool Finished, ReleaseLanguageInfo? Languages);
+/// <param name="Note">What happens to the current files; null leaves the dialog's own words for an unfinished download.</param>
 public sealed record ReleaseAlternatives(TransferHealth Health, IReadOnlyList<ReleaseAlternative> Alternatives,
-    IReadOnlyList<ReleaseSwapSource> Sources, string? RecommendedToken);
+    IReadOnlyList<ReleaseSwapSource> Sources, string? RecommendedToken, ReleaseSwapCurrent? Current = null, string? Note = null);
 public sealed record RankedRelease(TorrentResult Result, double Score, string Why);
+
+/// <summary>A release's languages under the owner's audio language setting, as the release dialogs show them (web release-language.tsx).</summary>
+/// <param name="Audio">Display names, e.g. "Japanese".</param>
+/// <param name="SubtitleState">known_english, known_non_english, unknown or mixed. Untagged subtitles are unknown, never English.</param>
+/// <param name="Fit">preferred, neutral, backup or clash.</param>
+/// <param name="Basis">Where the deciding fact came from: name, category, files, header, group or none.</param>
+/// <param name="Confidence">high, medium or low.</param>
+public sealed record ReleaseLanguageInfo(IReadOnlyList<string> Audio, IReadOnlyList<string> Subtitles, string SubtitleState,
+    string Fit, string Basis, string Confidence, string Label)
+{
+    public static ReleaseLanguageInfo From(LanguageVerdict verdict) => new(
+        verdict.Audio.Select(ReleaseLanguage.LanguageName).Distinct().ToArray(),
+        verdict.Subtitles.Select(ReleaseLanguage.LanguageName).Distinct().ToArray(),
+        verdict.SubtitleState switch
+        {
+            TorrentFlow.Core.SubtitleState.KnownEnglish => "known_english",
+            TorrentFlow.Core.SubtitleState.KnownNonEnglish => "known_non_english",
+            TorrentFlow.Core.SubtitleState.Mixed => "mixed",
+            _ => "unknown"
+        },
+        verdict.Fit.ToString().ToLowerInvariant(), verdict.Basis, verdict.Confidence, verdict.Label);
+}
 
 /// <summary>Manual selection today; a future recovery policy can consume the same alternatives and swap command.</summary>
 public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search,
     ITorrentEngine engine, IMemoryCache cache, TorrentFlow.Core.Sources.SourceRegistry? registry = null,
     EpisodeSearchIdentity? searchIdentity = null, TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup? anime = null,
-    Microsoft.Extensions.Options.IOptions<TorrentFlow.Library.Features.Automation.AutomationOptions>? options = null,
-    AnimeEpisodeMappings? episodeMappings = null)
+    GrabService? grabs = null, AnimeEpisodeMappings? episodeMappings = null)
 {
     private sealed record Choice(string CurrentHash, EngineReleaseSwap Swap);
 
@@ -41,9 +67,10 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         if (info.Imported)
             throw new InvalidOperationException("This download was added from files already on your disk, so it has no release to swap. Delete it and download the title again to choose a release.");
         // Torrent metadata can rename a release to an opaque payload filename. Keep the acquisition identity.
-        var releaseName = (await ReleaseBlocks.GrabbedAsync(db, LocalUser.Id, hash, ct))?.Title ?? row.Name;
+        var grabbed = await ReleaseBlocks.GrabbedAsync(db, LocalUser.Id, hash, ct);
+        var releaseName = grabbed?.Title ?? row.Name;
         var identity = ReleaseNames.IdentityFor(releaseName);
-        var title = row.Work?.CanonicalTitle ?? identity.Name;
+        var title = Apostrophes.Normalize(row.Work?.CanonicalTitle ?? identity.Name);
         var previousWorkKey = await ReleaseBlocks.WorkKeyForAsync(db, LocalUser.Id, hash, ct);
         var workKey = row.Work?.WorkKey ?? previousWorkKey ?? ReleaseNames.WorkKeyFor(identity.Name, identity.Year);
         var episode = ReleaseNames.ParseEpisode(releaseName);
@@ -107,6 +134,12 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var alternatives = new List<ReleaseAlternative>();
         var currentSize = row.SizeBytes > 0 ? row.SizeBytes : (long?)null;
         var currentQuality = ReleaseSelection.Resolution(releaseName) ?? floor;
+        var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
+        var want = grabs != null
+            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct)
+            : LanguageWant.For(settings?.AudioLanguage, mediaType, null);
+        var current = new ReleaseSwapCurrent(releaseName, grabbed?.Source, currentSize, ReleaseSelection.Resolution(releaseName), false,
+            ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, releaseName, null, info.Files?.Select(f => f.Path))));
         // Blocked releases go last whatever their score: listed for "Use it anyway", never recommended or picked as best.
         var listed = Rank(open, currentQuality, currentSize).Take(20)
             .Concat(Rank(held, currentQuality, currentSize).Select(r => r with { Why = Describe(r.Result) }));
@@ -119,7 +152,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
                 TimeSpan.FromMinutes(10));
             alternatives.Add(new(token, candidateHash, result.Title, result.Seeders, result.Leechers, result.SizeBytes,
                 ReleaseSelection.Resolution(result.Title), result.Source, ranked.Why,
-                blocks.TryGetValue(candidateHash, out var block) ? ReleaseBlocks.Info(block) : null));
+                blocks.TryGetValue(candidateHash, out var block) ? ReleaseBlocks.Info(block) : null,
+                ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, result.Title, result.Category))));
         }
         var found = open.Concat(held).GroupBy(r => r.Source, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
@@ -134,7 +168,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         cache.Set(countsKey, counts, TimeSpan.FromMinutes(10));
         var sourceList = ids.Select(id => new ReleaseSwapSource(id, id, counts.TryGetValue(id, out var n) ? n : null)).ToList();
         return new(info.Health ?? new(null, info.Peers, info.Dlspeed, 0, info.State), alternatives, sourceList,
-            alternatives.FirstOrDefault(a => a.Blocked is null)?.Token);
+            alternatives.FirstOrDefault(a => a.Blocked is null)?.Token, current);
     }
 
     /// <summary>Searches, then swaps to the recommended release when it has more seeders than the current swarm offers.</summary>
