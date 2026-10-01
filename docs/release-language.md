@@ -3,32 +3,56 @@
 How TorrentFlow decides whether a release's language fits what the owner wants, and what the grab ladder does about
 it. The design is in `docs/audio-language-plan.md`; this page describes what the code does.
 
-## The ladder: names order, they never refuse
+## The owner's rule: English audio or English subtitles
 
-Every release the ladder can send gets a language fit: **Preferred**, **Neutral**, **Backup** or **Clash**.
+"Pick the best torrent but make sure it has English audio or subtitles." Every release gets one English verdict from
+`ReleaseLanguage.EnglishRule` (carried on `LanguageVerdict.English` as an `EnglishCheck(Verdict, Reason, Evidence)`):
+**Pass**, **Unknown** or **Fail**. The automatic picks, the release picker, the Find another source dialog and the
+engine's check after add all read this one verdict; nothing keeps a second copy.
 
-- `GrabService.Eligible` orders each rung's results by quality first, then by fit. Language never filters there.
-- The normal pass (`GrabService.Episode`, `Film`, `SeasonPack`) sends only Preferred and Neutral releases, in rung
-  order and in the existing rank, exactly as before. A failed send still falls through to the next candidate, then
-  the next rung.
-- Backup and Clash releases are not sent in the normal pass. The same picker (`EpisodeLadder.Select`) chooses which of
-  them each rung would have sent, and they are held (`LanguageHold`) across all rungs.
-- When every rung is exhausted with no working send, the last-resort pass sends the held releases: Backups first,
-  then Clashes, each in the order the ladder found them. A release the engine refused for its language joins the
-  Clashes after the ones judged by name. These sends accept a clash, so the engine does not refuse them again.
-- A ladder cut short by a failed search (the search threw, `searchFailure`) skips the last resort and keeps its holds
-  for the retry, which may still find the preferred release.
-- So an episode with any sendable release always ends up with something, and the conflict is recorded.
-- Films do the same over `FilmSelection.Select`. Season packs probe Preferred and Neutral packs first; a Backup or
-  Clash pack is chosen only when none of those maps, and it is sent as a fallback.
-- A release picked by hand always goes, whatever its language (`GrabService.SendPicked`).
+Evidence, strongest first: the video header's tracks (the header probe), English sidecar files (`.en.srt`,
+`.eng.ass`), name markers (`Dual Audio` reads as Japanese and English audio for anime, English elsewhere), nyaa's
+English-translated category, then known groups. In order:
+
+1. Preference `any`: Pass.
+2. English audio (an English dub, dual audio): Pass. Once the header has listed audio tracks, only the header or the
+   files can claim English audio.
+3. The header was read, lists audio, has no untagged subtitles and no English subtitles: Fail.
+4. English subtitles known (name, category, sidecar, header): Pass. Ambiguous English with subtitles not known to be
+   another language: Pass.
+5. Foreign audio that is not the work's original language, on one track: Fail (a Russian MVO).
+6. Not anime, nothing stated, and the work's original language is English (or not known yet): Pass.
+7. Several audio tracks with subtitles not known: Unknown.
+8. Raws (no subtitles): Fail. Foreign-only subtitles (VOSTFR, CHT): Fail. Mixed: Unknown. Anything else: Unknown,
+   "English not stated".
+
+Within a verdict the fit still orders releases (`ReleaseLanguage.Order` = verdict, then fit): for anime under `auto`,
+Japanese audio with English subtitles (Preferred) comes before an English dub (Backup); `english` flips that.
+
+## Automatic picks: Pass first, Unknown only without a healthy Pass, never Fail
+
+- `GrabService.Eligible` orders each rung by quality, then `ReleaseLanguage.Order`.
+- The ladder (`GrabService.Episode`, `Film`, `SeasonPack`) sends only Pass releases, in rung order and rank. A failed
+  send still falls through to the next candidate, then the next rung. A release the engine refuses for its files
+  (`audio_language`) counts as Fail (`LanguageHold.Refused`).
+- Unknown releases are held across all rungs (`LanguageHold`). After the last rung they are sent, best seeded first,
+  only when no healthy Pass release was tried (`LanguageHold.HealthySeeders` = 5 live seeders,
+  `TorrentResult.Seeders`). A ladder cut short by a failed search keeps its holds for the retry.
+- Fail releases are never sent automatically. There is no last-resort pass any more.
+- When nothing with English could be sent and at least one match failed the rule, the result is
+  `GrabFailure.NoEnglish` (code `no_english`, message `Waiting for an English release.`). The target stays queued
+  with that message, the title payload shows `state: "waiting_english"`, and the wanted queue retries it on its
+  usual schedule. The title page and Downloads show "Waiting for an English release" with Pick a release.
+- Season packs: Fail packs are skipped; Pass packs are tried first; Unknown packs only when no healthy Pass pack exists.
+- A release picked by hand always goes, whatever its verdict (`GrabService.SendPicked`, `AcceptClash`), and the
+  engine never checks, stops or blocks it.
 
 Every send writes two columns on its `GrabJob` row, returned by `/api/activity` as `rung` and `language`:
 
 - `rung`: the rung that found the release, `kind: query`, for example `exact: Frieren Beyond Journey's End S01E05`.
   Films use `film: <title>`, hand picks `picked by hand`.
-- `language`: the verdict, for example `Japanese audio, English subtitles`, `fallback: French audio, no Japanese
-  release found`, or `picked by hand: English dub`.
+- `language`: the verdict, for example `pass (English subtitles): Japanese audio, English subtitles (preferred, name)`,
+  or `picked by hand: fail (no subtitles): ...`.
 
 Titles are made plain before any query is built (`TorrentFlow.Core.Text.Apostrophes`): `’ ‘ ʼ ´ ` ′` become `'`,
 so the rung reads `Journey's End`, never `Journey’s End`. `EpisodeLadder.SearchTitleVariants` (and through it every
@@ -38,31 +62,25 @@ alias form), the AniList mapping's entry and franchise names, and the franchise 
 
 - A language hold or refusal is never a real miss. When any release was held back or refused for its language,
   `GrabResult.RealMiss` is false, so `AcquisitionTarget.RealMisses` does not grow and the season pack fallback does not
-  count the attempt. `GrabFailure.IsRealMiss` no longer lists a language code.
-- Held rows carry a language reason code in their `CandidateRejection`, so they count as relevant results and the
-  watchlist hunt never treats them as a hunt miss (`GrabResult.HuntMiss` stays false).
-- If the only reason nothing started is language and every send failed for a passing reason, the wanted queue keeps
-  the target queued and retries it on its usual schedule.
-- Batch and result messages stay counts only, for example `12 results: 9 French audio, 3 other episodes`. The words for
-  each code come from `GrabFailure.ReasonLabel`. The detailed verdict lives on the `GrabJob` row.
+  count the attempt.
+- Held rows carry a language reason code (`no_english`, `audio_fr`, `subs_zh`, ...) in their `CandidateRejection`, so
+  they count as relevant results and the watchlist hunt never treats them as a hunt miss.
+- Batch and result messages stay counts only, for example `12 results: 9 with no English audio or subtitles, 3 other
+  episodes`. The words for each code come from `GrabFailure.ReasonLabel`.
 
 ## Outcomes by case
 
-| Case | GrabResult | CandidateRejection | RealMiss | HuntMiss |
-| --- | --- | --- | --- | --- |
-| Name clash (the name says another audio, or foreign subtitles only) | Not sent in the normal pass. If nothing better sends, it is sent in the last resort: `Ok`, GrabJob `language` = `fallback: <label>, <what was missing>`. | The row gets its language code (`audio_fr`, `subs_zh`, `dub`, ...) after any other reason. | false | false |
-| Header clash (the probe read the file's audio tracks and none is wanted) | The engine refuses: `EngineAddResult.Unusable = "audio_language"`, `Language = "audio_fr"`. `Send` maps it to the `audio_language` failure, the ladder falls through to the next candidate and holds the release as a confirmed clash for the last resort. | `send_failed`, then the language code. | false | false |
-| File-list clash (every kept video file names another audio) | Same as a header clash. Only explicit audio markers in the file names refuse; subtitles and group names never do. | `send_failed`, then the language code. | false | false |
-| Probe timeout or no peers | Not a refusal: the release passes as unchecked and the send goes on. The GrabJob `language` notes `header not checked`. | none | unchanged | unchanged |
-| Probe parse error | Same as a timeout: passes as unchecked, noted on the GrabJob. | none | unchanged | unchanged |
-| All candidates clash | The last resort sends the first Backup, else the first Clash, with the clash accepted: `Ok` with a `fallback:` note. If every last-resort send fails for a passing reason, the result is that failure (for example `metadata_unavailable`), the target stays queued and the wanted queue retries it. | Each failed send: `send_failed`. | false | false |
-| Accepted, then metadata unavailable | The engine never got the file list: `metadata_unavailable` (or `no_seeders` with no seeders). The ladder falls through to the next candidate as before. The language check could not run on files, so the name verdict stands. | `send_failed` | As before (true only when every send failed this way, the search ran cleanly and no release was held for language) | false |
-
-`Unusable = "audio_language"` is the engine's only language refusal, and it needs high-confidence evidence: a header
-fact, or explicit audio markers in the file names. Names alone only order releases.
-
-Header probes (`HeaderProbeCache`, commit 14225f8) are not wired into the engine's add path yet. Until they are, the
-header rows above describe the contract that wiring must follow, and no release is refused on a header.
+| Case | What happens |
+| --- | --- |
+| Pass by name | Sent in rank order. The engine checks it again once its file list is known. |
+| Unknown by name | Held. Sent after the ladder only when no Pass release with 5+ seeders was tried. |
+| Fail by name (raw, foreign subtitles only, foreign dub) | Never sent automatically. Counted for the waiting state. |
+| Every match Fail | `no_english`: no download, the target waits for an English release and is retried on schedule. |
+| File list Fail before admission (`.torrent` known) | The engine refuses: `Unusable = "audio_language"`, `Language = <code or no_english>`. The ladder moves on. |
+| File list Fail after a magnet's metadata | Stopped, blocked (`ReleaseBlock`, reason `no_english`, origin `language_check`), its wanted items released so the finder picks again. |
+| Header Fail | Same as a file-list fail after metadata. |
+| Header probe timeout, no peers, busy queue | Kept. The Downloads row shows "English not confirmed". |
+| Hand pick | Always goes; never checked, stopped or blocked. |
 
 ## The rule: `ReleaseLanguage`
 
@@ -84,7 +102,7 @@ Each claim has a confidence, strongest first:
 
 | Confidence | Comes from | Example |
 | --- | --- | --- |
-| HeaderFact | the file's own audio tracks (probe; not wired yet) | `jpn`, `eng` tracks |
+| HeaderFact | the file's own audio and subtitle tracks (the header probe after add) | `jpn`, `eng` tracks |
 | ExplicitAudio | an audio marker in the name or file names | `TRUEFRENCH`, `VF`, `German DL`, `[English Dub]`, `国语`, `JPN AAC2.0`, `Greek Audio`, `MVO` |
 | ExplicitSubs | a subtitle marker | `VOSTFR`, `SUBFRENCH`, `CHS`, `CHT`, `BIG5`, `简繁`, `内封`, `Baha`, `Multi-Subs`, `MSubs`, `ESub`, `nlsubs`, `Subs.Ita.Eng`, `.en.srt` |
 | ProviderCategory | the site's category | nyaa `Anime - English-translated` (1_2), `Non-English-translated` (1_3), `Raw` (1_4) |
@@ -96,7 +114,7 @@ A higher confidence wins. A group or the script never refuses and never outweigh
 - `VOSTFR` is original audio with French subtitles, a strong negative for anime, not a fact about the audio.
 - `MULTi` is several audio tracks with an unknown default (usually the original plus French). `Dual Audio`, `DUAL`
   and `2A` are Japanese and English audio; that alone is Neutral, not Preferred, because the subtitles are unknown.
-- `English Dub` by name is a dub; the header will confirm it once probes are wired.
+- `English Dub` by name is a dub; the header probe confirms it after add when the file list leaves it open.
 - `RAW` is no subtitles, but `Something-Raws` is a group name (Erai-raws subtitles in English, Tsundere-Raws in French).
 - Language sets: `German DL` and `Hindi-English` are several audio tracks; `FLAC.JPN.Subs.Ita.Eng` is Japanese audio
   with Italian and English subtitles; codes next to an audio codec (`JPN AAC2.0`, `ENG-AC3`) are audio.
@@ -172,32 +190,53 @@ Known misses, ordering only: a lowercase language word in an all-lowercase name 
 xvid`) reads as not stated, and a mixed-case code (`Dragon Ball Z [TV] [01-210] Rus (rus, eng. sub.)`) reads as English
 subtitles only, so the Russian audio sorts as Preferred.
 
-## The engine's file-list check
+## The engine's check after add
 
-`TorrentEngineService.AddAsync` checks the file list right after the existing `FileListProblem` check, whenever the
-request carries `Language`:
+`TorrentEngineService` checks a transfer's English again once it knows more than the name. The request's
+`EngineLanguageCheck(Want, NameFit, NameLabel, AcceptClash)` is kept with the engine row as `EngineLanguageState`
+(column `languageCheckJson`: want, release name, site category, hand pick, state and reason).
 
-- It judges the main videos (the selected files, else the largest and any at least half its size) with the subtitle
-  and audio files beside them (`ReleaseLanguage.WithSidecars`).
-- It refuses only a Clash decided by explicit audio in the file names (`Refusable`), and only when `AcceptClash` is
-  false: `Unusable = "audio_language"`, `Language = "audio_fr"`, message `Its files have French audio, so TorrentFlow
-  skipped it.`
-- The check needs the file list before admission. Since OPS-539 a magnet is admitted at once and the client holds it
-  only until its file list passes the file rules (`MonoTorrentBackend`), which do not check language. So in practice
-  the check runs for a release sent as a `.torrent` file, a cached `.torrent`, or a season pack (whose list is fetched
-  before admission); a plain magnet is unchecked and its name verdict stands.
-- Every check logs one Information line: `[builtin-engine] language check <hash> (<name>): category <category>, name
-  <fit> <label>, files <fit> <label> (<basis>, <confidence>), accept clash <bool>`.
+- **Before admission**, when the `.torrent` bytes are known (a `.torrent` link, a cached file, a season pack):
+  `FileListLanguage` judges the main videos (the selected files, else the largest and any at least half its size) with
+  the subtitle and audio files beside them (`ReleaseLanguage.WithSidecars`); the worst verdict counts. A Fail (or an
+  explicit-audio clash, `Refusable`) is refused unless it is a hand pick: `Unusable = "audio_language"`, `Language =
+  <code or no_english>`, message `Its files have no English audio or subtitles (...), so TorrentFlow skipped it.`
+- **Once a magnet's metadata arrives**, the monitor tick runs the same file-list check on the live file list, right
+  after `FileListProblem` (the client still holds the transfer at that point). State `pending` becomes `failed`,
+  `passed` (confirmed English: subtitles or audio stated explicitly) or `probing`.
+- **Header probe**: what the file list leaves open goes to a bounded queue (8 entries, one worker). The worker reads
+  the headers of up to 3 main videos in a probe client of its own (`ProbeHeadersAsync(..., alongside: true)`,
+  `HeaderProbeBudget.Default`: 45 seconds, 32 MB per file), saves the tracks to `HeaderProbeCache`, and judges
+  `ReleaseLanguage.WithHeader(...)`. Pass becomes `passed`; Fail becomes `failed`; anything else, a timeout, no peers
+  or a full queue becomes `unconfirmed`. A restart requeues rows left in `probing`.
+- **A fail** (file list or header) on a transfer still downloading: the row turns to an error (`No English audio or
+  subtitles (<reason>). TorrentFlow stopped it and will look for another release.`), the release is blocked
+  (`ReleaseBlock`, reason `no_english`, origin `language_check`), its wanted items are released, and the transfer is
+  detached. The finder picks again and skips the blocked release.
+- **Unconfirmed**: kept; `EngineTorrentInfo.LanguageNote` is `English not confirmed` and the Downloads row shows it.
+- **Hand picks** (`AcceptClash`) are stored as `hand_pick` and never checked, stopped or blocked.
+- Every check logs one Information line (`[builtin-engine] language check ...`, `English check ... from its file
+  list`, `English header check ...`).
 
 ## Contracts
 
 - `EngineAddRequest.SourceCategory`: the result's own category (`TorrentResult.Category`, nyaa's label). It is not
   `SearchCategory`. `EngineAddRequest.Language`: `EngineLanguageCheck(Want, NameFit, NameLabel, AcceptClash)`.
-- `EngineAddResult.Language`: the code behind a refusal (with `Unusable = "audio_language"`), or the clash a
-  last-resort send accepted.
+- `EngineAddResult.Language`: the code behind a refusal (with `Unusable = "audio_language"`), or the clash a hand pick
+  accepted.
+- `EngineTorrentInfo.languageNote`: `English not confirmed` while the check after add could not confirm English.
+- Title payloads: an episode or film transfer has `state: "waiting_english"` while its target waits for an English
+  release (`GrabFailure.IsWaitingForEnglish`).
 - Settings: `GET /api/settings/client` returns `audioLanguage` (`auto` when unset); `PUT` accepts `auto`, `english` or
   `any`, anything else is a 400 `Choose one of the audio language options.` Stored in `ClientSetting.AudioLanguage`
-  (null means auto).
-- The picker (`GET /api/title/{workKey}/releases`) adds `language` (the label) and `languageFit` to each row, orders
-  each group by fit and hides nothing. A hand pick always sends, with the clash accepted.
+  (null means auto). `any` turns the English rule off.
+- `ReleaseLanguageInfo` (the swap dialog's `languages`, and the picker's `languages`) carries `english` (`pass`,
+  `unknown`, `fail`) and `englishReason`.
+- The picker (`GET /api/title/{workKey}/releases`) and the Find another source dialog order by the English verdict,
+  then fit, then the shared score (`ReleaseSwapService.Rank(..., first: ReleaseLanguage.Order)`), and hide nothing.
+  The dialog never recommends a Fail release as its Best match, and it judges the current release with its site
+  category (kept with the engine row, else read from the search when the same release turns up). A hand pick always
+  sends.
 - The search page orders by the same verdict under `auto` (`ReleaseQuality.LanguagePreference`).
+- The work's original language: `GrabService.LanguageWantAsync` reads it from the catalog lookup. Unknown original
+  language counts as English for untagged non-anime releases until `Work.OriginalLanguage` is read.
