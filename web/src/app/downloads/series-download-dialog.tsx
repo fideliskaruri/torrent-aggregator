@@ -726,7 +726,7 @@ export function SeriesDownloadDialog({
           className="shrink-0 gap-2 border-b border-border px-4 pb-3 pr-14 pt-3 sm:hidden"
           data-mobile-series-header
         >
-          <h2 className="truncate pr-1 text-[15px] font-semibold text-foreground">
+          <h2 className="line-clamp-2 break-words pr-1 text-[15px] font-semibold text-foreground">
             {titleHref ? (
               <Link
                 to={titleHref}
@@ -739,24 +739,32 @@ export function SeriesDownloadDialog({
               group.title
             )}
           </h2>
+          {/* The facts wrap under the state chip rather than truncate: on a
+              phone the size is the part most worth reading, and it was the part
+              an ellipsis ate. The actions menu stays pinned to the right. */}
           <div className="flex min-w-0 items-center gap-2">
-            <Badge
-              variant={chip.variant}
-              data-mobile-group-state
-              className="min-w-0 max-w-[65%] truncate"
-            >
-              {chip.label}
-            </Badge>
-            <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-subtle-foreground">
-              {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-              {formatBytes(group.sizeBytes)}
-              {showBar ? ` · ${pct}%` : null}
-            </span>
-            {isDownloading(group.state) && speed ? (
-              <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                ↓ {speed}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+              <Badge
+                variant={chip.variant}
+                data-mobile-group-state
+                className="min-w-0 truncate"
+              >
+                {chip.label}
+              </Badge>
+              <span
+                className="min-w-0 text-[12px] tabular-nums text-subtle-foreground"
+                data-mobile-group-facts
+              >
+                {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
+                {formatBytes(group.sizeBytes)}
+                {showBar ? ` · ${pct}%` : null}
               </span>
-            ) : null}
+              {isDownloading(group.state) && speed ? (
+                <span className="text-[12px] tabular-nums font-mono text-brand-foreground">
+                  ↓ {speed}
+                </span>
+              ) : null}
+            </div>
             <SeriesActionsMenu
               group={group}
               onActionMany={onActionMany}
