@@ -57,7 +57,7 @@ public interface IWantedObserver
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
     TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine,
-    WorkNamesRefresh? names = null) : BackgroundService
+    WorkNamesRefresh? names = null, IWorkLinker? linker = null) : BackgroundService
 {
     /// <summary>
     /// A run waits on searches and on the engine admitting each find (a magnet is admitted before its file list
@@ -360,11 +360,19 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 t.Scope == scope && t.Season == unit.Season && t.Status == "queued" && t.InfoHash == null).ToListAsync(ct))
             .Where(t => unit.Episode is { } clicked ? t.Episode == clicked : t.Episode is not { } episode || !OnItsOwn(unit with { Episode = episode }))
             .ToList();
-        if (names != null && rows.Count > 0)
+        if ((names != null || linker != null) && rows.Count > 0)
         {
-            // A work whose names never came from its provider gets them now (at most once a day), before this grab searches.
-            try { await names.RefreshAsync(unit.WorkKey, null, fetch: true, ct); }
-            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation(error, "Could not refresh the names of {WorkKey}", unit.WorkKey); }
+            // Before this grab searches, a work whose names never came from its provider gets them (at most once a day)
+            // and a work never linked to its other records (AniList, TMDB) is linked, both within one 2 s budget: their
+            // names join the search. Slow or failed lookups never hold up or fail the grab; title open and the backfill finish them.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(2));
+            try
+            {
+                if (names != null) await names.RefreshAsync(unit.WorkKey, null, fetch: true, budget.Token);
+                if (linker != null) await linker.LinkAsync(unit.WorkKey, budget.Token);
+            }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation("Names and links of {WorkKey} before its grab stopped: {Error}", unit.WorkKey, error.Message); }
         }
         var work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == unit.WorkKey, ct);
         plans.TryGetValue(unit, out var plan);

@@ -9,8 +9,11 @@ namespace TorrentFlow.Core.Contracts.Metadata;
 [JsonConverter(typeof(JsonStringEnumConverter<WorkNameKind>))]
 public enum WorkNameKind { English, Romaji, Synonym, Native, Original }
 
-/// <summary>One labelled name of a work.</summary>
-public sealed record WorkName(string Text, WorkNameKind Kind);
+/// <summary>
+/// One labelled name of a work. <paramref name="Source"/> names the linked record that gave it ("anilist:20954"), or is
+/// null for the work's own provider and catalog names; unlinking that record removes exactly its names.
+/// </summary>
+public sealed record WorkName(string Text, WorkNameKind Kind, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Source = null);
 
 /// <summary>A work's ids at each provider that knows it.</summary>
 public sealed record WorkIds(int? Tmdb = null, int? AniList = null, int? Mal = null, string? Imdb = null)
@@ -143,11 +146,19 @@ public sealed class WorkNames
 
     /// <summary>
     /// These names first (authoritative), then every other name of <paramref name="older"/> not already here. An older
-    /// English, Romaji or Original label that the newer list does not repeat is kept as a Synonym.
+    /// English, Romaji or Original label that the newer list does not repeat is kept as a Synonym; a linked record's name
+    /// (<see cref="WorkName.Source"/> set) keeps its label, since its link still vouches for it.
     /// </summary>
     public WorkNames Merge(WorkNames? older) => older == null ? this
-        : Of(All.Concat(older.All.Select(n => n.Kind is WorkNameKind.English or WorkNameKind.Romaji or WorkNameKind.Original
+        : Of(All.Concat(older.All.Select(n => n.Source == null && n.Kind is WorkNameKind.English or WorkNameKind.Romaji or WorkNameKind.Original
             ? n with { Kind = IsNative(n.Text) ? WorkNameKind.Native : WorkNameKind.Synonym } : n)));
+
+    /// <summary>These names without any a linked record gave (<see cref="WorkName.Source"/> set).</summary>
+    public WorkNames WithoutLinked() => Of(All.Where(n => n.Source == null));
+
+    /// <summary>These names, then <paramref name="linked"/>'s, each labelled with <paramref name="source"/>.</summary>
+    public WorkNames WithLinked(string source, IEnumerable<WorkName> linked) =>
+        Of(All.Concat(linked.Select(n => n with { Source = source })));
 
     /// <summary>These names plus unlabelled extras (classified by script).</summary>
     public WorkNames With(IEnumerable<string?>? extras) =>

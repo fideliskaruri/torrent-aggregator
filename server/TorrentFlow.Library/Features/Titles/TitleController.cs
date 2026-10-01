@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Metadata;
@@ -16,7 +17,8 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes, WorkNamesRefresh names) : ControllerBase
+    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes, WorkNamesRefresh names, IWorkLinker? linker = null,
+    ILogger<TitleController>? logger = null) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -38,13 +40,45 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external), FindIdentity: true), ct));
     }
 
-    /// <summary>Opening a title saves its provider record's names, or looks a stale work's names up again (budgeted).</summary>
+    /// <summary>
+    /// Opening a title saves its provider record's names, or looks a stale work's names up again, then links the work
+    /// to its other records if it never was (all within one budget; what runs out of time is finished by a later open).
+    /// </summary>
     private async Task RefreshNamesAsync(string workKey, MediaMetadata? resolved, CancellationToken ct)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(TimeSpan.FromMilliseconds(2500));
-        try { await names.RefreshAsync(workKey.Trim().ToLowerInvariant(), resolved, fetch: true, budget.Token); }
+        var key = workKey.Trim().ToLowerInvariant();
+        try
+        {
+            await names.RefreshAsync(key, resolved, fetch: true, budget.Token);
+            if (linker != null) await linker.LinkAsync(key, budget.Token);
+        }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            // The page opens with what is stored; a later open or the backfill finishes the names and links.
+            logger?.LogWarning("Refreshing the names and links of {WorkKey} failed: {Error}", key, error.InnerException?.Message ?? error.Message);
+        }
+    }
+
+    /// <summary>The work's crosswalk: each record at another provider it is linked to, and where the link came from.</summary>
+    [HttpGet("links")]
+    public async Task<IActionResult> Links(string workKey, CancellationToken ct)
+    {
+        if (linker == null) return NotFound(new { error = "Links are not available." });
+        var links = await linker.ListAsync(workKey.Trim().ToLowerInvariant(), ct);
+        return links == null ? NotFound(new { error = "This title has no saved record yet." }) : Ok(new { links });
+    }
+
+    /// <summary>The owner unlinks a record: it is never linked again, and its ids and names leave the work.</summary>
+    [HttpDelete("links/{provider}/{externalId}")]
+    public async Task<IActionResult> Unlink(string workKey, string provider, string externalId, CancellationToken ct)
+    {
+        if (linker == null) return NotFound(new { error = "Links are not available." });
+        var removed = await linker.UnlinkAsync(workKey.Trim().ToLowerInvariant(), provider.Trim().ToLowerInvariant(), externalId.Trim(), ct);
+        if (!removed) return NotFound(new { ok = false, message = "That link was not found. Reload the page and try again." });
+        return Ok(new { ok = true, links = await linker.ListAsync(workKey.Trim().ToLowerInvariant(), ct) });
     }
     [HttpGet("progress")]
     public async Task<IActionResult> Progress(string workKey, CancellationToken ct) => Ok(await titles.Progress(workKey, ct));

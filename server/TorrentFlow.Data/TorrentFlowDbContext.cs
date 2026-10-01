@@ -54,6 +54,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<Work> Works { get; set; }
 
+    public virtual DbSet<WorkLink> WorkLinks { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ReleaseAttempt>(entity =>
@@ -731,6 +733,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Format).HasColumnName("format").HasConversion<string>();
             entity.Property(e => e.OriginalLanguage).HasColumnName("originalLanguage");
             entity.Property(e => e.NamesRefreshedAt).HasColumnName("namesRefreshedAt");
+            entity.Property(e => e.LinksVersion).HasColumnName("linksVersion");
             entity.Property(e => e.CanonicalTitle).HasColumnName("canonicalTitle");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
@@ -745,6 +748,30 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnName("updatedAt");
             entity.Property(e => e.WorkKey).HasColumnName("workKey");
             entity.Property(e => e.Year).HasColumnName("year");
+        });
+
+        modelBuilder.Entity<WorkLink>(entity =>
+        {
+            entity.ToTable("WorkLink");
+
+            entity.HasIndex(e => new { e.WorkId, e.Provider, e.ExternalId }, "WorkLink_workId_provider_externalId_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.WorkId).HasColumnName("workId");
+            entity.Property(e => e.Provider).HasColumnName("provider");
+            entity.Property(e => e.ExternalId).HasColumnName("externalId");
+            entity.Property(e => e.MediaType).HasColumnName("mediaType");
+            entity.Property(e => e.Season).HasColumnName("season");
+            entity.Property(e => e.Source).HasColumnName("source");
+            entity.Property(e => e.MappingVersion).HasColumnName("mappingVersion");
+            entity.Property(e => e.Confidence).HasColumnName("confidence");
+            entity.Property(e => e.Verified).HasColumnName("verified");
+            entity.Property(e => e.Rejected).HasColumnName("rejected");
+            entity.Property(e => e.NamesJson).HasColumnName("namesJson");
+            entity.Property(e => e.CreatedAt).HasColumnType("DATETIME").HasColumnName("createdAt");
+            entity.Property(e => e.UpdatedAt).HasColumnType("DATETIME").HasColumnName("updatedAt");
+
+            entity.HasOne(d => d.Work).WithMany(p => p.Links).HasForeignKey(d => d.WorkId).OnDelete(DeleteBehavior.Cascade);
         });
 
         OnModelCreatingPartial(modelBuilder);

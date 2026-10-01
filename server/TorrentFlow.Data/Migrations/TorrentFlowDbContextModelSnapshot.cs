@@ -1594,6 +1594,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("idsJson");
 
+                    b.Property<string>("LinksVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("linksVersion");
+
                     b.Property<string>("MediaType")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1648,6 +1652,78 @@ namespace TorrentFlow.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Work", (string)null);
+                });
+
+            modelBuilder.Entity("TorrentFlow.Data.Entities.WorkLink", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("REAL")
+                        .HasColumnName("confidence");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("createdAt");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("externalId");
+
+                    b.Property<string>("MappingVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mappingVersion");
+
+                    b.Property<string>("MediaType")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mediaType");
+
+                    b.Property<string>("NamesJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("namesJson");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
+                    b.Property<bool>("Rejected")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("rejected");
+
+                    b.Property<int?>("Season")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("season");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("updatedAt");
+
+                    b.Property<bool>("Verified")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("verified");
+
+                    b.Property<string>("WorkId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "WorkId", "Provider", "ExternalId" }, "WorkLink_workId_provider_externalId_key")
+                        .IsUnique();
+
+                    b.ToTable("WorkLink", (string)null);
                 });
 
             modelBuilder.Entity("TorrentFlow.Data.Entities.AcquisitionTarget", b =>
@@ -1786,6 +1862,17 @@ namespace TorrentFlow.Data.Migrations
                     b.Navigation("Work");
                 });
 
+            modelBuilder.Entity("TorrentFlow.Data.Entities.WorkLink", b =>
+                {
+                    b.HasOne("TorrentFlow.Data.Entities.Work", "Work")
+                        .WithMany("Links")
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Work");
+                });
+
             modelBuilder.Entity("TorrentFlow.Data.Entities.User", b =>
                 {
                     b.Navigation("AcquisitionTargets");
@@ -1814,6 +1901,8 @@ namespace TorrentFlow.Data.Migrations
                     b.Navigation("DownloadHistories");
 
                     b.Navigation("EngineTorrents");
+
+                    b.Navigation("Links");
 
                     b.Navigation("WatchListItems");
                 });

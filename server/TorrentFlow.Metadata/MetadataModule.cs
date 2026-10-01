@@ -60,6 +60,12 @@ public static class MetadataModule
         services.AddSingleton<BrowseService>();
         services.AddSingleton<TitleExtrasService>();
         services.AddSingleton<AnimeFranchiseService>();
+        services.AddHttpClient(Links.AnimeListsMap.HttpClientName, c => c.Timeout = TimeSpan.FromMinutes(2)).RemoveAllLoggers();
+        services.AddSingleton<Links.AnimeListsMap>();
+        services.AddHostedService(sp => sp.GetRequiredService<Links.AnimeListsMap>());
+        services.AddSingleton<Links.WorkLinker>();
+        services.AddSingleton<IWorkLinker>(sp => sp.GetRequiredService<Links.WorkLinker>());
+        services.AddHostedService<Links.WorkLinkBackfill>();
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ISeasonShapeLookup, SeasonShapeService>());
         services.Replace(ServiceDescriptor.Singleton<IAirDateLookup, AirDateLookup>());
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Search.ISearchResultEnricher, SearchResultEnricher>());
