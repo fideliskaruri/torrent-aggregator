@@ -114,6 +114,9 @@ A higher confidence wins. A group or the script never refuses and never outweigh
 - `MULTi` is several audio tracks with an unknown default (usually the original plus French). `Dual Audio`, `DUAL`
   and `2A` are Japanese and English audio; that alone is Neutral, not Preferred, because the subtitles are unknown.
 - `English Dub` by name is a dub; the header probe confirms it after add when the file list leaves it open.
+- A language next to `Dub`/`Dubbed` is that language's dub: `Uzbek Dubbed`, `Hindi Dubbed` and `Russian Dub` are
+  foreign dubs (Fail). An unknown language-shaped word there (`-ian`, `-ish`, `-ese`, `-ek`) is a non-English dub,
+  never English. Only `English Dub` or a bare `Dubbed` reads as an English dub.
 - `RAW` is no subtitles, but `Something-Raws` is a group name (Erai-raws subtitles in English, Tsundere-Raws in French).
 - Language sets: `German DL` and `Hindi-English` are several audio tracks; `FLAC.JPN.Subs.Ita.Eng` is Japanese audio
   with Italian and English subtitles; codes next to an audio codec (`JPN AAC2.0`, `ENG-AC3`) are audio.

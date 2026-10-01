@@ -309,8 +309,9 @@ public static partial class ReleaseLanguage
         {
             if (en)
             {
-                var label = dual ? "Japanese and English audio" : f.Dub != null ? "English dub" : "English audio";
-                return Make(LanguageFit.Preferred, null, label, f, f.Dub ?? f.DualAudio ?? f.Audio.First(c => c.Language == "en"));
+                var englishDub = f.Dub?.Language == "en" ? f.Dub : null;
+                var label = dual ? "Japanese and English audio" : englishDub != null ? "English dub" : "English audio";
+                return Make(LanguageFit.Preferred, null, label, f, englishDub ?? f.DualAudio ?? f.Audio.First(c => c.Language == "en"));
             }
             if (f.DualAudio != null)
                 return Make(LanguageFit.Preferred, null, "Japanese and English audio", f, f.DualAudio);
@@ -330,8 +331,8 @@ public static partial class ReleaseLanguage
         }
         // auto: Japanese audio with English subtitles first; the English dub is the backup.
         if (en && !ja && f.DualAudio == null && f.MultiAudio == null)
-            return Make(LanguageFit.Backup, "dub", f.Dub != null ? "English dub" : "English audio", f,
-                f.Dub ?? f.Audio.First(c => c.Language == "en"));
+            return Make(LanguageFit.Backup, "dub", f.Dub?.Language == "en" ? "English dub" : "English audio", f,
+                f.Dub?.Language == "en" ? f.Dub : f.Audio.First(c => c.Language == "en"));
         if (dual)
             return subs switch
             {
@@ -843,6 +844,8 @@ public static partial class ReleaseLanguage
                 {
                     Close(i);
                     if (Adjacent(i, i + 1) && Lookup(tokens[i + 1], relaxed: true, inList: true) is { } named) { dubbed = named.Language; i++; }
+                    // "Uzbek Dubbed": a language-shaped word we do not know is some other dub, never English.
+                    else if (Previous(i) is { } before && ForeignDubWord(before)) { dubbed = "other"; guessed = true; }
                     else { dubbed = bare; guessed = bare != "en"; }
                 }
                 // A bare "Dub" in a Cyrillic name is a Russian dub, but only as a guess from the script.
@@ -891,6 +894,12 @@ public static partial class ReleaseLanguage
 
     private static bool IsDubWord(string? u) => u is "DUB" or "DUBS" or "DUBBED" or "DUBBING" or "DOPPIATO";
 
+    private static bool ForeignDubWord(string u) => u.Length >= 4 && u.All(char.IsLetter) && !NotLanguages.Contains(u)
+        && (u.EndsWith("IAN", StringComparison.Ordinal) || u.EndsWith("ISH", StringComparison.Ordinal) || u.EndsWith("ESE", StringComparison.Ordinal)
+            || u.EndsWith("EK", StringComparison.Ordinal) || u.EndsWith("AKH", StringComparison.Ordinal) || u.EndsWith("IC", StringComparison.Ordinal));
+
+    private static readonly HashSet<string> NotLanguages = new(StringComparer.Ordinal) { "CHRISTIAN", "CLASSIC", "MUSIC", "COMIC", "ANIMATED", "FANDUB" };
+
     private static bool IsAudioWord(string? u) => u is "AUDIO" or "AUD" or "AUDIOS";
 
     /// <summary>An audio codec right after a language code makes it the audio language ("JPN AAC2.0", "ENG-AC3").</summary>
@@ -931,7 +940,13 @@ public static partial class ReleaseLanguage
         ["POLISH"] = "pl", ["POLSKI"] = "pl", ["TURKISH"] = "tr", ["DUTCH"] = "nl", ["FLEMISH"] = "nl", ["SWEDISH"] = "sv",
         ["DANISH"] = "da", ["NORWEGIAN"] = "no", ["FINNISH"] = "fi", ["CZECH"] = "cs", ["HUNGARIAN"] = "hu", ["GREEK"] = "el",
         ["HEBREW"] = "he", ["UKRAINIAN"] = "uk", ["ROMANIAN"] = "ro", ["FILIPINO"] = "tl", ["TAGALOG"] = "tl", ["PERSIAN"] = "fa",
-        ["URDU"] = "ur",
+        ["URDU"] = "ur", ["FARSI"] = "fa", ["CATALAN"] = "ca", ["BULGARIAN"] = "bg", ["CROATIAN"] = "hr", ["SERBIAN"] = "sr",
+        ["SLOVENIAN"] = "sl", ["SLOVAK"] = "sk", ["LITHUANIAN"] = "lt", ["LATVIAN"] = "lv", ["ESTONIAN"] = "et", ["ICELANDIC"] = "is",
+        ["UZBEK"] = "uz", ["KAZAKH"] = "kk", ["GEORGIAN"] = "ka", ["ARMENIAN"] = "hy", ["AZERBAIJANI"] = "az", ["AZERI"] = "az",
+        ["TAJIK"] = "tg", ["KYRGYZ"] = "ky", ["TURKMEN"] = "tk", ["MONGOLIAN"] = "mn", ["BELARUSIAN"] = "be", ["ALBANIAN"] = "sq",
+        ["MACEDONIAN"] = "mk", ["BOSNIAN"] = "bs", ["PASHTO"] = "ps", ["KURDISH"] = "ku", ["NEPALI"] = "ne", ["SINHALA"] = "si",
+        ["GUJARATI"] = "gu", ["ODIA"] = "or", ["BHOJPURI"] = "bho", ["BURMESE"] = "my", ["KHMER"] = "km", ["SWAHILI"] = "sw",
+        ["AMHARIC"] = "am",
     };
 
     private static readonly Dictionary<string, string> Codes = new(StringComparer.Ordinal)
@@ -1002,7 +1017,11 @@ public static partial class ReleaseLanguage
         ["cs"] = "Czech", ["hu"] = "Hungarian", ["el"] = "Greek", ["he"] = "Hebrew", ["uk"] = "Ukrainian", ["ro"] = "Romanian",
         ["tl"] = "Filipino", ["fa"] = "Persian", ["ur"] = "Urdu", ["ca"] = "Catalan", ["bg"] = "Bulgarian", ["hr"] = "Croatian",
         ["sr"] = "Serbian", ["sl"] = "Slovenian", ["sk"] = "Slovak", ["lt"] = "Lithuanian", ["lv"] = "Latvian", ["et"] = "Estonian",
-        ["is"] = "Icelandic",
+        ["is"] = "Icelandic", ["uz"] = "Uzbek", ["kk"] = "Kazakh", ["ka"] = "Georgian", ["hy"] = "Armenian", ["az"] = "Azerbaijani",
+        ["tg"] = "Tajik", ["ky"] = "Kyrgyz", ["tk"] = "Turkmen", ["mn"] = "Mongolian", ["be"] = "Belarusian", ["sq"] = "Albanian",
+        ["mk"] = "Macedonian", ["bs"] = "Bosnian", ["ps"] = "Pashto", ["ku"] = "Kurdish", ["ne"] = "Nepali", ["si"] = "Sinhala",
+        ["gu"] = "Gujarati", ["or"] = "Odia", ["bho"] = "Bhojpuri", ["my"] = "Burmese", ["km"] = "Khmer", ["sw"] = "Swahili",
+        ["am"] = "Amharic",
     };
 
     [GeneratedRegex(@"[\p{L}\p{N}]+", RegexOptions.CultureInvariant)]
