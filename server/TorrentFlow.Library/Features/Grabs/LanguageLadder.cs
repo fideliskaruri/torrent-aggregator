@@ -3,10 +3,22 @@ using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
-/// <summary>Where one release's language puts it in the ladder: the fit, the reason code for the activity counts, and the words.</summary>
-internal sealed record LanguageCall(LanguageFit Fit, string? Code, string Label)
+/// <summary>Where one release's language puts it in the ladder: the fit, the reason code for the activity counts, the words and the basis.</summary>
+internal sealed record LanguageCall(LanguageFit Fit, string? Code, string Label, string Basis = "none")
 {
     public bool HeldBack => Fit is LanguageFit.Backup or LanguageFit.Clash;
+
+    /// <summary>"French audio (clash, name)".</summary>
+    public string Described => $"{Label} ({Fit.ToString().ToLowerInvariant()}, {Basis})";
+
+    public static LanguageCall From(LanguageVerdict verdict) => new(verdict.Fit, verdict.Code, verdict.Label, verdict.Basis);
+
+    /// <summary>The engine refused it: its file list showed this language (<see cref="TorrentFlow.Core.Contracts.Engine.EngineAddResult.Language"/>).</summary>
+    public static LanguageCall Refused(string code)
+    {
+        var label = ReleaseLanguage.ReasonLabel(code);
+        return new(LanguageFit.Clash, code, label.Length == 0 ? label : char.ToUpperInvariant(label[0]) + label[1..], "files");
+    }
 }
 
 /// <summary>
@@ -18,10 +30,17 @@ internal sealed record SendContext(string? Rung, LanguageCall? Language, bool Fa
 {
     public bool AcceptClash => Fallback || Picked;
 
-    /// <summary>The GrabJob's language column: the label, or "fallback: French audio, no Japanese release found".</summary>
+    /// <summary>
+    /// The GrabJob's language column: "Japanese audio, English subtitles (preferred, name)", or for the last-resort pass
+    /// "fallback: French audio (clash, name), no Japanese release with English subtitles found".
+    /// </summary>
     public string? Note => Language == null ? null
-        : Fallback ? $"fallback: {Language.Label}{(Missing == null ? "" : $", {Missing}")}"
-        : Picked ? $"picked by hand: {Language.Label}" : Language.Label;
+        : Fallback ? $"fallback: {Language.Described}{(Missing == null ? "" : $", {Missing}")}"
+        : Picked ? $"picked by hand: {Language.Described}" : Language.Described;
+
+    /// <summary>The note plus what the engine's file-list check found, when it disagreed (<c>files: French audio</c>).</summary>
+    public string? NoteWith(string? filesCode) => filesCode == null ? Note
+        : $"{(Note == null ? "" : $"{Note}; ")}files: {ReleaseLanguage.ReasonLabel(filesCode)}";
 
     public static string RungLabel(LadderRung rung) => $"{rung.Kind}: {rung.Query}";
 }

@@ -61,7 +61,11 @@ public sealed partial class GrabService
             // The caller's single-release size limit applies to each chosen file, never to the whole pack.
             if (map.Ok && input.Constraints?.MaxSizeBytes is { } max)
                 map = map with { Episodes = map.Episodes.Where(e => files[e.Value].Length <= max).ToDictionary() };
-            var call = Judge(input, candidate);
+            // A pack stands in for every missing episode, so each mapped file is judged with its own subtitle and audio
+            // files, and the worst one is the pack's call (docs/release-language.md).
+            var paths = files.Select(f => f.Path).ToList();
+            var call = map.Episodes.Values.Select(index => Judge(input, candidate, ReleaseLanguage.WithSidecars(files[index].Path, paths,
+                map.Episodes.Count == 1))).Prepend(Judge(input, candidate)).MaxBy(c => c.Fit)!;
             logger?.LogInformation("Season pack {Title} ({Hash}): {Mapped} of {Missing} missing episodes map; {Language}; {Rejection} {Notes}",
                 candidate.Title, inspected.Hash, map.Episodes.Count, targets.Count, call.Label, map.Rejection ?? "", string.Join("; ", map.Notes.Take(8)));
             if (!map.Ok || map.Episodes.Count == 0) { notes.Add($"{candidate.Title}: {map.Rejection ?? "no_episodes"}"); continue; }

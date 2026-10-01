@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
@@ -36,6 +37,10 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static readonly GrabFailure BadRelease = new("bad_release",
         "The release we picked had a program file or no video in it.", PickYourself)
         { Brief = "had only unsafe or fake releases" };
+    /// <summary>The engine's file-list check found the wrong audio. It passes: the wanted queue keeps looking (docs/release-language.md).</summary>
+    public static readonly GrabFailure WrongLanguage = new("audio_language",
+        "The release we picked turned out to be in another language.",
+        "We'll keep looking. You can also pick a release yourself.") { Brief = "had releases only in another language" };
     public static readonly GrabFailure Unknown = new("download_failed",
         "The download could not be started.",
         "Try again. If it keeps failing, pick a release yourself.");
@@ -95,7 +100,7 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
         "unknown_quality" => "with no quality in the name",
         "no_link" => "with no download link",
         "no_seeders" => "with no seeders",
-        "dub" => "English dub",
+        _ when ReleaseLanguage.IsReason(reason) => ReleaseLanguage.ReasonLabel(reason),
         "unsafe" => "unsafe files",
         "query_filter" => "filtered out by the search",
         "send_failed" => "that failed to start",

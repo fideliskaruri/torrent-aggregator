@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -66,6 +67,7 @@ public sealed class SettingsClientController(
             ["setupComplete"] = hasFolder && cap is > 0,
             ["verboseDiagnostics"] = s.VerboseDiagnostics == true,
             ["preferredResolution"] = s.PreferredResolution is { } r && SelectableResolutions.Contains(r) ? r : DefaultResolution,
+            ["audioLanguage"] = ReleaseLanguage.NormalizePreference(s.AudioLanguage) ?? ReleaseLanguage.Auto,
             ["automationIntervalMinutes"] = s.AutomationIntervalMinutes is { } m && AutomationIntervals.Contains(m) ? m : 0,
             ["maxActiveDownloads"] = s.MaxActiveDownloads is >= DownloadLimits.MinActiveDownloads and <= DownloadLimits.MaxActiveDownloads
                 ? s.MaxActiveDownloads : DefaultMaxActive(),
@@ -223,6 +225,12 @@ public sealed class SettingsClientController(
         {
             var m = body.Num("automationIntervalMinutes") ?? 0;
             row.AutomationIntervalMinutes = (int)m;
+        }
+        // auto, english or any (docs/release-language.md); auto is stored as null.
+        if (body.Has("audioLanguage"))
+        {
+            var preference = body.IsNull("audioLanguage") ? null : ReleaseLanguage.NormalizePreference(body.Str("audioLanguage"));
+            row.AudioLanguage = preference is null or ReleaseLanguage.Auto ? null : preference;
         }
         var capChanged = false;
         if (body.Has("maxActiveDownloads"))

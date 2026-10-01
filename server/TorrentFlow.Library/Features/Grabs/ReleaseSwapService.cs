@@ -92,7 +92,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
                 Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit, Enrich = false, SkipCache = true,
                 TargetResolution = floor, Filters = rung.Filters, Sources = source is null ? null : [source] }, ct);
             sources.AddRange(response.Sources);
-            selected = Select(response.Results.Where(r => AnimeAudio.Allowed(r.Title, mediaType, options?.Value.PreferAnimeDub == true)),
+            selected = Select(response.Results,
                 workKey, title, cursor, episode.IsSeasonPack ? episode.Season : null, floor, tried, aliases, mapping);
             if (selected.Count > 0) break;
         }

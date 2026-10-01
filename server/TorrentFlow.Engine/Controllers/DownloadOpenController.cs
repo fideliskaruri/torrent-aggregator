@@ -62,7 +62,7 @@ public sealed partial class DownloadOpenController(ClientSettingsStore store, To
         // A failed row's own error already says why and what to do (delete it, or press Retry to check it again).
         if (string.Equals(row.Status, EngineTorrentStatus.Error, StringComparison.OrdinalIgnoreCase))
             return Refuse(409, "not-finished", "This download failed, so there's nothing to open.",
-                string.IsNullOrWhiteSpace(row.Error) ? "Delete it, or find another release." : row.Error);
+                string.IsNullOrWhiteSpace(row.Error) ? "Delete it, or find another source." : row.Error);
         if (!TorrentEngineService.IsDownloaded(row))
             return Refuse(409, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
 

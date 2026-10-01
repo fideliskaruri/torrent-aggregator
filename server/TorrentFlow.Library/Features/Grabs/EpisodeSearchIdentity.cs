@@ -42,9 +42,7 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
                 {
                     // Requests and automation carry no page aliases; the provider's own names are the same ones the title page sends.
                     if (existing.Count == 0) existing = UniqueNames(catalog.Aliases ?? [], title);
-                    var isAnime = catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
-                        catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true;
-                    known = (isAnime ? "anime" : known.Item1, existing);
+                    known = (IsAnime(catalog) ? "anime" : known.Item1, existing);
                 }
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
@@ -56,6 +54,11 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
             new[] { c.Title }.Concat(c.Aliases ?? []).Any(name => EpisodeLadder.NormalizeTitle(name) == wanted));
         return anime == null ? known : ("anime", UniqueNames(new[] { anime.Title }.Concat(anime.Aliases ?? []).ToList(), title));
     }
+
+    /// <summary>A catalog entry that is anime: AniList's own type, an Anime genre, or Japanese animation on TMDB.</summary>
+    internal static bool IsAnime(MediaMetadata catalog) =>
+        catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
+        catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true;
 
     internal static List<string> UniqueNames(IReadOnlyList<string> names, string canonicalTitle)
     {

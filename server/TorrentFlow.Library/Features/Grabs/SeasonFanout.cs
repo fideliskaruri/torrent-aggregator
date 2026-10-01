@@ -40,6 +40,9 @@ public sealed record GrabResult(bool Ok, string Message)
     /// </summary>
     [JsonIgnore]
     public bool RealMiss { get; init; }
+    /// <summary>The engine refused this release for its language (a reason code, audio_fr); the ladder holds it for the last-resort pass.</summary>
+    [JsonIgnore]
+    public string? LanguageRefusal { get; init; }
 }
 public sealed record SeasonFanoutResult(IReadOnlyList<EpisodeTransfer> Transfers, IReadOnlyList<int> CoveredEpisodes, object? Storage);
 

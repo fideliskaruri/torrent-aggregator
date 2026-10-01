@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TorrentFlow.Core;
 
 namespace TorrentFlow.Engine.Controllers;
 
@@ -32,6 +33,9 @@ internal static class SettingsInput
                 return new($"{name} must be one of: {string.Join(", ", choices)}", name);
         if (body.Str("externalClientType") is { } ext && ext.Trim() is not ("" or "none" or "qbittorrent" or "transmission"))
             return new("Invalid externalClientType", "externalClientType");
+        if (body.TryGetProperty("audioLanguage", out var audio) && audio.ValueKind != JsonValueKind.Null &&
+            (audio.ValueKind != JsonValueKind.String || ReleaseLanguage.NormalizePreference(audio.GetString()) is null))
+            return new("Choose one of the audio language options.", "audioLanguage");
         if (body.Str("host")?.Trim() is { Length: > 0 } host)
         {
             if (!Uri.TryCreate(host, UriKind.Absolute, out var uri)) return new("host must be a valid URL", "host");

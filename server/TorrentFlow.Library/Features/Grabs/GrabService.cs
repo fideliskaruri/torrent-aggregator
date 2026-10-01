@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -20,7 +22,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, LanguageWant? Language = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -44,9 +46,11 @@ public sealed class RungDiagnostic
 
 public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
-    EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null)
+    EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null, IMetadataResolver? metadata = null)
 {
     private readonly object episodeGate = new();
+    /// <summary>A TMDB title's original language and anime call, kept for the life of the process.</summary>
+    private readonly ConcurrentDictionary<string, (string? Original, bool Anime)> catalogLanguages = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<GrabResult>> episodeFlights = [];
 
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
@@ -114,9 +118,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
             Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
+        var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
         if (input.Cursor != null)
         {
-            var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
             IReadOnlyList<string> savedAliases = [];
             try { savedAliases = JsonSerializer.Deserialize<string[]>(work?.AliasesJson ?? "[]") ?? []; }
             catch (JsonException) { }
@@ -152,8 +156,44 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                     s.SetProperty(w => w.AliasesJson, aliasesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
             }
         }
+        input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.MediaType, input.Provider ?? work?.Provider,
+            input.ProviderId ?? work?.ProviderId, ct) };
         int? floor = input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
         return (input, settings, floor, null);
+    }
+
+    /// <summary>
+    /// What the owner wants to hear for a title (docs/release-language.md): the audio language setting, whether it is
+    /// anime, and for a TMDB title its original language, which is the backup outside anime. A failed lookup leaves the
+    /// original language unknown and is tried again next time.
+    /// </summary>
+    internal async Task<LanguageWant> LanguageWantAsync(string? preference, string? mediaType, string? provider, string? providerId,
+        CancellationToken ct)
+    {
+        var type = mediaType;
+        string? original = null;
+        if (!string.Equals(mediaType, "anime", StringComparison.OrdinalIgnoreCase) && metadata != null &&
+            string.Equals(provider, "tmdb", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(providerId))
+        {
+            var kind = string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase) ? "movie" : "tv";
+            var key = $"{kind}:{providerId}";
+            if (!catalogLanguages.TryGetValue(key, out var known))
+            {
+                try
+                {
+                    var catalog = await metadata.GetByIdAsync("tmdb", kind, providerId, ct);
+                    known = (catalog?.OriginalLanguage, catalog != null && EpisodeSearchIdentity.IsAnime(catalog));
+                    catalogLanguages[key] = known;
+                }
+                catch (Exception error) when (!ct.IsCancellationRequested)
+                {
+                    logger?.LogDebug(error, "Original language lookup failed for {Kind} {Id}", kind, providerId);
+                }
+            }
+            original = known.Original;
+            if (known.Anime) type = "anime";
+        }
+        return LanguageWant.For(preference, type, original);
     }
 
     /// <summary>
@@ -228,7 +268,10 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 if (result.Ok) return result;
                 if (result.Storage != null || result.Failure?.Code == "download_folder") return result;
                 var key = EpisodeLadder.CandidateKey(candidate);
-                rungCandidates[key] = decisions[key] = new(candidate.Title, candidate.Source, ["send_failed"]);
+                // Its file list showed the wrong audio: it joins the clashes, so the last-resort pass can still send it.
+                if (result.LanguageRefusal is { } refusedFor)
+                    hold.Add(candidate, LanguageCall.Refused(refusedFor), SendContext.RungLabel(rung), rung.Relaxed, confirmed: true);
+                rungCandidates[key] = decisions[key] = new(candidate.Title, candidate.Source, [result.LanguageRefusal ?? "send_failed"]);
                 diagnostic.Candidates = rungCandidates.Values.ToArray();
                 // One bad pick no longer ends the attempt: fall through to the next candidate, then the next rung.
                 lastFailure = result;
@@ -331,23 +374,21 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>
-    /// The language call for one release under the owner's want (docs/release-language.md). For anime a dubbed name
-    /// is a backup and a subbed or dual audio name is preferred; everything else is neutral.
+    /// The language call for one release under the owner's want: <see cref="ReleaseLanguage"/> over its name, the search
+    /// site's category and, when known, its files (docs/release-language.md).
     /// </summary>
-    private LanguageCall Judge(GrabInput input, TorrentResult release)
-    {
-        if (input.MediaType != "anime") return NeutralCall;
-        var preferDub = automationOptions.Value.PreferAnimeDub;
-        if (!AnimeAudio.Allowed(release.Title, input.MediaType, preferDub)) return new(LanguageFit.Backup, "dub", "English dub");
-        return AnimeAudio.Preference(release.Title, preferDub) == 0
-            ? new(LanguageFit.Preferred, null, preferDub ? "English audio" : "Subtitled") : NeutralCall;
-    }
+    private static LanguageCall Judge(GrabInput input, TorrentResult release, IEnumerable<string>? files = null) =>
+        LanguageCall.From(ReleaseLanguage.Verdict(WantOf(input), release.Title, release.Category, files));
 
-    private static readonly LanguageCall NeutralCall = new(LanguageFit.Neutral, null, "Language not stated");
+    private static LanguageWant WantOf(GrabInput input) => input.Language ?? LanguageWant.For(null, input.MediaType, null);
 
     /// <summary>What a fallback stands in for, in the GrabJob's language note.</summary>
-    private string MissingLanguage(GrabInput input) =>
-        input.MediaType == "anime" && !automationOptions.Value.PreferAnimeDub ? "no subtitled release found" : "no preferred release found";
+    private static string MissingLanguage(GrabInput input) => WantOf(input) switch
+    {
+        { Preference: ReleaseLanguage.English } => "no English audio release found",
+        { Anime: true } => "no Japanese release with English subtitles found",
+        _ => "no English release found"
+    };
 
     private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
         && input.EpisodeMapping is not { IsSequel: true }
@@ -373,27 +414,29 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         GrabResult? lastFailure = null;
         var rung = $"film: {title}";
         // Backups and clashes wait until every preferred or neutral release has been tried (docs/release-language.md).
-        var held = new List<(TorrentResult Release, LanguageCall Call)>();
+        var hold = new LanguageHold();
         while (FilmSelection.Select(releases, key, floor) is { } candidate)
         {
             releases.Remove(candidate);
             var call = Judge(input, candidate);
-            if (call.HeldBack) { held.Add((candidate, call)); continue; }
+            if (call.HeldBack) { hold.Add(candidate, call, rung, relaxed: false); continue; }
             if (input.Background && await BackgroundPolicy(db, settings, input, title, candidate, ct) is { } waiting)
                 return waiting;
             var result = await Send(db, settings, input, title, candidate, beforeSend, false, ct, context: new(rung, call));
             if (result.Ok) return result;
+            if (result.LanguageRefusal is { } refusedFor)
+                hold.Add(candidate, LanguageCall.Refused(refusedFor), rung, relaxed: false, confirmed: true);
             lastFailure = result;
         }
-        foreach (var (candidate, call) in held.OrderBy(h => h.Call.Fit))
+        foreach (var held in hold.Ordered())
         {
-            if (input.Background && await BackgroundPolicy(db, settings, input, title, candidate, ct) is { } waiting)
+            if (input.Background && await BackgroundPolicy(db, settings, input, title, held.Release, ct) is { } waiting)
                 return waiting;
-            var result = await Send(db, settings, input, title, candidate, beforeSend, false, ct,
-                context: new(rung, call, Fallback: true, Missing: MissingLanguage(input)));
+            var result = await Send(db, settings, input, title, held.Release, beforeSend, false, ct,
+                context: new(rung, held.Call, Fallback: true, Missing: MissingLanguage(input)));
             if (result.Ok)
             {
-                logger?.LogInformation("Film {Title}: sent a language fallback, {Language}: {Release}", title, call.Label, candidate.Title);
+                logger?.LogInformation("Film {Title}: sent a language fallback, {Language}: {Release}", title, held.Call.Label, held.Release.Title);
                 return result;
             }
             lastFailure = result;
@@ -465,6 +508,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = TorrentPurpose.Keep,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
+                SourceCategory = candidate.Category,
+                Language = new EngineLanguageCheck(WantOf(input), context?.Language?.Fit, context?.Language?.Label, context?.AcceptClash ?? false),
                 Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
                 QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
@@ -479,7 +524,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         db.GrabJobs.Add(new GrabJob { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Query = query,
             Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, InfoHash = hash,
             Source = candidate.Source, Kind = input.Background ? "library" : "ondemand", ExternalId = input.WatchListItemId, Retention = "keep",
-            Rung = context?.Rung, Language = context?.Note, CreatedAt = now, UpdatedAt = now });
+            Rung = context?.Rung, Language = context?.NoteWith(result.Language), CreatedAt = now, UpdatedAt = now });
         db.DownloadHistories.Add(new DownloadHistory { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title,
             Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
             InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = "keep", Context = "ondemand",
@@ -498,18 +543,20 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         {
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
                 pack?.ReserveBytes ?? candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
+            var refusedFor = result.Unusable == "audio_language" ? result.Language ?? "audio_other" : null;
             var failure = storage != null ? GrabFailure.Storage
+                : refusedFor != null ? GrabFailure.WrongLanguage
                 : result.Unusable != null ? GrabFailure.BadRelease
                 : result.InvalidField == "savePath" ? new GrabFailure("download_folder", "The download folder cannot be used.",
                     "Choose a writable download folder in Settings, then retry.")
                 : result.Message.Contains("file list", StringComparison.OrdinalIgnoreCase)
                     ? candidate.Seeders <= 0
                         ? new GrabFailure("no_seeders", "The available releases have no seeders and supplied no file list.",
-                            "Retry later when seeders are online, or choose another release.")
+                            "Retry later when seeders are online, or find another source.")
                         : GrabFailure.Metadata
                     : GrabFailure.Unknown;
             return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet,
-                Source = candidate.Source, Storage = storage, Failure = failure };
+                Source = candidate.Source, Storage = storage, Failure = failure, LanguageRefusal = refusedFor };
         }
         // Honestly label the provenance when the ladder had to relax to win.
         var notes = new List<string>();

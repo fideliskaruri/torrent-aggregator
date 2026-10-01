@@ -237,7 +237,7 @@ internal sealed partial class MonoTorrentBackend : ITorrentBackend, IAsyncDispos
             {
                 await RemoveAsync(spec.Hash);
                 return new BackendAddOutcome(false,
-                    "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.");
+                    "Timed out waiting for torrent metadata (no peers / blocked DHT?). Find another source, or check the network.");
             }
             if (spec.FlattenWrapper && spec.FilePaths is null)
             {
