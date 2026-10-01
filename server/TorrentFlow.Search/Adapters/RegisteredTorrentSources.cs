@@ -15,7 +15,7 @@ public sealed class RegisteredTorrentSources(IServiceProvider services, SourceRe
         ["archive"] = typeof(ArchiveAdapter), ["torznab"] = typeof(TorznabAdapter),
         ["knaben"] = typeof(KnabenAdapter), ["bitsearch"] = typeof(BitSearchAdapter), ["limetorrents"] = typeof(LimeTorrentsAdapter),
         ["torrentdownloads"] = typeof(TorrentDownloadsAdapter), ["animetosho"] = typeof(AnimeToshoAdapter),
-        ["subsplease"] = typeof(SubsPleaseAdapter),
+        ["subsplease"] = typeof(SubsPleaseAdapter), ["therarbg"] = typeof(TheRarbgAdapter),
     };
     public IReadOnlyList<ITorrentSourceAdapter> For(string category) => registry.Active("torrent", category)
         .Select(e => (ITorrentSourceAdapter)new Registered(e, services)).ToArray();
