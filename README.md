@@ -1,6 +1,6 @@
 # TorrentFlow
 
-**A media-first torrent app for finding, tracking, downloading, and streaming titles.**
+**A media-first torrent app for finding, tracking, and downloading titles.**
 
 ## Install on Windows (one command)
 
@@ -17,8 +17,9 @@ app, keeping the old folder as a backup. Add `-Yes` to accept every default. Det
 [docs/windows-install.md](docs/windows-install.md#install-from-source-one-command).
 
 TorrentFlow turns torrent discovery into a title-first experience: search for a film, series,
-or anime, open its title page, then choose **Play** or **Download**. Torrent details stay behind
-the scenes while the app manages acquisition, playback, local files, and library state.
+or anime, open its title page, then choose **Download**. A finished file opens in your own player.
+Torrent details stay behind the scenes while the app manages acquisition, local files, and library
+state. There is no in-app playback or streaming.
 
 > **Local app:** TorrentFlow is designed for a single-user local installation.
 > The owner runs the development server on port `3000`; agents and automation must only read
@@ -29,10 +30,10 @@ the scenes while the app manages acquisition, playback, local files, and library
 | Area | What it provides |
 | --- | --- |
 | Discovery | Search and browse films, series, and anime |
-| Title pages | Seasons, episodes, releases, playback, and downloads |
+| Title pages | Seasons, episodes, releases, and downloads |
 | Acquisition | Per-episode and film downloads with quality-aware selection |
-| Playback | Local-file and WebTorrent-backed streaming |
-| Library | Progress, history, retention, storage limits, and watch state |
+| Finished files | Open in your own player, or show in the file manager |
+| Library | Progress, history, and storage limits |
 | Operations | EF Core SQLite migrations, diagnostics, automation, and CI validation |
 
 ## Run from source

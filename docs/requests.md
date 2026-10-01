@@ -14,8 +14,7 @@ actions and pages you see. The SPA reads `role` from `GET /api/me` and turns it 
 | --- | --- | --- |
 | `canDownload` (Download, Download season, quality) | yes | no |
 | `canManage` (Settings, Rules, automation, delete, Add to library) | yes | no |
-| `canStream` (Play, stream URLs, watched progress) | yes | no |
-| `canSeePaths` (file paths, open folder, raw release names) | yes | no |
+| `canSeePaths` (file paths, Open, Show in folder, raw release names) | yes | no |
 | `canSeeTransfers` (speed, peers, per-episode progress) | yes | no |
 | `canReviewRequests` (approve, decline, auto-approve) | yes | no |
 | `canSeeUpcoming` | yes | no |
@@ -25,12 +24,12 @@ actions and pages you see. The SPA reads `role` from `GET /api/me` and turns it 
   Browse, Library, Notifications (Alerts on mobile), Requests and the search box. Downloads, Upcoming,
   Settings and the share target are hidden, and opening one of those routes directly shows
   "Not available" with a way back to Browse (one guard in the router).
-- **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season
-  / Play, a requester has **Request** in the same place. Series open the request dialog (whole series or
+- **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season,
+  a requester has **Request** in the same place. Series open the request dialog (whole series or
   specific seasons, plus an optional note). After sending, the button reads **Requested**; later states
   are "Approved", "Available" (already in the library) or "Declined" with a way to ask again.
 - **Library** (`/watchlist`) is the owner's Library page, read-only: it is fed from
-  `GET /api/requester/library` and has no delete, paths, folders, playback or automation.
+  `GET /api/requester/library` and has no delete, paths, folders or automation.
 - **Requests** (`/requests`) is one page. The owner sees the inbox of everyone's requests; a requester
   sees their own, with **Cancel request** while it is pending.
 
@@ -87,8 +86,8 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
   (`WorkSearchService`). `q` is required, at most 200 characters. Returns `{ results, partial }`; each
   result has `key`, `title`, `year`, `mediaType`, `isSeries`, `format`, `category`, `provider`,
   `providerId`, `posterUrl`, `overview`, `releaseDate`, `inLibrary`, and the caller's own open
-  `requestStatus`/`requestId` for that title. No file paths, magnets, torrents, indexer data or playback
-  progress. A catalog failure is 502 `search_failed` without the cause.
+  `requestStatus`/`requestId` for that title. No file paths, magnets, torrents or indexer data. A catalog
+  failure is 502 `search_failed` without the cause.
 - `GET /seasons?provider=&providerId=&mediaType=&title=&year=` — `{ seasons }`, the catalog's season numbers
   (1–500, sorted, distinct, at most 100). A catalog failure is 502 `seasons_failed` without the cause.
 - `GET /requests` — `{ requests }`, the caller's own requests, newest first (at most 200).
