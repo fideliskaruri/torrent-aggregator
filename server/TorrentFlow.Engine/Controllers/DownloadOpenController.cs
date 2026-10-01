@@ -59,7 +59,11 @@ public sealed partial class DownloadOpenController(ClientSettingsStore store, To
         var row = await db.EngineTorrents.AsNoTracking()
             .FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash && r.Status != EngineTorrentStatus.Removed, ct);
         if (row is null) return Refuse(404, "not-found", "That download is no longer in TorrentFlow.", "Reload the page.");
-        if (!TorrentEngineService.IsDownloaded(row) || string.Equals(row.Status, EngineTorrentStatus.Error, StringComparison.OrdinalIgnoreCase))
+        // A failed row's own error already says why and what to do (delete it, or press Retry to check it again).
+        if (string.Equals(row.Status, EngineTorrentStatus.Error, StringComparison.OrdinalIgnoreCase))
+            return Refuse(409, "not-finished", "This download failed, so there's nothing to open.",
+                string.IsNullOrWhiteSpace(row.Error) ? "Delete it, or find another release." : row.Error);
+        if (!TorrentEngineService.IsDownloaded(row))
             return Refuse(409, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
 
         var video = TorrentEngineService.VerifiedFiles(row)
