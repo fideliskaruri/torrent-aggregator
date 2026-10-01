@@ -6,6 +6,8 @@ namespace TorrentFlow.Core.Contracts.Metadata;
 /// Owner's rule, in order: metadata from an anime source (AniList, Kitsu, MyAnimeList, AniDB, an anime Cinemeta addon,
 /// or a nyaa anime category) is anime, with no other check. Only metadata from TMDB or Cinemeta falls back to the
 /// genres: an "Anime" genre, or Animation made in Japan (TMDB original language ja and genre 16).
+/// A catalog work stores the answer (<c>Work.Anime</c>) and is read through <see cref="WorkKinds"/>; a title search in
+/// the anime catalog or a release's site category never changes it.
 /// </summary>
 public static class AnimeIdentity
 {
@@ -31,9 +33,14 @@ public static class AnimeIdentity
     private static bool IsGenreSource(string? source) =>
         string.Equals(source, "tmdb", StringComparison.OrdinalIgnoreCase) || string.Equals(source, "cinemeta", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Made in Japan: original language Japanese, or, when the language is unknown, Japan named first among the origin
+    /// countries. A co-production that only lists Japan later (Cinemeta's WALL·E: "United States, Japan") is not.
+    /// </summary>
     private static bool Japanese(MediaMetadata metadata) =>
-        string.Equals(metadata.OriginalLanguage, "ja", StringComparison.OrdinalIgnoreCase)
-        || (metadata.OriginCountry?.Any(c => c.Equals("JP", StringComparison.OrdinalIgnoreCase) || c.Equals("Japan", StringComparison.OrdinalIgnoreCase)) ?? false);
+        WorkFormats.Language(metadata.OriginalLanguage) is { } language ? language == "ja"
+        : metadata.OriginCountry is [var origin, ..] && origin.Trim() is var first
+            && (first.Equals("JP", StringComparison.OrdinalIgnoreCase) || first.Equals("Japan", StringComparison.OrdinalIgnoreCase));
 
     private static bool HasGenre(IReadOnlyList<string>? genres, string genre) =>
         genres?.Any(g => g.Equals(genre, StringComparison.OrdinalIgnoreCase)) ?? false;
