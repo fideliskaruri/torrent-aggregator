@@ -126,11 +126,12 @@ export function LookingSection() {
                 {g.label ? <span className="text-subtle-foreground font-normal"> · {g.label}</span> : null}
               </Link>
               <p className="text-[12px] text-subtle-foreground" data-looking-state={g.waitingForEnglish ? "waiting_english" : undefined}>
-                {g.looking
-                  ? "Looking for a release"
-                  : g.waitingForEnglish
-                    ? `${WAITING_FOR_ENGLISH_LABEL}. ${nextTry(g.nextAttemptAt)}.`
+                {g.waitingForEnglish
+                  ? `${WAITING_FOR_ENGLISH_LABEL}. ${g.looking ? "Looking again now" : nextTry(g.nextAttemptAt)}.`
+                  : g.looking
+                    ? "Looking for a release"
                     : `Not found yet. ${nextTry(g.nextAttemptAt)}.`}
+
               </p>
               {!g.looking && !g.waitingForEnglish && g.why ? (
                 <p className="text-[12px] text-subtle-foreground line-clamp-2">{g.why}</p>

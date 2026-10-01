@@ -337,8 +337,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var detail = memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
             ? "no search sites turned on" : GrabFailure.Explain(memo.Values.SelectMany(r => r.Sources), decisions.Values, floor);
         failure = failure with { Detail = detail };
-        // Releases exist but none has English: wait for one, never send them (the owner's rule).
-        if (searchFailure == null && lastFailure == null && hold.WaitingForEnglish) failure = GrabFailure.NoEnglish with { Detail = detail };
+        // Releases exist but none with English could go: wait for one, never send the rest (the owner's rule).
+        var noEnglish = searchFailure == null && hold.WaitingForEnglish;
+        if (noEnglish) failure = GrabFailure.NoEnglish with { Detail = detail };
         var message = failure.Sentence;
         logger?.LogInformation("Episode not found {Title} {Episode}: {Detail}", input.Title, cursor.Label, detail);
         // A language hold or refusal is never a real miss: the release exists, so the season pack fallback must not count it.
@@ -347,7 +348,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
             await LogSkip(db, input, query, WithDetail(message, detail), ct);
             return lastFailure with { Message = message, NoReleaseFound = Report("send_failed"),
-                Failure = (lastFailure.Failure ?? failure) with { Detail = detail },
+                Failure = noEnglish ? failure : (lastFailure.Failure ?? failure) with { Detail = detail },
                 RealMiss = !languageHeld && !searchFailed && searchFailure == null && allSendsWithoutFileList };
         }
         await LogSkip(db, input, query, WithDetail(message, detail), ct);
@@ -464,8 +465,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             }
             lastFailure = result;
         }
-        if (lastFailure != null) return lastFailure;
+        if (lastFailure != null && (lastFailure.Storage != null || !hold.WaitingForEnglish)) return lastFailure;
         if (Stopping) throw new ShuttingDownException(ct);
+
         var summary = FilmSelection.Summarize(response.Results, key, floor);
         var failure = FilmSelection.NoMatch(title, floor, response.Sources, summary) with { Detail = FilmSelection.Explain(response.Sources, summary, floor) };
         // Releases exist but none has English: wait for one, never send them (the owner's rule).

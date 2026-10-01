@@ -103,6 +103,10 @@ internal sealed class LanguageHold
     /// <summary>The Unknown releases to send, best seeded first, or none when a healthy Pass release exists.</summary>
     public IEnumerable<Held> Sendable() => HealthyPass ? [] : held.OrderByDescending(h => h.Release.Seeders >= HealthySeeders).ToList();
 
-    /// <summary>Nothing with English could be sent: every match failed the rule, or the Unknown ones were not allowed.</summary>
-    public bool WaitingForEnglish => !TriedPass && held.Count == 0 && failed.Count > 0;
+    /// <summary>
+    /// Asked only when nothing was sent: releases without English turned up, and every English or Unknown one was not
+    /// allowed or failed to start. The pick waits for an English release.
+    /// </summary>
+    public bool WaitingForEnglish => failed.Count > 0;
+
 }
