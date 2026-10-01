@@ -1,4 +1,3 @@
-import { toast } from "@/lib/toast";
 
 /** Local loopback hosts where browsers allow SW over plain http. */
 export function isSwAllowedHost(hostname: string): boolean {
@@ -22,12 +21,8 @@ export function registerServiceWorker(): void {
   }
 
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
-    console.error("[pwa] Service worker registration failed", error);
-    toast.error("Install support unavailable", {
-      description:
-        error instanceof Error
-          ? error.message
-          : "The service worker could not be registered.",
-    });
+    // Installing is optional and everything else works without it, so a
+    // failure stays in the console; the browser's own error text is never shown.
+    console.warn("[pwa] Service worker registration failed; install is unavailable", error);
   });
 }

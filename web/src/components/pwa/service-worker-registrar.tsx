@@ -34,11 +34,10 @@ export function ServiceWorkerRegistrar() {
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
       if (cancelled) return;
       console.error("[pwa] Service worker registration failed", error);
-      toast.error("Install support unavailable", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "The service worker could not be registered.",
+      // The browser's own error text means nothing to a reader; say what it
+      // costs them and what to try.
+      toast.error("Installing the app isn't available right now", {
+        description: "Everything else works. Reload the page to try again.",
       });
     });
 
