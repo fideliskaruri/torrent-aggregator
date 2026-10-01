@@ -13,7 +13,7 @@
  * live in `page.tsx` — so a notification link can open it on the right season
  * and a snapshot that drops the series can close it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
@@ -103,6 +103,8 @@ export interface SeriesDownloadDialogProps {
   /** The page's own multi-select set — shared, not a second selection model. */
   selected: Set<string>;
   onToggleSelect: (hash: string, additive: boolean) => void;
+  /** Checks every one of these, or clears them when all are already checked. */
+  onToggleManySelect: (transferIds: string[]) => void;
   /** The episode a notification's "View details" pointed at, if any. */
   highlightedTransferId?: string | null;
   openingHash: string | null;
@@ -635,6 +637,7 @@ export function SeriesDownloadDialog({
   onSelectSeason,
   selected,
   onToggleSelect,
+  onToggleManySelect,
   highlightedTransferId = null,
   openingHash,
   onAction,
@@ -649,6 +652,7 @@ export function SeriesDownloadDialog({
     () => group?.seasons.find((season) => season.key === selectedSeasonKey) ?? null,
     [group, selectedSeasonKey],
   );
+  const selectAllId = useId();
 
   // Scoped to this series so Pause/Resume/Delete act only on what is checked
   // under this show, even though the checkboxes write into the page's one
@@ -676,6 +680,14 @@ export function SeriesDownloadDialog({
   const chip = rollupChip(group);
   const headerBarTone = chip.failing ? "bg-destructive" : barTone(group.state);
   const showBar = showsProgressBar(group);
+  const seasonIds = selectedSeason?.entries.map((entry) => entry.torrent.transferId) ?? [];
+  const seasonCheckedCount = seasonIds.filter((transferId) => selected.has(transferId)).length;
+  const seasonChecked =
+    seasonIds.length > 0 && seasonCheckedCount === seasonIds.length
+      ? true
+      : seasonCheckedCount > 0
+        ? ("indeterminate" as const)
+        : false;
   // No bulk swap endpoint exists yet (see docs/todo-list.md), so the header
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
@@ -886,6 +898,31 @@ export function SeriesDownloadDialog({
           }
         >
           {selectedSeason ? (
+            <>
+            {/*
+              In the panel, not on the tab: a checkbox inside role="tab" breaks
+              the rail's arrow keys, and phones pick seasons from a Select.
+            */}
+            <div
+              className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
+              data-season-select-all-row
+            >
+              <Checkbox
+                id={selectAllId}
+                checked={seasonChecked}
+                onCheckedChange={() => onToggleManySelect(seasonIds)}
+                aria-label={`Select all episodes in ${seasonLabelFor(selectedSeason)}`}
+                data-season-select-all={
+                  seasonChecked === "indeterminate" ? "some" : seasonChecked ? "all" : "none"
+                }
+              />
+              <label
+                htmlFor={selectAllId}
+                className="cursor-pointer select-none text-[13px] text-muted-foreground"
+              >
+                Select all ({seasonIds.length})
+              </label>
+            </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {selectedSeason.entries.map((entry) => (
                 <EpisodeCard
@@ -905,6 +942,7 @@ export function SeriesDownloadDialog({
                 />
               ))}
             </div>
+            </>
           ) : (
             <p className="px-1 py-8 text-center text-[13px] text-subtle-foreground">
               No seasons to show.

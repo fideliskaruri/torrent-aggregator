@@ -1048,11 +1048,10 @@ export default function ClientPage() {
   }
 
   /**
-   * A group's checkbox selects everything under it.
-   *
-   * All-or-nothing rather than a tri-state: the checkbox exists so the bulk
-   * bar's Pause, Resume and Delete can act on a whole show at once, and a
-   * half-selected show would make "Delete" ambiguous about what it is deleting.
+   * Checks every one of these, or clears them when all are already checked:
+   * a series row's checkbox and a season's "Select all" in the series dialog.
+   * Both show a dash while only some are checked, and a click then checks the
+   * rest. The bulk bar counts what is checked and Delete still confirms it.
    */
   function toggleGroupSelect(transferIds: string[]) {
     setSelected((prev) => {
@@ -1735,6 +1734,7 @@ export default function ClientPage() {
           onSelectSeason={setSelectedSeasonKey}
           selected={selected}
           onToggleSelect={toggleSelect}
+          onToggleManySelect={toggleGroupSelect}
           highlightedTransferId={linkedTransferId}
           openingHash={openingHash}
           onAction={(act, torrent) => void action(act, torrent)}
@@ -1881,9 +1881,8 @@ function SeriesOverviewRow({
   const query = artworkQueryForRelease(head.name, head.category);
   const art = artwork[query.key];
   const transferIds = group.torrents.map((t) => t.transferId);
-  const allSelected =
-    transferIds.length > 0 &&
-    transferIds.every((transferId) => selected.has(transferId));
+  const checkedCount = transferIds.filter((transferId) => selected.has(transferId)).length;
+  const allSelected = transferIds.length > 0 && checkedCount === transferIds.length;
   const chip = rollupChip(group);
   const tally = seriesEpisodeTally(group);
   // The title page's season line, worded the same; no aired total is known here.
@@ -1916,7 +1915,7 @@ function SeriesOverviewRow({
       data-group-error={isError(group.state) || chip.failing ? "true" : undefined}
     >
       <Checkbox
-        checked={allSelected}
+        checked={allSelected ? true : checkedCount > 0 ? "indeterminate" : false}
         onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`}
         className="shrink-0"
