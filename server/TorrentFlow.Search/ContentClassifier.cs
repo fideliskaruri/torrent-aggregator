@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
@@ -153,7 +154,7 @@ public static class ContentClassifier
     }
     private static string Sanitize(string title)
     {
-        var t = Replace(Replace(title, @"[<>:""/\\|?*\x00-\x1f]", ""), @"\s+").Trim().TrimEnd('.', ' ');
+        var t = MediaFolders.Name(title);
         if (Has(t, @"^www\.") || Has(t, @"^[a-z0-9-]+\.(org|com|net|info|io|to|me|cc|tv)\b") && !Has(t, @"\s")) return "";
         t = Replace(t, @"^[a-z0-9-]+\.(org|com|net)\s*[-–—:]?\s*", "").Trim();
         return t[..Math.Min(120, t.Length)];

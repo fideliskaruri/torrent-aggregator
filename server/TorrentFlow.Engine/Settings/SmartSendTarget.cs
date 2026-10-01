@@ -48,31 +48,49 @@ public static class SmartSendTargets
         return new(cat, savePath, kind, smart);
     }
 
-    /// <summary>&lt;base&gt;/&lt;category&gt;/&lt;show&gt;/Season NN; an empty category means base is already the category root.</summary>
+    /// <summary>
+    /// The save path of a catalog work (every grab: film, episode, season pack, request, queue, picked release). The show
+    /// folder is the catalog title the UI shows and the season is the catalog's own, never read from the torrent's name.
+    /// </summary>
+    public static DownloadTarget ForWork(ClientConfig config, ISmartCategorizer categorizer, WorkPlacement work)
+    {
+        var kind = work.Anime ? "anime" : work.Film ? "movies" : "tv";
+        var category = categorizer.CategoryLabel(kind, config.Categories);
+        var rule = ClientConfig.NullIfBlank(config.PathRules.GetValueOrDefault(category)?.Trim());
+        var root = rule ?? ClientConfig.NullIfBlank(config.BaseDownloadPath?.Trim());
+        if (root is null) return ClientSettingsStore.ResolveDownloadTarget(config, category, null);
+        return new(category, BuildPath(root, rule is null ? category : "", kind, work.Film, MediaFolders.Name(work.Title), work.Year,
+            work.Season is int season ? MediaFolders.Season(season) : null, root.Contains('\\') ? "\\" : "/"));
+    }
+
+    /// <summary>A send with no catalog work (search page, automation): the show and season are read from the release name.</summary>
     public static string ResolveSmartPath(ISmartCategorizer categorizer, string basePath, string kind, string category,
         string? title, MediaMetadata? metadata, string sep)
     {
-        var root = (basePath ?? "").TrimEnd('/', '\\');
-        var cat = (category ?? "").Trim('/', '\\');
-        if (root.Length == 0) return cat;
-        var path = cat.Length > 0 ? $"{root}{sep}{cat}" : root;
-
         var showTitle = FirstNonEmpty(title, metadata?.Title);
-        if (ShowKinds.Contains(kind) && showTitle is not null && categorizer.ShowFolder(showTitle, metadata) is { Length: > 0 } show)
-        {
-            // An anime film keeps its category but sits beside the anime series: <Anime>/Movies/<Title (Year)>.
-            var film = kind == "movies" || kind == "anime" && metadata?.MediaType == "movie";
-            if (kind == "anime" && film) path = $"{path}{sep}Movies";
-            // Movies nest as "Title (Year)" when the year is known (metadata or the release name).
-            if (film && MovieYear(title, metadata) is { } year && !show.Contains($"({year})", StringComparison.Ordinal))
-                show = $"{show} ({year})";
-            path = $"{path}{sep}{show}";
-            if (!film && kind is "tv" or "anime" && !string.IsNullOrEmpty(title) && categorizer.SeasonFolder(title) is { Length: > 0 } season)
-                path = $"{path}{sep}{season}";
-        }
-        return path;
+        var show = ShowKinds.Contains(kind) && showTitle is not null ? categorizer.ShowFolder(showTitle, metadata) : null;
+        var film = kind == "movies" || kind == "anime" && metadata?.MediaType == "movie";
+        var season = !film && !string.IsNullOrEmpty(title) ? categorizer.SeasonFolder(title) : null;
+        return BuildPath(basePath, category, kind, film, show, film ? MovieYear(title, metadata) : null, season, sep);
     }
 
+    /// <summary>
+    /// The one folder layout: &lt;root&gt;/&lt;category&gt;/&lt;show&gt;/Season NN for series and &lt;root&gt;/&lt;category&gt;/&lt;Title (Year)&gt;
+    /// for films. Anime takes "Anime Series" or "Anime Movies" in place of its category folder, under the download root
+    /// or under the Anime path rule. An empty category means the root is already the category's own folder.
+    /// </summary>
+    private static string BuildPath(string root, string category, string kind, bool film, string? show, int? year, string? season, string sep)
+    {
+        root = (root ?? "").TrimEnd('/', '\\');
+        var cat = (category ?? "").Trim('/', '\\');
+        if (root.Length == 0) return cat;
+        var path = kind == "anime" ? $"{root}{sep}{(film ? MediaFolders.AnimeMovies : MediaFolders.AnimeSeries)}"
+            : cat.Length > 0 ? $"{root}{sep}{cat}" : root;
+        if (string.IsNullOrEmpty(show)) return path;
+        if (film && year is { } y && !show.Contains($"({y})", StringComparison.Ordinal)) show = $"{show} ({y})";
+        path = $"{path}{sep}{show}";
+        return !film && !string.IsNullOrEmpty(season) ? $"{path}{sep}{season}" : path;
+    }
     /// <summary>Prefer catalog year; otherwise the first 19xx/20xx token still present in the release name.</summary>
     internal static int? MovieYear(string? title, MediaMetadata? metadata)
     {

@@ -401,9 +401,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         {
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = TorrentPurpose.Keep,
-                Source = candidate.Source, SearchCategory = input.Anime || AnimeIdentity.IsAnimeSiteCategory(candidate.Category)
-                    ? "anime" : EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
-                Metadata = CatalogMetadata(input),
+                Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
+                Placement = Placement(input, pack),
                 QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
@@ -463,14 +462,17 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             CursorEpisode = advanced ? next?.Episode : null, NextEpisodeHint = advanced ? next?.Query(input.Title) : null };
     }
 
-    /// <summary>The work's catalog identity as the engine's smart target sees it; an anime film stays a "movie" but is anime.</summary>
-    private static TorrentFlow.Core.Contracts.Metadata.MediaMetadata? CatalogMetadata(GrabInput input)
+    /// <summary>
+    /// Where the work lands: its catalog title and the catalog season (the episode's, or the pack's), so every episode
+    /// of a show shares one folder whatever its release is called.
+    /// </summary>
+    private static WorkPlacement? Placement(GrabInput input, PackSelection? pack)
     {
-        var type = (input.MediaType ?? "").Trim().ToLowerInvariant();
-        var name = (input.Title ?? "").Trim();
-        if (type is not ("anime" or "movie" or "tv") || name.Length == 0) return null;
-        var isAnime = input.Anime || AnimeIdentity.IsAnime(input.Provider, type);
-        return new() { Source = isAnime ? "anilist" : "tmdb", MediaType = type, ExternalId = "", Title = name, Year = input.Year };
+        var title = (input.Title ?? "").Trim();
+        if (title.Length == 0) return null;
+        var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
+        var film = pack == null && input.Cursor == null;
+        return new(title, input.Year, input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType), film, film ? null : season);
     }
 
     private static async Task LogSkip(TorrentFlowDbContext db, GrabInput input, string query, string message, CancellationToken ct)

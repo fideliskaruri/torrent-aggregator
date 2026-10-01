@@ -28,7 +28,7 @@ public static class EpisodeParser
     internal static string Replace(string value, string pattern, string replacement = " ") => Pattern(pattern).Replace(value, replacement);
     public static string? SpecialType(string title) => TorrentFlow.Core.ReleaseEpisodeParser.SpecialType(title);
     public static EpisodeInfo Parse(string title) => TorrentFlow.Core.ReleaseEpisodeParser.Parse(title);
-    public static string? SeasonFolder(EpisodeInfo episode) => episode.Season is null || episode.IsMultiSeason == true ? null : $"Season {episode.Season:00}";
+    public static string? SeasonFolder(EpisodeInfo episode) => episode.Season is null || episode.IsMultiSeason == true ? null : TorrentFlow.Core.Contracts.Engine.MediaFolders.Season(episode.Season.Value);
     public static string NextQuery(string title, string? lastEpisode)
     {
         var parsed = Parse(lastEpisode ?? "");

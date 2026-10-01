@@ -21,4 +21,7 @@ public interface ISmartCategorizer
 
     /// <summary>seasonFolderSegment(parseEpisode(title)): "Season NN" for a single known season, else null.</summary>
     string? SeasonFolder(string title);
+
+    /// <summary>The owner's category for a kind (anime | movies | tv | ...), matched against their category names.</summary>
+    string CategoryLabel(string kind, IReadOnlyList<string> userCategories);
 }

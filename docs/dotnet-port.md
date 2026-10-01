@@ -826,8 +826,12 @@ transfers the client still holds, and it does not re-check media. It returns
 folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
 uses the recorded paths.
 
-The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is chosen by the caller when the download is
-sent. Anime, decided by the one shared rule `AnimeIdentity` (AniList or catalog type anime, TMDB original language
-ja with Animation, Cinemeta Animation made in Japan, or the site's anime category), goes to `Anime/<Show>/Season NN`,
-and an anime film to `Anime/Movies/<Title (Year)>`. The layout only works inside the row's save path. Transfers handled by an external client
+The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is built by one function,
+`SmartSendTargets.BuildPath`. Every grab (film, episode, season pack, request, wanted queue, picked release) sends its
+catalog work (`WorkPlacement`), so the show folder is the catalog title the UI shows and the season is the catalog's
+own season, never read from the torrent's name; sends with no work (search page, automation) read both from the
+release. Anime, decided by the one shared rule `AnimeIdentity` (AniList or catalog type anime, TMDB original language
+ja with Animation, Cinemeta Animation made in Japan), keeps the single `Anime` category but goes to
+`Anime Series/<Show>/Season NN` or `Anime Movies/<Title (Year)>` under the download root (or under the Anime path rule
+when one is set). The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.

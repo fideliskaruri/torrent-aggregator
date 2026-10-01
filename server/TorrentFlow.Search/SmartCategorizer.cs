@@ -21,4 +21,6 @@ internal sealed class SmartCategorizer : ISmartCategorizer
     public string ShowFolder(string title, MediaMetadata? metadata) => ContentClassifier.ShowFolder(title, metadata);
 
     public string? SeasonFolder(string title) => EpisodeParser.SeasonFolder(EpisodeParser.Parse(title));
+
+    public string CategoryLabel(string kind, IReadOnlyList<string> userCategories) => ContentClassifier.CategoryLabel(kind, [.. userCategories]);
 }

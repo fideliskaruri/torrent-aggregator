@@ -153,6 +153,8 @@ public sealed record EngineAddRequest
     public TorrentFlow.Core.Contracts.Metadata.MediaMetadata? Metadata { get; init; }
     public string? Source { get; init; }
     public IReadOnlyList<string>? Tags { get; init; }
+    /// <summary>The catalog work being fetched; when set (and no SavePath), its folder comes from the catalog, not <see cref="Name"/>.</summary>
+    public WorkPlacement? Placement { get; init; }
     /// <summary>Trust <see cref="Category"/> as the owner's manual choice instead of the smart label.</summary>
     public bool CategoryManual { get; init; }
     /// <summary>Sortable episode position ("s00001e00002").</summary>
