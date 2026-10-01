@@ -605,7 +605,7 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
   returns `effectiveMaxActive` (the cap the queue enforces now) and `maxActiveSource` (`schedule` when
   an open download window sets its own limit, else `setting`).
 - Resume and Resume all join the queue: a resumed row starts only when a slot is free and nothing
-  waits ahead of it, else it is queued in order (`Queued — #n in line`). Only Download now passes the
+  waits ahead of it, else it is queued in order (`Queued, #n in line`). Only Download now passes the
   cap: it stores `ForcedAt` with `ForcedReason` `now`, starts at once even when every slot is taken,
   and nothing is preempted. Rows an older build's Resume forced are backfilled as `legacy` and keep
   their slot until they finish. Pause clears the forced flag.

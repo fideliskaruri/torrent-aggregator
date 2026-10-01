@@ -13,7 +13,7 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
     private async Task<string> LoginAsync(ClientConfig config, CancellationToken ct)
     {
         var host = Host(config);
-        if (host.Length == 0) throw new InvalidOperationException("qBittorrent host URL is empty — set it in Settings");
+        if (host.Length == 0) throw new InvalidOperationException("qBittorrent host URL is empty. Set it in Settings.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
         using var request = new HttpRequestMessage(HttpMethod.Post, host + "/api/v2/auth/login")
@@ -34,7 +34,7 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
         using var responseScope = response;
         var text = await response.Content.ReadAsStringAsync(timeout.Token);
         if (!response.IsSuccessStatusCode || text.Trim().Equals("fails.", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"qBittorrent login failed at {host} — check username/password (HTTP {(int)response.StatusCode})");
+            throw new InvalidOperationException($"qBittorrent login failed at {host}. Check the username and password (HTTP {(int)response.StatusCode}).");
         if (!response.Headers.TryGetValues("Set-Cookie", out var headers)) return "";
         var parts = headers.SelectMany(h => Regex.Split(h, @",(?=\s*[^;]+=)"))
             .SelectMany(h => h.Split(';')).Select(h => h.Trim()).Where(h => h.Length > 0).ToList();
@@ -56,7 +56,7 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
             try { response = await http.SendAsync(request, timeout.Token); }
             catch (Exception ex) when (path == "torrents/add" && !ct.IsCancellationRequested && ex is HttpRequestException or OperationCanceledException)
             {
-                throw new InvalidOperationException($"qBittorrent unreachable at {Host(config)} — is WebUI running? ({ExternalClientErrors.Message(ex)})", ex);
+                throw new InvalidOperationException($"qBittorrent unreachable at {Host(config)}. Is its WebUI running? ({ExternalClientErrors.Message(ex)})", ex);
             }
             if (attempt != 0 || response.StatusCode is not (HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)) return response;
             response.Dispose();

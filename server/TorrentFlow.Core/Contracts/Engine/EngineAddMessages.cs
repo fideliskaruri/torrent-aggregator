@@ -10,7 +10,7 @@ public static partial class EngineAddMessages
         if (!result.Ok || result.Details is not { } details) return result.Message;
         var pct = Math.Clamp((int)Math.Round(double.IsFinite(details.Pct) ? details.Pct : 0, MidpointRounding.AwayFromZero), 0, 100);
         if (details.Action == EngineAddDetails.AlreadyComplete) return $"Already complete ({pct}%)";
-        // A queued add keeps the engine's own "Queued — #n in line" copy; "Download started" would be untrue.
+        // A queued add keeps the engine's own "Queued, #n in line" copy; "Download started" would be untrue.
         if (details.Action == EngineAddDetails.Queued) return result.Message;
         var peers = Math.Max(0, details.Peers);
         var suffix = $"{pct}% · {peers} {(peers == 1 ? "peer" : "peers")}";
@@ -42,6 +42,7 @@ public static partial class EngineAddMessages
 
     private static string WithoutMomentOfAdd(string message) => MomentOfAdd().Replace(message, "${outcome}");
 
-    [GeneratedRegex(@"(?<outcome>Download started|Download already in progress) \(\d+% · \d+ peers?\)|(?<outcome>Already complete) \(\d+%\)|(?<outcome>Queued) — #\d+ in line")]
+    // Entries logged before the copy dropped its em dash read "Queued — #n in line".
+    [GeneratedRegex(@"(?<outcome>Download started|Download already in progress) \(\d+% · \d+ peers?\)|(?<outcome>Already complete) \(\d+%\)|(?<outcome>Queued)(?:,| —) #\d+ in line")]
     private static partial Regex MomentOfAdd();
 }

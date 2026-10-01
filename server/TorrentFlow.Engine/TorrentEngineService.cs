@@ -378,7 +378,7 @@ internal sealed partial class TorrentEngineService(
         return new Admission(QueuedResult(hash, position), null, claimed);
     }
 
-    private static string QueuedMessage(int? position) => position is { } p ? $"Queued — #{p} in line" : "Queued";
+    private static string QueuedMessage(int? position) => position is { } p ? $"Queued, #{p} in line" : "Queued";
 
     private static EngineAddResult QueuedResult(string hash, int? position) =>
         new(true, QueuedMessage(position), new EngineAddDetails(EngineAddDetails.Queued, 0, 0, position), hash);
@@ -431,7 +431,7 @@ internal sealed partial class TorrentEngineService(
                     code is 403 or 401
                         ? "That torrent link refused the download. Try another host or paste the magnet instead."
                         : code is 404
-                            ? "That torrent link was not found. It may have expired — try another release."
+                            ? "That torrent link was not found. It may have expired. Try another release."
                             : $"Could not download the .torrent file (HTTP {code}). Try another release or a magnet link.",
                     null, response.StatusCode);
             }
@@ -518,7 +518,7 @@ internal sealed partial class TorrentEngineService(
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Adding {Hash} to the client failed", row.Hash);
-            return new BackendAddOutcome(false, "Torrent was added but dropped from the engine immediately — check server logs.");
+            return new BackendAddOutcome(false, "The torrent was added but stopped right away. Try again, or pick another release.");
         }
     }
 

@@ -40,7 +40,7 @@ internal static class ExternalClientErrors
                 "(Connection refused usually means qBittorrent/Transmission is not listening on that port.) " +
                 "Or switch Client to Built-in for one-app downloads.", "CLIENT_OFFLINE");
         if (raw.Contains("login failed", StringComparison.OrdinalIgnoreCase))
-            return (false, $"{label} login failed — check username/password in Settings.", "CLIENT_AUTH");
+            return (false, $"{label} login failed. Check the username and password in Settings.", "CLIENT_AUTH");
         return (false, raw, "CLIENT_ERROR");
     }
 
