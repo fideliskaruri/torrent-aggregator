@@ -59,7 +59,7 @@ export interface ClientTorrent {
 /**
  * A one-row action on a transfer. `force` is "Download now": it starts a row
  * waiting in the built-in engine's queue past the active-download cap.
- * `swap` opens "Find another release"; it sends nothing by itself.
+ * `swap` opens "Find another source"; it sends nothing by itself.
  */
 export type TorrentRowAction = "pause" | "resume" | "force" | "swap";
 

@@ -111,6 +111,8 @@ import {
   transfersLabel,
   waitReasonLabel,
   packLabel,
+  canFindAnotherSourceFor,
+  swapSubjectFor,
 } from "./release-display";
 import {
   isValidTorrentSourceInput,
@@ -135,7 +137,8 @@ import {
   findLinkedDownload,
   withoutDownloadLink,
 } from "./download-link";
-import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
+import { ReleaseSwapDialog } from "@/components/releases/release-swap-dialog";
+import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
@@ -1754,9 +1757,10 @@ export default function ClientPage() {
 
       {swapTorrent ? (
         <ReleaseSwapDialog
-          torrent={swapTorrent}
+          key={swapTorrent.hash}
+          subject={swapSubjectFor(swapTorrent)}
           onClose={() => setSwapTorrent(null)}
-          onSwapped={(releaseName) => {
+          onSwapped={(message) => {
             invalidateInFlight();
             const swapped = swapTorrent;
             setSelected((previous) => {
@@ -1766,7 +1770,7 @@ export default function ClientPage() {
               return next;
             });
             setSwapTorrent(null);
-            setAnnouncement(`Switched to ${releaseName}.`);
+            setAnnouncement(message);
             void load();
           }}
         />
@@ -2119,7 +2123,7 @@ function FilmRow({
   const isBuiltin = t.ownerClientType === "builtin";
   const errorMessage = transferErrorMessage(t);
   const pauseResume = pauseResumeAction(t);
-  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
+  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherSourceFor(t) || pauseResume !== null;
   const rowRef = useRef<HTMLDivElement>(null);
   // Bring the linked row into view and give it focus, so the keyboard and a
   // screen reader start from the download the user asked to see.
@@ -2386,13 +2390,13 @@ function FilmRow({
                 Download now
               </DropdownMenuItem>
             ) : null}
-            {canFindAnotherRelease(t) ? (
+            {canFindAnotherSourceFor(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("swap", t)}
                 data-find-release
               >
                 <Search />
-                Find another release
+                {FIND_ANOTHER_SOURCE_LABEL}
               </DropdownMenuItem>
             ) : null}
             {pauseResume === "pause" ? (

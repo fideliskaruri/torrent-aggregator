@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Download,
   Loader2,
+  MoreHorizontal,
   RotateCcw,
   Search,
   Tv,
@@ -29,6 +30,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
+import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +38,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
@@ -104,6 +112,11 @@ export interface EpisodeListProps {
   onSeasonChange: (season: number) => void;
   onSeasonGrab: (season: number, episodes: number[], resolution?: number) => void;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
+  /**
+   * Owner only: opens Find another source for an episode's download. Left out
+   * for everyone else, which hides the action. Must be stable across polls.
+   */
+  onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
 }
 
 /** Stable per-row key for tracking one in-flight Download. */
@@ -132,6 +145,7 @@ export function EpisodeList({
   onSeasonChange,
   onSeasonGrab,
   onAction,
+  onFindAnotherSource,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -402,6 +416,7 @@ export function EpisodeList({
                     episodeIntentKey(episode.season, episode.episode),
                   )}
                   onAction={handleCardAction}
+                  onFindAnotherSource={onFindAnotherSource}
                 />
               ))}
             </ul>
@@ -515,8 +530,11 @@ const CARD_ACTION_PILL = cn(
   "disabled:cursor-default disabled:opacity-100",
 );
 
-/** Where the action pill sits: the bottom corner of a phone row, the top corner of a desktop still. */
-const CARD_ACTION_SLOT = "absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2";
+/**
+ * Where the action pill sits: the bottom corner of a phone row, the top corner
+ * of a desktop still. The owner's More menu, when a card has one, sits beside it.
+ */
+const CARD_ACTION_SLOT = "absolute bottom-2 right-2 z-10 flex items-center gap-1.5 sm:bottom-auto sm:top-2";
 
 function EpisodeSkeletonStrip({
   count,
@@ -565,12 +583,14 @@ function EpisodeCardImpl({
   gated = false,
   downloadStatus,
   onAction,
+  onFindAnotherSource,
 }: {
   episode: EpisodeRowModel;
   /** The whole work is future-dated — see `EpisodeListProps.gated`. */
   gated?: boolean;
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
+  onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
 }) {
   const { canDownload, canSeePaths } = useCapabilities();
   const { openFolder } = useFeatures();
@@ -620,6 +640,20 @@ function EpisodeCardImpl({
       setOpening(false);
     }
   };
+
+  // Find another source, owner only: the episode's own download, by the
+  // shared rule. An episode held only inside a season pack has none to replace.
+  const sourceHash = transfer?.infoHash ?? (held ? episode.infoHash : null);
+  const offerFindSource =
+    canDownload &&
+    onFindAnotherSource != null &&
+    sourceHash != null &&
+    canFindAnotherSource({
+      builtin: true,
+      hash: sourceHash,
+      pack: episode.fromPack,
+      finished: held || (transfer?.progress ?? 0) >= 0.9999,
+    });
 
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
@@ -793,6 +827,35 @@ function EpisodeCardImpl({
     </Collapsible>
   ) : null;
 
+  // The owner's More menu beside the action pill. Its one item opens the
+  // dialog TitleDetail mounts, so the memoised card fetches nothing itself.
+  const findSourceMenu = offerFindSource && sourceHash ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-lg"
+          aria-label={`More actions for ${episode.label}`}
+          data-episode-more
+          onClick={(event) => event.stopPropagation()}
+          className={cn(CARD_ACTION_PILL, "w-11")}
+        >
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => onFindAnotherSource?.(sourceHash, episode.label)}
+          data-episode-find-source
+        >
+          <Search />
+          {FIND_ANOTHER_SOURCE_LABEL}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
   return (
     <li
       data-episode-row
@@ -818,6 +881,7 @@ function EpisodeCardImpl({
               the owner can open swaps it for Open. */}
           {canOpen ? (
             <span className={CARD_ACTION_SLOT}>
+              {findSourceMenu}
               <TfOpenFileButton
                 name={episode.label}
                 busy={opening}
@@ -834,6 +898,7 @@ function EpisodeCardImpl({
             </span>
           ) : canDownload ? (
           <span className={CARD_ACTION_SLOT}>
+            {findSourceMenu}
             <Button
               type="button"
               variant="outline"
@@ -887,14 +952,15 @@ function EpisodeCardImpl({
  * A card re-renders only when something it actually shows has changed. The
  * transfer poll hands the whole list new episode objects every 2.5s, so
  * without this every card re-rendered on every poll and the strip flickered.
- * `onAction` is stable (see `handleCardAction`), so the only things worth
- * comparing are the fields a card renders — chiefly the transfer, which is
- * what the download icon reflects.
+ * `onAction` is stable (see `handleCardAction`), and so is `onFindAnotherSource`,
+ * so the only things worth comparing are the fields a card renders — chiefly
+ * the transfer, which is what the download icon reflects.
  */
 const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   if (a.gated !== b.gated) return false;
   if (a.downloadStatus !== b.downloadStatus) return false;
   if (a.onAction !== b.onAction) return false;
+  if (a.onFindAnotherSource !== b.onFindAnotherSource) return false;
   const pe = a.episode;
   const ne = b.episode;
   if (

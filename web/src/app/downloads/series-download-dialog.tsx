@@ -83,10 +83,11 @@ import {
   transferErrorMessage,
   waitReasonLabel,
   packLabel,
+  canFindAnotherSourceFor,
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
-import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { FolderMenuItem } from "./folder-menu-item";
 import type { OpenDownloadMode } from "@/lib/open-download";
 
@@ -367,7 +368,7 @@ function EpisodeCard({
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
   const errorMessage = transferErrorMessage(t);
   const [errorExpanded, setErrorExpanded] = useState(false);
-  const offerSwap = isError(t.state) && canFindAnotherRelease(t);
+  const offerSwap = isError(t.state) && canFindAnotherSourceFor(t);
   const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView({ block: "center" });
@@ -485,11 +486,11 @@ function EpisodeCard({
               variant="secondary"
               size="sm"
               onClick={() => onAction("swap", t)}
-              aria-label={`Find another release for ${epLabel}`}
+              aria-label={`${FIND_ANOTHER_SOURCE_LABEL} for ${epLabel}`}
               data-episode-find-release
             >
               <Search className="h-3.5 w-3.5" />
-              Find another release
+              {FIND_ANOTHER_SOURCE_LABEL}
             </Button>
           ) : null}
           {canDownloadNow(t) && isBuiltin ? (
@@ -570,13 +571,13 @@ function EpisodeCard({
                 Download now
               </DropdownMenuItem>
             ) : null}
-            {canFindAnotherRelease(t) ? (
+            {canFindAnotherSourceFor(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("swap", t)}
                 data-find-release
               >
                 <Search />
-                Find another release
+                {FIND_ANOTHER_SOURCE_LABEL}
               </DropdownMenuItem>
             ) : null}
             {pauseResume === "pause" ? (
@@ -595,7 +596,7 @@ function EpisodeCard({
                 {isError(t.state) ? "Retry" : "Resume"}
               </DropdownMenuItem>
             ) : null}
-            {canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null ? (
+            {canDownloadNow(t) || canFindAnotherSourceFor(t) || pauseResume !== null ? (
               <DropdownMenuSeparator />
             ) : null}
             <DropdownMenuItem
@@ -678,7 +679,7 @@ export function SeriesDownloadDialog({
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
     .flatMap((season) => season.entries)
-    .find((entry) => isError(entry.torrent.state) && canFindAnotherRelease(entry.torrent));
+    .find((entry) => isError(entry.torrent.state) && canFindAnotherSourceFor(entry.torrent));
   const firstFailedLabel = firstFailed
     ? (firstFailed.episodeLabel ?? releaseDisplayFacts(firstFailed.torrent).title)
     : null;
@@ -691,7 +692,7 @@ export function SeriesDownloadDialog({
       data-group-find-release
     >
       <Search className="h-3.5 w-3.5" />
-      Find another release for {firstFailedLabel}
+      {FIND_ANOTHER_SOURCE_LABEL} for {firstFailedLabel}
     </Button>
   ) : null;
 
