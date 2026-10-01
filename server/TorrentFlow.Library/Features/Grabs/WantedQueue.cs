@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -54,12 +55,12 @@ public interface IWantedObserver
 /// A wanted row is an <see cref="AcquisitionTarget"/> with status "queued" and no transfer yet.
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
-    TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates) : BackgroundService
+    TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine) : BackgroundService
 {
     /// <summary>
-    /// A run mostly waits on swarms for torrent metadata (up to the engine's metadata timeout per candidate), so a
-    /// season with dead releases can take an hour. The cap is generous so a show clicked season after season runs
-    /// side by side instead of waiting behind the slowest one.
+    /// A run waits on searches and on the engine admitting each find (a magnet is admitted before its file list
+    /// arrives). The cap is generous so a show clicked season after season runs side by side instead of waiting
+    /// behind the slowest one.
     /// </summary>
     public const int MaxParallel = 6;
     public const int TriesBeforeAskingOwner = 3;
@@ -83,6 +84,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     private readonly ConcurrentDictionary<string, string> why = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim wake = new(0);
     private long order;
+    /// <summary>Set when a transfer failed: the release it was meant to fill is wanted again, so the next scan takes it at once.</summary>
+    private int released;
 
     public static string TargetKey(string workKey, string scope, int? season, int? episode) =>
         $"{workKey}:{scope}:{season?.ToString() ?? "-"}:{episode?.ToString() ?? "-"}";
@@ -241,26 +244,37 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var startup = true;
-        while (!stoppingToken.IsCancellationRequested)
+        // A dead or refused release hands its wanted items back (queued); look for another release right away.
+        void Failed(object? sender, EngineTorrentFailedEventArgs e)
         {
-            try
-            {
-                await ScanAsync(startup, stoppingToken);
-                startup = false;
-                StartDue(stoppingToken);
-            }
-            catch (Exception error) when (!stoppingToken.IsCancellationRequested)
-            {
-                logger.LogWarning(error, "Wanted queue scan failed");
-            }
-            try { await wake.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken); }
-            catch (OperationCanceledException) { break; }
+            Interlocked.Exchange(ref released, 1);
+            wake.Release();
         }
+        engine.TorrentFailed += Failed;
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await ScanAsync(startup || Interlocked.Exchange(ref released, 0) == 1, stoppingToken);
+                    startup = false;
+                    StartDue(stoppingToken);
+                }
+                catch (Exception error) when (!stoppingToken.IsCancellationRequested)
+                {
+                    logger.LogWarning(error, "Wanted queue scan failed");
+                }
+                try { await wake.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken); }
+                catch (OperationCanceledException) { break; }
+            }
+        }
+        finally { engine.TorrentFailed -= Failed; }
         await Task.WhenAll(running.Values).WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ContinueWith(_ => { }, CancellationToken.None);
     }
 
-    /// <summary>Picks up wanted rows no plan covers: all of them after a restart, then only rows left alone for a while.</summary>
-    private async Task ScanAsync(bool startup, CancellationToken ct)
+    /// <summary>Picks up wanted rows no plan covers: all of them after a restart or a failed transfer, then only rows left alone for a while.</summary>
+    private async Task ScanAsync(bool all, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = time.GetUtcNow().UtcDateTime - OrphanAge;
@@ -271,7 +285,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         foreach (var row in rows.Where(r => r.Scope == "title" || r.Episode is not { } episode || !OnItsOwn(new(r.WorkKey, r.Season, episode)))
             .GroupBy(r => new Unit(r.WorkKey, r.Scope == "title" ? null : r.Season)))
         {
-            if (plans.ContainsKey(row.Key) || !startup && row.Max(r => r.UpdatedAt) > cutoff) continue;
+            if (plans.ContainsKey(row.Key) || !all && row.Max(r => r.UpdatedAt) > cutoff) continue;
             plans.TryAdd(row.Key, new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null));
         }
     }
