@@ -79,6 +79,31 @@ the headers can't be checked. Three explanations remain, and the plan covers all
 
 Question for the owner, when back: which file was it, and was it the voices or the subtitles?
 
+### 1.6 A western show hits the same traps (owner instance, rechecked after the 1 Oct 11:40 UTC restart)
+
+The download folder on 3930 is `D:\Torrents`, so the Frieren files really are gone, and there are still 0 transfers.
+History shows a Scorpion S01E01 ladder that has repeated since 30 Sep 19:15 UTC: 67 sends by 1 Oct 12:18 UTC, all
+failed on "Couldn't get this release's file list from peers". Each cycle walks these candidates. The order shifts a
+little as sources and seeders change:
+
+- `Scorpion.S01E01.Pilot.1080p.x265.{Yabkal_mc}.mp4`
+- `Scorpion S01E01 1080p WEBRip x264-xRed`
+- `SCORPION (2014) S01E01 x264 (WEB-DL) 1080p nlsubs TBS` (Dutch subtitles)
+- `Scorpion S01E01 1080p HDTV [G2G]`
+- `Scorpion.S01E01.Pilot.1080p.WEB-DL.DD5.1.H.264-BS[rarbg]` (bitsearch) and `...-BS[rartv]` (apibay)
+- `天蠍 Scorpion.S01E01.Pilot.1080p 英語繁中.mkv` (English audio, Traditional Chinese subtitles), sixth in every cycle
+- `Scorpion.S01E01.MULTi.1080p.WEB.x264-CiELOS` (several audio tracks, default unknown), sent last in every cycle since
+  apibay results appeared at 1 Oct 06:57 UTC, including after the restart
+
+If any of these had returned a file list, nothing would have stopped it on language. The only language check is the
+anime "dub" word.
+
+This adds three traps for the marker table (3.1):
+- `英語`, `英语` and `英配` name **English** audio inside an otherwise Chinese name.
+- For a title whose preference is English, `繁中`, `简中` and `中字` are subtitles, maybe burned in, so that release is a
+  backup, not a clash.
+- `nlsubs` is Dutch subtitles, not Dutch audio. Same rule: a backup, not a clash.
+
 ## 2. Root cause in code
 
 1. **No language gate on automatic picks.**
@@ -146,9 +171,9 @@ complaint was about a third language (a French dub of a Japanese show). Open que
 |---|---|---|
 | `JPN`, `JAP`, `Japanese`, `日语`, `日配` | Japanese audio | ToonsHub writes `JPN` before the audio codec |
 | `Dual Audio`, `Dual-Audio`, `DUAL`, `Dual.Multi` | original + English audio | `[HR] ... Dual.Multi` is dual audio + multi subs |
-| `dub`, `dubbed`, `English Dub`, `EngDub` | English audio (anime) | unchanged meaning, now a backup instead of refused |
+| `dub`, `dubbed`, `English Dub`, `EngDub`, `英配` | English audio (anime) | unchanged meaning, now a backup instead of refused |
 | `Multi-Subs`, `MultiSub`, `Multiple Subtitle`, `Multi Sub` | subtitles incl. English (assumed) | never "MULTi audio" |
-| `[ENG]`, `ENG`, `English` with no dub/audio word | English subtitles (anime), English audio (other) | Erai-raws lists sub codes in brackets after `Multiple Subtitle` |
+| `[ENG]`, `ENG`, `English`, `英語`, `英语` with no dub/audio word | English subtitles (anime), English audio (other) | Erai-raws lists sub codes in brackets after `Multiple Subtitle`; `天蠍 Scorpion ... 英語繁中` is English audio (1.6) |
 | bracket code lists after a subtitle marker (`[POR-BR][SPA][ARA][FRE][GER][ITA][RUS]`) | subtitle languages | not audio |
 | `MULTi` (scene token, not followed by sub/subs) | several audio tracks, default unknown | backup rank; Layer 2 decides. Becomes French audio with a French marker or group |
 | `FRENCH`, `TRUEFRENCH`, `VFF`, `VFQ`, `VFI`, `VF`, `VF2`, `VOF` | French audio | |
@@ -156,12 +181,13 @@ complaint was about a third language (a French dub of a Japanese show). Open que
 | groups `Tsundere-Raws`, `KAF` | French release groups: `MULTi` = French default audio, else French subs | proven by the headers in 1.2 |
 | `国语`, `國語`, `普通话`, `中配`, `国配`, `台配`, `Mandarin` | Chinese (Mandarin) audio | |
 | `粤语`, `粵語`, `Cantonese` | Chinese (Cantonese) audio | |
-| `CHS`, `CHT`, `GB`, `BIG5`, `简体`, `繁體`, `简中`, `繁中`, `简日`, `繁日`, `中文字幕`, `内嵌`, `内封` | Chinese subtitles (`内嵌` = burned in) | `GB` only as a bracketed token, never inside a size such as `1.4GB` |
+| `CHS`, `CHT`, `GB`, `BIG5`, `简体`, `繁體`, `简中`, `繁中`, `中字`, `简日`, `繁日`, `中文字幕`, `内嵌`, `内封` | Chinese subtitles (`内嵌` = burned in) | `GB` only as a bracketed token, never inside a size such as `1.4GB`; with English audio they make the release a backup, not a clash |
 | `[Baha]`, `Bahamut`, `[ANi]` | Japanese audio, burned-in Chinese subtitles | anime: clash "Chinese subtitles only" |
 | `iTALiAN`, `ITA` (not after `SUB`) | Italian audio | `SUB ITA` = Italian subtitles |
 | `GERMAN`, `German DL`, `GER` (not in a sub list) | German audio (`DL` = German + original) | `GerSub` = subtitles |
 | `SPANiSH`, `Castellano`, `Latino`, `LAT`, `ESP` | Spanish audio | `VOSE` = Spanish subtitles |
 | `RUS`, `Russian`, `MVO`, `DVO`, `AVO` | Russian audio (voice-over) | `Rus Sub` = subtitles |
+| `nlsubs`, `NLSub`, `NL Subs` | Dutch subtitles | not Dutch audio; with English audio a backup, not a clash (1.6) |
 | `HiNDi`, `Hindi`, `Tamil`, `Telugu` | Indian-language audio | `Dual Audio [Hindi-English]` contains English, so it is a backup, not a clash |
 | `POLiSH`, `Lektor`, `Dubbing PL`, `Dublado`, `KOREAN`, `TURKISH`, `ARABIC` | that audio | `Legendado` = Portuguese subtitles |
 | `RAW` token, nyaa "Anime - Raw" | Japanese audio, no subtitles | anime: clash "no subtitles" |
@@ -337,7 +363,7 @@ Fixtures (outside the repo, in `D:\code\memtest\audiolang\fixtures`):
 |---|---|---|---|
 | P1 | Setting API | GET/PUT `/api/settings/client` `audioLanguage` | default `auto`; each value round-trips; `french` gets 400 with the plain message |
 | P2 | Setting UI | Playwright at 390/768/1280: pick each option, save, reload | screenshots; choice persists; no clipping |
-| P3 | Name layer on real results | `GET /api/title/{workKey}/releases` (the picker list, sends nothing) for Mushoku Tensei S3E14, Frieren S1E5, Slimes 300 Years S2E10, Scorpion S4E4, Practical Magic 1998, Squid Game S1E1 | Tsundere, VOSTFR, KAF, Baha/CHT rows carry the right note; ladder order puts a Japanese+English-subs release first for anime and keeps Korean audio as a backup for Squid Game |
+| P3 | Name layer on real results | `GET /api/title/{workKey}/releases` (the picker list, sends nothing) for Mushoku Tensei S3E14, Frieren S1E5, Slimes 300 Years S2E10, Scorpion S1E1 (the 1.6 ladder), Practical Magic 1998, Squid Game S1E1 | Tsundere, VOSTFR, KAF, Baha/CHT rows carry the right note; ladder order puts a Japanese+English-subs release first for anime, puts the Scorpion `英語繁中`, `nlsubs` and `MULTi` rows after the plain English ones without refusing them, and keeps Korean audio as a backup for Squid Game |
 | P4 | Ladder, name clash | fake feed: Tsundere-shape name (most seeders), then a neutral name with a jpn+en payload | Tsundere refused with "French audio" in the wanted detail; the neutral one downloads |
 | P5 | Ladder, header clash | fake feed: neutral name with fre-default payload (most seeders), then a jpn+en one | probe refuses the first ("French audio"), no engine row, probe folder gone, bytes received under the cap (log); the second downloads; a second hunt reuses the `MediaProbes` row (no new probe in the log) |
 | P6 | Subtitles rule | jpn + es-419-only payload | refused "Spanish subtitles only"; with `english` it is still refused (audio not English, no English subs) |
