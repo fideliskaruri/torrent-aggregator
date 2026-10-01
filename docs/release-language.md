@@ -72,8 +72,9 @@ page order and (later) release swap all call it. Language codes go through `Lang
 - `Detect(name, sourceCategory, files)` reads the facts. `Verdict(want, name, sourceCategory, files)` reads them and
   judges them. `Judge(want, facts)` judges facts read elsewhere.
 - `LanguageWant.For(preference, mediaType, originalLanguage)`: the preference (`auto`, `english`, `any`), whether the
-  title is anime, and the title's original language. `GrabService.LanguageWantAsync` fills the original language from
-  TMDB `original_language` for TMDB titles. Titles from other catalogs (cinemeta, tvmaze, anilist) have none, so for a
+  title is anime, and the title's original language. `GrabService.LanguageWantAsync` asks the one anime rule
+  (`AnimeIdentity`, plus the film identity's anime call) first, and fills the original language from TMDB
+  `original_language` for TMDB titles. Titles from other catalogs (cinemeta, tvmaze, anilist) have none, so for a
   non-anime title only English counts as wanted.
 - `LanguageVerdict`: `Fit` (Preferred, Neutral, Backup, Clash), `Code` (`audio_fr`, `subs_zh`, `dub`, `multi`,
   `no_subs`; null when it fits), `Label` in plain words, `Basis` (`name`, `category`, `files`, `group`, `none`),
@@ -180,7 +181,11 @@ request carries `Language`:
   and audio files beside them (`ReleaseLanguage.WithSidecars`).
 - It refuses only a Clash decided by explicit audio in the file names (`Refusable`), and only when `AcceptClash` is
   false: `Unusable = "audio_language"`, `Language = "audio_fr"`, message `Its files have French audio, so TorrentFlow
-  skipped it.` A magnet with no file list yet is unchecked.
+  skipped it.`
+- The check needs the file list before admission. Since OPS-539 a magnet is admitted at once and the client holds it
+  only until its file list passes the file rules (`MonoTorrentBackend`), which do not check language. So in practice
+  the check runs for a release sent as a `.torrent` file, a cached `.torrent`, or a season pack (whose list is fetched
+  before admission); a plain magnet is unchecked and its name verdict stands.
 - Every check logs one Information line: `[builtin-engine] language check <hash> (<name>): category <category>, name
   <fit> <label>, files <fit> <label> (<basis>, <confidence>), accept clash <bool>`.
 

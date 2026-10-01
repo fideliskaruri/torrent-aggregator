@@ -55,11 +55,6 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         return anime == null ? known : ("anime", UniqueNames(new[] { anime.Title }.Concat(anime.Aliases ?? []).ToList(), title));
     }
 
-    /// <summary>A catalog entry that is anime: AniList's own type, an Anime genre, or Japanese animation on TMDB.</summary>
-    internal static bool IsAnime(MediaMetadata catalog) =>
-        catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
-        catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true;
-
     internal static List<string> UniqueNames(IReadOnlyList<string> names, string canonicalTitle)
     {
         var canonical = EpisodeLadder.NormalizeTitle(canonicalTitle);
