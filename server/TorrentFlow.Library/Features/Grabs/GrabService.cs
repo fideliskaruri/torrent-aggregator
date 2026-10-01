@@ -16,7 +16,7 @@ namespace TorrentFlow.Library.Features.Grabs;
 
 public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cursor = null,
     string? WatchListItemId = null, string? WorkId = null, int? PreferredResolution = null,
-    string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
+    bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
     SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
@@ -52,7 +52,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     {
         if (!input.ReuseExisting || input.WorkId == null || input.Cursor == null)
             return await GrabCore(input, ct, beforeSend);
-        var key = $"{input.WorkId}:{input.Cursor.Value.QueueKey}:{input.Retention}:{input.PreferredResolution}";
+        var key = $"{input.WorkId}:{input.Cursor.Value.QueueKey}:{input.PreferredResolution}";
         Task<GrabResult> work;
         lock (episodeGate)
         {
@@ -74,7 +74,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     {
         var query = input.Cursor?.Query(input.Title) ?? input.Title;
         await using var db = await factory.CreateDbContextAsync(ct);
-        if (input.ReuseExisting && input.WorkId != null && input.Cursor is { } requested && input.Retention == "keep")
+        if (input.ReuseExisting && input.WorkId != null && input.Cursor is { } requested)
         {
             var existing = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id &&
                 t.WorkId == input.WorkId && t.QueueKey == requested.QueueKey && t.Origin == TorrentOrigin.User &&
@@ -141,7 +141,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                     s.SetProperty(w => w.AliasesJson, aliasesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
             }
         }
-        int? floor = input.Retention == "stream" ? null : input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
+        int? floor = input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
         return (input, settings, floor, null);
     }
 
@@ -382,7 +382,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         try
         {
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
-                InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
+                InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = TorrentPurpose.Keep,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
                 QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
@@ -397,11 +397,11 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var now = DateTime.UtcNow;
         db.GrabJobs.Add(new GrabJob { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Query = query,
             Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, InfoHash = hash,
-            Source = candidate.Source, Kind = input.Background ? "library" : "ondemand", ExternalId = input.WatchListItemId, Retention = input.Retention,
+            Source = candidate.Source, Kind = input.Background ? "library" : "ondemand", ExternalId = input.WatchListItemId, Retention = "keep",
             CreatedAt = now, UpdatedAt = now });
         db.DownloadHistories.Add(new DownloadHistory { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title,
             Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
-            InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = input.Retention, Context = "ondemand",
+            InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = "keep", Context = "ondemand",
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;
         if (result.Ok && input.WatchListItemId != null && input.Cursor != null)

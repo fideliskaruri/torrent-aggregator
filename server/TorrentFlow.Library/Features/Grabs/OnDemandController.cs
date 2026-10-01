@@ -33,7 +33,8 @@ public sealed class OnDemandController(IDbContextFactory<TorrentFlowDbContext> f
         var type = f.String("mediaType") ?? "tv";
         var season = f.Int("season", int.MaxValue, true)!.Value;
         var episode = f.Int("episode", int.MaxValue, true)!.Value;
-        var retention = f.Enum("retention", ["stream", "keep"]) ?? "keep";
+        // Every download is kept; older pages may still send "stream", which is accepted and treated as keep.
+        f.Enum("retention", ["stream", "keep"]);
         var cap = f.Bool("overrideStorageCap") == true;
         int? resolution = null;
         string? workId = null;
@@ -45,7 +46,7 @@ public sealed class OnDemandController(IDbContextFactory<TorrentFlowDbContext> f
             title = item.Title; type = item.MediaType; resolution = item.PreferredResolution; workId = item.WorkId;
         }
         if (string.IsNullOrWhiteSpace(title)) return BadRequest(new { ok = false, error = "Missing title", message = "title or watchListItemId required" });
-        var result = await grabs.Grab(new(title, type, new EpisodeCursor(season, episode), id, workId, resolution, retention, cap), ct);
+        var result = await grabs.Grab(new(title, type, new EpisodeCursor(season, episode), id, workId, resolution, cap), ct);
         var status = result.Ok ? 200 : result.Storage != null ? 507 : 502;
         if (result.Ok || result.NoReleaseFound == null) return StatusCode(status, result);
         // Nothing fitted: name the title so the Library can offer "Pick a release yourself". Older library rows have

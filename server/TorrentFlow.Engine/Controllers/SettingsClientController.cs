@@ -73,7 +73,8 @@ public sealed class SettingsClientController(
             ["pathRules"] = config.PathRules,
             ["pathWarnings"] = PathWarnings(config),
             ["hasExternal"] = config.ExternalClientType is not null,
-            ["defaultRetentionPolicy"] = s.DefaultRetentionPolicy?.Trim().ToUpperInvariant() is "KEEP" or "KEPT" ? "KEPT" : "EPHEMERAL",
+            // Every download is kept; the field stays so older pages keep reading a valid value.
+            ["defaultRetentionPolicy"] = "KEPT",
             ["defaultRetentionPolicyPersisted"] = !string.IsNullOrEmpty(s.DefaultRetentionPolicy),
             ["storageUsage"] = await StorageUsageAsync(config, ct),
         };
@@ -259,7 +260,7 @@ public sealed class SettingsClientController(
             }
         }
         if (body.Has("defaultRetentionPolicy"))
-            row.DefaultRetentionPolicy = body.Str("defaultRetentionPolicy")?.Trim() is "KEEP" or "KEPT" ? "KEPT" : "EPHEMERAL";
+            row.DefaultRetentionPolicy = "KEPT";
 
         storage.ResetDirectorySizeCache();
         row.UpdatedAt = DateTime.UtcNow;

@@ -13,7 +13,7 @@ public sealed class ActivityController(IDbContextFactory<TorrentFlowDbContext> f
     public async Task<IActionResult> History(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var items = await db.DownloadHistories.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Retention != "stream")
+        var items = await db.DownloadHistories.AsNoTracking().Where(x => x.UserId == LocalUser.Id)
             .OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(ct);
         foreach (var item in items) item.Message = EngineAddMessages.LoggedOutcome(item.Message);
         return Ok(new { items = items.Select(LibraryJson.Row) });

@@ -20,13 +20,13 @@ public sealed class TorrentSendController(
     ClientSettingsStore settings,
     StorageBudget storage,
     TorrentFlowDbContext db,
-    ExternalClientRegistry clients,
-    Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engineOptions) : ControllerBase
+    ExternalClientRegistry clients) : ControllerBase
 {
     private static readonly (string Field, int Max)[] StringLimits =
         [("magnet", 8192), ("torrentUrl", 2048), ("name", 500), ("source", 100), ("infoHash", 64), ("searchCategory", 100),
          ("category", 100), ("savePath", 4096), ("watchListItemId", 128), ("queueKey", 64), ("workId", 128)];
 
+    // "stream" is still accepted from older pages; every download is kept.
     private static readonly (string Field, string[] Allowed)[] EnumFields =
         [("target", ["primary", "external"]), ("retention", ["stream", "keep"]), ("scope", ["title", "season", "episode"]),
          ("lane", [TorrentLane.Owner, TorrentLane.Request, TorrentLane.Automation])];
@@ -54,8 +54,6 @@ public sealed class TorrentSendController(
         var torrentUrl = body.Str("torrentUrl")?.Trim();
         var infoHashRaw = body.Str("infoHash")?.Trim();
         var retention = body.Str("retention");
-        // With streaming off, a stream-only request is an ordinary download.
-        if (retention == "stream" && !engineOptions.CurrentValue.Streaming) retention = "keep";
         var scope = body.Str("scope");
         var target = body.Str("target") ?? "primary";
         var savePathOverride = body.Str("savePath");
@@ -90,18 +88,17 @@ public sealed class TorrentSendController(
         {
             if (scope is "episode" or "season")
                 return BadRequest(new { ok = false, message = "Episode and season acquisitions must use their scoped title endpoint." });
-            return await RetentionOnlyAsync(infoHash, retention!, ct);
+            return await RetentionOnlyAsync(infoHash, ct);
         }
         if (!hasSource) return Invalid("magnet or torrentUrl is required (or infoHash with retention)", "magnet");
 
         var resolved = await SmartTargetAsync(body, config, ct);
-        var purpose = retention == "stream" ? TorrentPurpose.Stream : TorrentPurpose.Keep;
         var overrideCap = body.Bool("overrideStorageCap") ?? false;
         var expected = body.Num("expectedSizeBytes") is { } n && n > 0 ? (long)n : (long?)null;
         var targetJson = new { category = resolved.Category, savePath = resolved.SavePath };
 
         var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, expected, await engine.QueuedReservedBytesAsync(ct), overrideCap);
-        if (!check.Ok && (purpose == TorrentPurpose.Keep || !check.Overridable))
+        if (!check.Ok)
             return StatusCode(507, new
             {
                 ok = false, offline = false, error = "Storage limit", message = check.Message, clientType = "builtin", target = targetJson,
@@ -119,7 +116,7 @@ public sealed class TorrentSendController(
             TorrentUrl = torrentUrl,
             InfoHash = infoHash,
             Name = body.Str("name"),
-            Purpose = purpose,
+            Purpose = TorrentPurpose.Keep,
             Category = resolved.Category,
             SavePath = resolved.SavePath,
             QueueKey = body.Str("queueKey"),
@@ -141,7 +138,7 @@ public sealed class TorrentSendController(
         return Ok(new
         {
             ok = true, message = EngineAddMessages.Format(result), offline = false, clientType = "builtin", sendTarget = target, target = targetJson, smart,
-            retentionState = purpose == TorrentPurpose.Stream ? "stream" : "kept", streamDegraded = false,
+            retentionState = "kept",
             hash = result.Hash, details = result.Details,
         });
     }
@@ -158,8 +155,8 @@ public sealed class TorrentSendController(
                 if (body.Str("scope") is "episode" or "season")
                     return BadRequest(new { ok = false, message = "Episode and season acquisitions must use their scoped title endpoint." });
                 var existing = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.Hash == infoHash, ct);
-                var state = existing?.Origin switch { TorrentOrigin.User => "kept", TorrentOrigin.Stream => "stream", TorrentOrigin.Prewarm => "prewarm", _ => "unknown" };
-                return Ok(new { ok = true, message = retention == "keep" ? "Kept in your library." : "Marked stream-only.", clientType = config.ClientType, sendTarget = target, retentionState = state });
+                var state = existing?.Origin == TorrentOrigin.User ? "kept" : "unknown";
+                return Ok(new { ok = true, message = "Kept in your library.", clientType = config.ClientType, sendTarget = target, retentionState = state });
             }
             return Invalid("magnet or torrentUrl is required (or infoHash with retention)", "magnet");
         }
@@ -170,14 +167,6 @@ public sealed class TorrentSendController(
         var watchId = body.Str("watchListItemId");
         var watch = string.IsNullOrEmpty(watchId) ? null : await db.WatchListItems.AsNoTracking()
             .FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.Id == watchId, ct);
-        if (retention is null)
-        {
-            var saved = await settings.EnsureAsync(db, ct);
-            retention = existingTransfer?.Origin == TorrentOrigin.User || !string.IsNullOrEmpty(watchId) || saved.DefaultRetentionPolicy == "KEPT"
-                ? "keep" : "stream";
-        }
-        if (!engineOptions.CurrentValue.Streaming) retention = "keep";
-        var purpose = retention == "stream" && string.IsNullOrEmpty(watchId) ? TorrentPurpose.Stream : TorrentPurpose.Keep;
         var history = new DownloadHistory
         {
             Id = Ids.New(), UserId = LocalUser.Id, CreatedAt = DateTime.UtcNow, Title = body.Str("name") ?? "Unknown",
@@ -205,7 +194,7 @@ public sealed class TorrentSendController(
         }
         var result = await clients.Get(config.ClientType).AddAsync(config, new EngineAddRequest
         {
-            Magnet = magnet, TorrentUrl = torrentUrl, Name = body.Str("name"), Purpose = purpose,
+            Magnet = magnet, TorrentUrl = torrentUrl, Name = body.Str("name"), Purpose = TorrentPurpose.Keep,
             Category = resolved.Category, SavePath = resolved.SavePath,
         }, ct);
         history.Status = result.Ok ? "sent" : "failed";
@@ -223,12 +212,7 @@ public sealed class TorrentSendController(
             ok = result.Ok, message = result.Message, offline, clientType = config.ClientType, sendTarget = target,
             target = new Dictionary<string, object?> { ["category"] = resolved.Category, ["savePath"] = resolved.SavePath },
             smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence },
-            retentionState = existingTransfer?.Origin switch
-            {
-                TorrentOrigin.User => "kept", TorrentOrigin.Stream => "stream", TorrentOrigin.Prewarm => "prewarm",
-                _ => purpose == TorrentPurpose.Stream ? "stream" : "kept",
-            },
-            streamDegraded = purpose == TorrentPurpose.Stream,
+            retentionState = "kept",
         });
     }
 
@@ -264,23 +248,24 @@ public sealed class TorrentSendController(
         return new MediaMetadata { Source = type == "anime" ? "anilist" : "tmdb", MediaType = type, ExternalId = (externalId ?? "").Trim(), Title = name };
     }
 
-    /// <summary>Changes only the retention of an existing transfer (Keep / Stream-only), never adding anything.</summary>
-    private async Task<IActionResult> RetentionOnlyAsync(string hash, string retention, CancellationToken ct)
+    /// <summary>Marks an existing transfer as kept, never adding anything. Every download is kept, so this only
+    /// confirms it to older pages that still ask.</summary>
+    private async Task<IActionResult> RetentionOnlyAsync(string hash, CancellationToken ct)
     {
         var row = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
-        if (row is not null)
+        if (row is not null && row.Origin != TorrentOrigin.User)
         {
-            row.Origin = retention == "keep" ? TorrentOrigin.User : row.Origin == TorrentOrigin.User ? TorrentOrigin.Stream : row.Origin;
+            row.Origin = TorrentOrigin.User;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
         return Ok(new
         {
             ok = true,
-            message = retention == "keep" ? "Kept in your library." : "Marked stream-only.",
+            message = "Kept in your library.",
             clientType = "builtin",
             sendTarget = "primary",
-            retentionState = retention == "keep" ? "kept" : "stream",
+            retentionState = "kept",
         });
     }
 }

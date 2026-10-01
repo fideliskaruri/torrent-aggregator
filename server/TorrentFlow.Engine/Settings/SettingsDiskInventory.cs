@@ -37,7 +37,7 @@ internal static class SettingsDiskInventory
     {
         rows = rows.Where(r => r.Status != "removed").ToArray();
         var recent = rows.OrderByDescending(r => r.LastUsedAt).Take(200).ToArray();
-        string Policy(EngineTorrent row) => row.Origin switch { "user" => "KEPT", "stream" or "prewarm" => "EPHEMERAL", _ => "INDETERMINATE" };
+        string Policy(EngineTorrent row) => row.Origin == "user" ? "KEPT" : "INDETERMINATE";
         long Bytes(string policy) => recent.Where(r => Policy(r) == policy).Sum(r => Math.Max(0, r.SizeBytes));
         var files = new List<Entry>();
         var unreadable = new List<string>();
@@ -104,9 +104,7 @@ internal static class SettingsDiskInventory
         return new Dictionary<string, object?>
         {
             ["totalBytes"] = recent.Sum(r => Math.Max(0, r.SizeBytes)),
-            ["ephemeralBytes"] = Bytes("EPHEMERAL"), ["keptBytes"] = Bytes("KEPT"), ["indeterminateBytes"] = Bytes("INDETERMINATE"),
-            ["budgetBytes"] = config.MaxStorageBytes is { } cap ? Math.Min(20L * 1024 * 1024 * 1024, cap) : (long?)null,
-            ["graceMs"] = 6L * 60 * 60 * 1000,
+            ["keptBytes"] = Bytes("KEPT"), ["indeterminateBytes"] = Bytes("INDETERMINATE"),
             ["items"] = recent.Select(r => new Dictionary<string, object?>
             {
                 ["hash"] = r.Hash, ["name"] = r.Name, ["retentionPolicy"] = Policy(r), ["origin"] = r.Origin,

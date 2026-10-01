@@ -8,7 +8,7 @@ using TorrentFlow.Engine.Storage;
 namespace TorrentFlow.Engine.Controllers;
 
 [ApiController]
-public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbContext db, StorageBudget storage, RetentionSweeper sweeper) : ControllerBase
+public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbContext db, StorageBudget storage) : ControllerBase
 {
     [HttpGet("api/settings/browse-folders")]
     public IActionResult Browse([FromQuery] string? path)
@@ -204,38 +204,6 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
             deleted = new { relativePath = rel, kind = isDir ? "directory" : "file", bytes, fileCount = count },
             usage = SettingsDiskInventory.Usage(config, rows, ct),
         });
-    }
-
-    [HttpPost("api/settings/retention-sweep")]
-    public async Task<IActionResult> Sweep(CancellationToken ct)
-    {
-        if (await JsonBody.ReadAsync(Request, ct) is not { } body) return JsonBody.InvalidJson();
-        if (body.Has("mode") && body.Str("mode") is null) return BadRequest(new { error = "mode must be a string", field = "mode" });
-        var mode = body.Str("mode")?.Trim() ?? "preview";
-        if (mode is not ("preview" or "delete")) return BadRequest(new { error = "mode must be one of: preview, delete", field = "mode" });
-        var budget = body.Num("budgetBytes");
-        if (body.Has("budgetBytes") && !body.IsNull("budgetBytes") && budget is null)
-            return BadRequest(new { error = "budgetBytes must be a finite number", field = "budgetBytes" });
-        if (budget is { } b)
-        {
-            var error = b != Math.Floor(b) ? "budgetBytes must be an integer" : b < 1 ? "budgetBytes must be at least 1"
-                : b > 9007199254740991 ? "budgetBytes must be at most 9007199254740991" : null;
-            if (error is not null) return BadRequest(new { error, field = "budgetBytes" });
-        }
-        var config = await store.GetConfigAsync(ct);
-        if (config.MaxStorageBytes is not { } cap)
-            return StatusCode(409, new { error = "Storage setup required", message = StorageBudget.SetupRequiredMessage });
-        try
-        {
-            var result = await sweeper.SweepAsync(mode, budget is { } bb ? (long)bb : Math.Min(cap, 20L * 1024 * 1024 * 1024), ct);
-            storage.ResetDirectorySizeCache();
-            var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
-            return Ok(new { ok = true, result, usage = SettingsDiskInventory.Usage(config, rows, ct) });
-        }
-        catch (Exception ex) when (ex is IOException or DbUpdateException)
-        {
-            return StatusCode(500, new { error = "Failed to run retention sweep", message = "The retention sweep failed. Check the server logs for details." });
-        }
     }
 }
 

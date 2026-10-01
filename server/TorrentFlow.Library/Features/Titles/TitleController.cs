@@ -64,7 +64,8 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         if (f.Raw("preferredResolution").ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null) &&
             (resolution == null || !new[] { 480, 720, 1080, 2160 }.Contains(resolution.Value)))
             return BadRequest(new { ok = false, message = "Preferred resolution must be 480p, 720p, 1080p, or 2160p." });
-        var retention = f.Enum("retention", ["keep", "stream"]) ?? "keep";
+        // Every download is kept; older pages may still send "stream", which is accepted and treated as keep.
+        f.Enum("retention", ["keep", "stream"]);
         var cap = f.Bool("overrideStorageCap") == true;
         // Provider IDs are authoritative claims even when optional display hints are absent.
         string? Claim(string name) => f.Raw(name) is { ValueKind: JsonValueKind.String } v && v.GetString()!.Trim() is { Length: > 0 and <= 200 } s ? s : null;
@@ -112,11 +113,11 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         if (watchId != null)
             await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
-        var input = new GrabInput(title, type, null, watchId, work.Id, resolution, retention, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
+        var input = new GrabInput(title, type, null, watchId, work.Id, resolution, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
             Provider: verified?.Source ?? work.Provider, ProviderId: verified?.ExternalId ?? work.ProviderId);
         // Download season is fire and forget: record what is wanted and return. The wanted queue runs the shared
         // season path (the single-episode grab for each episode) in the background and keeps retrying whatever is not found yet.
-        if (scope == "season" && retention == "keep")
+        if (scope == "season")
         {
             await wanted.EnqueueAsync(new(workKey, work.Id, season!.Value, episodes, resolution, cap, TorrentLane.Owner), CancellationToken.None);
             return Accepted(LibraryJson.Object(("ok", true), ("queued", true), ("message", $"Season {season} queued."),
@@ -127,27 +128,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         // Once targets are seeded the acquisition must finish and settle even if the client disconnects;
         // only host shutdown may interrupt it.
         var workToken = lifetime.ApplicationStopping;
-        if (scope == "season")
-        {
-            // Streaming a season keeps nothing, so there is nothing to queue: it runs now.
-            SeasonFanoutResult result;
-            try { result = await grabs.Season(input with { ReuseExisting = true }, season!.Value, episodes, workToken); }
-            catch (Exception error) { return Crash(error); }
-            var ok = result.CoveredEpisodes.Count > 0;
-            var summary = SeasonFailureSummary.From(result);
-            var body = LibraryJson.Object(("ok", ok), ("message", summary.Message),
-                ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
-                    strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
-                        LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
-                        LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
-                    planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable,
-                    manualSearchQuery = ReleasePicker.DefaultQuery(title, season, null) }));
-            if (result.Storage != null) body["storage"] = result.Storage;
-            return StatusCode(ok ? 200 : 409, body);
-        }
-        var tracked = retention == "keep"
-            ? await wanted.SeedAsync(workKey, work.Id, scope!, season, [episode], resolution, restart: true, ct)
-            : new Dictionary<string, int?>();
+        var tracked = await wanted.SeedAsync(workKey, work.Id, scope!, season, [episode], resolution, restart: true, ct);
         GrabResult? single = null;
         Exception? crash = null;
         try

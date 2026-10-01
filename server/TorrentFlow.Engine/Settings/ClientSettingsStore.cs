@@ -77,7 +77,7 @@ public sealed class ClientSettingsStore(
             ClientType = "builtin",
             Host = DefaultHost,
             Categories = JsonSerializer.Serialize(DefaultCategories),
-            DefaultRetentionPolicy = "EPHEMERAL",
+            DefaultRetentionPolicy = "KEPT",
             CreatedAt = now,
             UpdatedAt = now,
         };

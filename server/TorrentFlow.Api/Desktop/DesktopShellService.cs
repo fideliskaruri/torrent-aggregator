@@ -73,11 +73,10 @@ public sealed class DesktopShellService(
             }
         });
 
-    /// <summary>Kept downloads that are transferring or waiting; streams/prewarm caches and finished files are left alone.</summary>
-    internal static bool CanPause(EngineTorrentInfo t) =>
-        t.RetentionState is not ("stream" or "prewarm") && t.State is not ("paused" or "downloaded" or "error");
+    /// <summary>Downloads that are transferring or waiting; finished files are left alone.</summary>
+    internal static bool CanPause(EngineTorrentInfo t) => t.State is not ("paused" or "downloaded" or "error");
 
-    internal static bool CanResume(EngineTorrentInfo t) => t.RetentionState is not ("stream" or "prewarm") && t.State == "paused";
+    internal static bool CanResume(EngineTorrentInfo t) => t.State == "paused";
 
     internal async Task<int> PauseAllAsync(CancellationToken ct)
     {

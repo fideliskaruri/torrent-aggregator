@@ -73,8 +73,8 @@ public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> fact
         var cursor = Parse(rawCursor);
         var take = limit + 11;
         await using var db = await factory.CreateDbContextAsync(ct);
-        var g = db.GrabJobs.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Retention != "stream" && (filter != "sent" || x.Status == "sent"));
-        var h = db.DownloadHistories.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Retention != "stream" && (filter != "sent" || x.Status == "sent"));
+        var g = db.GrabJobs.AsNoTracking().Where(x => x.UserId == LocalUser.Id && (filter != "sent" || x.Status == "sent"));
+        var h = db.DownloadHistories.AsNoTracking().Where(x => x.UserId == LocalUser.Id && (filter != "sent" || x.Status == "sent"));
         var gp = g;
         var hp = h;
         var overlap = new List<ActivityRow>();
@@ -104,9 +104,9 @@ public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> fact
         DateTime? since = DateTime.TryParse(rawSince, out var date) ? date.ToUniversalTime() : null;
         string[] statuses = ["sent", "completed", "downloaded", "done", "failed", "error", "exhausted"];
         await using var db = await factory.CreateDbContextAsync(ct);
-        var jobs = await db.GrabJobs.Where(x => x.UserId == LocalUser.Id && x.Retention != "stream" && statuses.Contains(x.Status) && (since == null || x.CreatedAt > since))
+        var jobs = await db.GrabJobs.Where(x => x.UserId == LocalUser.Id && statuses.Contains(x.Status) && (since == null || x.CreatedAt > since))
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(101).ToListAsync(ct);
-        var history = await db.DownloadHistories.Where(x => x.UserId == LocalUser.Id && x.Retention != "stream" && statuses.Contains(x.Status) && (since == null || x.CreatedAt > since))
+        var history = await db.DownloadHistories.Where(x => x.UserId == LocalUser.Id && statuses.Contains(x.Status) && (since == null || x.CreatedAt > since))
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(101).ToListAsync(ct);
         var rows = Reconcile(jobs.Select(Map).Concat(history.Select(Map)));
         return new { count = Math.Min(rows.Count, 100), capped = rows.Count > 100 || jobs.Count >= 101 || history.Count >= 101 };
