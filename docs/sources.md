@@ -31,6 +31,11 @@ replaces only the fields it supplies; arrays and `options` are replaced as a who
 Entries with new IDs add a source. Disable a built-in source instead of deleting it.
 Custom Torznab entries can be removed.
 
+A default can list hosts its site has abandoned under `retired` (YTS: `yts.mx`). When a
+saved entry, a legacy `*_BASE_URL` setting or a hand edit still names one as its base URL
+or a mirror, the registry puts the shipped base URL in its place, so the live host is
+tried first. The file is not rewritten; the next save from Settings stores the live URL.
+
 The file is re-read on registry access. Invalid external edits keep the last valid
 snapshot and show an error in Settings. Correct or remove the invalid file before
 writing through the UI. Writes use atomic replacement. Registry revisions isolate
@@ -65,9 +70,9 @@ are 500–60000 ms. Lower priorities run first. Supported category aliases inclu
 Adapters are implementations in code, not executable plugins loaded from JSON.
 Supported torrent types: `nyaa`, `apibay`, `torrentscsv`, `yts`, `eztv`, `1337x`,
 `archive`, `torznab`, `knaben`, `bitsearch`, `limetorrents`, `torrentdownloads`,
-`animetosho`. Metadata types: `tvmaze`, `anilist`, `cinemeta`, `tmdb`,
-`itunes`. The UI adds custom Torznab entries; trusted configuration can reuse the
-other implementations.
+`animetosho`, `subsplease`, `therarbg`, `torrentdownloadinfo`. Metadata types:
+`tvmaze`, `anilist`, `cinemeta`, `tmdb`, `itunes`. The UI adds custom Torznab entries;
+trusted configuration can reuse the other implementations.
 
 ## Torrent indexers
 
@@ -80,13 +85,16 @@ Each adapter lives in `server/TorrentFlow.Search/Adapters/` and reuses the share
 |----|------|--------|------------|---------|-------------------|
 | `nyaa` | nyaa.si | RSS | anime | on | 2 at once, 1000 ms |
 | `animetosho` | feed.animetosho.org | JSON feed (Nyaa, TokyoTosho, AniDex mirror) | anime | on | 2 at once, 1000 ms |
+| `subsplease` | subsplease.org | JSON search API, one row per resolution | anime | on | 1 at once, 1000 ms |
 | `apibay` | apibay.org (The Pirate Bay) | JSON | all | on | 2 at once, 2000 ms |
 | `torrentscsv` | torrents-csv.com | JSON | all | on | default |
 | `knaben` | api.knaben.org | JSON meta-search (POST) over TPB, 1337x, TorrentGalaxy, RARBG caches and more | all | on | 2 at once, 1000 ms |
+| `therarbg` | therarbg.com (mirrors therarbg.to, torrentgalaxy.one, torrentgalaxy.info) | JSON (`/get-posts/keywords:…:format:json/`) | all | on | 2 at once, 1000 ms |
 | `bitsearch` | bitsearch.to | HTML with magnets in the list | all | on | 1 at once, 1500 ms |
 | `limetorrents` | limetorrents.fun (mirror .lol) | search RSS, hash from the itorrents link | all | on | 1 at once, 1500 ms |
 | `torrentdownloads` | torrentdownloads.pro | search RSS with `info_hash` | all | on | 1 at once, 1500 ms |
-| `yts` | yts.lt, movies-api.accel.li | JSON | movie | on | default |
+| `torrentdownloadinfo` | torrentdownload.info | search RSS, hash in the description | all | on | 1 at once, 1500 ms |
+| `yts` | yts.lt (mirrors movies-api.accel.li, yts.gg) | JSON | movie | on | default |
 | `eztv` | eztvx.to, eztv.wf | JSON by IMDb id | series | on | default |
 | `1337x` | 1337x.to | HTML + detail pages | all | off | default |
 | `archive` | archive.org | JSON | movie, series, anime | off | default |
@@ -95,47 +103,85 @@ Each adapter lives in `server/TorrentFlow.Search/Adapters/` and reuses the share
 EZTV now reports `season`/`episode` as `0`, so the adapter reads them from the release
 title and walks up to five pages (newest first) until it passes the wanted season.
 
-### Candidates checked and not added (2026-09-30)
+SubsPlease lists only its own releases and reports no swarm counts; the tracker scrape
+fills them in. It numbers each season from 01, so `Sousou no Frieren S2 - 01` finds the
+episode and `Frieren 29` finds nothing there (Nyaa and AnimeTosho still match it).
+
+TheRARBG's search matches the show name and ignores `SxxEyy`: `Seinfeld S04E11` returns
+393 Seinfeld rows, 2 of them that episode. The adapter therefore drops rows that name
+another season or episode. Bare anime numbers such as `Frieren 29` are not narrowed,
+because `S02E01` can be the same episode; those rows rank below exact matches. Adult rows
+are dropped. torrentgalaxy.one and torrentgalaxy.info serve the same index and act as its
+mirrors.
+
+TorrentDownload.info is a separate index from torrentdownloads.pro (10 of 50 hashes
+overlapped for `Dune 2021`). Its titles come in slug form, for example
+`Dune-2021-1080p-BluRay-x265-10bit-AAC5-1-[YTS-MX]`.
+
+### Candidates checked and not added (re-checked 2026-10-01)
 
 | Site | Why not |
 |------|---------|
-| TorrentGalaxy (torrentgalaxy.one), TheRARBG | list pages have no hash; each row needs a detail fetch. Knaben already caches both. |
-| 1337x mirrors (1337x.to, 1337x.st, 1377x.to) | TLS failure, Cloudflare challenge or dead DNS |
-| ext.to, idope.se, kickasstorrents.to, uindex.org | Cloudflare challenge (403) |
+| TorrentGalaxy (torrentgalaxy.to and its older domains) | do not answer; the live torrentgalaxy.one/.info copies are `therarbg` mirrors |
+| 1337x mirrors (1337x.to, 1337x.st, 1377x.to) | TLS failure, Cloudflare challenge or dead DNS. 1337xx.to is an unofficial copy that needs a detail page per row. |
+| ext.to, idope.se, kickasstorrents.to, uindex.org, AniDex | Cloudflare challenge (403) |
+| BT4G (bt4gprx.com) | DHT crawl: fake `EZTV - Downloader.exe` rows, unrelated rows for anime, 15 per page, no swarm counts |
 | MagnetDL, GloTorrents (glodls.to) | time out |
 | torrentz2.nz, yts.mx | DNS does not resolve |
 | btdig.com | answers 429 on the first request |
+| AniRena | search answers 404 |
 | Rutor | Russian catalogue: nothing for TV or anime queries |
 | TokyoTosho | base32 hashes and no swarm counts; AnimeTosho mirrors it with counts |
-| SubsPlease | only its own releases; AnimeTosho and Nyaa carry them |
-| Snowfl, Zooqle clones, Torlock, TorrentFunk, YourBittorrent, TorrentProject, tpb.party | token-gated JS, redirect-only, or HTML without hashes in the list |
+| Snowfl, Zooqle clones, Torlock, TorrentFunk, YourBittorrent, TorrentProject, tpb.party | token-gated JS, redirect-only, 502, or HTML without hashes in the list |
 
-### Live matrix (2026-09-30, `/api/search?...&sources=<id>&skipCache=true&enrich=0`)
+### Live matrix (2026-10-01)
 
-Counts are raw adapter results; time is the whole API call. `1337x` and `archive` were
-switched on in a scratch instance for this run only.
+One call per cell, `GET /api/search?q=<query>&sources=<id>&refresh=1&enrich=0&pageSize=200`,
+against a freshly started scratch instance. `refresh=1` bypasses the search cache; the API
+has no `skipCache` parameter. Counts are raw adapter results; time is the whole API call.
+`1337x` was switched on for its row only.
 
-| Source | Scorpion S01E05 | Scorpion S02E03 | Dune 2021 | Frieren 05 | Seinfeld S04E11 |
-|--------|-----------------|-----------------|-----------|------------|-----------------|
-| nyaa | 0 (1.1 s) | 0 | 0 | **53** (1.0 s) | 0 |
-| animetosho | 0 | 0 | 0 | **62** (0.8 s) | 0 |
-| apibay | 429 from apibay.org | 429 | 429 | 429 | 429 |
-| torrentscsv | 0 | **1** (0.9 s) | **25** (0.6 s) | **22** (0.7 s) | 0 |
-| knaben | **19** (3.2 s) | **4** (1.1 s) | **80** (1.0 s) | **14** (0.8 s) | **10** (0.8 s) |
-| bitsearch | **20** (2.1 s) | **20** (1.9 s) | **20** (1.1 s) | **20** (1.8 s) | **6** (1.6 s) |
-| limetorrents | **40** (1.3 s) | **17** (0.9 s) | **40** (0.9 s) | **18** (1.7 s) | **3** (0.5 s) |
-| torrentdownloads | **50** (0.9 s) | **50** (0.8 s) | **50** (0.5 s) | **50** (0.7 s) | **50** (0.8 s) |
-| yts | 0 | 0 | **16** (0.9 s) | 0 | 0 |
-| eztv | 0 (EZTV has no S01) | **2** (1.6 s) | 0 | 0 | 0 (not on EZTV) |
-| 1337x (off) | TLS failure | TLS failure | TLS failure | TLS failure | TLS failure |
-| archive (off) | 0 | 0 | **50** (3.5 s) | **7** (6.2 s) | 0 |
+| Source | Dune 2021 | Scorpion S01E01 | Frieren 29 | Sousou no Frieren |
+|--------|-----------|-----------------|------------|-------------------|
+| `nyaa` | 0 (1.0 s) | 0 (0.4 s) | **24** (0.8 s) | **75** (0.9 s) |
+| `animetosho` | 0 (0.8 s) | 0 (0.3 s) | **2** (0.7 s) | **75** (0.8 s) |
+| `subsplease` (new) | 0 (0.6 s) | 0 (0.2 s) | 0 (0.2 s) ¹ | **80** (0.8 s) |
+| `apibay` | **80** (0.6 s) | **24** (0.5 s) | 0 (<0.1 s) | **75** (0.5 s) |
+| `torrentscsv` | **25** (0.9 s) | 0 (0.2 s) | 0 (0.2 s) | **25** (0.6 s) |
+| `knaben` | **80** (1.4 s) | **19** (0.8 s) | **8** (0.6 s) | **80** (1.1 s) |
+| `therarbg` (new) | **50** (1.0 s) | **20** (0.6 s) | **50** (0.6 s) ² | **50** (0.6 s) |
+| `bitsearch` | **20** (1.3 s) | **20** (0.8 s) | **20** (0.9 s) | **20** (0.8 s) |
+| `limetorrents` | **40** (1.1 s) | **38** (0.5 s) | **20** (0.6 s) | **40** (1.0 s) |
+| `torrentdownloads` | **50** (0.9 s) | **50** (0.8 s) | **50** (0.7 s) | **50** (0.7 s) |
+| `torrentdownloadinfo` (new) | **50** (1.1 s) | **33** (0.8 s) | **19** (0.4 s) | **50** (0.9 s) |
+| `yts` (yts.lt) | **16** (1.4 s) | 0 (0.4 s) | 0 (0.4 s) | 0 (0.5 s) |
+| `eztv` | 0 (0.6 s) | 0 (<0.1 s) ³ | 0 (0.2 s) | 0 (0.4 s) |
+| `1337x` (off) | no valid response | no valid response | no valid response | no valid response |
 
-apibay.org answered 429 to plain `curl` from the test machine for the whole run as
-well, so it was the site limiting this IP, not the adapter; the cool-down skipped it as
-designed. Sample titles: `Scorpion.S01E05.Plutonium.Is.Forever.720p.WEB-DL` (knaben),
-`Scorpion S02E03 720p HDTV X264-DIMENSION EZTV` (eztv), `Dune (2021) [1080p] [WEBRip]
-[5.1] [YTS.MX]` (bitsearch), `[Erai-raws] Sousou no Frieren - 05 [1080p]` (animetosho),
-`Seinfeld S04E11 The Contest 1080p HEVC x265-MeGusta` (limetorrents).
+1. SubsPlease numbers each season from 01; `Sousou no Frieren S2 - 01` returns 6 rows.
+2. Other Frieren episodes and packs, none of them episode 29. In an all-source search the
+   top 10 are episode 29 rows from nyaa, animetosho, torrentdownloads (a 29-38 batch) and
+   bitsearch.
+3. EZTV has no Scorpion S01. `Scorpion S02E03` returned 2 rows (0.6 s) and
+   `The Bear S03E01` 11 rows (2.0 s).
+
+YTS `Dune 2021` lists `Dune: Part One (2021)` (7 encodes) beside smaller films with the
+same words. 1337x.to fails the TLS handshake from the test machine. On 2026-09-30
+apibay.org answered 429 to every request, plain `curl` included; on 2026-10-01 it
+answered normally.
+
+Five more queries for each new source, same call:
+
+| Source | Query: count (time) |
+|--------|---------------------|
+| `therarbg` | The Bear S03E01: **24** (1.1 s); Oppenheimer 2023: **44** (0.7 s); Seinfeld S04E11: **2** (0.6 s); One Piece 1100: **50** (0.6 s); Shogun S01E01: **20** (0.7 s) |
+| `torrentdownloadinfo` | The Bear S03E01: **16** (1.1 s); Oppenheimer 2023: **50** (0.9 s); Seinfeld S04E11: **4** (0.8 s); One Piece 1100: **2** (0.9 s); Shogun S01E01: **27** (0.9 s) |
+| `subsplease` | One Piece 1100: **3** (0.8 s); Sousou no Frieren S2 - 01: **6** (0.9 s); Dandadan: **72** (1.4 s); Kaiju No. 8: **15** (0.7 s); Solo Leveling: **78** (1.1 s) |
+
+All enabled sources together (no `sources=`, `refresh=1`): `Seinfeld S04E11` 2.1 s,
+`Oppenheimer 2023` 1.5 s, `Frieren 28` 2.3 s, `Frieren 29` 1.5 s. With SubsPlease pointed
+at a non-routable address, `Dandadan 12` still answered in 6.5 s: SubsPlease reported
+`exceeded the 6000ms search budget` and the other twelve sources returned their results.
 
 ## Credentials and local owner API
 
