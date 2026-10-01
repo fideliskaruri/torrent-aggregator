@@ -110,6 +110,8 @@ interface WatchItem {
   latestReleaseTitle: string | null;
   latestReleaseAt: string | null;
   latestReleaseMagnet: string | null;
+  /** A finished download of this title is on disk. */
+  ready?: boolean;
   nextEpisodeHint: string | null;
   updatedAt: string;
 }
@@ -918,9 +920,11 @@ export default function WatchlistPage() {
                             {typeLabel}
                             {readOnly
                               ? null
-                              : item.monitored !== false
-                                ? " · watching"
-                                : " · paused"}
+                              : item.ready
+                                ? " · ready"
+                                : item.monitored !== false
+                                  ? " · watching"
+                                  : " · paused"}
                           </p>
                         </Link>
                       ) : (
@@ -932,9 +936,11 @@ export default function WatchlistPage() {
                             {typeLabel}
                             {readOnly
                               ? null
-                              : item.monitored !== false
-                                ? " · watching"
-                                : " · paused"}
+                              : item.ready
+                                ? " · ready"
+                                : item.monitored !== false
+                                  ? " · watching"
+                                  : " · paused"}
                           </p>
                         </>
                       )}
@@ -1018,6 +1024,7 @@ export default function WatchlistPage() {
                       </Button>
                     ) : null}
 
+                    {item.ready && !isSeries ? null : (
                     <Button
                       type="button"
                       variant={item.monitored !== false ? "secondary" : "ghost"}
@@ -1031,8 +1038,13 @@ export default function WatchlistPage() {
                       onClick={() => void toggleMonitored(item)}
                     >
                       <Radar className="h-3.5 w-3.5" />
-                      {item.monitored !== false ? "Watching" : "Paused"}
+                      {item.monitored !== false
+                        ? "Watching"
+                        : item.ready
+                          ? "Track new episodes"
+                          : "Paused"}
                     </Button>
+                    )}
 
                     <Button asChild variant="ghost" size="sm">
                       <Link
