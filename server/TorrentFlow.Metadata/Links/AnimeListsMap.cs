@@ -42,6 +42,10 @@ public sealed class AnimeListsMap(IConfiguration configuration, IHttpClientFacto
     private string MetaPath => Path.Combine(Folder, "anime-list-full.meta.json");
     private string Url => configuration["TorrentFlow:AnimeLists:Url"] is { Length: > 0 } url ? url : DefaultUrl;
 
+    /// <summary>The largest map accepted (<c>TorrentFlow:AnimeLists:MaxBytes</c>; 64 MB by default, the file is about 8 MB).</summary>
+    private long MaxBytes => long.TryParse(configuration["TorrentFlow:AnimeLists:MaxBytes"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var max) && max > 0
+        ? max : 64L * 1024 * 1024;
+
     /// <summary>The loaded map's version (a hash of the file), or "none" when there is no map.</summary>
     public string Version => _index?.Version ?? NoMap;
 
@@ -82,8 +86,7 @@ public sealed class AnimeListsMap(IConfiguration configuration, IHttpClientFacto
         }
         try
         {
-            var bytes = await File.ReadAllBytesAsync(FilePath, ct);
-            _index = Parse(bytes);
+            _index = await ParseAsync(FilePath, ct);
             logger.LogInformation("Anime-lists map loaded: {Count} AniList entries, version {Version}", _index.AniList.Count, _index.Version);
         }
         catch (Exception error) when (error is JsonException or IOException)
@@ -116,13 +119,38 @@ public sealed class AnimeListsMap(IConfiguration configuration, IHttpClientFacto
             logger.LogWarning("Anime-lists map download from {Url} answered {Status}; keeping the cached copy", Url, (int)response.StatusCode);
             return;
         }
-        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-        var index = Parse(bytes);
-        if (index.AniList.Count == 0) throw new JsonException("The anime-lists map had no entries.");
+        // Streamed to a temporary file with a size cap, read from there, and only then put in place of the cached copy:
+        // an oversized, cut-off or unreadable download leaves the cached copy as it was.
+        var max = MaxBytes;
+        if (response.Content.Headers.ContentLength is { } length && length > max)
+            throw new InvalidDataException($"The anime-lists map is {length} bytes, more than the {max} allowed.");
         Directory.CreateDirectory(Folder);
         var partial = FilePath + ".part";
-        await File.WriteAllBytesAsync(partial, bytes, ct);
-        File.Move(partial, FilePath, overwrite: true);
+        Index index;
+        try
+        {
+            await using (var source = await response.Content.ReadAsStreamAsync(ct))
+            await using (var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                var buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer, ct)) > 0)
+                {
+                    total += read;
+                    if (total > max) throw new InvalidDataException($"The anime-lists map is more than the {max} bytes allowed.");
+                    await target.WriteAsync(buffer.AsMemory(0, read), ct);
+                }
+            }
+            index = await ParseAsync(partial, ct);
+            if (index.AniList.Count == 0) throw new JsonException("The anime-lists map had no entries.");
+            File.Move(partial, FilePath, overwrite: true);
+        }
+        catch
+        {
+            File.Delete(partial);
+            throw;
+        }
         WriteMeta(new(response.Headers.ETag?.ToString(), response.Content.Headers.LastModified?.ToString("R"), time.GetUtcNow()));
         var previous = Version;
         _index = index;
@@ -146,13 +174,15 @@ public sealed class AnimeListsMap(IConfiguration configuration, IHttpClientFacto
     /// <c>{"movie": [378064]}</c>; <c>imdb_id</c> is an array; <c>season</c> is <c>{"tvdb": 17, "tmdb": 2}</c>. Plain
     /// numbers and strings (older copies) are read too.
     /// </summary>
-    private static Index Parse(byte[] bytes)
+    private static async Task<Index> ParseAsync(string path, CancellationToken ct)
     {
-        var version = Convert.ToHexString(SHA256.HashData(bytes))[..12].ToLowerInvariant();
+        string version;
+        await using (var hashed = File.OpenRead(path))
+            version = Convert.ToHexString(await SHA256.HashDataAsync(hashed, ct))[..12].ToLowerInvariant();
         var index = new Index(version, [], [], [], [], new(StringComparer.OrdinalIgnoreCase));
-        using var doc = JsonDocument.Parse(bytes);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("The anime-lists map is not an array.");
-        foreach (var e in doc.RootElement.EnumerateArray())
+        await using var file = File.OpenRead(path);
+        // One entry at a time: the whole document is never held in memory.
+        await foreach (var e in JsonSerializer.DeserializeAsyncEnumerable<JsonElement>(file, cancellationToken: ct))
         {
             if (e.ValueKind != JsonValueKind.Object) continue;
             var type = e.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Metadata;
@@ -16,7 +17,8 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes, WorkNamesRefresh names, IWorkLinker? linker = null) : ControllerBase
+    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes, WorkNamesRefresh names, IWorkLinker? linker = null,
+    ILogger<TitleController>? logger = null) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -53,6 +55,11 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             if (linker != null) await linker.LinkAsync(key, budget.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            // The page opens with what is stored; a later open or the backfill finishes the names and links.
+            logger?.LogWarning("Refreshing the names and links of {WorkKey} failed: {Error}", key, error.InnerException?.Message ?? error.Message);
+        }
     }
 
     /// <summary>The work's crosswalk: each record at another provider it is linked to, and where the link came from.</summary>

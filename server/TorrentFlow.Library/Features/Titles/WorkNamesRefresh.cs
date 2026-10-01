@@ -44,8 +44,9 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
     /// </summary>
     public async Task RefreshAsync(string workKey, MediaMetadata? fresh, bool fetch, CancellationToken ct)
     {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var work = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
+        Work? work;
+        await using (var read = await factory.CreateDbContextAsync(ct))
+            work = await read.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
         if (work?.Provider == null || work.ProviderId == null) return;
         var own = fresh != null && fresh.Source == work.Provider && fresh.ExternalId == work.ProviderId ? fresh : null;
         if (own == null)
@@ -65,30 +66,44 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
             }
             if (own == null || own.Source != work.Provider || own.ExternalId != work.ProviderId) return;
         }
-        var priorNames = work.NamesJson;
-        var priorIds = work.IdsJson;
-        work.NamesJson = WorkNames.Of(own).Merge(work.ReadNames()).ToJson();
-        // The ids the provider reports about itself are verified crosswalk rows; the ids and linked names are rebuilt
-        // from the rows by their one writer, so an unlinked id never comes back through a refresh.
-        var links = await WorkLinks.LoadAsync(db, work, ct);
-        WorkLinks.Record(db, work, links, WorkLinks.Claims(own.Ids, own.MediaType == "movie" ? "movie" : "tv", WorkLinks.FromProvider),
-            null, time.GetUtcNow().UtcDateTime);
-        WorkLinks.Apply(work, links);
-        var names = work.ReadNames();
-        var namesJson = work.NamesJson;
-        var idsJson = work.IdsJson;
-        var format = WorkFormats.Of(own) ?? work.Format;
-        var language = WorkFormats.LanguageOf(own) ?? work.OriginalLanguage;
-        var changed = namesJson != priorNames || idsJson != priorIds || format != work.Format || language != work.OriginalLanguage;
-        if (!changed && work.NamesRefreshedAt != null) return;
-        work.Format = format;
-        work.OriginalLanguage = language;
-        work.NamesRefreshedAt = time.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(ct);
-        if (!changed) return;
-        var anime = AnimeIdentity.IsAnime(own) || AnimeIdentity.IsAnime(work.Provider, work.MediaType, work.ProviderId);
+
+        MediaMetadata record = own;
+        var changed = false;
+        LinkWrite? written;
+        try
+        {
+            written = await WorkLinks.WriteAsync(factory, workKey, (db, current, links) =>
+            {
+                if (current.Provider != record.Source || current.ProviderId != record.ExternalId) return false;
+                var priorNames = current.NamesJson;
+                var priorIds = current.IdsJson;
+                current.NamesJson = WorkNames.Of(record).Merge(current.ReadNames()).ToJson();
+                // The ids the provider reports about itself are verified crosswalk rows; the ids and linked names are
+                // rebuilt from the rows by their one writer, so an unlinked id never comes back through a refresh.
+                WorkLinks.Record(db, current, links, WorkLinks.Claims(record.Ids, record.MediaType == "movie" ? "movie" : "tv", WorkLinks.FromProvider),
+                    null, time.GetUtcNow().UtcDateTime);
+                WorkLinks.Apply(current, links);
+                var format = WorkFormats.Of(record) ?? current.Format;
+                var language = WorkFormats.LanguageOf(record) ?? current.OriginalLanguage;
+                changed = current.NamesJson != priorNames || current.IdsJson != priorIds || format != current.Format || language != current.OriginalLanguage;
+                if (!changed && current.NamesRefreshedAt != null) return false;
+                current.Format = format;
+                current.OriginalLanguage = language;
+                current.NamesRefreshedAt = time.GetUtcNow().UtcDateTime;
+                return true;
+            }, ct);
+        }
+        catch (DbUpdateException error)
+        {
+            logger?.LogWarning("Could not save the names of {WorkKey}; a later open or grab tries again: {Error}", workKey, error.InnerException?.Message ?? error.Message);
+            return;
+        }
+        if (written is not { Saved: true } || !changed) return;
+        var saved = written.Work;
+        var names = saved.ReadNames();
+        var anime = AnimeIdentity.IsAnime(record) || AnimeIdentity.IsAnime(saved.Provider, saved.MediaType, saved.ProviderId);
         logger?.LogInformation("Names of {WorkKey}: {Names}; ids {Ids}; format {Format}; original language {Language}; searched as anime: {AnimeSearch}; otherwise: {OtherSearch}; this work searches as {Kind}",
-            workKey, string.Join(" | ", names.All.Select(n => $"{n.Kind}: {n.Text}")), idsJson, format, language,
+            workKey, string.Join(" | ", names.All.Select(n => $"{n.Kind}: {n.Text}")), saved.IdsJson, saved.Format, saved.OriginalLanguage,
             string.Join(" | ", names.SearchNames(true)), string.Join(" | ", names.SearchNames(false)), anime ? "anime" : "non-anime");
     }
 }

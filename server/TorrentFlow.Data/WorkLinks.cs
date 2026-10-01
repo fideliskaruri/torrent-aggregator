@@ -1,8 +1,12 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data.Entities;
 
 namespace TorrentFlow.Data;
+
+/// <summary>What <see cref="WorkLinks.WriteAsync"/> left: the work and its rows, and whether anything was saved.</summary>
+public sealed record LinkWrite(Work Work, List<WorkLink> Links, bool Saved);
 
 /// <summary>A claim that a work is <paramref name="ExternalId"/> at <paramref name="Provider"/>, and who says so.</summary>
 public sealed record LinkClaim(string Provider, string ExternalId, string? MediaType, int? Season, string Source, double Confidence,
@@ -25,6 +29,40 @@ public static class WorkLinks
 
     public static Task<List<WorkLink>> LoadAsync(TorrentFlowDbContext db, Work work, CancellationToken ct) =>
         db.WorkLinks.Where(l => l.WorkId == work.Id).OrderBy(l => l.CreatedAt).ToListAsync(ct);
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The only way a work's links, ids and linked names are changed: one writer at a time per work (names refresh, title
+    /// open, grab, backfill and unlink all queue here), on the work and rows as they are right now, rejected ones included,
+    /// so an unlink saved a moment earlier always stands. <paramref name="write"/> changes the tracked work and rows and
+    /// says whether to save. When another process saved the same row first, the unique index refuses ours: the work is
+    /// read again and written once more.
+    /// </summary>
+    public static async Task<LinkWrite?> WriteAsync(IDbContextFactory<TorrentFlowDbContext> factory, string workKey,
+        Func<TorrentFlowDbContext, Work, List<WorkLink>, bool> write, CancellationToken ct)
+    {
+        var gate = Gates.GetOrAdd(workKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                await using var db = await factory.CreateDbContextAsync(ct);
+                var work = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
+                if (work == null) return null;
+                var links = await LoadAsync(db, work, ct);
+                if (!write(db, work, links)) return new(work, links, false);
+                try
+                {
+                    await db.SaveChangesAsync(ct);
+                    return new(work, links, true);
+                }
+                catch (DbUpdateException) when (attempt == 1) { }
+            }
+        }
+        finally { gate.Release(); }
+    }
 
     /// <summary>Whether the claim is the work's own catalog identity (already its id; never a link).</summary>
     private static bool IsOwn(Work work, string provider, string externalId)

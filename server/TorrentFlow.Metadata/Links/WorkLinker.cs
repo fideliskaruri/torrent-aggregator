@@ -26,55 +26,94 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     public async Task LinkAsync(string workKey, CancellationToken ct)
     {
         await map.Loaded.WaitAsync(ct);
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var work = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
         var version = map.Version;
-        if (work == null || work.LinksVersion == version) return;
-        var links = await WorkLinks.LoadAsync(db, work, ct);
-        var claims = new List<LinkClaim>();
+        Work? work;
+        List<WorkLink> known;
+        await using (var read = await factory.CreateDbContextAsync(ct))
+        {
+            work = await read.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
+            if (work == null || work.LinksVersion == version) return;
+            known = await read.WorkLinks.AsNoTracking().Where(l => l.WorkId == work.Id).ToListAsync(ct);
+        }
 
         var own = WorkIds.From(work.Provider, work.ProviderId);
         var ownType = work.Format == WorkFormat.Movie || work.Format == null && work.MediaType == "movie" ? "movie" : "tv";
-        // Ids saved before the crosswalk existed came from the work's own provider record: they become its verified rows,
-        // so rebuilding the ids from rows keeps them.
-        if (work.LinksVersion == null)
-            claims.AddRange(WorkLinks.Claims(WorkIds.FromJson(work.IdsJson), ownType, WorkLinks.FromProvider));
-        claims.AddRange(FromMap(Entries(own, ownType), WorkLinks.Fribb, MapConfidence, verified: true));
+        // Only an anime work takes anime-lists entries through its TMDB or IMDb id, or an AniList suggestion: a Japanese
+        // live-action film shares neither. Unknown (its provider could not be asked) links nothing now and tries later.
+        if (await AnimeAsync(work, ownType, ct) is not { } anime) return;
+        var mapClaims = FromMap(Entries(own, ownType, anime), WorkLinks.Fribb, MapConfidence, verified: true).ToList();
+        var claims = new List<LinkClaim>(mapClaims);
 
         // A title search runs once per work, and only when the work has no TMDB or AniList record of its own or verified.
         if (work.LinksVersion == null)
         {
-            var known = links.Where(l => !l.Rejected && l.Verified).Select(l => l.Provider).Concat(claims.Select(c => c.Provider)).ToHashSet();
-            if (own.Tmdb == null && !known.Contains("tmdb") && own.AniList == null && !known.Contains("anilist"))
-                claims.AddRange(await SuggestTmdbAsync(work, ownType, ct));
-            var anime = AnimeIdentity.IsAnime(work.Provider, work.MediaType) || work.OriginalLanguage == "ja"
-                || claims.Any(c => c.Source == WorkLinks.TitleSearch && c.Provider == "anilist");
-            if (anime && own.AniList == null && !known.Contains("anilist") && !claims.Any(c => c.Provider == "anilist"))
+            var seeded = WorkLinks.Claims(WorkIds.FromJson(work.IdsJson), ownType, WorkLinks.FromProvider).ToList();
+            var verified = known.Where(l => !l.Rejected && l.Verified).Select(l => l.Provider).Concat(seeded.Concat(claims).Select(c => c.Provider)).ToHashSet();
+            if (own.Tmdb == null && !verified.Contains("tmdb") && own.AniList == null && !verified.Contains("anilist"))
+            {
+                var (found, foundAnime) = await SuggestTmdbAsync(work, ownType, ct);
+                claims.AddRange(found);
+                anime |= foundAnime;
+            }
+            if (anime && own.AniList == null && !verified.Contains("anilist") && !claims.Any(c => c.Provider == "anilist"))
                 claims.AddRange(await SuggestAniListAsync(work, ownType, ct));
         }
-
         claims = await WithNamesAsync(claims, ct);
-        var now = time.GetUtcNow().UtcDateTime;
-        WorkLinks.Record(db, work, links, claims, version == AnimeListsMap.NoMap ? null : version, now);
-        WorkLinks.Apply(work, links);
-        work.LinksVersion = version;
-        try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException error)
+
+        // The rows are read again under the work's write lock: an unlink saved while the lookups ran stands, and a map
+        // version change retires the anime-lists rows its entries no longer claim (a rejected row stays as the owner's).
+        var mapped = version == AnimeListsMap.NoMap ? null
+            : mapClaims.Select(c => WorkLinks.Key(c.Provider, c.ExternalId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var retired = new List<string>();
+        var written = await WorkLinks.WriteAsync(factory, workKey, (db, current, links) =>
         {
-            // Another caller linked the same work at the same moment; its rows stand.
-            logger.LogInformation("Linking {WorkKey} raced another caller: {Error}", workKey, error.InnerException?.Message ?? error.Message);
-            return;
-        }
-        logger.LogInformation("Linked {WorkKey} against map {Version}: {Links}; ids {Ids}", workKey, version,
-            string.Join(", ", links.Select(l => $"{l.Provider}:{l.ExternalId}{(l.Season is { } s ? $" s{s}" : "")} ({l.Source}{(l.Verified ? ", verified" : "")}{(l.Rejected ? ", rejected" : "")})")),
-            work.IdsJson);
+            if (current.LinksVersion == version) return false;
+            var all = current.LinksVersion == null
+                ? WorkLinks.Claims(WorkIds.FromJson(current.IdsJson), ownType, WorkLinks.FromProvider).Concat(claims).ToList()
+                : claims;
+            if (mapped != null)
+                foreach (var gone in links.Where(l => l.Source == WorkLinks.Fribb && !l.Rejected && !mapped.Contains(WorkLinks.Key(l.Provider, l.ExternalId))).ToList())
+                {
+                    db.WorkLinks.Remove(gone);
+                    links.Remove(gone);
+                    retired.Add(WorkLinks.Key(gone.Provider, gone.ExternalId));
+                }
+            WorkLinks.Record(db, current, links, all, mapped == null ? null : version, time.GetUtcNow().UtcDateTime);
+            WorkLinks.Apply(current, links);
+            current.LinksVersion = version;
+            return true;
+        }, ct);
+        if (written is not { Saved: true }) return;
+        logger.LogInformation("Linked {WorkKey} against map {Version}: {Links}; ids {Ids}{Retired}", workKey, version,
+            string.Join(", ", written.Links.Select(l => $"{l.Provider}:{l.ExternalId}{(l.Season is { } s ? $" s{s}" : "")} ({l.Source}{(l.Verified ? ", verified" : "")}{(l.Rejected ? ", rejected" : "")})")),
+            written.Work.IdsJson, retired.Count > 0 ? $"; retired {string.Join(", ", retired)}" : "");
     }
 
-    /// <summary>The map entries of the work's own ids: its AniList or MAL record, else every record of its TMDB id, else of its IMDb id.</summary>
-    private IReadOnlyList<AnimeListEntry> Entries(WorkIds ids, string tmdbType)
+    /// <summary>
+    /// Whether the work is anime by the one rule (<see cref="AnimeIdentity"/>): an anime source, or its own TMDB or
+    /// Cinemeta record's genres. Null when that record could not be read.
+    /// </summary>
+    private async Task<bool?> AnimeAsync(Work work, string type, CancellationToken ct)
+    {
+        if (AnimeIdentity.IsAnime(work.Provider, work.MediaType, work.ProviderId)) return true;
+        if (work.Provider == null || work.ProviderId == null || !IMetadataResolver.SupportsProvider(work.Provider)) return false;
+        try { return AnimeIdentity.IsAnime(await metadata.GetByIdAsync(work.Provider, type, work.ProviderId, ct)); }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            logger.LogInformation("Could not tell whether {WorkKey} is anime: {Error}", work.WorkKey, error.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The map entries of the work's own ids: its AniList or MAL record, else (for an anime work only) every record of
+    /// its TMDB id, else of its IMDb id.
+    /// </summary>
+    private IReadOnlyList<AnimeListEntry> Entries(WorkIds ids, string tmdbType, bool anime)
     {
         if (ids.AniList is { } a && map.ByAniList(a) is { } byAniList) return [byAniList];
         if (ids.Mal is { } m && map.ByMal(m) is { } byMal) return [byMal];
+        if (!anime) return [];
         if (ids.Tmdb is { } t && map.ByTmdb(tmdbType, t) is { Count: > 0 } byTmdb) return byTmdb;
         if (ids.Imdb is { } i && map.ByImdb(i) is { Count: > 0 } byImdb) return byImdb;
         return [];
@@ -122,9 +161,9 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     /// (or one year off for an animated Japanese film, whose festival and release dates differ). Kept only when exactly
     /// one record matches; an anime match brings the map's AniList record as a suggestion too.
     /// </summary>
-    private async Task<IEnumerable<LinkClaim>> SuggestTmdbAsync(Work work, string type, CancellationToken ct)
+    private async Task<(IEnumerable<LinkClaim> Claims, bool Anime)> SuggestTmdbAsync(Work work, string type, CancellationToken ct)
     {
-        if (work.Year == null) return [];
+        if (work.Year == null) return ([], false);
         foreach (var name in SearchNames(work))
         {
             List<MediaMetadata> hits;
@@ -132,19 +171,19 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
                 logger.LogInformation("TMDB search for {WorkKey} failed: {Error}", work.WorkKey, error.Message);
-                return [];
+                return ([], false);
             }
             var strong = hits.Where(h => h.MediaType == type && SameName(name, WorkNames.Of(h)) && YearFits(work.Year, h.Year, type, AnimeIdentity.IsAnime(h)))
                 .DistinctBy(h => h.ExternalId).ToList();
-            if (strong.Count > 1) return [];
+            if (strong.Count > 1) return ([], false);
             if (strong is not [var match] || !int.TryParse(match.ExternalId, out var id)) continue;
             var claims = new List<LinkClaim> { new("tmdb", match.ExternalId!, type, null, WorkLinks.TitleSearch, SearchConfidence, false, WorkNames.Of(match)) };
             if (AnimeIdentity.IsAnime(match))
                 claims.AddRange(FromMap(map.ByTmdb(type, id), WorkLinks.TitleSearch, SearchConfidence - 0.05, verified: false)
                     .Where(c => c.Provider is "anilist" or "mal"));
-            return claims;
+            return (claims, AnimeIdentity.IsAnime(match));
         }
-        return [];
+        return ([], false);
     }
 
     /// <summary>An AniList search by the same names and rules (film format for a film); exactly one strong match.</summary>
@@ -215,21 +254,20 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
 
     public async Task<bool> UnlinkAsync(string workKey, string provider, string externalId, CancellationToken ct)
     {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var work = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == workKey, ct);
-        if (work == null) return false;
-        var links = await WorkLinks.LoadAsync(db, work, ct);
-        var row = links.FirstOrDefault(l => l.Provider == provider && string.Equals(l.ExternalId, externalId, StringComparison.OrdinalIgnoreCase));
-        if (row == null) return false;
-        if (!row.Rejected)
+        var found = false;
+        var written = await WorkLinks.WriteAsync(factory, workKey, (_, work, links) =>
         {
+            var row = links.FirstOrDefault(l => l.Provider == provider && string.Equals(l.ExternalId, externalId, StringComparison.OrdinalIgnoreCase));
+            found = row != null;
+            if (row == null || row.Rejected) return false;
             row.Rejected = true;
             row.UpdatedAt = time.GetUtcNow().UtcDateTime;
             WorkLinks.Apply(work, links);
-            await db.SaveChangesAsync(ct);
-            logger.LogInformation("Owner unlinked {Provider}:{ExternalId} from {WorkKey}; ids now {Ids}", provider, externalId, workKey, work.IdsJson);
-        }
-        return true;
+            return true;
+        }, ct);
+        if (written is { Saved: true })
+            logger.LogInformation("Owner unlinked {Provider}:{ExternalId} from {WorkKey}; ids now {Ids}", provider, externalId, workKey, written.Work.IdsJson);
+        return found;
     }
 }
 
