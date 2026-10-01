@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { Rail as RailModel, RailItem } from "@/lib/browse";
@@ -16,7 +17,16 @@ export interface RailProps {
   index?: number;
   statuses?: Record<string, ActionStatus>;
   onAction: (item: RailItem, action: CardAction) => void;
+  /** Where "See all" goes: the page that lists this rail in full. None when absent. */
+  seeAllHref?: string;
 }
+
+/** Rail and grid headings share one look, so a genre page reads as the rail it came from. */
+const RAIL_HEADING = "text-[13px] font-medium text-muted-foreground";
+
+/** 3 across at 390 px, then as many 140 / 160 px columns as fit. */
+const GRID =
+  "grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-2.5 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-x-3 lg:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]";
 
 /**
  * One horizontally scrolling row of titles.
@@ -33,7 +43,7 @@ export interface RailProps {
  * inside the row — the standard behaviour for a carousel, and the only way to
  * reach card 14 without 13 Tab presses.
  */
-export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
+export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailProps) {
   // The scroll container is the ScrollArea viewport, not the list inside it.
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewport = useCallback(
@@ -136,12 +146,23 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
         ease: "easeOut",
       }}
     >
-      <h2
-        id={`rail-${rail.id}`}
-        className="mb-2.5 text-[13px] font-medium text-muted-foreground"
-      >
-        {rail.title}
-      </h2>
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <h2 id={`rail-${rail.id}`} className={RAIL_HEADING}>
+          {rail.title}
+        </h2>
+        {seeAllHref ? (
+          <Link
+            to={seeAllHref}
+            aria-label={`See all ${rail.title.toLowerCase()}`}
+            data-rail-see-all
+            // 44 px tall on touch without pushing the row apart: the negative
+            // margin gives back what the target adds.
+            className="-my-3 inline-flex min-h-11 shrink-0 items-center rounded-sm px-1 text-[12px] text-brand-foreground underline-offset-4 outline-none transition-colors hover:text-brand hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 lg:my-0 lg:min-h-0"
+          >
+            See all
+          </Link>
+        ) : null}
+      </div>
 
       <div className="relative">
         {/* `-my-3` cancels the padding that gives the hover lift and focus
@@ -241,6 +262,43 @@ function RailArrow({
   );
 }
 
+/**
+ * One rail's titles as a wrapping grid: a genre page, where the point is to
+ * see the whole list rather than a row of it. Cards are the tab stops in
+ * reading order, so no arrow-key handling is needed.
+ */
+export function RailGrid({
+  rail,
+  statuses,
+  onAction,
+}: Omit<RailProps, "index" | "seeAllHref">) {
+  if (rail.items.length === 0) return null;
+  return (
+    <section
+      aria-labelledby={`rail-${rail.id}`}
+      data-rail={rail.id}
+      data-rail-grid
+      className="py-4 sm:py-5"
+    >
+      <h2 id={`rail-${rail.id}`} className={cn(RAIL_HEADING, "mb-3")}>
+        {rail.title}
+      </h2>
+      <ul className={GRID}>
+        {rail.items.map((item, i) => (
+          <TitleCard
+            key={item.id}
+            item={item}
+            layout="grid"
+            status={statuses?.[item.id]}
+            onAction={onAction}
+            priority={i < 6}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** A rail-shaped placeholder, used while the payload loads. */
 export function RailSkeleton({ cards = 6 }: { cards?: number }) {
   return (
@@ -249,6 +307,20 @@ export function RailSkeleton({ cards = 6 }: { cards?: number }) {
       <ul className="flex gap-2.5 overflow-hidden sm:gap-3">
         {Array.from({ length: cards }, (_, i) => (
           <TitleCardSkeleton key={i} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** A genre page's placeholder: the grid's own geometry, so the titles land in place. */
+export function RailGridSkeleton({ cards = 12 }: { cards?: number }) {
+  return (
+    <section className="py-4 sm:py-5" aria-hidden>
+      <Skeleton className="mb-3 h-3.5 w-40 rounded" />
+      <ul className={cn(GRID, "overflow-hidden")}>
+        {Array.from({ length: cards }, (_, i) => (
+          <TitleCardSkeleton key={i} layout="grid" />
         ))}
       </ul>
     </section>

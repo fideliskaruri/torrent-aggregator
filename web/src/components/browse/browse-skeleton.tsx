@@ -1,5 +1,5 @@
 import { HeroSkeleton } from "./hero-banner";
-import { RailSkeleton } from "./rail";
+import { RailGridSkeleton, RailSkeleton } from "./rail";
 import { PageSkeletonFrame } from "@/components/ui/loading";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +16,15 @@ import { cn } from "@/lib/utils";
  *
  * Two rails, not five: it fills the fold at both 390px and 1440px, and
  * promising five rows to a user who is about to be shown one is its own small
- * lie.
+ * lie. A genre page is a grid with no hero, so it gets a grid.
  */
-export function BrowseSkeleton({ visible = true }: { visible?: boolean }) {
+export function BrowseSkeleton({
+  visible = true,
+  grid = false,
+}: {
+  visible?: boolean;
+  grid?: boolean;
+}) {
   return (
     <PageSkeletonFrame
       aria-label="Loading browse"
@@ -27,10 +33,16 @@ export function BrowseSkeleton({ visible = true }: { visible?: boolean }) {
         !visible && "opacity-0",
       )}
     >
-      <HeroSkeleton />
+      {grid ? null : <HeroSkeleton />}
       <div className="container-app min-w-0 pb-14">
-        <RailSkeleton />
-        <RailSkeleton />
+        {grid ? (
+          <RailGridSkeleton />
+        ) : (
+          <>
+            <RailSkeleton />
+            <RailSkeleton />
+          </>
+        )}
       </div>
     </PageSkeletonFrame>
   );

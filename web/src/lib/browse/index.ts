@@ -4,4 +4,6 @@ export type {
   RailItem,
   Rail,
   BrowsePayload,
+  BrowseType,
+  BrowseGenre,
 } from "./types";

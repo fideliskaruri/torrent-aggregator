@@ -33,11 +33,23 @@ import { Link } from "react-router";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SEARCH_HREF } from "@/lib/navigation";
 
+/** A type or genre view that came back with nothing, and the wider view to try instead. */
+export interface BrowseEmptyView {
+  /** "Comedy films", "Anime". */
+  name: string;
+  /** "See all films", "See everything". */
+  linkLabel: string;
+  linkHref: string;
+}
+
 export function BrowseEmptyState({
   onRetry,
+  view,
 }: {
   /** Re-reads the catalog from scratch (the caller remounts its query). */
   onRetry: () => void;
+  /** Set when a narrowed view is empty: the copy names it and links to the wider one. */
+  view?: BrowseEmptyView;
 }) {
   const [retrying, startTransition] = useTransition();
 
@@ -48,20 +60,24 @@ export function BrowseEmptyState({
   return (
     <div className="min-w-0 py-10" data-browse-empty>
       <TfErrorState
-        title="Nothing could be loaded"
-        message="TorrentFlow could not reach any source, and nothing is cached on this machine yet. Check the connection and try again."
+        title={view ? `${view.name} could not load` : "Nothing could be loaded"}
+        message={
+          view
+            ? "Its source did not answer, and nothing is cached on this machine for it yet. Try again in a minute."
+            : "TorrentFlow could not reach any source, and nothing is cached on this machine yet. Check the connection and try again."
+        }
         onRetry={retry}
         retrying={retrying}
       />
 
       <p className="mt-4 text-center text-[12px] text-subtle-foreground">
-        Search still works if you know what you are looking for:{" "}
+        {view ? "Meanwhile: " : "Search still works if you know what you are looking for: "}
         <Link
-          to={SEARCH_HREF}
+          to={view ? view.linkHref : SEARCH_HREF}
           data-dense-ui
           className="text-brand-foreground underline-offset-4 transition-colors hover:text-brand hover:underline"
         >
-          open search
+          {view ? view.linkLabel.toLowerCase() : "open search"}
         </Link>
         .
       </p>

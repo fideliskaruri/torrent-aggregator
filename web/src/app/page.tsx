@@ -1,6 +1,7 @@
 import { Navigate, useSearchParams } from "react-router";
 import { BrowseFirstRun } from "@/components/browse/browse-first-run";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import { browseViewLabel, parseBrowseQuery } from "@/lib/browse/views";
 import { SEARCH_HREF } from "@/lib/navigation";
 
 /**
@@ -11,14 +12,18 @@ import { SEARCH_HREF } from "@/lib/navigation";
  * `GET /api/browse` (the same `buildBrowsePayload` the server pass called), and
  * `BrowseFirstRun` already owns that fetch: skeleton while loading, the board
  * when there are rails, the first-run / error states otherwise.
+ *
+ * `?type=films&genre=comedy` narrows it: the view lives in the URL so Back,
+ * reload and a shared link all keep it.
  */
 export default function HomePage() {
+  const [params] = useSearchParams();
+  const query = parseBrowseQuery(params);
   useDocumentTitle(
-    "Browse",
+    query.view === "all" ? "Browse" : browseViewLabel(query.view),
     "Everything you have, and everything you can get.",
     { absolute: true },
   );
-  const [params] = useSearchParams();
   const q = params.get("q")?.trim();
 
   // Search results lived on `/` for the app's whole life, and links to them
@@ -31,7 +36,7 @@ export default function HomePage() {
     <div className="min-w-0">
       {/* Ensures a11y tools always find an h1, even before the browse payload lands. */}
       <h1 className="sr-only">Browse</h1>
-      <BrowseFirstRun serverError={null} />
+      <BrowseFirstRun serverError={null} query={query} />
     </div>
   );
 }

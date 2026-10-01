@@ -24,6 +24,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 /** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
 const CARD_WIDTH = "w-[124px] sm:w-[148px] lg:w-[168px]";
 const CARD_SIZES = "(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px";
+/** A grid cell stretches to its column, which runs a little wider than a rail card. */
+const GRID_SIZES = "(min-width: 1024px) 200px, (min-width: 640px) 180px, 120px";
 
 export interface TitleCardProps {
   item: RailItem;
@@ -32,6 +34,8 @@ export interface TitleCardProps {
   onAction: (item: RailItem, action: CardAction) => void;
   /** Eager-load the first screenful; everything else is lazy. */
   priority?: boolean;
+  /** `rail` is a fixed-width card in a scrolling row; `grid` fills its grid column. */
+  layout?: "rail" | "grid";
 }
 
 /**
@@ -61,6 +65,7 @@ export function TitleCard({
   status = "idle",
   onAction,
   priority = false,
+  layout = "rail",
 }: TitleCardProps) {
   // Future primary dates and confirmed cinema-only movies share one Browse
   // gate. Unknown evidence and series always stay open.
@@ -136,7 +141,7 @@ export function TitleCard({
       <PosterImage
         src={item.posterUrl}
         title={title}
-        sizes={CARD_SIZES}
+        sizes={layout === "grid" ? GRID_SIZES : CARD_SIZES}
         priority={priority}
       />
 
@@ -257,7 +262,10 @@ export function TitleCard({
 
   return (
     <li
-      className={cn("relative shrink-0 snap-start", CARD_WIDTH)}
+      className={cn(
+        "relative",
+        layout === "grid" ? "min-w-0" : cn("shrink-0 snap-start", CARD_WIDTH),
+      )}
       data-unreleased={unreleased ? "true" : undefined}
     >
       {/* Whole card (poster + caption) is one ≥44px target. The action chip is a
@@ -349,9 +357,12 @@ export function TitleCard({
  * shift the page — the skeleton is not decoration, it is the layout being
  * reserved.
  */
-export function TitleCardSkeleton() {
+export function TitleCardSkeleton({ layout = "rail" }: { layout?: "rail" | "grid" }) {
   return (
-    <li className={cn("shrink-0", CARD_WIDTH)} aria-hidden>
+    <li
+      className={cn(layout === "grid" ? "min-w-0" : cn("shrink-0", CARD_WIDTH))}
+      aria-hidden
+    >
       <Skeleton className="aspect-[2/3] w-full rounded-lg" />
       <Skeleton className="mt-2 h-3 w-4/5 rounded" />
       <Skeleton className="mt-1.5 h-2.5 w-2/5 rounded" />

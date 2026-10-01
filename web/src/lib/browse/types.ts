@@ -111,6 +111,19 @@ export interface Rail {
   /** Human-readable title shown above the rail. */
   title: string;
   items: RailItem[];
+  /** films | series | anime on a catalog rail; absent on personal rails. */
+  kind?: BrowseType | null;
+  /** The genre a genre rail lists; its heading links to that genre's page. */
+  genre?: string | null;
+}
+
+/** A content type home can be narrowed to. */
+export type BrowseType = "films" | "series" | "anime";
+
+/** One genre of a type, for its chip and page. */
+export interface BrowseGenre {
+  id: string;
+  label: string;
 }
 
 /** The complete browse payload — one round trip from `GET /api/browse`. */
@@ -118,4 +131,10 @@ export interface BrowsePayload {
   rails: Rail[];
   /** ISO timestamp of when this payload was assembled. */
   generatedAt: string;
+  /** all, or the type this payload is narrowed to. */
+  view?: "all" | BrowseType;
+  /** Set on a genre page. */
+  genre?: string | null;
+  /** The type's genres, for the chips. Empty on All. */
+  genres?: BrowseGenre[];
 }

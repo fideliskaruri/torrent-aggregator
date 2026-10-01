@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
+import { browseHref } from "@/lib/browse/views";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import {
   cleanDisplayTitle,
@@ -11,7 +12,7 @@ import {
 import { RAIL_PREVIEWS, missingRailPreviews } from "./first-run";
 import { HeroBanner } from "./hero-banner";
 import { pickHeroItem } from "./hero";
-import { Rail } from "./rail";
+import { Rail, RailGrid } from "./rail";
 
 /**
  * The browse page's one piece of state.
@@ -26,7 +27,12 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
   const { ensureDownloadSetup } = useDownloadSetup();
 
   const rails = payload.rails;
-  const hero = useMemo(() => pickHeroItem(rails), [rails]);
+  // A genre page is one list shown whole: no hero, no rails to scroll.
+  const genrePage = Boolean(payload.genre);
+  const hero = useMemo(
+    () => (genrePage ? null : pickHeroItem(rails)),
+    [genrePage, rails],
+  );
   // The hero already features its title, so the rail it came from drops that
   // card and keeps the rest in order. A rail left empty is hidden.
   const shownRails = useMemo(
@@ -89,16 +95,30 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
-        {shownRails.map((rail, index) => (
-          <Rail
-            key={rail.id}
-            rail={rail}
-            index={index}
-            statuses={statuses}
-            onAction={runAction}
-          />
-        ))}
-        <MissingRailsNote rails={rails} />
+        {genrePage
+          ? shownRails.map((rail) => (
+              <RailGrid
+                key={rail.id}
+                rail={rail}
+                statuses={statuses}
+                onAction={runAction}
+              />
+            ))
+          : shownRails.map((rail, index) => (
+              <Rail
+                key={rail.id}
+                rail={rail}
+                index={index}
+                statuses={statuses}
+                onAction={runAction}
+                seeAllHref={
+                  rail.kind && rail.genre
+                    ? browseHref(rail.kind, rail.genre)
+                    : undefined
+                }
+              />
+            ))}
+        {(payload.view ?? "all") === "all" ? <MissingRailsNote rails={rails} /> : null}
       </div>
     </>
   );
