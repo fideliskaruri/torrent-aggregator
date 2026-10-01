@@ -125,7 +125,8 @@ public sealed class SourceRegistry
 
     private static void Validate(SourceEntry e)
     {
-        string[] torrent = ["nyaa", "apibay", "torrentscsv", "yts", "eztv", "1337x", "archive", "torznab", "knaben", "bitsearch", "limetorrents", "torrentdownloads", "animetosho"];
+        string[] torrent = ["nyaa", "apibay", "torrentscsv", "yts", "eztv", "1337x", "archive", "torznab", "knaben", "bitsearch", "limetorrents", "torrentdownloads", "animetosho",
+            "subsplease"];
         string[] metadata = ["tvmaze", "anilist", "cinemeta", "tmdb", "itunes"];
         if (e.Id is null || !Regex.IsMatch(e.Id, "^[a-z0-9][a-z0-9-]{0,63}$") ||
             !(e.Kind == "torrent" ? torrent.Contains(e.Type) : e.Kind == "metadata" && metadata.Contains(e.Type)))

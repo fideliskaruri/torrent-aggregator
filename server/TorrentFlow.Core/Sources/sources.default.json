@@ -11,6 +11,7 @@
   {"id":"limetorrents","kind":"torrent","type":"limetorrents","categories":["movie","series","anime","music","games","apps","books","other"],"enabled":true,"priority":36,"baseUrl":"https://www.limetorrents.fun","mirrors":["https://www.limetorrents.lol"],"timeoutMs":15000,"options":{}},
   {"id":"torrentdownloads","kind":"torrent","type":"torrentdownloads","categories":["movie","series","anime","music","games","apps","books","other"],"enabled":true,"priority":38,"baseUrl":"https://www.torrentdownloads.pro","mirrors":[],"timeoutMs":15000,"options":{}},
   {"id":"animetosho","kind":"torrent","type":"animetosho","categories":["anime"],"enabled":true,"priority":12,"baseUrl":"https://feed.animetosho.org","mirrors":[],"timeoutMs":12000,"options":{}},
+  {"id":"subsplease","kind":"torrent","type":"subsplease","categories":["anime"],"enabled":true,"priority":14,"baseUrl":"https://subsplease.org","mirrors":[],"timeoutMs":12000,"options":{}},
   {"id":"tvmaze","kind":"metadata","type":"tvmaze","categories":["series"],"enabled":true,"priority":10,"baseUrl":"https://api.tvmaze.com","mirrors":[],"timeoutMs":8000,"options":{}},
   {"id":"anilist","kind":"metadata","type":"anilist","categories":["anime"],"enabled":true,"priority":10,"baseUrl":"https://graphql.anilist.co","mirrors":[],"timeoutMs":10000,"options":{}},
   {"id":"cinemeta","kind":"metadata","type":"cinemeta","categories":["movie","series"],"enabled":true,"priority":20,"baseUrl":"https://v3-cinemeta.strem.io","mirrors":[],"timeoutMs":8000,"options":{}},
