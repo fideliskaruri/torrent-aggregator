@@ -139,7 +139,8 @@ overlapped for `Dune 2021`). Its titles come in slug form, for example
 One call per cell, `GET /api/search?q=<query>&sources=<id>&refresh=1&enrich=0&pageSize=200`,
 against a freshly started scratch instance. `refresh=1` bypasses the search cache; the API
 has no `skipCache` parameter. Counts are raw adapter results; time is the whole API call.
-`1337x` was switched on for its row only.
+`1337x` and `archive` are off by default and were switched on for their rows only;
+`archive` was measured on a second fresh instance after one warm-up query.
 
 | Source | Dune 2021 | Scorpion S01E01 | Frieren 29 | Sousou no Frieren |
 |--------|-----------|-----------------|------------|-------------------|
@@ -157,6 +158,7 @@ has no `skipCache` parameter. Counts are raw adapter results; time is the whole 
 | `yts` (yts.lt) | **16** (1.4 s) | 0 (0.4 s) | 0 (0.4 s) | 0 (0.5 s) |
 | `eztv` | 0 (0.6 s) | 0 (<0.1 s) ³ | 0 (0.2 s) | 0 (0.4 s) |
 | `1337x` (off) | no valid response | no valid response | no valid response | no valid response |
+| `archive` (off) | **50** (3.5 s) | 0 (0.4 s) | **1** (0.8 s) | **28** (2.1 s) |
 
 1. SubsPlease numbers each season from 01; `Sousou no Frieren S2 - 01` returns 6 rows.
 2. Other Frieren episodes and packs, none of them episode 29. In an all-source search the
@@ -168,7 +170,8 @@ has no `skipCache` parameter. Counts are raw adapter results; time is the whole 
 YTS `Dune 2021` lists `Dune: Part One (2021)` (7 encodes) beside smaller films with the
 same words. 1337x.to fails the TLS handshake from the test machine. On 2026-09-30
 apibay.org answered 429 to every request, plain `curl` included; on 2026-10-01 it
-answered normally.
+answered normally. Internet Archive is the slowest source (up to 3.5 s here) and stays off
+by default.
 
 Five more queries for each new source, same call:
 
