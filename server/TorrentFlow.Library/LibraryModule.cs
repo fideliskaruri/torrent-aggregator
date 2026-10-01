@@ -39,6 +39,7 @@ public static class LibraryModule
         services.AddSingleton<EpisodeSearchIdentity>();
         services.AddSingleton<AnimeEpisodeMappings>();
         services.AddHostedService<AutomationScheduler>();
+        services.AddHostedService<Features.Watchlist.DownloadedToLibrary>();
         return services;
     }
 }
