@@ -52,13 +52,14 @@ export function AvailabilityChip({
   state,
   className,
   compact = false,
+  ...data
 }: {
   /** `null` is the unresolved answer, not missing data. */
   state: AvailabilityState | Unresolved;
   className?: string;
   /** Icon-first, tighter padding — for the corner of a poster. */
   compact?: boolean;
-}) {
+} & { [key: `data-${string}`]: string | boolean | undefined }) {
   const meta = availabilityMeta(state);
 
   // "Can get" is not a state worth a chip. It only says a viable release
@@ -98,6 +99,7 @@ export function AvailabilityChip({
 
   return (
     <Badge
+      {...data}
       variant={TONE_VARIANT[meta.tone]}
       data-availability={state ?? "unresolved"}
       title={meta.description ?? undefined}

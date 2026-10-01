@@ -43,6 +43,8 @@ export interface ClientTorrent {
   workTitle?: string | null;
   workYear?: number | null;
   workMediaType?: string | null;
+  /** The matched work's poster, resolved by the server; absent when it has none yet. */
+  posterUrl?: string | null;
   targetScope?: string | null;
   season?: number | null;
   episode?: number | null;

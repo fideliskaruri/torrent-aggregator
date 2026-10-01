@@ -51,7 +51,7 @@ import {
   titleHrefForName,
   titlePath,
 } from "@/components/title/work-key";
-import { useReleaseArtwork } from "@/hooks/use-release-artwork";
+import { useWorkArtwork, type WorkArtwork } from "@/hooks/use-work-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { formatSpeed } from "@/lib/format";
 import { startVisiblePoller } from "./polling";
@@ -625,7 +625,7 @@ export default function ClientPage() {
   // runs every five seconds and three episodes of one show are one lookup.
   // Deliberately driven by `torrents`, not `filtered`: typing in the filter box
   // must not re-ask for what is already known.
-  const artwork = useReleaseArtwork(torrents);
+  const artwork = useWorkArtwork(torrents);
 
   // Keyboard: Escape clears selection; Delete opens confirm; Ctrl/Cmd-A select all
   useEffect(() => {
@@ -1713,7 +1713,7 @@ export default function ClientPage() {
             if (!next) closeSeriesDialog();
           }}
           titleHref={downloadTitleHref(openGroup.torrents[0])}
-          artwork={artwork}
+          artwork={artwork.map}
           selectedSeasonKey={selectedSeasonKey}
           onSelectSeason={setSelectedSeasonKey}
           selected={selected}
@@ -1836,7 +1836,7 @@ function SeriesOverviewRow({
   onDeleteRequest,
 }: {
   group: SeriesGroup<ClientTorrent>;
-  artwork: ReturnType<typeof useReleaseArtwork>;
+  artwork: WorkArtwork;
   selected: Set<string>;
   onToggleGroupSelect: (transferIds: string[]) => void;
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
@@ -1844,8 +1844,7 @@ function SeriesOverviewRow({
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const head = group.torrents[0];
-  const query = artworkQueryForRelease(head.name, head.category);
-  const art = artwork[query.key];
+  const art = artwork.artFor(head);
   const transferIds = group.torrents.map((t) => t.transferId);
   const checkedCount = transferIds.filter((transferId) => selected.has(transferId)).length;
   const allSelected = transferIds.length > 0 && checkedCount === transferIds.length;
@@ -1900,7 +1899,7 @@ function FilmRow({
   artwork,
   ...rest
 }: Omit<DownloadTransferRowProps, "kind" | "title" | "titleHref" | "posterUrl" | "showThumb"> & {
-  artwork: ReturnType<typeof useReleaseArtwork>;
+  artwork: WorkArtwork;
 }) {
   const query = artworkQueryForRelease(t.name, t.category);
   const display = releaseDisplayFacts(t, query);
@@ -1910,7 +1909,7 @@ function FilmRow({
       kind="torrent"
       title={display.title}
       titleHref={downloadTitleHref(t)}
-      posterUrl={artwork[query.key]?.posterUrl}
+      posterUrl={artwork.artFor(t)?.posterUrl}
       showThumb
       {...rest}
     />

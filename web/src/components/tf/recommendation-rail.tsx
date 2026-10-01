@@ -1,10 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
-import { PosterImage } from "@/components/browse/poster-image";
+import { MediaPoster, MediaPosterCaption, RAIL_CARD_WIDTH } from "@/components/browse/media-poster-card";
+import { RailStrip } from "@/components/browse/rail";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { titlePath, workKeyFor } from "@/components/title/work-key";
+import { useWorkArtwork } from "@/hooks/use-work-artwork";
+
+type RailItem = RecommendationRail["items"][number];
+
+/** The payload poster when the server sent one, otherwise the shared lookup by title. */
+function artSource(item: RailItem) {
+  return {
+    name: item.title,
+    workTitle: item.title,
+    workYear: item.isSeries ? null : (item.year ?? null),
+    workMediaType: item.titleMediaType ?? null,
+    posterUrl: item.posterUrl,
+  };
+}
 
 /**
  * One rail of suggestions, headed with the library title that explains it.
@@ -23,7 +40,7 @@ export function RecommendationRailSection({
 }) {
   const [rail, setRail] = useState<RecommendationRail | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
-    const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,111 +93,84 @@ export function RecommendationRailSection({
     [onAdded],
   );
 
-  const visible = rail?.items.filter(
-    (i) => !added.has(`${i.mediaType}:${i.externalId}`),
+  const visible = useMemo(
+    () => rail?.items.filter((i) => !added.has(`${i.mediaType}:${i.externalId}`)) ?? [],
+    [rail, added],
   );
-  if (!rail || !visible?.length) return null;
+  const artSources = useMemo(() => visible.map(artSource), [visible]);
+  const artwork = useWorkArtwork(artSources);
+  if (!rail || !visible.length) return null;
 
   return (
-    <section className="mt-10 border-t border-[var(--border)] pt-8">
-      <h2 className="text-[13px] font-medium text-[var(--text-secondary)]">
-        Because you&rsquo;re watching{" "}
-        <span className="text-[var(--text)]">{rail.seedTitle}</span>
-      </h2>
-
-      <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-        {visible.map((item) => {
-          const key = `${item.mediaType}:${item.externalId}`;
-          const workKey = workKeyFor(
-            item.title,
-            item.isSeries ? null : item.year,
-          );
-          const titleHref = workKey ? titlePath(workKey, {
-            title: item.title,
-            year: item.year,
-            mediaType: item.titleMediaType,
-            provider: item.provider,
-            providerId: item.externalId,
-            sourceType: item.sourceMediaType,
-            format: item.format,
-            series: item.isSeries,
-          }) : null;
-          return (
-            <li key={key} className="min-w-0">
-              <div className="surface flex h-full flex-col overflow-hidden">
-                <div className="relative aspect-[2/3] shrink-0 bg-[var(--bg-muted)]">
-                                  <PosterImage
-                                    src={item.posterUrl}
-                                    title={item.title}
-                                    sizes="(min-width: 1024px) 14vw, 28vw"
-                                  />
-                                  {titleHref ? (
-                                    <Link
-                                      to={titleHref}
-                                      tabIndex={-1}
-                                      aria-hidden
-                                      className="absolute inset-0"
-                                    />
-                                  ) : null}
-                                </div>
-                                <div className="flex flex-1 flex-col p-2">
-                                  {titleHref ? (
-                                    <Link
-                                      to={titleHref}
-                                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
-                                    >
-                                      <p
-                                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]"
-                                        title={item.title}
-                                      >
-                                        {item.title}
-                                      </p>
-                                      {item.year ? (
-                                        <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
-                                          {item.year}
-                                        </p>
-                                      ) : null}
-                                    </Link>
-                  ) : (
-                    <>
-                      <p
-                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2"
-                        title={item.title}
-                      >
-                        {item.title}
-                      </p>
-                      {item.year ? (
-                                              <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
-                          {item.year}
-                        </p>
-                      ) : null}
-                    </>
-                  )}
-                  {/* mt-auto on the wrapper, so a two-line title doesn't drop
-                      this button 17px below its neighbours' baseline. */}
-                  <div className="mt-auto pt-2">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        add(item);
-                      }}
-                      disabled={busy === key}
-                      aria-label={`Add ${item.title} to library`}
-                                            className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 min-h-[44px] text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50 lg:min-h-0"
-                    >
-                      <Plus className="h-3 w-3 shrink-0" aria-hidden />
-                      <span className="truncate">
-                        {busy === key ? "Adding…" : "Add"}
-                      </span>
-                    </button>
-                  </div>
-                </div>
+    <RailStrip
+      id="recommendations"
+      className="mt-10 border-t border-border pt-8"
+      itemCount={visible.length}
+      title={
+        <>
+          Because you&rsquo;re watching{" "}
+          <span className="text-foreground">{rail.seedTitle}</span>
+        </>
+      }
+    >
+      {visible.map((item) => {
+        const key = `${item.mediaType}:${item.externalId}`;
+        const workKey = workKeyFor(item.title, item.isSeries ? null : item.year);
+        const titleHref = workKey
+          ? titlePath(workKey, {
+              title: item.title,
+              year: item.year,
+              mediaType: item.titleMediaType,
+              provider: item.provider,
+              providerId: item.externalId,
+              sourceType: item.sourceMediaType,
+              format: item.format,
+              series: item.isSeries,
+            })
+          : null;
+        const card = (
+          <>
+            <MediaPoster
+              variant="rail"
+              src={artwork.artFor(artSource(item))?.posterUrl}
+              title={item.title}
+              sizes="(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px"
+              className="transition-[border-color] duration-150 group-hover:border-input"
+            />
+            <MediaPosterCaption title={item.title} subtitle={item.year ?? null} />
+          </>
+        );
+        return (
+          <li key={key} className={cn("group flex shrink-0 snap-start flex-col", RAIL_CARD_WIDTH)}>
+            {titleHref ? (
+              <Link
+                to={titleHref}
+                data-rail-card
+                data-card-target="title"
+                className="block min-h-[44px] rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                {card}
+              </Link>
+            ) : (
+              <div data-rail-card tabIndex={0} className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                {card}
               </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void add(item)}
+              disabled={busy === key}
+              aria-label={`Add ${item.title} to library`}
+              className="mt-auto min-h-11 w-full text-[12px] text-muted-foreground lg:min-h-0"
+            >
+              <Plus className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{busy === key ? "Adding…" : "Add"}</span>
+            </Button>
+          </li>
+        );
+      })}
+    </RailStrip>
   );
 }

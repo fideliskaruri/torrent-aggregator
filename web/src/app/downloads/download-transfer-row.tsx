@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { useDisplayPath, useFeatures } from "@/lib/features";
 import { Badge } from "@/components/ui/badge";
+import { QualityChip } from "@/lib/torrents/quality-chip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -303,7 +304,7 @@ export function DownloadTransferRow({
                   the folder path are torrent mechanics: they live in the
                   menu's Details.
                 */}
-                {quality ? <Badge variant="outline">{quality}</Badge> : null}
+                <QualityChip label={quality} />
                 {t.sizeBytes > 0 || showEta ? (
                   <span className="text-[12px] text-subtle-foreground tabular-nums">
                     {[t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null, showEta ? formatEta(t.eta) : null]

@@ -35,12 +35,12 @@ import { headingTitle } from "./heading-title";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
-import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
+import { browseReleaseGate } from "@/lib/browse/release-status";
+import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
 import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
@@ -861,16 +861,13 @@ function TitleContent({
   // The local catalog only knows dates for works it already holds, so a title
   // opened straight from search falls back to the date the provider returned
   // with the rest of the extras.
-  const release = releaseStatus(payload.releaseDate ?? extras?.releaseDate ?? null);
-  // A movie in its theatrical window is also gated: it has a past primary
-  // release (theatrically showing) but no past home release (Digital/Physical/
-  // TV). Only fires when extras explicitly set inTheatricalWindow — unknown
-  // data (extras not yet loaded, endpoint failed) never gates.
-  const theatrical = theatricalWindowStatus(
-    extras?.inTheatricalWindow ?? false,
-    extras?.nextHomeReleaseAt ?? null,
-  );
-  const gated = release.unreleased || theatrical.inTheatricalWindow;
+  const releaseGate = browseReleaseGate({
+    releaseDate: payload.releaseDate ?? extras?.releaseDate ?? null,
+    mediaType: payload.isSeries ? "series" : "movie",
+    inTheatricalWindow: extras?.inTheatricalWindow ?? false,
+    nextHomeReleaseAt: extras?.nextHomeReleaseAt ?? null,
+  });
+  const gated = releaseGate.gated;
 
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
@@ -1186,12 +1183,7 @@ function TitleContent({
                 )}
               >
                 {gated ? (
-                  <Badge
-                    data-title-coming
-                    className="h-auto gap-1.5 rounded-lg bg-card px-2.5 py-1"
-                  >
-                    {theatrical.theatricalLabel ?? release.comingLabel ?? "Coming soon"}
-                  </Badge>
+                  <ReleaseGateChip gate={releaseGate} data-title-coming />
                 ) : null}
                 <RatingMetaLine
                   rating={metaScore.rating}

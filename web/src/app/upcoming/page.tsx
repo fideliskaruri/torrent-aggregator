@@ -1,6 +1,8 @@
 import { CalendarClock, Info } from "lucide-react";
 import { Link } from "react-router";
-import { PosterImage } from "@/components/browse/poster-image";
+import { useMemo } from "react";
+import { MediaPoster } from "@/components/browse/media-poster-card";
+import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { cn } from "@/lib/utils";
@@ -19,6 +21,12 @@ export default function UpcomingPage() {
   const rows = list.data?.entries ?? [];
   const now = new Date();
   const groups = groupTimeline(rows, now);
+  // Rows saved without a poster ask the shared artwork lookup by title.
+  const missingArt = useMemo(
+    () => rows.filter((r) => !r.posterUrl).map((r) => ({ name: r.title, workTitle: r.title })),
+    [rows],
+  );
+  const artwork = useWorkArtwork(missingArt);
 
   return (
     <div className="container-app max-w-4xl space-y-6 py-6" data-upcoming>
@@ -84,9 +92,7 @@ export default function UpcomingPage() {
                 {group.entries.map((entry) => (
                   <li key={entry.id} data-upcoming-row={entry.kind}>
                     <Card size="sm" className="flex-row gap-3 p-3 sm:gap-4">
-                    <div className="relative aspect-[2/3] w-12 shrink-0 self-start overflow-hidden rounded-md bg-muted sm:w-14">
-                      <PosterImage src={entry.posterUrl ?? null} title={entry.title} sizes="56px" />
-                    </div>
+                    <MediaPoster variant="row" src={entry.posterUrl ?? artwork.artFor({ name: entry.title, workTitle: entry.title })?.posterUrl} title={entry.title} />
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       <div className="flex min-w-0 flex-col gap-1 md:flex-row md:justify-between md:gap-4">
                         <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>

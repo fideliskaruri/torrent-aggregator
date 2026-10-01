@@ -72,6 +72,20 @@ export function parseResolution(title: string): number | null {
 }
 
 /**
+ * The one name for a resolution: `4K` for 2160, `1080p` and so on below it.
+ * The quality picker, release chips and download rows all print this.
+ */
+export function qualityLabel(resolution: number | null | undefined): string | null {
+  if (!resolution) return null;
+  return resolution >= 2160 ? "4K" : `${resolution}p`;
+}
+
+/** The quality a release name states, as a chip label, or null when it names none. */
+export function qualityChipLabel(name: string): string | null {
+  return qualityLabel(parseResolution(name));
+}
+
+/**
  * Camcorder and screener rips.
  *
  * These are worse than any resolution is good: a `2160p HDCAM` is a phone

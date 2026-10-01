@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
-import { PosterImage } from "@/components/browse/poster-image";
+import { MediaPoster } from "@/components/browse/media-poster-card";
+import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
@@ -74,6 +75,15 @@ export default function RequestsPage() {
   const [draftEmail, setDraftEmail] = useState("");
   const [extraEmails, setExtraEmails] = useState<string[]>([]);
   const rows = reviewing ? inboxRows(list.data?.requests ?? []) : myRequestRows(list.data?.requests ?? []);
+  // Requests saved without a poster ask the shared artwork lookup by title and year.
+  const missingArt = useMemo(
+    () =>
+      rows
+        .filter((r) => !r.posterUrl)
+        .map((r) => ({ name: r.title, workTitle: r.title, workYear: r.year ?? null })),
+    [rows],
+  );
+  const artwork = useWorkArtwork(missingArt);
   const autoRows = useMemo(
     () => autoApproveRows(auto.data ?? { rules: [], knownEmails: [] }, extraEmails),
     [auto.data, extraEmails],
@@ -295,9 +305,7 @@ export default function RequestsPage() {
             const busy = busyId === request.id;
             return (
               <li key={request.id} className="surface flex gap-3 p-3 sm:gap-4" data-owner-request-row={request.status}>
-                <div className="relative aspect-[2/3] w-12 shrink-0 self-start overflow-hidden rounded-md bg-muted sm:w-14">
-                  <PosterImage src={request.posterUrl} title={request.title} sizes="56px" />
-                </div>
+                <MediaPoster variant="row" src={request.posterUrl ?? artwork.artFor({ name: request.title, workTitle: request.title, workYear: request.year ?? null })?.posterUrl} title={request.title} />
                 <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1">
                     <p className="line-clamp-2 text-sm font-medium text-foreground">

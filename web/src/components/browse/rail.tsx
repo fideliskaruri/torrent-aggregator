@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
@@ -44,6 +44,50 @@ const GRID =
  * reach card 14 without 13 Tab presses.
  */
 export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailProps) {
+  return (
+    <RailStrip
+      id={rail.id}
+      title={rail.title}
+      index={index}
+      seeAllHref={seeAllHref}
+      itemCount={rail.items.length}
+    >
+      {rail.items.map((item, i) => (
+        <TitleCard
+          key={item.id}
+          item={item}
+          status={statuses?.[item.id]}
+          onAction={onAction}
+          priority={index === 0 && i < 4}
+        />
+      ))}
+    </RailStrip>
+  );
+}
+
+/**
+ * The scrolling strip under every rail: heading, See all, the scroller, edge
+ * arrows and arrow-key movement between `[data-rail-card]` elements. Browse
+ * rails fill it with `TitleCard`s; other shelves (recommendations) pass their
+ * own `<li>` cards built on `MediaPoster`.
+ */
+export function RailStrip({
+  id,
+  title,
+  index = 0,
+  seeAllHref,
+  itemCount,
+  className,
+  children,
+}: {
+  id: string;
+  title: ReactNode;
+  index?: number;
+  seeAllHref?: string;
+  itemCount: number;
+  className?: string;
+  children: ReactNode;
+}) {
   // The scroll container is the ScrollArea viewport, not the list inside it.
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewport = useCallback(
@@ -87,7 +131,7 @@ export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailPr
       el.removeEventListener("scroll", measure);
       observer.disconnect();
     };
-  }, [measure, viewport, rail.items.length]);
+  }, [measure, viewport, itemCount]);
 
   const scrollByPage = useCallback(
     (direction: 1 | -1) => {
@@ -131,13 +175,14 @@ export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailPr
     [reduceMotion],
   );
 
-  if (rail.items.length === 0) return null;
+  if (itemCount === 0) return null;
+  const label = typeof title === "string" ? title : "titles";
 
   return (
     <motion.section
-      aria-labelledby={`rail-${rail.id}`}
-      data-rail={rail.id}
-      className="group/rail relative py-4 sm:py-5"
+      aria-labelledby={`rail-${id}`}
+      data-rail={id}
+      className={cn("group/rail relative py-4 sm:py-5", className)}
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{
@@ -147,13 +192,13 @@ export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailPr
       }}
     >
       <div className="mb-2.5 flex items-center justify-between gap-3">
-        <h2 id={`rail-${rail.id}`} className={RAIL_HEADING}>
-          {rail.title}
+        <h2 id={`rail-${id}`} className={RAIL_HEADING}>
+          {title}
         </h2>
         {seeAllHref ? (
           <Link
             to={seeAllHref}
-            aria-label={`See all ${rail.title.toLowerCase()}`}
+            aria-label={`See all ${label.toLowerCase()}`}
             data-rail-see-all
             // 44 px tall on touch without pushing the row apart: the negative
             // margin gives back what the target adds.
@@ -181,15 +226,7 @@ export function Rail({ rail, index = 0, statuses, onAction, seeAllHref }: RailPr
           onKeyDown={onKeyDown}
           className="flex gap-2.5 py-3 sm:gap-3"
         >
-          {rail.items.map((item, i) => (
-            <TitleCard
-              key={item.id}
-              item={item}
-              status={statuses?.[item.id]}
-              onAction={onAction}
-              priority={index === 0 && i < 4}
-            />
-          ))}
+          {children}
         </ul>
         <ScrollBar orientation="horizontal" />
         </ScrollArea>
