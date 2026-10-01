@@ -131,6 +131,7 @@ import {
   SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { parseStoredBoolean, usePersistedState } from "@/hooks/use-persisted-state";
 import {
   mergeOwnedTransferSnapshots,
 } from "@/lib/clients/transfer-ownership";
@@ -180,6 +181,13 @@ type TidyResult = {
   stillNested: number;
   skipped: number;
 };
+
+/** The external client's product name, for the status line. */
+function clientLabel(type: string): string {
+  if (type === "transmission") return "Transmission";
+  if (type === "qbittorrent") return "qBittorrent";
+  return "your torrent client";
+}
 
 function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -245,16 +253,26 @@ export default function ClientPage() {
   const [rawSendValue, setRawSendValue] = useState("");
   const [sendingRaw, setSendingRaw] = useState(false);
   const [rawSendError, setRawSendError] = useState<SendError | null>(null);
+  const [addPanelOpen, setAddPanelOpen] = usePersistedState(
+    "tf-downloads-add-open",
+    false,
+    parseStoredBoolean,
+  );
+  const rawSendInputRef = useRef<HTMLTextAreaElement>(null);
+  const toggleAddPanel = useCallback(
+    (open: boolean) => {
+      setAddPanelOpen(open);
+      // Opening it is asking to paste something, so the box takes focus.
+      if (open) requestAnimationFrame(() => rawSendInputRef.current?.focus());
+    },
+    [setAddPanelOpen],
+  );
   const { ensureDownloadSetup } = useDownloadSetup();
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
     null,
   );
   const [deleting, setDeleting] = useState(false);
   const [clientHost, setClientHost] = useState("");
-  const [hasExternal, setHasExternal] = useState(false);
-  const [externalClientType, setExternalClientType] = useState<string | null>(
-    null,
-  );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   // The row that opened the series dialog, so closing it hands focus back.
@@ -325,8 +343,6 @@ export default function ClientPage() {
       }
       if (!shouldApplySnapshot(seq, appliedSeqRef.current)) return;
       if (data.clientType) setClientType(data.clientType);
-      setHasExternal(Boolean(data.hasExternal));
-      setExternalClientType(data.externalClientType ?? null);
       const type = data.clientType || "";
       // Never show a qBit-style host for built-in (avoids implying port 8080 is required)
       if (type === "builtin") {
@@ -1091,14 +1107,31 @@ export default function ClientPage() {
       <TfPageHeader
         title="Downloads"
         meta={
-          clientUnavailable ? null : (
+          clientUnavailable ? (
             <p
+              className="flex items-center gap-2 text-[13px] text-destructive"
+              data-client-status="offline"
+            >
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
+              Can&apos;t reach {clientLabel(clientType)}. Retrying automatically.
+            </p>
+          ) : (
+            <div
               className="flex flex-wrap items-center gap-x-3 text-[13px] tabular-nums text-muted-foreground sm:gap-x-1"
+              data-client-status="connected"
               data-downloads-summary
             >
-              {summaryParts.map((part, index) => (
+              <span
+                className="inline-flex items-center gap-2 text-foreground"
+                title={!isBuiltin && clientHost ? `${clientLabel(clientType)} at ${clientHost}` : undefined}
+                data-client-connection
+              >
+                <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
+                {isBuiltin ? "Connected" : `Connected to ${clientLabel(clientType)}`}
+              </span>
+              {summaryParts.map((part) => (
                 <span key={part.id} className="inline-flex items-center">
-                  {index > 0 ? <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span> : null}
+                  <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span>
                   <Button
                     type="button"
                     variant="link"
@@ -1120,46 +1153,11 @@ export default function ClientPage() {
               {liveSpeed ? (
                 <span className="inline-flex items-center font-mono text-brand-foreground" data-summary-speed>
                   <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground sm:inline">·</span>
-                  {liveSpeed}
+                  ↓ {liveSpeed}
                 </span>
               ) : null}
-            </p>
+            </div>
           )
-        }
-        description={
-          <span className="inline-flex items-center gap-2 flex-wrap">
-            <Badge
-              variant={offline && !isBuiltin ? "danger" : "accent"}
-              className="capitalize"
-            >
-              {offline && !isBuiltin ? "Unavailable" : "Connected"}
-            </Badge>
-            <span className="text-subtle-foreground">
-              {offline && !isBuiltin ? "Retrying automatically" : "Updates automatically"}
-            </span>
-            <DetailsDisclosure
-              className="text-xs text-subtle-foreground"
-              contentClassName="mt-1 space-y-0.5"
-              data-client-connection-details
-            >
-                <p>
-                  {isBuiltin
-                    ? "Built-in downloader"
-                    : clientType || "External downloader"}
-                  {isBuiltin && hasExternal
-                    ? ` · ${
-                        externalClientType === "transmission"
-                          ? "Transmission"
-                          : "qBittorrent"
-                      } available`
-                    : ""}
-                </p>
-                {!isBuiltin && clientHost ? (
-                  <p className="break-all font-mono">{clientHost}</p>
-                ) : null}
-                <DownloadRecovery mode="paths" />
-            </DetailsDisclosure>
-          </span>
         }
         actions={
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -1209,72 +1207,89 @@ export default function ClientPage() {
         }
       />
 
-      <div className="surface space-y-3 p-4" data-raw-torrent-send>
-        <div className="min-w-0 space-y-1">
-          <p className="text-[13px] font-medium text-foreground">
-            Add a magnet or .torrent URL
-          </p>
+      <Collapsible
+        open={addPanelOpen}
+        onOpenChange={toggleAddPanel}
+        className="surface group/add"
+        data-raw-torrent-send
+      >
+        <CollapsibleTrigger
+          className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-[inherit] px-4 py-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+          data-raw-torrent-toggle
+        >
+          <Magnet aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          <span className="text-[13px] font-medium text-foreground">Add torrent</span>
+          <span className="hidden min-w-0 truncate text-[12px] text-subtle-foreground sm:inline">
+            Magnet link or .torrent URL
+          </span>
+          <ChevronDown
+            aria-hidden
+            className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/add:rotate-180"
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 px-4 pb-4 pt-1">
           <p className="text-[12px] leading-relaxed text-subtle-foreground">
             Paste a magnet link or a direct .torrent URL, then add it to your downloads.
           </p>
-        </div>
-        <Textarea
-          className="min-h-24"
-          value={rawSendValue}
-          onChange={(event) => {
-            setRawSendValue(event.target.value);
-            if (rawSendError) setRawSendError(null);
-          }}
-          placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
-          aria-label="Paste a magnet link or .torrent URL"
-          aria-invalid={rawSendInvalid || rawSendError?.field === "source" || undefined}
-          aria-describedby={rawSendAnyError ? "raw-torrent-send-error" : undefined}
-          data-raw-torrent-send-input
-        />
-        {rawSendInvalid ? (
-          <p
-            id="raw-torrent-send-error"
-            className="text-[12px] leading-relaxed text-destructive"
-            data-raw-torrent-send-error="source"
-            data-raw-torrent-invalid
-          >
-            {TORRENT_SOURCE_INPUT_HINT}
-          </p>
-        ) : rawSendError ? (
-          <p
-            id="raw-torrent-send-error"
-            role="alert"
-            className="text-[12px] leading-relaxed text-destructive"
-            data-raw-torrent-send-error={rawSendError.field ?? "send"}
-          >
-            {rawSendError.message}
-            {rawSendError.field === "savePath" ? (
-              <>
-                {" "}
-                <Link
-                  to="/settings"
-                  className="inline-flex min-h-[44px] items-center font-medium text-brand-foreground underline underline-offset-2 lg:min-h-0"
-                >
-                  Open Settings
-                </Link>
-              </>
-            ) : null}
-          </p>
-        ) : null}
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void sendRawTorrent()}
-            disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
-            className="w-full shrink-0 sm:w-auto"
-            data-raw-torrent-send-button
-          >
-            {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : <Magnet aria-hidden />}
-            Add torrent
-          </Button>
-        </div>
-      </div>
+          <Textarea
+            ref={rawSendInputRef}
+            className="min-h-24"
+            value={rawSendValue}
+            onChange={(event) => {
+              setRawSendValue(event.target.value);
+              if (rawSendError) setRawSendError(null);
+            }}
+            placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
+            aria-label="Paste a magnet link or .torrent URL"
+            aria-invalid={rawSendInvalid || rawSendError?.field === "source" || undefined}
+            aria-describedby={rawSendAnyError ? "raw-torrent-send-error" : undefined}
+            data-raw-torrent-send-input
+          />
+          {rawSendInvalid ? (
+            <p
+              id="raw-torrent-send-error"
+              className="text-[12px] leading-relaxed text-destructive"
+              data-raw-torrent-send-error="source"
+              data-raw-torrent-invalid
+            >
+              {TORRENT_SOURCE_INPUT_HINT}
+            </p>
+          ) : rawSendError ? (
+            <p
+              id="raw-torrent-send-error"
+              role="alert"
+              className="text-[12px] leading-relaxed text-destructive"
+              data-raw-torrent-send-error={rawSendError.field ?? "send"}
+            >
+              {rawSendError.message}
+              {rawSendError.field === "savePath" ? (
+                <>
+                  {" "}
+                  <Link
+                    to="/settings"
+                    className="inline-flex min-h-[44px] items-center font-medium text-brand-foreground underline underline-offset-2 lg:min-h-0"
+                  >
+                    Open Settings
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void sendRawTorrent()}
+              disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
+              className="w-full shrink-0 sm:w-auto"
+              data-raw-torrent-send-button
+            >
+              {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : <Magnet aria-hidden />}
+              Add torrent
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/*
         The full error panel replaces the page only when there is nothing left

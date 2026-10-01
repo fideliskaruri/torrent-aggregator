@@ -38,7 +38,7 @@ interface SourceScan {
 }
 
 export function DownloadRecovery({ mode = "all", onImported, revision }: {
-  mode?: "paths" | "empty" | "all";
+  mode?: "empty" | "all";
   onImported?: () => void;
   revision?: string;
 }) {
@@ -166,12 +166,12 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
         <dt className="text-subtle-foreground">App data folder</dt>
         <dd className="w-full break-all font-mono leading-relaxed">{info.dataDirectory}</dd>
       </div>
-      {mode === "paths" || !info.downloadDirectory ? <div className="min-w-0 space-y-0.5">
+      {!info.downloadDirectory ? <div className="min-w-0 space-y-0.5">
         <dt className="text-subtle-foreground">Download folder</dt>
         <dd className="w-full break-all font-mono leading-relaxed">{info.downloadDirectory || "Not configured. Choose and save a folder below."}</dd>
       </div> : null}
     </dl>}
-    {mode !== "paths" && <div className="space-y-2">
+    <div className="space-y-2">
       <p className="text-muted-foreground">
         {mode === "empty" && info.hasMedia ? "Media files already exist in your download folder. Recover them without downloading again."
           : mode === "empty" ? "Recover downloads already held by another torrent client, or scan your local folder for media."
@@ -188,7 +188,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
           Import from another client
         </Button>
       </div>
-    </div>}
+    </div>
     <Dialog open={sourceOpen} onOpenChange={setSourceOpen}>
       <DialogContent className="flex max-h-[95dvh] flex-col gap-4 overflow-hidden p-5 sm:max-w-2xl" data-source-import-panel>
         <DialogHeader className="pr-10">
