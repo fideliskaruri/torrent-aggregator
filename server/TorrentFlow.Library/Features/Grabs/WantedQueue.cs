@@ -13,9 +13,13 @@ using TorrentFlow.Library.Features.Common;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
-/// <summary>A whole season (or a film when <see cref="Season"/> is null) someone asked for.</summary>
+/// <summary>
+/// A whole season (or a film when <see cref="Season"/> is null) someone asked for. <see cref="Single"/> is one explicit
+/// click on a film or one episode: it restarts its own target, starts even when every season slot is busy, and is not a
+/// season run, so it gets no season summary.
+/// </summary>
 public sealed record WantedOrder(string WorkKey, string WorkId, int? Season, IReadOnlyList<int> Episodes,
-    int? PreferredResolution = null, bool OverrideStorageCap = false, string? Lane = null);
+    int? PreferredResolution = null, bool OverrideStorageCap = false, string? Lane = null, bool Single = false);
 
 /// <summary>What still needs the owner after several tries, with the prefilled "Pick a release yourself" link.</summary>
 public sealed record WantedHelp(string WorkKey, string Title, int? Season, IReadOnlyList<int> Episodes, GrabFailure Failure,
@@ -40,8 +44,9 @@ public interface IWantedObserver
 }
 
 /// <summary>
-/// Fire and forget downloads. Download season (and a request) only records what is wanted and returns; this queue
-/// then runs the shared season path (<see cref="GrabService.Season"/>: the single-episode grab, once per episode).
+/// Fire and forget downloads. Download (a film or one episode), Download season and a request only record what is
+/// wanted and return; this queue then runs the shared grab (<see cref="GrabService.Grab"/> for a film,
+/// <see cref="GrabService.Season"/>: the single-episode grab, once per episode).
 /// Whatever is not found yet stays wanted and is retried with a growing wait, forever, including after the search
 /// sites were busy. Seasons are separate units, so one slow or failing season never holds up another. After a few
 /// tries that did not find anything the owner is told once, with one action: pick a release yourself.
@@ -69,7 +74,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     private readonly record struct Unit(string WorkKey, int? Season);
     private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane, int Unsearched = 0,
-        string? RunId = null);
+        string? RunId = null, bool Single = false);
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
@@ -85,10 +90,10 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     {
         var scope = wanted.Season == null ? "title" : "episode";
         IEnumerable<int?> episodes = wanted.Season == null ? [null] : wanted.Episodes.Where(e => e > 0).Distinct().Order().Cast<int?>();
-        var tracked = await SeedAsync(wanted.WorkKey, wanted.WorkId, scope, wanted.Season, episodes, wanted.PreferredResolution, restart: false, ct);
+        var tracked = await SeedAsync(wanted.WorkKey, wanted.WorkId, scope, wanted.Season, episodes, wanted.PreferredResolution, restart: wanted.Single, ct);
         // Each season download is one run: every episode it asked for, already started or not, counts toward its one summary.
         string? runId = null;
-        if (wanted.Season != null && tracked.Count > 0)
+        if (wanted.Season != null && tracked.Count > 0 && !wanted.Single)
         {
             runId = Ids.New();
             var keys = tracked.Keys.ToArray();
@@ -98,7 +103,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         }
         var unit = new Unit(wanted.WorkKey, wanted.Season);
         plans[unit] = new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, wanted.PreferredResolution, wanted.OverrideStorageCap, wanted.Lane,
-            RunId: runId);
+            RunId: runId, Single: wanted.Single);
         wake.Release();
         return tracked.Count;
     }
@@ -280,9 +285,10 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     private void StartDue(CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        foreach (var (unit, _) in plans.Where(p => p.Value.DueAt <= now && !running.ContainsKey(p.Key)).OrderBy(p => p.Value.Order).ToArray())
+        foreach (var (unit, plan) in plans.Where(p => p.Value.DueAt <= now && !running.ContainsKey(p.Key)).OrderBy(p => p.Value.Order).ToArray())
         {
-            if (running.Count >= MaxParallel) break;
+            // Season runs share the slots; one clicked film or episode never waits behind them.
+            if (running.Count >= MaxParallel && !plan.Single) continue;
             running[unit] = Task.Run(async () =>
             {
                 try { await RunAsync(unit, ct); }
@@ -321,7 +327,10 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         IReadOnlyList<string> aliases = [];
         try { aliases = JsonSerializer.Deserialize<string[]>(work.AliasesJson ?? "[]") ?? []; }
         catch (JsonException) { }
-        var input = new GrabInput(work.CanonicalTitle, work.MediaType, WorkId: work.Id,
+        // A library show's item moves its next-up cursor when that episode starts, as a click always did.
+        var watchId = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.WorkId == work.Id)
+            .Select(x => x.Id).FirstOrDefaultAsync(ct);
+        var input = new GrabInput(work.CanonicalTitle, work.MediaType, WatchListItemId: watchId, WorkId: work.Id,
             PreferredResolution: plan?.Resolution ?? rows.Select(r => r.PreferredResolution).FirstOrDefault(r => r != null),
             OverrideStorageCap: plan?.OverrideStorageCap ?? false, Aliases: aliases, Year: work.Year, WorkKey: work.WorkKey, Lane: lane,
             Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true);

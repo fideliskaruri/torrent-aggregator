@@ -1328,7 +1328,7 @@ function TitleContent({
                   >
                     <ButtonBody
                       pending={downloadStatus === "pending"}
-                      icon={<Download aria-hidden />}
+                      icon={titleTransfer?.state === "looking" ? <Search aria-hidden /> : <Download aria-hidden />}
                     >
                       {downloadLabel}
                     </ButtonBody>

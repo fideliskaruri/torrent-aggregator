@@ -59,9 +59,8 @@ export interface PostTitleActionInput {
 
 /**
  * Acquisition requests (title, episode and season POSTs) carry no browser-side
- * deadline. The server legitimately spends minutes on source retries and the
- * start budget, and owns its own lifecycle; a client cutoff only turned a
- * download that was still starting into a generic failure.
+ * deadline. They are fire and forget: the server records what is wanted and
+ * answers at once, then looks for a release in the background.
  */
 
 /**

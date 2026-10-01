@@ -14,7 +14,11 @@
  *
  * Pure and DOM-free on purpose.
  */
-import type { TitleDetailPayload, TitleEpisodeTransfer } from "./types";
+import type {
+  TitleDetailPayload,
+  TitleEpisodeTransfer,
+  TitleTransferState,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -92,8 +96,9 @@ export function offersDownload(transfer: TitleEpisodeTransfer | null): boolean {
  *    ran failed → "Retry download". Never for a transfer that is queued,
  *    moving or done.
  *  - `status`: already asked for → the control reports progress
- *    ("Queued", "Downloading 42%", "Downloaded") and opens Downloads when
- *    the viewer can see transfers, instead of offering a second grab.
+ *    ("Looking", "Queued", "Downloading 42%", "Downloaded") and opens
+ *    Downloads when the viewer can see transfers and Downloads has a row,
+ *    instead of offering a second grab.
  *
  * Library membership is independent of all of this.
  */
@@ -108,6 +113,21 @@ export interface TitleTransferControl {
   error: string | null;
 }
 
+/**
+ * Plain words for a waiting or moving transfer. "Looking" is a download still
+ * searching for a release (Download is fire and forget). Only owners have a
+ * queue position, so a requester's queued item reads "Queued" without it.
+ */
+export function transferStateLabel(
+  state: TitleTransferState | null | undefined,
+  queuePosition?: number | null,
+): string | null {
+  if (state === "looking") return "Looking";
+  if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
+  if (state === "downloading") return "Downloading";
+  return null;
+}
+
 export function resolveTitleTransferControl(
   transfer: TitleEpisodeTransfer | null,
   downloadStatus: TitleActionStatus,
@@ -116,7 +136,7 @@ export function resolveTitleTransferControl(
   if (transfer && transfer.status !== "failed") {
     const label =
       transfer.status === "queued"
-        ? "Queued"
+        ? transferStateLabel(transfer.state, transfer.queuePosition) ?? "Queued"
         : transfer.status === "downloading"
           ? `Downloading ${Math.floor(Math.max(0, Math.min(1, transfer.progress)) * 100)}%`
           : "Downloaded";
@@ -124,7 +144,8 @@ export function resolveTitleTransferControl(
       intent: "status",
       label,
       canRun: false,
-      opensDownloads: options.canSeeTransfers,
+      // Still looking for a release: Downloads has no row for it yet.
+      opensDownloads: options.canSeeTransfers && transfer.state !== "looking",
       error: null,
     };
   }

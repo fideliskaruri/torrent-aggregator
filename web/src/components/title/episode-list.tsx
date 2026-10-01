@@ -61,6 +61,7 @@ import {
 } from "./episode-list-state";
 import {
   shouldRunTitleAction,
+  transferStateLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
@@ -965,18 +966,4 @@ function DownloadGlyph({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
-}
-
-/**
- * Plain words for a waiting or moving transfer. Only owners have a queue
- * position, so a requester's queued episode reads "Queued" without it.
- */
-function transferStateLabel(
-  state: TitleTransferState | null | undefined,
-  queuePosition?: number | null,
-): string | null {
-  if (state === "looking") return "Looking";
-  if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
-  if (state === "downloading") return "Downloading";
-  return null;
 }

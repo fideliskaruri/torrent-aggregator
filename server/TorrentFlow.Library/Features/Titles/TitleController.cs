@@ -15,7 +15,7 @@ using TorrentFlow.Library.Features.Watchlist;
 namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
-public sealed class TitleController(TitleService titles, GrabService grabs, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
+public sealed class TitleController(TitleService titles, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
     IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes) : ControllerBase
 {
     [HttpGet]
@@ -114,20 +114,20 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         if (watchId != null)
             await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
-        var input = new GrabInput(title, type, null, watchId, work.Id, resolution, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
-            Provider: verified?.Source ?? work.Provider, ProviderId: verified?.ExternalId ?? work.ProviderId);
         if (scope == "season")
         {
             // The server decides which episodes a season has; a list the browser rendered is never trusted.
-            var shape = await seasonShapes.GetSeasonAsync(new(workKey, title, work.Year, work.MediaType, input.Provider, input.ProviderId, season!.Value), ct);
+            var shape = await seasonShapes.GetSeasonAsync(new(workKey, title, work.Year, work.MediaType, verified?.Source ?? work.Provider,
+                verified?.ExternalId ?? work.ProviderId, season!.Value), ct);
             episodes = shape?.AiredEpisodes.Take(500).ToArray() ?? [];
             if (episodes.Length == 0)
                 return Conflict(new { ok = false, message = shape is null
                     ? "We couldn't load this season's episode list right now. Try again in a minute."
                     : $"No episodes of season {season} have aired yet." });
         }
-        // Download season is fire and forget: record what is wanted and return. The wanted queue runs the shared
-        // season path (the single-episode grab for each episode) in the background and keeps retrying whatever is not found yet.
+        // Every download is fire and forget: record what is wanted and return. The wanted queue runs the shared grab in
+        // the background (the film grab, or the single-episode grab for each episode) and keeps retrying whatever is not
+        // found yet. A dead release costs the queue a metadata timeout, never the click.
         if (scope == "season")
         {
             await wanted.EnqueueAsync(new(workKey, work.Id, season!.Value, episodes, resolution, cap, TorrentLane.Owner), CancellationToken.None);
@@ -136,36 +136,10 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
                     episodes = episodes.Select(e => new { episode = e, status = "not_measured" }),
                     planReason = "We'll get each episode and keep looking for any we can't find yet." })));
         }
-        // Once targets are seeded the acquisition must finish and settle even if the client disconnects;
-        // only host shutdown may interrupt it.
-        var workToken = lifetime.ApplicationStopping;
-        var tracked = await wanted.SeedAsync(workKey, work.Id, scope!, season, [episode], resolution, restart: true, ct);
-        GrabResult? single = null;
-        Exception? crash = null;
-        try
-        {
-            single = await grabs.Grab(input with { Cursor = season != null && episode != null ? new EpisodeCursor(season.Value, episode.Value) : null }, workToken);
-        }
-        catch (Exception error)
-        {
-            crash = error;
-        }
-        finally
-        {
-            if (tracked.Count > 0)
-                await wanted.SettleAsync(tracked, work.Id, [single is { } done ? Transfer(done, episode)
-                    : new EpisodeTransfer(episode ?? 0, "failed", null, crash?.Message ?? "The acquisition was interrupted before it finished.")], CancellationToken.None);
-        }
-        if (crash != null) return Crash(crash);
-        return StatusCode(single!.Ok ? 200 : 409, LibraryJson.Object(("ok", single.Ok), ("message", single.Message),
-            ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
-            ("queued", single.Queued), ("queuePosition", single.QueuePosition), ("noReleaseFound", single.NoReleaseFound)));
-    }
-
-    private ObjectResult Crash(Exception error)
-    {
-        var problem = GrabFailure.FromException(error);
-        return StatusCode(500, new { ok = false, message = $"{problem.Message} {problem.Action}" });
+        await wanted.EnqueueAsync(new(workKey, work.Id, season, episode is { } one ? [one] : [], resolution, cap, TorrentLane.Owner, Single: true),
+            CancellationToken.None);
+        return Accepted(LibraryJson.Object(("ok", true), ("queued", true),
+            ("message", episode is { } clicked ? $"Looking for episode {clicked}." : $"Looking for {title}.")));
     }
 
     private static EpisodeTransfer Transfer(GrabResult result, int? episode) => new(episode ?? 0,
