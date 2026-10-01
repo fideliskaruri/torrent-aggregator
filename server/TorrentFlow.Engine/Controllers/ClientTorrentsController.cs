@@ -201,11 +201,13 @@ public sealed class ClientTorrentsController(
         if (orphaned.Count == 0) return;
         var workKeys = orphaned.Select(t => Text(t, "workKey")!).Distinct().ToList();
         var targets = await db.AcquisitionTargets.AsNoTracking().Where(a => a.UserId == LocalUser.Id && workKeys.Contains(a.WorkKey))
+            .Where(a => a.Status != "failed")
             .Select(a => new { a.WorkKey, a.Scope, a.Season, a.Episode }).ToListAsync(ct);
         foreach (var torrent in orphaned)
         {
             var (workKey, season, episode) = (Text(torrent, "workKey"), Number(torrent, "season"), Number(torrent, "episode"));
-            // Its own target now points elsewhere: Ready, another release, or the queue looking again.
+            // Its own target now points elsewhere: Ready, another release, or the queue looking again. A target that
+            // failed with it has nothing in its place, so the error stays for the owner.
             if (targets.Any(a => a.WorkKey == workKey && (episode == null ? a.Scope == "title" : a.Season == season && a.Episode == episode)))
                 torrent["replaced"] = true;
         }
