@@ -358,7 +358,7 @@ public sealed partial class BrowseService(
             {
                 slot = queries.Count;
                 slotByKey[key] = slot;
-                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ReleaseKinds.DetectContentKind(name))));
+                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ContentKinds.Detect(name))));
             }
             slots.Add(slot);
         }

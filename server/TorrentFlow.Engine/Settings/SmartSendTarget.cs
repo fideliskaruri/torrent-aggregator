@@ -36,19 +36,12 @@ public static class SmartSendTargets
         var smart = categorizer.Categorize(new(name, options.Tags ?? [], options.Metadata, options.Source, options.SearchCategory), config.Categories);
         var cat = options.CategoryManual && !string.IsNullOrEmpty(options.Category) ? options.Category : smart.Category;
         var kind = smart.Kind;
-        var sepGuess = (FirstNonEmpty(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(cat)) ?? "").Contains('\\') ? "\\" : "/";
-
         var savePath = string.IsNullOrEmpty(options.SavePath) ? null : options.SavePath;
-        // Anime libraries sit flat beside the others; a manual non-anime category lays out as that category.
-        var anime = kind == "anime" && string.Equals(cat, categorizer.CategoryLabel("anime", config.Categories), StringComparison.OrdinalIgnoreCase);
-        if (kind == "anime" && !anime) kind = string.Equals(cat, categorizer.CategoryLabel("movies", config.Categories), StringComparison.OrdinalIgnoreCase) ? "movies" : "tv";
-        if (savePath is null && anime && MediaFolders.AnimeRoot(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(cat)) is { } animeRoot)
-            savePath = ResolveSmartPath(categorizer, animeRoot, kind, "", name, options.Metadata, animeRoot.Contains('\\') ? "\\" : sepGuess);
-        if (savePath is null && config.PathRules.GetValueOrDefault(cat)?.Trim() is { Length: > 0 } ruleRoot)
-            savePath = ResolveSmartPath(categorizer, ruleRoot, kind, "", name, options.Metadata, ruleRoot.Contains('\\') ? "\\" : sepGuess);
-        if (savePath is null && config.BaseDownloadPath?.Trim() is { Length: > 0 } baseDir)
-            savePath = ResolveSmartPath(categorizer, baseDir, kind, cat, name, options.Metadata, baseDir.Contains('\\') ? "\\" : sepGuess);
-        savePath ??= ClientSettingsStore.ResolveDownloadTarget(config, cat, null).SavePath;
+        // A manual non-anime category lays an anime release out as that category.
+        if (kind == "anime" && !string.Equals(cat, categorizer.CategoryLabel("anime", config.Categories), StringComparison.OrdinalIgnoreCase))
+            kind = string.Equals(cat, categorizer.CategoryLabel("movies", config.Categories), StringComparison.OrdinalIgnoreCase) ? "movies" : "tv";
+        savePath ??= ResolveSmartPath(categorizer, config, kind, cat, name, options.Metadata)
+            ?? ClientSettingsStore.ResolveDownloadTarget(config, cat, null).SavePath;
 
         return new(cat, savePath, kind, smart);
     }
@@ -61,22 +54,21 @@ public static class SmartSendTargets
     {
         var kind = work.Anime ? "anime" : work.Film ? "movies" : "tv";
         var category = categorizer.CategoryLabel(kind, config.Categories);
-        var rule = ClientConfig.NullIfBlank(config.PathRules.GetValueOrDefault(category)?.Trim());
-        var root = work.Anime ? MediaFolders.AnimeRoot(config.BaseDownloadPath, rule) : rule ?? ClientConfig.NullIfBlank(config.BaseDownloadPath?.Trim());
-        if (root is null) return ClientSettingsStore.ResolveDownloadTarget(config, category, null);
-        return new(category, MediaFolders.Path(root, work.Anime || rule is not null ? "" : category, kind, work.Film, MediaFolders.Name(work.Title), work.Year,
-            work.Season is int season ? MediaFolders.Season(season) : null, root.Contains('\\') ? "\\" : "/"));
+        var path = MediaFolders.SavePath(config.BaseDownloadPath, config.PathRules.GetValueOrDefault(category), category, kind, work.Film,
+            MediaFolders.Name(work.Title), work.Year, work.Season is int season ? MediaFolders.Season(season) : null);
+        return path is null ? ClientSettingsStore.ResolveDownloadTarget(config, category, null) : new(category, path);
     }
 
     /// <summary>A send with no catalog work (search page, automation): the show and season are read from the release name.</summary>
-    public static string ResolveSmartPath(ISmartCategorizer categorizer, string basePath, string kind, string category,
-        string? title, MediaMetadata? metadata, string sep)
+    public static string? ResolveSmartPath(ISmartCategorizer categorizer, ClientConfig config, string kind, string? category,
+        string? title, MediaMetadata? metadata)
     {
         var showTitle = FirstNonEmpty(title, metadata?.Title);
         var show = ShowKinds.Contains(kind) && showTitle is not null ? categorizer.ShowFolder(showTitle, metadata) : null;
         var film = kind == "movies" || kind == "anime" && categorizer.IsFilm(title ?? "", metadata);
         var season = !film && !string.IsNullOrEmpty(title) ? categorizer.SeasonFolder(title) : null;
-        return MediaFolders.Path(basePath, category, kind, film, show, film ? MediaFolders.FilmYear(title, metadata?.Year) : null, season, sep);
+        return MediaFolders.SavePath(config.BaseDownloadPath, category is null ? null : config.PathRules.GetValueOrDefault(category), category, kind, film,
+            show, film ? MediaFolders.FilmYear(title, metadata?.Year) : null, season);
     }
     private static string? FirstNonEmpty(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrEmpty(v));
 }

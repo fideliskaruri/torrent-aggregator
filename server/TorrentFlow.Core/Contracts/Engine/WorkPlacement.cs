@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+
 namespace TorrentFlow.Core.Contracts.Engine;
 
 /// <summary>
@@ -18,46 +20,56 @@ public static class MediaFolders
     public static string Season(int season) => $"Season {season:00}";
 
     /// <summary>
-    /// The one folder layout, Jellyfin style, one flat library per top-level folder: &lt;root&gt;/&lt;category&gt;/&lt;show&gt;/Season NN
-    /// for series and &lt;root&gt;/&lt;category&gt;/&lt;Title (Year)&gt; for films. Anime takes "Anime Series" or "Anime Movies" in
-    /// place of its category folder, so a film never sits in a series library or the other way round. An empty category
-    /// means the root is already the category's own folder.
+    /// The library folder a kind lands in, Jellyfin style, one flat library per top-level folder: a category's path rule,
+    /// else &lt;download root&gt;/&lt;category&gt;. Anime splits into "Anime Series" and "Anime Movies" flat under the download root
+    /// (beside an Anime path rule's folder when there is no root), so a film never sits in a series library or the other
+    /// way round. Null when nothing is configured. Every save path (catalog grabs, smart sends, the search preview and
+    /// plain category sends) starts here.
     /// </summary>
-    public static string Path(string root, string category, string kind, bool film, string? show, int? year, string? season, string sep)
+    public static string? Library(string? downloadRoot, string? categoryRule, string? category, string kind, bool film)
     {
-        var parts = new List<string>();
-        if ((root ?? "").TrimEnd('/', '\\') is { Length: > 0 } top) parts.Add(top);
-        var cat = (category ?? "").Trim('/', '\\');
-        if (kind == "anime") parts.Add(film ? AnimeMovies : AnimeSeries);
-        else if (cat.Length > 0) parts.Add(cat);
-        if (!string.IsNullOrEmpty(show))
+        var root = Blank(downloadRoot);
+        var rule = Blank(categoryRule)?.TrimEnd('/', '\\');
+        if (kind == "anime")
         {
-            parts.Add(film && year is { } y && !show.Contains($"({y})", StringComparison.Ordinal) ? $"{show} ({y})" : show);
-            if (!film && !string.IsNullOrEmpty(season)) parts.Add(season);
+            var cut = rule?.LastIndexOfAny(['/', '\\']) ?? -1;
+            var top = root ?? (cut > 0 ? rule![..cut] : rule);
+            return top is null ? null : Join(top, LibraryName(category, kind, film));
         }
-        return string.Join(sep, parts);
+        if (rule is not null) return rule;
+        return root is null ? null : Join(root, LibraryName(category, kind, film));
     }
 
-    /// <summary>A film folder's year: the catalog's, otherwise the first 19xx/20xx token in the release name.</summary>
-    public static int? FilmYear(string? title, int? catalogYear)
+    /// <summary>The library's own folder name: "Anime Series" / "Anime Movies" for anime, else the category.</summary>
+    public static string LibraryName(string? category, string kind, bool film) =>
+        kind == "anime" ? film ? AnimeMovies : AnimeSeries : (category ?? "").Trim().Trim('/', '\\');
+
+    /// <summary>A title's folder inside its library: &lt;Title (Year)&gt; for films, &lt;Show&gt;/Season NN for series.</summary>
+    public static string Item(string library, bool film, string? show, int? year, string? season)
     {
-        if (catalogYear is int y && y is >= 1870 and <= 2100) return y;
-        if (string.IsNullOrWhiteSpace(title)) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(title, @"\b((?:19|20)\d{2})\b");
-        return m.Success && int.TryParse(m.Groups[1].Value, out var year) && year is >= 1870 and <= 2100 ? year : null;
+        if (string.IsNullOrEmpty(show)) return library;
+        var path = Join(library, film && year is { } y && !show.Contains($"({y})", StringComparison.Ordinal) ? $"{show} ({y})" : show);
+        return !film && !string.IsNullOrEmpty(season) ? Join(path, season) : path;
     }
 
-    /// <summary>
-    /// Where the anime libraries go: flat under the download root, beside Movies and TV, never inside another library.
-    /// With no download root, beside the Anime path rule's folder.
-    /// </summary>
-    public static string? AnimeRoot(string? downloadRoot, string? animeRule)
+    /// <summary>The one save path: <see cref="Library"/> then <see cref="Item"/>; null when no folder is configured.</summary>
+    public static string? SavePath(string? downloadRoot, string? categoryRule, string? category, string kind, bool film, string? show, int? year, string? season) =>
+        Library(downloadRoot, categoryRule, category, kind, film) is { } library ? Item(library, film, show, year, season) : null;
+
+    /// <summary>Joins with the separator the parent already uses (backslash for Windows paths, else slash).</summary>
+    public static string Join(string parent, string child)
     {
-        if (downloadRoot?.Trim() is { Length: > 0 } root) return root;
-        var rule = animeRule?.Trim().TrimEnd('/', '\\');
-        var cut = rule?.LastIndexOfAny(['/', '\\']) ?? -1;
-        return cut > 0 ? rule![..cut] : null;
+        var p = parent.TrimEnd('/', '\\'); var c = child.Trim('/', '\\');
+        if (p.Length == 0) return c;
+        if (c.Length == 0) return p;
+        return $"{p}{(p.Contains('\\') ? '\\' : '/')}{c}";
     }
+
+    /// <summary>A film folder's year: the catalog's, otherwise the release name's (<see cref="ReleaseNames.ReleaseYear"/>).</summary>
+    public static int? FilmYear(string? title, int? catalogYear) =>
+        catalogYear is int y && y is >= 1870 and <= 2100 ? y : string.IsNullOrWhiteSpace(title) ? null : ReleaseNames.ReleaseYear(title);
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>A title made safe as one Windows folder name: invalid characters dropped, spaces collapsed, no trailing dot.</summary>
     public static string Name(string title)

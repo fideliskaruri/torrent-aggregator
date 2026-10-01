@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Artwork;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Catalog;
@@ -48,11 +49,9 @@ public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb
 
     private sealed record Show(string Source, IReadOnlyList<FranchiseEpisode> Episodes);
 
-    public static bool IsAnimeLike(string? provider, string? mediaType) => provider == "anilist" || MediaTypes.Normalize(mediaType) == "anime";
-
     public async Task<FranchiseView?> ResolveAsync(FranchiseQuery q, CancellationToken ct)
     {
-        if (!IsAnimeLike(q.Provider, q.MediaType) || q.Provider == "anilist" && q.ProviderId is null) return null;
+        if (!AnimeIdentity.IsAnime(q.Provider, MediaTypes.Normalize(q.MediaType), q.ProviderId) || q.Provider == "anilist" && q.ProviderId is null) return null;
         var key = string.Join('\u0000', tmdb.CredentialRevision, tmdb.HasKey, q.Provider, q.ProviderId, q.Title, q.Year);
         if (_views.TryGet(key, out var cached)) return cached;
         return await _flight.RunAsync(key, async () =>

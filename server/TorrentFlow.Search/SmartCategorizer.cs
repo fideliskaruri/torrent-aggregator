@@ -15,15 +15,15 @@ internal sealed class SmartCategorizer : ISmartCategorizer
             Id = "", Title = input.Title ?? "", Source = string.IsNullOrWhiteSpace(input.Source) ? "apibay" : input.Source!, SourceUrl = "",
             Tags = [.. input.Tags], Metadata = input.Metadata,
         };
-        var kind = ContentClassifier.Detect(release, input.SearchCategory);
-        return new(kind, ContentClassifier.CategoryLabel(kind, [.. userCategories]), ContentClassifier.Confidence(release, kind));
+        var kind = ContentKinds.Detect(release, input.SearchCategory);
+        return new(kind, ContentClassifier.CategoryLabel(kind, [.. userCategories]), ContentKinds.Confidence(release, kind));
     }
 
     public string ShowFolder(string title, MediaMetadata? metadata) => ContentClassifier.ShowFolder(title, metadata);
 
     public string? SeasonFolder(string title) => EpisodeParser.SeasonFolder(ReleaseEpisodeParser.Parse(title));
 
-    public bool IsFilm(string title, MediaMetadata? metadata) => ContentClassifier.IsFilm(title, ReleaseEpisodeParser.Parse(title), metadata);
+    public bool IsFilm(string title, MediaMetadata? metadata) => ContentKinds.IsFilm(title, metadata);
 
     public string CategoryLabel(string kind, IReadOnlyList<string> userCategories) => ContentClassifier.CategoryLabel(kind, [.. userCategories]);
 }

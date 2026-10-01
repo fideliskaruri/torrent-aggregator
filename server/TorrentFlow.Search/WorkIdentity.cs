@@ -23,9 +23,7 @@ public static class WorkIdentityParser
         if (CatalogAgrees(releaseName, metadata.Title)) return true;
         var release = ReleaseNames.NormalizeKey(releaseName);
         if (metadata.Aliases?.Any(alias => ReleaseNames.NormalizeKey(alias) == release) == true) return true;
-        var anime = metadata.MediaType == "anime" || metadata.OriginalLanguage?.ToLowerInvariant() == "ja"
-            && metadata.Genres?.Any(g => g.Equals("animation", StringComparison.OrdinalIgnoreCase)) == true;
-        if (!anime || string.IsNullOrWhiteSpace(metadata.ExternalId) || metadata.ExternalId.Trim() == "0" || ReleaseEpisodeParser.SpecialType(releaseName) != null || release.Split(' ').Length < 4) return false;
+        if (!AnimeIdentity.IsAnime(metadata) || string.IsNullOrWhiteSpace(metadata.ExternalId) || metadata.ExternalId.Trim() == "0" || ReleaseEpisodeParser.SpecialType(releaseName) != null || release.Split(' ').Length < 4) return false;
         string[] stop = ["the", "that", "this", "with", "from", "season", "series", "part"];
         var tokens = release.Split(' ').Where(t => t.Length >= 5 && !stop.Contains(t)).ToHashSet();
         return ReleaseNames.NormalizeKey(metadata.Title).Split(' ').Any(t => t.Length >= 5 && !stop.Contains(t) && tokens.Contains(t));
