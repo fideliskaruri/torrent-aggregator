@@ -19,7 +19,7 @@ RUN dotnet publish server/TorrentFlow.Api -c Release -a $TARGETARCH \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 # curl is deliberate: the base runtime has no HTTP health-probe command.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl gosu ca-certificates tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends curl gosu ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 ENV ASPNETCORE_URLS=http://0.0.0.0:3000 \
     TorrentFlow__DataDirectory=/data \

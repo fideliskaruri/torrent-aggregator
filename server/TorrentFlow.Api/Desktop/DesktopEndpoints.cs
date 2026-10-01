@@ -6,7 +6,7 @@ namespace TorrentFlow.Api.Desktop;
 public static class DesktopModule
 {
     /// <summary>Desktop services exist on every platform so /api/desktop can answer; they only act on the Windows desktop app.</summary>
-    public static IServiceCollection AddDesktop(this IServiceCollection services, DesktopEnvironment desktop, string toolsDirectory)
+    public static IServiceCollection AddDesktop(this IServiceCollection services, DesktopEnvironment desktop)
     {
         services.AddSingleton(desktop);
         services.AddSingleton(sp => new DesktopSettingsStore(desktop.DataDirectory, sp.GetRequiredService<ILogger<DesktopSettingsStore>>()));
@@ -18,20 +18,11 @@ public static class DesktopModule
             c.Timeout = TimeSpan.FromMinutes(10);
             c.DefaultRequestHeaders.UserAgent.ParseAdd($"TorrentFlow/{desktop.Version}");
         });
-        services.AddHttpClient(FfmpegInstaller.HttpClientName, c =>
-        {
-            c.Timeout = TimeSpan.FromMinutes(20);
-            c.DefaultRequestHeaders.UserAgent.ParseAdd($"TorrentFlow/{desktop.Version}");
-        });
         services.AddSingleton<IReleaseSource, GitHubReleaseSource>();
         services.AddSingleton<IProcessLauncher, ShellProcessLauncher>();
         services.AddSingleton<UpdateChecker>();
         services.AddHostedService(sp => sp.GetRequiredService<UpdateChecker>());
         services.AddSingleton<UpdateInstaller>();
-        services.AddSingleton(sp => new FfmpegInstaller(toolsDirectory,
-            sp.GetRequiredService<TorrentFlow.Media.Tools.FfmpegLocator>(),
-            sp.GetRequiredService<IHttpClientFactory>(),
-            sp.GetRequiredService<ILogger<FfmpegInstaller>>()));
         services.AddHostedService<DesktopShellService>();
         return services;
     }
@@ -49,14 +40,14 @@ public static class DesktopEndpoints
     public static IEndpointRouteBuilder MapDesktopEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/desktop", (HttpContext http, DesktopEnvironment desktop, DesktopSettingsStore store, AutostartService autostart,
-            UpdateChecker checker, UpdateInstaller installer, FfmpegInstaller ffmpeg) =>
+            UpdateChecker checker, UpdateInstaller installer) =>
         {
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Json(Describe(http, desktop, store, autostart, checker, installer, ffmpeg));
+            return Results.Json(Describe(http, desktop, store, autostart, checker, installer));
         });
 
         app.MapPut("/api/desktop/settings", async (HttpContext http, DesktopEnvironment desktop, DesktopSettingsStore store, AutostartService autostart,
-            UpdateChecker checker, UpdateInstaller installer, FfmpegInstaller ffmpeg, ILogger<DesktopSettingsStore> logger) =>
+            UpdateChecker checker, UpdateInstaller installer, ILogger<DesktopSettingsStore> logger) =>
         {
             if (Refuse(http) is { } refused) return refused;
             if (http.Request.ContentLength > 4096) return Error(413, "JSON body is too large");
@@ -96,17 +87,17 @@ public static class DesktopEndpoints
             // Turning checks back on should not wait up to a day for the first answer.
             if (checkForUpdates == true && checker.IsDue(store.Current)) _ = Task.Run(() => checker.CheckNowAsync(CancellationToken.None));
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Json(Describe(http, desktop, store, autostart, checker, installer, ffmpeg));
+            return Results.Json(Describe(http, desktop, store, autostart, checker, installer));
         });
 
         app.MapPost("/api/desktop/update/check", async (HttpContext http, DesktopEnvironment desktop, DesktopSettingsStore store, AutostartService autostart,
-            UpdateChecker checker, UpdateInstaller installer, FfmpegInstaller ffmpeg) =>
+            UpdateChecker checker, UpdateInstaller installer) =>
         {
             if (Refuse(http) is { } refused) return refused;
             if (!checker.Supported) return Error(409, "Update checks are only available in the installed Windows app.");
             await checker.CheckNowAsync(http.RequestAborted);
             http.Response.Headers.CacheControl = "no-store";
-            return Results.Json(Describe(http, desktop, store, autostart, checker, installer, ffmpeg));
+            return Results.Json(Describe(http, desktop, store, autostart, checker, installer));
         });
 
         app.MapPost("/api/desktop/update/install", (HttpContext http, UpdateInstaller installer) =>
@@ -116,18 +107,11 @@ public static class DesktopEndpoints
             return problem is null ? Results.Json(new { ok = true, progress = installer.Progress }, statusCode: 202) : Error(409, problem);
         });
 
-        app.MapPost("/api/desktop/ffmpeg/download", (HttpContext http, FfmpegInstaller ffmpeg) =>
-        {
-            if (Refuse(http) is { } refused) return refused;
-            var problem = ffmpeg.Start();
-            return problem is null ? Results.Json(new { ok = true, ffmpeg = ffmpeg.Status() }, statusCode: 202) : Error(409, problem);
-        });
-
         return app;
     }
 
     private static object Describe(HttpContext http, DesktopEnvironment desktop, DesktopSettingsStore store, AutostartService autostart,
-        UpdateChecker checker, UpdateInstaller installer, FfmpegInstaller ffmpeg)
+        UpdateChecker checker, UpdateInstaller installer)
     {
         var settings = store.Current;
         var auto = autostart.Status();
@@ -151,7 +135,6 @@ public static class DesktopEndpoints
                     : null,
                 install = installer.Progress,
             },
-            ffmpeg = ffmpeg.Status(),
         };
     }
 

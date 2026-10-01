@@ -2,8 +2,8 @@
 
 **Docker is the recommended always-on host** for a Linux server, NAS or 64-bit Raspberry Pi.
 The Windows executable remains the desktop default; Docker is not required for desktop use.
-The image builds the Vite SPA, publishes the framework-dependent .NET 10 host, and includes
-ffmpeg/ffprobe. It supports `linux/amd64` and `linux/arm64` (not 32-bit Pi operating systems).
+The image builds the Vite SPA and publishes the framework-dependent .NET 10 host. It supports
+`linux/amd64` and `linux/arm64` (not 32-bit Pi operating systems).
 
 ## Quick start
 

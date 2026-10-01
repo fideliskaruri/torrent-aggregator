@@ -60,12 +60,6 @@ Directory.CreateDirectory(dataDir);
 // Every module reads TorrentFlow:DataDirectory and would otherwise fall back to <content root>/data — the working
 // directory, which is System32 for an autostart launch.
 builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
-var managedToolsDir = builder.Configuration["TorrentFlow:Media:ManagedToolsDirectory"];
-if (string.IsNullOrWhiteSpace(managedToolsDir))
-{
-    managedToolsDir = Path.Combine(dataDir, "tools", "ffmpeg");
-    builder.Configuration["TorrentFlow:Media:ManagedToolsDirectory"] = managedToolsDir;
-}
 
 // Remote access adds a second listener meant only for cloudflared. It joins the same UseUrls list: calling
 // ConfigureKestrel().Listen() would silently override --urls / ASPNETCORE_URLS.
@@ -156,8 +150,7 @@ builder.Services.AddSingleton<NotificationService>();
 builder.Services.AddHostedService<DownloadNotificationWatcher>();
 builder.Services.AddDesktop(
     new DesktopEnvironment(isDesktop, Environment.ProcessPath, DesktopEnvironment.CurrentVersion(), dataDir,
-        GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl), background),
-    managedToolsDir);
+        GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl), background));
 builder.Services.AddSingleton<IRequestGrabber, RequestGrabber>();
 builder.Services.AddSingleton<IRequestTransfers, EngineRequestTransfers>();
 builder.Services.AddSingleton<RequestDecisionService>();

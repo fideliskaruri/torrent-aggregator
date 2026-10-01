@@ -167,8 +167,8 @@ dotnet test TorrentFlow.slnx -c Release --no-build -p:SkipWebBuild=true
 
 ## Docker
 
-The production image is defined in [`Dockerfile`](Dockerfile). It builds the Vite SPA, publishes
-the ASP.NET Core host, and ships ffmpeg. Full hosting notes: [`docs/docker.md`](docs/docker.md).
+The production image is defined in [`Dockerfile`](Dockerfile). It builds the Vite SPA and publishes
+the ASP.NET Core host. Full hosting notes: [`docs/docker.md`](docs/docker.md).
 
 ```sh
 cp .env.example .env

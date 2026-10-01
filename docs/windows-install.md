@@ -100,7 +100,7 @@ has the same tray behaviour. Put a `portable` file next to it to keep data besid
   `--no-browser` does the same for manual runs.
 - `taskkill /IM TorrentFlow.exe` without `/F` also triggers a clean shutdown (the installer uses this).
 
-## Settings → App & media tools
+## Settings → App
 
 This section is only shown on the Windows desktop app. It is only editable from the PC itself;
 requests through Remote access get `403`.
@@ -109,10 +109,9 @@ requests through Remote access get `403`.
 | --- | --- |
 | Start with Windows | Adds or removes the HKCU Run value above. If the value points to a different TorrentFlow copy, the toggle says so and turning it on repoints it here. |
 | Check for updates automatically | Checks GitHub Releases at most once a day (first check 30 s after start). Turn it off to never contact GitHub. *Check now* works either way. |
-| ffmpeg & ffprobe | Shows which binaries are in use (found / installed by TorrentFlow / missing) and offers a one-click download when missing. |
 
 API: `GET /api/desktop` (status), `PUT /api/desktop/settings` `{ startWithWindows?, checkForUpdates? }`,
-`POST /api/desktop/update/check`, `POST /api/desktop/update/install`, `POST /api/desktop/ffmpeg/download`.
+`POST /api/desktop/update/check`, `POST /api/desktop/update/install`.
 The preferences are stored in `desktop.json` in the data directory.
 
 ## Updates
@@ -134,34 +133,20 @@ The preferences are stored in `desktop.json` in the data directory.
    - The installer replaces the exe, restarts it with `--background`, and leaves your
      Start-with-Windows choice unchanged.
 
-## ffmpeg and ffprobe
+## Checking finished downloads
 
-TorrentFlow uses ffprobe to check that finished downloads are real video, and ffmpeg for
-subtitle and audio extraction and HLS. Neither is bundled. Lookup order:
-
-1. The configured path: `TorrentFlow:Media:FfmpegPath` / `TorrentFlow:Media:FfprobePath`.
-2. The environment variables `FFMPEG_PATH` / `FFPROBE_PATH`.
-3. **The managed tools folder**: `<data>\tools\ffmpeg`. Override it with
-   `TorrentFlow:Media:ManagedToolsDirectory`.
-4. `node_modules` (development), then `PATH`.
-
-The Settings download fetches a pinned build and saves `ffmpeg.exe`, `ffprobe.exe` and
-`LICENSE.txt` into the managed folder:
-
-- file: `ffmpeg-7.1.1-essentials_build.zip` from
-  [GyanD/codexffmpeg 7.1.1](https://github.com/GyanD/codexffmpeg/releases/tag/7.1.1), GPLv3
-- size: 92,234,348 bytes
-- SHA-256: `04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4`
-
-A mismatch aborts the download and leaves nothing installed. To change the pinned build, update
-`FfmpegPackage.Windows` in `server/TorrentFlow.Api/Desktop/FfmpegInstaller.cs` with the new URL,
-size and hash.
+TorrentFlow checks every finished download itself, with no extra tools: no program files in the
+release, a real video file (its header matches the extension), not zero-filled, and a main video of
+at least 1 MiB. Releases whose file list has program files or no video are refused before they
+download. TorrentFlow does not use ffmpeg or ffprobe: `TorrentFlow:Media:FfmpegPath`,
+`TorrentFlow:Media:FfprobePath`, `TorrentFlow:Media:ManagedToolsDirectory`, `FFMPEG_PATH` and
+`FFPROBE_PATH` are ignored, and a `<data>\tools\ffmpeg` folder left by an older version can be deleted.
 
 ## Data directory
 
 Data stays in `%LOCALAPPDATA%\TorrentFlow` (or `TorrentFlow__DataDirectory`, or `data\` next to a
-`portable` exe). This holds the database, engine state, `.torrentflow.key`, `desktop.json`,
-`tools\` and `updates\`.
+`portable` exe). This holds the database, engine state, `.torrentflow.key`, `desktop.json` and
+`updates\`.
 
 > **Behaviour change:** before this release, the engine and media modules of the published exe
 > wrote their state under `<working directory>\data` instead of the resolved data directory. An
