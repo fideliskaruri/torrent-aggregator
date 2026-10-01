@@ -54,7 +54,7 @@ import {
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { speedLabel } from "@/components/tf/active-row-state";
-import { startVisiblePoller } from "./polling";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
 import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
 import {
@@ -458,13 +458,10 @@ export default function ClientPage() {
   // it — polling a torrent client every 5s from a tab left open overnight is
   // pure load on the engine for no one's benefit, so it pauses when hidden and
   // refreshes immediately on return.
-  useEffect(() => {
-    return startVisiblePoller({
-      poll: () => load({ quiet: true }),
-      intervalMs: () => (offline ? 20_000 : 5_000),
-      isPaused: () => Boolean(pendingDelete),
-    });
-  }, [offline, load, pendingDelete]);
+  useVisiblePoll(() => load({ quiet: true }), {
+    intervalMs: offline ? 20_000 : 5_000,
+    paused: Boolean(pendingDelete),
+  });
 
   // A built-in engine limit: an external client keeps its own queue.
   const maxActive = useMaxActiveDownloads({
@@ -1784,12 +1781,7 @@ export default function ClientPage() {
                   {pendingDelete && pendingDelete.length > 1
                     ? "them"
                     : "it"}{" "}
-                  from{" "}
-                  {pendingDelete
-                    ? [...new Set(pendingDelete.map((t) => t.ownerClientLabel))].join(
-                        " and ",
-                      )
-                    : "its client"}.
+                  from your downloads.
                 </p>
                 {pendingDelete?.[0] ? (
                   <div className="rounded-lg border border-border bg-muted p-3 space-y-1">

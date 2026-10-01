@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,10 +12,6 @@ import {
 import { LoadingGlyph } from "@/components/ui/loading";
 
 type DataAttributes = { [key: `data-${string}`]: string | boolean | undefined };
-
-/** The one destructive fill every confirm uses. */
-export const DESTRUCTIVE_CONFIRM_CLASS =
-  "bg-destructive text-white hover:bg-destructive/90";
 
 const TOUCH = "max-md:min-h-11 pointer-coarse:min-h-11";
 
@@ -103,7 +98,10 @@ export function ConfirmDialog({
           {hideConfirm ? null : (
             <AlertDialogAction
               disabled={busy || confirmDisabled}
-              className={cn(TOUCH, variant === "destructive" && DESTRUCTIVE_CONFIRM_CLASS)}
+              // The variant goes to the Button, not a class: Slot concatenates
+              // classes without merging, so a bg class here loses to bg-primary.
+              variant={variant}
+              className={TOUCH}
               onClick={(event) => {
                 event.preventDefault();
                 onConfirm();

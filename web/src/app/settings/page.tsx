@@ -45,8 +45,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
-import { useStableLoading } from "@/components/ui/use-stable-loading";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { toast } from "@/lib/toast";
@@ -202,7 +201,6 @@ export default function SettingsPage() {
   const legacyTargetRef = useRef<"connection" | "folders" | "categories" | null>(
     null,
   );
-  const showLoading = useStableLoading(loading && !loadError);
   // Rules are no longer advertised (see `lib/navigation.ts`), so Automatic
   // checks names them only for people who still have enabled rules it runs.
   const enabledRuleCount =
@@ -673,25 +671,28 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading && !loadError) return <SettingsSkeleton visible={showLoading} />;
-
-  if (loadError) {
-    return (
-      <div className="container-app max-w-2xl py-6 sm:py-8">
-        <TfErrorState
-          title="Could not load your settings"
-          message={`${loadError.replace(/\.?\s*$/, ".")} The form stays hidden so saved values cannot be overwritten.`}
-          onRetry={() => {
-            setLoadError(null);
-            setLoading(true);
-            setLoadKey((k) => k + 1);
-          }}
-        />
-      </div>
-    );
-  }
+  const settingsQuery = {
+    data: loading ? null : true,
+    loading,
+    error: loadError,
+    refetch: () => {
+      setLoadError(null);
+      setLoading(true);
+      setLoadKey((k) => k + 1);
+    },
+  };
 
   return (
+    <PageQueryBoundary
+      query={settingsQuery}
+      skeleton={(visible) => <SettingsSkeleton visible={visible} />}
+      errorTitle="Could not load your settings"
+      errorMessage={(error) =>
+        `${error.replace(/\.?\s*$/, ".")} The form stays hidden so saved values cannot be overwritten.`
+      }
+      frame={(node) => <div className="container-app max-w-2xl py-6 sm:py-8">{node}</div>}
+    >
+    {() => (
     <div className={cn("container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8", (isDirty || saving) && "pb-40 sm:pb-40")}>
       <TfPageHeader
         title="Settings"
@@ -1320,6 +1321,8 @@ export default function SettingsPage() {
         onSelect={handlePickerSelect}
       />
     </div>
+    )}
+    </PageQueryBoundary>
   );
 }
 

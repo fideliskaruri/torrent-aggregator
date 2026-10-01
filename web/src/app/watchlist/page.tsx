@@ -50,7 +50,7 @@ import {
   StorageLimitError,
 } from "@/lib/library/storage-override";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
@@ -75,7 +75,6 @@ import {
   PageSkeletonFrame,
   SkeletonBlock,
 } from "@/components/ui/loading";
-import { useStableLoading } from "@/components/ui/use-stable-loading";
 import {
   DEFAULT_LIBRARY_TAB,
   LIBRARY_TAB_LABELS,
@@ -336,13 +335,8 @@ export default function WatchlistPage() {
    * be read. See `useApiQuery`'s own header for why that is the worst failure
    * a data panel can have.
    */
-  const {
-    data: watchlist,
-    loading,
-    error,
-    refetch: load,
-  } = useLibraryItems(caps.ownerSession, readOnly);
-  const showLoading = useStableLoading(loading && watchlist == null && !error);
+  const libraryQuery = useLibraryItems(caps.ownerSession, readOnly);
+  const { data: watchlist, refetch: load } = libraryQuery;
 
   // Adjusting state from a prop/query during render is React's documented
   // alternative to a sync effect: the rows are server-owned, but this page
@@ -688,10 +682,6 @@ export default function WatchlistPage() {
     }
   }
 
-  if (loading && watchlist == null && !error) {
-    return <LibrarySkeleton visible={showLoading} />;
-  }
-
 
   const tabs = visibleTabs(items);
   // A tab can disappear under the user: remove the last film and Movies goes
@@ -705,6 +695,13 @@ export default function WatchlistPage() {
   const showAutomation = !readOnly && items.length > 0;
 
   return (
+    <PageQueryBoundary
+      query={libraryQuery}
+      skeleton={(visible) => <LibrarySkeleton visible={visible} />}
+      errorTitle="Could not load your library"
+      frame={(node) => <div className="container-app py-6 sm:py-8">{node}</div>}
+    >
+    {() => (
     <div className="container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 sm:py-8 sm:pb-8" data-library-page={readOnly ? "read-only" : "manage"}>
       <TfPageHeader
         title="Library"
@@ -811,13 +808,7 @@ export default function WatchlistPage() {
       </ScrollArea>
 
       <TabsContent value={activeTab} className="min-w-0">
-      {error ? (
-        <TfErrorState
-          title="Could not load your library"
-          message={error}
-          onRetry={load}
-        />
-      ) : !filtered.length ? (
+      {!filtered.length ? (
         <TfEmptyState
           icon={Search}
           title={
@@ -1323,6 +1314,8 @@ export default function WatchlistPage() {
 
       <StorageCapDialog {...capOverride.dialogProps} />
     </div>
+    )}
+    </PageQueryBoundary>
   );
 }
 
