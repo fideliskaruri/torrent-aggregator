@@ -72,12 +72,8 @@ import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
 import type { TitleSeason } from "./types";
-import {
-  isSeasonComplete,
-  seasonProgressLabel,
-  seasonProgressShort,
-  type SeasonProgress,
-} from "./season-progress";
+import { seasonProgressLabel, type SeasonProgress } from "./season-progress";
+import { SeasonProgressMeter } from "./season-progress-meter";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
@@ -256,20 +252,15 @@ export function EpisodeList({
                   <SelectValue placeholder="Season" />
                 </SelectTrigger>
                 <SelectContent position="popper" align="start">
-                  {seasons.map((s) => {
-                    const short = seasonProgress[s.season]
-                      ? seasonProgressShort(seasonProgress[s.season])
-                      : null;
-                    return (
-                      <SelectItem
-                        key={s.season}
-                        value={String(s.season)}
-                        data-season-option={s.season}
-                      >
-                        {short ? `Season ${s.season} \u00b7 ${short}` : `Season ${s.season}`}
-                      </SelectItem>
-                    );
-                  })}
+                  {seasons.map((s) => (
+                    <SelectItem
+                      key={s.season}
+                      value={String(s.season)}
+                      data-season-option={s.season}
+                    >
+                      Season {s.season}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             ) : season != null ? (
@@ -291,7 +282,11 @@ export function EpisodeList({
             ) : null}
 
             {activeProgress && activeProgressLabel ? (
-              <SeasonProgressMeter progress={activeProgress} label={activeProgressLabel} />
+              <SeasonProgressMeter
+                progress={activeProgress}
+                label={activeProgressLabel}
+                data-season-progress
+              />
             ) : null}
           </div>
 
@@ -942,66 +937,4 @@ function DownloadGlyph({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
-}
-
-/**
- * The season header's "X of Y episodes downloaded". A ring fills with the
- * downloaded share of aired episodes and turns into a check once every aired
- * episode is on disk. In-flight episodes are a muted count beside it, never
- * part of the ring.
- */
-function SeasonProgressMeter({
-  progress,
-  label,
-}: {
-  progress: SeasonProgress;
-  label: string;
-}) {
-  const complete = isSeasonComplete(progress);
-  const fraction =
-    progress.aired && progress.aired > 0
-      ? Math.min(1, progress.downloaded / progress.aired)
-      : 0;
-  const radius = 6.5;
-  const circumference = 2 * Math.PI * radius;
-  return (
-    <p
-      data-season-progress
-      data-complete={complete ? "true" : undefined}
-      className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-muted-foreground"
-    >
-      {complete ? (
-        <span
-          aria-hidden
-          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success text-background"
-        >
-          <Check className="h-3 w-3" strokeWidth={3} />
-        </span>
-      ) : progress.aired != null && progress.aired > 0 ? (
-        <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 -rotate-90">
-          <circle cx="8" cy="8" r={radius} fill="none" strokeWidth="2.5" className="stroke-input" />
-          {fraction > 0 ? (
-            <circle
-              cx="8"
-              cy="8"
-              r={radius}
-              fill="none"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeDasharray={`${fraction * circumference} ${circumference}`}
-              className="stroke-brand"
-            />
-          ) : null}
-        </svg>
-      ) : (
-        <Download className="h-3.5 w-3.5 shrink-0 text-subtle-foreground" aria-hidden />
-      )}
-      <span>{label}</span>
-      {progress.downloading > 0 ? (
-        <span data-season-downloading className="text-subtle-foreground">
-          +{progress.downloading} downloading
-        </span>
-      ) : null}
-    </p>
-  );
 }

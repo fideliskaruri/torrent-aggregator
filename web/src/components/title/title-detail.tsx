@@ -48,8 +48,11 @@ import {
   providerAiredFor,
   seasonProgressFromRows,
   seasonProgressFromSummary,
+  seasonProgressLabel,
+  showProgressFromSeasons,
   type SeasonProgress,
 } from "./season-progress";
+import { SeasonProgressMeter } from "./season-progress-meter";
 import { MoreLikeThis } from "./more-like-this";
 import { RequestAction } from "@/components/requests/request-action";
 import { useCapabilities } from "@/lib/capabilities";
@@ -906,6 +909,10 @@ function TitleContent({
         ? seasonProgressFromRows(rows, aired)
         : seasonProgressFromSummary(s, aired);
   }
+  const showProgress = payload.isSeries
+    ? showProgressFromSeasons(seasons.map((s) => seasonProgress[s.season]))
+    : null;
+  const showProgressText = showProgress ? seasonProgressLabel(showProgress) : null;
 
   // A series the server holds nothing for, whose provider listing has not
   // answered with episodes yet, offers one obvious next step: find them.
@@ -1172,6 +1179,17 @@ function TitleContent({
                   seasonCount={seasonCount}
                 />
               </div>
+
+              {/* A series' whole-show download line, summed over its seasons:
+                  the same words and ring as the season header below. */}
+              {showProgress && showProgressText ? (
+                <SeasonProgressMeter
+                  progress={showProgress}
+                  label={showProgressText}
+                  className="mt-3 text-[13px]"
+                  data-show-progress
+                />
+              ) : null}
 
               {/* Actions come next: Find episodes while a series has nothing
                   listed yet, the film-only Download (Open and Show in folder

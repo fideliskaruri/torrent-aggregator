@@ -62,6 +62,7 @@ import {
   titleHrefForName,
   titlePath,
 } from "@/components/title/work-key";
+import { seasonProgressLabel } from "@/components/title/season-progress";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
@@ -1780,6 +1781,8 @@ function SeriesOverviewRow({
     transferIds.every((transferId) => selected.has(transferId));
   const chip = rollupChip(group);
   const tally = seriesEpisodeTally(group);
+  // The title page's season line, worded the same; no aired total is known here.
+  const tallyText = seasonProgressLabel({ ...tally, aired: null });
   const barTone = isDownloaded(group.state)
     ? "bg-success"
     : isError(group.state) || chip.failing
@@ -1847,25 +1850,12 @@ function SeriesOverviewRow({
                 {group.sizeBytes > 0 ? ` · ${formatBytes(group.sizeBytes)}` : null}
               </span>
             </div>
-            {tally.downloaded > 0 || tally.downloading > 0 ? (
+            {tallyText ? (
               <p
                 data-group-episodes
-                className="flex flex-wrap items-center gap-x-1 text-[12px] tabular-nums text-muted-foreground"
+                className="text-[12px] tabular-nums text-muted-foreground"
               >
-                {tally.downloaded > 0 ? (
-                  <>
-                    <span>
-                      {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
-                    </span>
-                    {tally.downloading > 0 ? (
-                      <span className="text-subtle-foreground">+{tally.downloading} downloading</span>
-                    ) : null}
-                  </>
-                ) : (
-                  <span>
-                    {tally.downloading} {tally.downloading === 1 ? "episode" : "episodes"} downloading
-                  </span>
-                )}
+                {tallyText}
               </p>
             ) : null}
             {groupErrorMessage ? (

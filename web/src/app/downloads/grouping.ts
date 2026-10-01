@@ -595,8 +595,8 @@ export function groupDownloads<T extends TransferRow>(
 }
 
 /**
- * Distinct single episodes a series group holds, for "12 episodes downloaded
- * +2 downloading". Season packs are left out: a pack's contents are not known
+ * Distinct single episodes a series group holds, for "12 downloaded · 2
+ * downloading" (the title page's wording). Season packs are left out: a pack's contents are not known
  * here, and guessing an episode count for it would be a claim nobody made.
  */
 export function seriesEpisodeTally<T extends TransferRow>(
