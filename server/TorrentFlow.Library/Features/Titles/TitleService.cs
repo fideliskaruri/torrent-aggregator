@@ -16,8 +16,9 @@ namespace TorrentFlow.Library.Features.Titles;
 
 /// <param name="Provider">The provider record the link's id resolved to (verified).</param>
 /// <param name="Claimed">The provider id the link carried when it could not be verified.</param>
+/// <param name="FindIdentity">Look up the provider id of a title nothing names yet (the page GET only; a download never waits on it).</param>
 public sealed record TitleQuery(string WorkKey, string? Title = null, int? Year = null, string? MediaType = null,
-    int? Season = null, int? Remembered = null, MediaMetadata? Provider = null, TitleIdentity? Claimed = null);
+    int? Season = null, int? Remembered = null, MediaMetadata? Provider = null, TitleIdentity? Claimed = null, bool FindIdentity = false);
 
 /// <summary>A title at a metadata provider: what a request names.</summary>
 public sealed record TitleIdentity(string Provider, string ProviderId)
@@ -26,11 +27,18 @@ public sealed record TitleIdentity(string Provider, string ProviderId)
     public static TitleIdentity? From(string? provider, string? providerId) =>
         provider?.Trim().ToLowerInvariant() is { Length: > 0 } p && IMetadataResolver.SupportsProvider(p) &&
         providerId?.Trim() is { Length: > 0 } id ? new(p, id) : null;
+
+    /// <summary>Whether a provider's own record is the title this work key names (by its title or an alias, and its year).</summary>
+    public static bool Matches(string workKey, MediaMetadata resolved) =>
+        (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title =>
+            ReleaseSelection.MatchesWork(workKey.Trim().ToLowerInvariant(), title, resolved.Year));
 }
 
-public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork, ITorrentEngine engine)
+public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork, ITorrentEngine engine,
+    IMetadataResolver metadata)
 {
     private static readonly TimeSpan ArtworkBudget = TimeSpan.FromMilliseconds(1200);
+    private static readonly TimeSpan IdentityBudget = TimeSpan.FromMilliseconds(2500);
 
     /// <summary>
     /// The one transfer shape of a title payload. <c>status</c> is the acquisition row's own status; <c>state</c> splits its
@@ -137,6 +145,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
         var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
+        if (identity == null && query.FindIdentity && type != "anime") identity = await FindIdentityAsync(key, title, year, isSeries, ct);
         var cached = (await db.CachedMetadata.AsNoTracking().OrderByDescending(x => x.UpdatedAt).Take(200).ToListAsync(ct))
             .FirstOrDefault(x => ReleaseSelection.Normalize(x.Title) == ReleaseSelection.Normalize(title) && (type == null || x.MediaType == type) &&
                 (year == null || x.Year == null || (type == "tv" ? x.Year - year < 2 : Math.Abs(x.Year.Value - year.Value) < 2)));
@@ -256,6 +265,24 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
     }
     private static bool MultiSeason(string name) => Regex.IsMatch(name, @"(?i)\bS\d+\s*[-–]\s*S?\d+\b|\bcomplete\s+(?:series|collection)\b");
+
+    /// <summary>
+    /// The provider id of a title only its name reaches (a Downloaded rail card, a typed link): the TMDB match the page's
+    /// details come from, kept only when TMDB's own record is this title, the same check the title POST applies.
+    /// </summary>
+    private async Task<TitleIdentity?> FindIdentityAsync(string key, string title, int? year, bool isSeries, CancellationToken ct)
+    {
+        var kind = isSeries ? "tv" : "movie";
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(IdentityBudget);
+        try
+        {
+            if (await artwork.ResolveIdentityAsync(title, year, kind, budget.Token).WaitAsync(budget.Token) is not { } found) return null;
+            var record = await metadata.GetByIdAsync(found.Provider, kind, found.ProviderId, budget.Token).WaitAsync(budget.Token);
+            return record != null && TitleIdentity.Matches(key, record) ? TitleIdentity.From(found.Provider, found.ProviderId) : null;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { return null; }
+    }
     private static bool InvalidMedia(EngineTorrent row)
     {
         if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) return false;

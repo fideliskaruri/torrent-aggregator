@@ -31,10 +31,10 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         {
             if (!IMetadataResolver.SupportsProvider(provider)) return BadRequest(new { error = "A supported title provider is required." });
             resolved = await metadata.GetByIdAsync(provider, type == "movie" ? "movie" : "tv", external, ct);
-            if (resolved != null && !MatchesProvider(workKey, resolved))
+            if (resolved != null && !TitleIdentity.Matches(workKey, resolved))
                 return BadRequest(new { error = "Provider identity does not match this title." });
         }
-        return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external)), ct));
+        return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external), FindIdentity: true), ct));
     }
     [HttpGet("progress")]
     public async Task<IActionResult> Progress(string workKey, CancellationToken ct) => Ok(await titles.Progress(workKey, ct));
@@ -79,7 +79,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
             if (claimedProvider == null || !IMetadataResolver.SupportsProvider(claimedProvider))
                 return BadRequest(new { ok = false, message = "A supported title provider is required." });
             verified = await metadata.GetByIdAsync(claimedProvider, sourceType == "movie" ? "movie" : "tv", externalId, ct);
-            if (verified == null || !MatchesProvider(workKey, verified))
+            if (verified == null || !TitleIdentity.Matches(workKey, verified))
                 return BadRequest(new { ok = false, message = "Provider identity does not match this title." });
         }
         var detail = await titles.Detail(new(workKey, f.String("title", nullable: true), (int?)f.Number("year", nullable: true), f.String("mediaType", nullable: true), Provider: verified), ct);
@@ -204,10 +204,6 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         await wanted.SettleAsync(tracked, row.WorkId, tracked.Values.Distinct().Select(ep => Transfer(result, ep)).ToArray(), ct);
         await wanted.ReportStartedAsync(workKey, key?.Season, [result.InfoHash!], ct);
     }
-
-    private static bool MatchesProvider(string workKey, MediaMetadata resolved) =>
-        (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title =>
-            ReleaseSelection.MatchesWork(workKey.Trim().ToLowerInvariant(), title, resolved.Year));
 
     private static bool IsUniqueViolation(DbUpdateException error) =>
         error.InnerException is SqliteException { SqliteExtendedErrorCode: 2067 or 1555 };
