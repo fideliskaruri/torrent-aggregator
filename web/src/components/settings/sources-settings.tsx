@@ -16,6 +16,9 @@ import { SettingsDisclosure } from "./settings-disclosure";
 import { TmdbSettings } from "./tmdb-settings";
 import { toast } from "@/lib/toast";
 import { readJsonBody } from "@/lib/api-json";
+import { cn } from "@/lib/utils";
+import { SkeletonBlock } from "@/components/ui/loading";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 
 interface Source {
   id: string; kind: "torrent" | "metadata"; type: string; categories: string[];
@@ -190,11 +193,18 @@ export function SourcesSettings() {
         TVmaze, Cinemeta and AniList work without an API key. Turning a source on or off, or moving it, applies
         immediately. Other changes apply when you press Save.
       </p>
-      {!sources && !error && <p role="status">Loading sources…</p>}
-      {error && <div role="alert"><p className="text-sm text-destructive">{error}</p>
-        <Button type="button" variant="secondary" className="mt-2" onClick={() => void load()}>Retry</Button></div>}
-      {(["metadata", "torrent"] as const).map(kind => {
-        const group = sources?.filter(s => s.kind === kind) ?? [];
+      <PageQueryBoundary
+        query={{ data: sources, loading: !sources && !error, error: error || null, refetch: () => void load() }}
+        errorTitle="Could not load sources"
+        refreshErrorTitle="Some sources need attention"
+        skeleton={(visible) => (
+          <div className={cn("space-y-3", !visible && "invisible")} role="status" aria-label="Loading sources">
+            {Array.from({ length: 3 }, (_, i) => <SkeletonBlock key={i} className="h-16 w-full" />)}
+          </div>
+        )}
+      >
+      {(loaded) => (["metadata", "torrent"] as const).map(kind => {
+        const group = loaded.filter(s => s.kind === kind);
         return <section key={kind} className="space-y-4" aria-label={`${kind} sources`}>
           <h3 className="font-semibold">{kind === "metadata" ? "Metadata" : "Torrent indexers"}</h3>
           {[...new Set(group.map(s => s.categories.join(", ")))].map(category => <div key={category} className="space-y-3">
@@ -205,6 +215,7 @@ export function SourcesSettings() {
           </div>)}
         </section>;
       })}
+      </PageQueryBoundary>
       <div className="space-y-3 border-t border-border pt-4" data-add-torznab>
         <h3 className="font-medium">Add a Torznab indexer</h3>
         <p className="text-sm text-muted-foreground">Use the API endpoint from Jackett or Prowlarr. Add the credential after creating the source.</p>

@@ -5,7 +5,7 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useDisplayPath } from "@/lib/features";
 import { buildInbox } from "./inbox";
@@ -97,7 +97,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
     sentOnlyOverride ?? searchParams.get("filter") === "sent";
   const [visibleLimit, setVisibleLimit] = useState(ACTIVITY_BATCH_SIZE);
   const activityUrl = activityPageUrl({ sentOnly, limit: ACTIVITY_PAGE_SIZE });
-  const { data, loading, error, refetch } = useApiQuery<ActivityPage>(
+  const activityQuery = useApiQuery<ActivityPage>(
     activityUrl,
     {
       select: (json) => {
@@ -110,6 +110,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       },
     },
   );
+  const { data, refetch } = activityQuery;
 
   // Pages fetched after the first. Held here rather than in the query hook
   // because the hook owns one request, and "older activity" is a sequence of
@@ -142,7 +143,6 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const showLoading = useStableLoading(loading && data == null && !error);
   // `data ?? []` is a fresh array on every render, which would make the memo
   // below — and therefore the artwork lookup — recompute forever.
   const items = useMemo(() => {
@@ -246,23 +246,23 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       // activity", and calling it that is what made the old page a wall.
       "Finished downloads and failures that need you. Everything else is in the download log.";
 
-  if (loading && data == null && !error) return <ActivitySkeleton visible={showLoading} />;
-
   return (
+    <PageQueryBoundary
+      query={activityQuery}
+      skeleton={(visible) => <ActivitySkeleton visible={visible} />}
+      errorTitle="Could not load activity"
+      frame={(node) => (
+        <div className="min-w-0 space-y-5">
+          <TfPageHeader title={title} description={description} />
+          {node}
+        </div>
+      )}
+    >
+    {() => (
     <div className="min-w-0 space-y-5">
       <TfPageHeader title={title} description={description} />
 
-      {error ? (
-        // Not an error banner *above* the empty state: that combination told
-        // the user both "this failed" and "you have no activity, go add
-        // titles" — and the second is advice we cannot stand behind, because
-        // we never found out whether they have activity or not.
-        <TfErrorState
-          title="Could not load activity"
-          message={error}
-          onRetry={refetch}
-        />
-      ) : !items.length ? (
+      {!items.length ? (
         <TfEmptyState
           icon={Radar}
           title={sentOnly ? "No sent downloads yet" : "You're all caught up"}
@@ -365,6 +365,8 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
         </div>
       )}
     </div>
+    )}
+    </PageQueryBoundary>
   );
 }
 

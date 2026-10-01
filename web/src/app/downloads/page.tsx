@@ -39,16 +39,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1760,19 +1751,34 @@ export default function ClientPage() {
         />
       ) : null}
 
-      <AlertDialog
+      <ConfirmDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {
-          if (!open && !deleting) setPendingDelete(null);
+          if (!open) setPendingDelete(null);
         }}
-      >
-        <AlertDialogContent data-delete-dialog>
-          <AlertDialogHeader>
-            <AlertDialogTitle id="delete-dialog-title">
-              {pendingDelete ? `Delete ${transfersLabel(pendingDelete)}?` : "Delete download?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
+        contentData={{ "data-delete-dialog": true }}
+        cancelData={{ "data-delete-cancel": true }}
+        confirmData={{ "data-delete-with-files": true }}
+        title={pendingDelete ? `Delete ${transfersLabel(pendingDelete)}?` : "Delete download?"}
+        variant="destructive"
+        busy={deleting}
+        icon={<Trash2 className="h-3.5 w-3.5" />}
+        confirmLabel="Delete with files"
+        onConfirm={() => void confirmDelete(true)}
+        secondaryAction={
+          <Button
+            type="button"
+            variant="outline"
+            disabled={deleting}
+            onClick={() => void confirmDelete(false)}
+            className="max-md:min-h-11 pointer-coarse:min-h-11"
+            data-delete-keep-files
+          >
+            Remove, keep files
+          </Button>
+        }
+        description={
+              <>
                 <p>
                   This removes{" "}
                   {pendingDelete && pendingDelete.length > 1
@@ -1801,46 +1807,14 @@ export default function ClientPage() {
                 ) : null}
                 <p className="text-[13px] text-muted-foreground">
                   <strong className="font-medium text-destructive">
-                    Delete + files
+                    Delete with files
                   </strong>{" "}
-                  permanently removes the downloaded data from disk. This cannot
+                  also removes the downloaded data from your disk. This cannot
                   be undone.
                 </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting} data-delete-cancel>
-              Cancel
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={deleting}
-              onClick={() => void confirmDelete(false)}
-              data-delete-keep-files
-            >
-              Remove only
-            </Button>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={deleting}
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmDelete(true);
-              }}
-              data-delete-with-files
-            >
-              {deleting ? (
-                <LoadingGlyph className="h-4 w-4" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              Delete + files
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              </>
+        }
+      />
     </div>
   );
 }

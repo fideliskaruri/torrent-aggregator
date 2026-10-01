@@ -25,16 +25,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -378,39 +369,19 @@ export function LibraryControls({
         </Dialog>
       )}
 
-      <AlertDialog
+      <ConfirmDialog
         open={confirmingRemove}
-        onOpenChange={(open) => {
-          if (!busy) setConfirmingRemove(open);
-        }}
-      >
-        <AlertDialogContent
-          data-remove-library-dialog
-          onCloseAutoFocus={returnFocus}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove from library?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`${title?.trim() ? `“${title.trim()}”` : "This title"} leaves your library and TorrentFlow stops looking for it. Downloaded files are kept.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-remove-library-confirm
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                remove();
-              }}
-              className="bg-destructive text-white hover:bg-[#e85d66]"
-            >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-              Remove, keep files
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmingRemove}
+        contentData={{ "data-remove-library-dialog": true }}
+        confirmData={{ "data-remove-library-confirm": true }}
+        onCloseAutoFocus={returnFocus}
+        title="Remove from library?"
+        description={`${title?.trim() ? `“${title.trim()}”` : "This title"} leaves your library and TorrentFlow stops looking for it. Downloaded files are kept.`}
+        variant="destructive"
+        busy={busy}
+        confirmLabel="Remove, keep files"
+        onConfirm={remove}
+      />
     </div>
   );
 }
