@@ -292,6 +292,11 @@ export interface TitleExtrasPayload {
   episodes: TitleEpisodeMeta[];
   moreLikeThis: TitleSimilar[];
   /**
+   * An anime sequel entry's show: its first season's page. This page numbers
+   * its episodes as that show does (Season 2 episode 1). Absent otherwise.
+   */
+  partOf?: TitleSimilar;
+  /**
    * Synopsis and score from the resolved provider entity. A fallback for the
    * base payload, which carries these only from local data it can vouch for and
    * so leaves them null when the one cached row was a different work.

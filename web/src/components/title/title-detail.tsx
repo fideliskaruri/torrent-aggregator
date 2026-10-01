@@ -1294,6 +1294,19 @@ function TitleContent({
                 />
               </div>
 
+              {/* An anime sequel entry is a season of its show: say which one
+                  and link to the show's page, where every season is listed. */}
+              {extras?.partOf ? (
+                <p className="mt-1 text-[13px] text-muted-foreground" data-title-part-of>
+                  {extras.seasons.length > 0
+                    ? `Season ${extras.seasons.join(", ")} of `
+                    : "Part of "}
+                  <Button asChild variant="link" size="sm" className="h-auto min-h-11 px-0 align-middle text-[13px]">
+                    <Link to={extras.partOf.href}>{extras.partOf.title}</Link>
+                  </Button>
+                </p>
+              ) : null}
+
               {/* A series' whole-show download line, summed over its seasons:
                   the same words and ring as the season header below. */}
               {showProgress && showProgressText ? (
