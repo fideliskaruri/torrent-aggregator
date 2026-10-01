@@ -87,6 +87,23 @@ export function stateBadgeVariant(
   return "default";
 }
 
+/**
+ * A row's one state badge. A finished download whose files are gone from disk
+ * says "Files missing" instead of Ready.
+ */
+export function rowStateBadge(
+  torrent: Pick<ClientTorrent, "state" | "queuePosition" | "filesMissing">,
+): { label: string; variant: "accent" | "success" | "danger" | "default"; filesMissing: boolean } {
+  if (torrent.filesMissing === true) {
+    return { label: "Files missing", variant: "danger", filesMissing: true };
+  }
+  return {
+    label: stateLabel(torrent.state, torrent.queuePosition),
+    variant: stateBadgeVariant(torrent.state),
+    filesMissing: false,
+  };
+}
+
 /** The server's plain failure text for an `error` row, or null. */
 export function transferErrorMessage(
   torrent: Pick<ClientTorrent, "error" | "state">,
@@ -153,9 +170,14 @@ export function forcedStartLabel(torrent: Pick<ClientTorrent, "state" | "forced"
   return isQueued(torrent.state) && torrent.forced === true ? "Starting now" : null;
 }
 
-/** Finished and checked on disk. */
-export function isVerifiedDownload(torrent: Pick<ClientTorrent, "state" | "verified">): boolean {
-  return torrent.verified === true && isDownloaded(torrent.state);
+/**
+ * The progress bar is for a download still on its way. A finished row says
+ * Ready and nothing more, and a row that hasn't started has no bar to fill.
+ */
+export function showsProgressBar(torrent: Pick<ClientTorrent, "state" | "progress">): boolean {
+  const progress = Number(torrent.progress);
+  if (isDownloaded(torrent.state) || progress >= 1) return false;
+  return isDownloading(torrent.state) || progress > 0;
 }
 
 /**

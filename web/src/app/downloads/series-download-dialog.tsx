@@ -74,14 +74,13 @@ import {
   canDownloadNow,
   canOpenFinishedFile,
   forcedStartLabel,
-  isVerifiedDownload,
   pauseResumeAction,
   pauseResumeTargets,
   releaseDisplayFacts,
   sourceChip,
-  stateBadgeVariant,
-  stateLabel,
   rollupChip,
+  rowStateBadge,
+  showsProgressBar,
   transferErrorMessage,
   waitReasonLabel,
   packLabel,
@@ -346,6 +345,7 @@ function EpisodeCard({
   const t = entry.torrent;
   const pct = progressPercent(t.progress);
   const done = isDownloaded(t.state);
+  const badge = rowStateBadge(t);
   const query = artworkQueryForRelease(t.name, t.category);
   const display = releaseDisplayFacts(t, query);
   const source = sourceChip(t.name);
@@ -409,17 +409,14 @@ function EpisodeCard({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge
-              variant={done ? "success" : stateBadgeVariant(t.state)}
+              variant={badge.variant}
+              title={badge.filesMissing ? "The downloaded files are no longer on disk" : undefined}
               data-episode-state
+              data-files-missing={badge.filesMissing || undefined}
             >
-              {done ? <Check className="h-3 w-3" aria-hidden /> : null}
-              {stateLabel(t.state, t.queuePosition)}
+              {done && !badge.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
+              {badge.label}
             </Badge>
-            {isVerifiedDownload(t) ? (
-              <Badge variant="outline" title="Checked on disk" data-episode-verified>
-                Verified
-              </Badge>
-            ) : null}
             {t.imported && <Badge variant="outline">Imported</Badge>}
             {packLabel(t) ? (
               <span className="text-[12px] text-muted-foreground" data-season-pack>
@@ -460,22 +457,24 @@ function EpisodeCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Progress
-          value={pct}
-          aria-label={`${epLabel} progress`}
-          className="h-1.5 flex-1"
-          indicatorClassName={barTone(t.state)}
-        />
-        <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-          {pct}%
-        </span>
-        {speed ? (
-          <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-            ↓ {speed}
+      {showsProgressBar(t) ? (
+        <div className="flex items-center gap-2">
+          <Progress
+            value={pct}
+            aria-label={`${epLabel} progress`}
+            className="h-1.5 flex-1"
+            indicatorClassName={barTone(t.state)}
+          />
+          <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+            {pct}%
           </span>
-        ) : null}
-      </div>
+          {speed ? (
+            <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+              ↓ {speed}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -676,6 +675,7 @@ export function SeriesDownloadDialog({
   const speed = speedLabel(group.dlspeed);
   const chip = rollupChip(group);
   const headerBarTone = chip.failing ? "bg-destructive" : barTone(group.state);
+  const showBar = showsProgressBar(group);
   // No bulk swap endpoint exists yet (see docs/todo-list.md), so the header
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
@@ -751,7 +751,8 @@ export function SeriesDownloadDialog({
             </Badge>
             <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-subtle-foreground">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-              {formatBytes(group.sizeBytes)} · {pct}%
+              {formatBytes(group.sizeBytes)}
+              {showBar ? ` · ${pct}%` : null}
             </span>
             {isDownloading(group.state) && speed ? (
               <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
@@ -765,12 +766,14 @@ export function SeriesDownloadDialog({
               mobile
             />
           </div>
-          <Progress
-            value={pct}
-            aria-label={`${group.title} combined download progress`}
-            className="h-1"
-            indicatorClassName={headerBarTone}
-          />
+          {showBar ? (
+            <Progress
+              value={pct}
+              aria-label={`${group.title} combined download progress`}
+              className="h-1"
+              indicatorClassName={headerBarTone}
+            />
+          ) : null}
           {attention ? <div className="flex">{attention}</div> : null}
         </DialogHeader>
 
@@ -813,22 +816,24 @@ export function SeriesDownloadDialog({
                   {formatBytes(group.sizeBytes)}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Progress
-                  value={pct}
-                  aria-label={`${group.title} combined download progress`}
-                  className="h-1.5 flex-1 max-w-[16rem]"
-                  indicatorClassName={headerBarTone}
-                />
-                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                  {pct}%
-                </span>
-                {isDownloading(group.state) && speed ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                    ↓ {speed}
+              {showBar ? (
+                <div className="flex items-center gap-2">
+                  <Progress
+                    value={pct}
+                    aria-label={`${group.title} combined download progress`}
+                    className="h-1.5 flex-1 max-w-[16rem]"
+                    indicatorClassName={headerBarTone}
+                  />
+                  <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+                    {pct}%
                   </span>
-                ) : null}
-              </div>
+                  {isDownloading(group.state) && speed ? (
+                    <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+                      ↓ {speed}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {attention}
             </div>
             <SeriesActionsMenu

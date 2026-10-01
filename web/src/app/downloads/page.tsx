@@ -5,7 +5,6 @@ import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
 import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import {
-  Check,
   ChevronRight,
   Download,
   ExternalLink,
@@ -90,12 +89,11 @@ import {
   canDownloadNow,
   canOpenFinishedFile,
   forcedStartLabel,
-  isVerifiedDownload,
   pauseResumeAction,
   pauseResumeTargets,
-  stateBadgeVariant,
-  stateLabel,
   rollupChip,
+  rowStateBadge,
+  showsProgressBar,
   transferErrorMessage,
   transferLabel,
   transfersLabel,
@@ -1783,6 +1781,7 @@ function SeriesOverviewRow({
   const tally = seriesEpisodeTally(group);
   // The title page's season line, worded the same; no aired total is known here.
   const tallyText = seasonProgressLabel({ ...tally, aired: null });
+  const missingFiles = group.torrents.filter((t) => t.filesMissing === true).length;
   const barTone = isDownloaded(group.state)
     ? "bg-success"
     : isError(group.state) || chip.failing
@@ -1843,6 +1842,15 @@ function SeriesOverviewRow({
               <Badge variant={chip.variant} data-group-state>
                 {chip.label}
               </Badge>
+              {missingFiles > 0 ? (
+                <Badge
+                  variant="danger"
+                  title={`${missingFiles} ${missingFiles === 1 ? "download's files are" : "downloads' files are"} no longer on disk`}
+                  data-files-missing
+                >
+                  Files missing
+                </Badge>
+              ) : null}
               <span className="text-[12px] text-subtle-foreground tabular-nums">
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
                 {" · "}
@@ -1866,23 +1874,23 @@ function SeriesOverviewRow({
                 {groupErrorMessage}
               </p>
             ) : null}
-            {pct > 0 || tally.downloaded > 0 ? (
-            <div className="flex items-center gap-2 pt-0.5">
-              <Progress
-                value={pct}
-                aria-label={`${group.title} combined download progress`}
-                className="h-1.5 flex-1 max-w-[18rem]"
-                indicatorClassName={barTone}
-              />
-              <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                {pct}%
-              </span>
-              {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
-                <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                  ↓ {speedLabel(group.dlspeed)}
+            {showsProgressBar(group) ? (
+              <div className="flex items-center gap-2 pt-0.5">
+                <Progress
+                  value={pct}
+                  aria-label={`${group.title} combined download progress`}
+                  className="h-1.5 flex-1 max-w-[18rem]"
+                  indicatorClassName={barTone}
+                />
+                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+                  {pct}%
                 </span>
-              ) : null}
-            </div>
+                {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
+                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+                    ↓ {speedLabel(group.dlspeed)}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -1985,6 +1993,7 @@ function FilmRow({
   const displayPath = useDisplayPath();
   const display = releaseDisplayFacts(t, query);
   const art = artwork[query.key];
+  const badge = rowStateBadge(t);
   const busy = openingHash === t.transferId;
   // A pack's largest file is one episode of many, so a pack only gets Show in folder.
   const canOpen = openFolder && canOpenFinishedFile(t) && !t.packEpisodes;
@@ -2079,15 +2088,14 @@ function FilmRow({
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant={stateBadgeVariant(t.state)} data-torrent-state>
-                  {stateLabel(t.state, t.queuePosition)}
+                <Badge
+                  variant={badge.variant}
+                  title={badge.filesMissing ? "The downloaded files are no longer on disk" : undefined}
+                  data-torrent-state
+                  data-files-missing={badge.filesMissing || undefined}
+                >
+                  {badge.label}
                 </Badge>
-                {isVerifiedDownload(t) ? (
-                  <Badge variant="success" title="Checked on disk" data-torrent-verified>
-                    <Check className="h-3 w-3" aria-hidden />
-                    Verified
-                  </Badge>
-                ) : null}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {packLabel(t) ? (
                   <span className="text-[12px] text-muted-foreground" data-season-pack>
@@ -2131,22 +2139,24 @@ function FilmRow({
                   {errorMessage}
                 </p>
               ) : null}
-              <div className="flex items-center gap-2 pt-0.5">
-                <Progress
-                  value={pct}
-                  aria-label={`${display.title} download progress`}
-                  className="h-1.5 flex-1 max-w-[18rem]"
-                  indicatorClassName={barTone}
-                />
-                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                  {pct}%
-                </span>
-                {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                    ↓ {speedLabel(t.dlspeed)}
+              {showsProgressBar(t) ? (
+                <div className="flex items-center gap-2 pt-0.5">
+                  <Progress
+                    value={pct}
+                    aria-label={`${display.title} download progress`}
+                    className="h-1.5 flex-1 max-w-[18rem]"
+                    indicatorClassName={barTone}
+                  />
+                  <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
+                    {pct}%
                   </span>
-                ) : null}
-              </div>
+                  {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
+                    <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
+                      ↓ {speedLabel(t.dlspeed)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
