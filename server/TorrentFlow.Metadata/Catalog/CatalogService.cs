@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Artwork;
@@ -29,12 +30,16 @@ public sealed record CatalogFeed(string Id, int Category, string Label, string M
 /// <summary>works.ts CatalogWork: one work collapsed from chart releases.</summary>
 public sealed record ChartWork(string WorkKey, string Title, int? Year, string MediaType, int TotalSeeders, int PeakSeeders, string BestRelease, int ReleaseCount);
 
-/// <summary>detail.ts CatalogDetail.</summary>
-public sealed record CatalogDetail(string? Overview, double? Rating, string? ReleaseDate);
+/// <summary>detail.ts CatalogDetail, plus the TMDB title it was read from when that title is the work's own.</summary>
+public sealed record CatalogDetail(string? Overview, double? Rating, string? ReleaseDate, TmdbRef? Tmdb = null);
 
-/// <summary>A row to be written into CatalogEntry. <paramref name="RatingSource"/> names the provider that supplied the rating.</summary>
+/// <summary>
+/// A row to be written into CatalogEntry. <paramref name="RatingSource"/> names the provider that supplied the rating;
+/// <paramref name="Provider"/> and <paramref name="ProviderId"/> name the title itself, so a card can be requested.
+/// </summary>
 public sealed record CatalogDraft(string WorkKey, string Title, int? Year, string MediaType, string? PosterUrl, string? BackdropUrl,
-    string? Overview, double? Rating, int Seeders, string? BestRelease, DateTime? ReleaseDate, string? RatingSource = null);
+    string? Overview, double? Rating, int Seeders, string? BestRelease, DateTime? ReleaseDate, string? RatingSource = null,
+    string? Provider = null, string? ProviderId = null);
 
 /// <summary>Pure catalog helpers ported from src/lib/catalog/{tmdb,feeds,availability,store}.ts and src/lib/metadata/slop.ts.</summary>
 public static partial class CatalogText
@@ -235,12 +240,13 @@ public static partial class CatalogText
 
     public static CatalogDraft DraftFromRow(CatalogEntry row) =>
         new(row.WorkKey, row.Title, row.Year, row.MediaType, row.PosterUrl, row.BackdropUrl, row.Overview, row.Rating, row.Seeders, row.BestRelease, row.ReleaseDate,
-            row.RatingSource);
+            row.RatingSource, row.Provider, row.ProviderId);
 
-    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved (a TMDB detail).</summary>
+    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved (a TMDB detail and, when it names this work, its id).</summary>
     public static CatalogDraft DraftFromWork(ChartWork work, string? posterUrl, string? backdropUrl, CatalogDetail? detail) =>
         new(work.WorkKey, work.Title, work.Year, work.MediaType, posterUrl, backdropUrl, detail?.Overview, detail?.Rating,
-            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate), detail?.Rating is null ? null : "tmdb");
+            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate), detail?.Rating is null ? null : "tmdb",
+            detail?.Tmdb is null ? null : "tmdb", detail?.Tmdb?.Id.ToString(CultureInfo.InvariantCulture));
 
     public static DateTime? ReleaseDateToDate(string? value) =>
         ParseReleaseDate(value) is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null;
@@ -255,7 +261,7 @@ public static partial class CatalogText
     public static CatalogDraft DraftFromTmdb(CatalogTitle t, string workKey, int seeders = 0, string? bestRelease = null) =>
         new(workKey, t.Title, t.Year, t.MediaType, t.PosterUrl, t.BackdropUrl, t.Overview, t.Rating, seeders, bestRelease,
             t.ReleaseDate is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null,
-            t.Rating is null ? null : "tmdb");
+            t.Rating is null ? null : "tmdb", "tmdb", t.TmdbId.ToString(CultureInfo.InvariantCulture));
 }
 
 /// <summary>media-type.ts normalizeMediaType.</summary>
@@ -320,7 +326,7 @@ public sealed class CatalogService(
 
     public static CatalogWork ToWork(CatalogEntry e) =>
         new(e.Id, e.WorkKey, e.Title, e.Year, e.MediaType, e.PosterUrl, e.BackdropUrl, e.Overview, e.Rating, e.Source, e.Rank,
-            e.ReleaseDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), e.WorkId, e.RatingSource);
+            e.ReleaseDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), e.WorkId, e.RatingSource, e.Provider, e.ProviderId);
 
     public async Task<List<CatalogEntry>> ReadRowsAsync(string source, string? seedTitle, int limit, CancellationToken ct = default)
     {
@@ -406,7 +412,7 @@ public sealed class CatalogService(
                     prepared.Add((source, keyless.Where(m => !CatalogText.IsSlopTitle(m.Title)).Select(m => new CatalogDraft(
                         CatalogText.CatalogWorkKey(m.Title, m.Year, m.MediaType), m.Title, m.Year, m.MediaType,
                         m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null, CatalogText.ReleaseDateToDate(m.ReleaseDate),
-                        m.Rating is null ? null : m.Source)).ToList()));
+                        m.Rating is null ? null : m.Source, m.Source, m.ExternalId)).ToList()));
                     origin[source] = "cinemeta";
                 }
             }
@@ -502,7 +508,12 @@ public sealed class CatalogService(
                     var overview = TmdbClient.Str(d, "overview")?.Trim();
                     double? rating = TmdbClient.Num(d, "vote_average") is > 0 and var v ? v : null;
                     var date = TmdbClient.Str(d, "release_date").OrEmpty(TmdbClient.Str(d, "first_air_date"))?.Trim();
-                    output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date);
+                    // The id names the work only when TMDB files it as the same kind under the title and year the card links to:
+                    // the title page refuses an id that names another title.
+                    var series = MediaTypes.IsSeries(w.MediaType);
+                    int? tmdbYear = date is { Length: >= 4 } && int.TryParse(date.AsSpan(0, 4), NumberStyles.None, CultureInfo.InvariantCulture, out var y) ? y : null;
+                    var named = MediaTypes.IsSeries(reference.MediaType) == series && WorkKeySlug.Matches(WorkKeySlug.WorkKeyFor(w.Title, series ? null : w.Year), title, tmdbYear);
+                    output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date, named ? reference : null);
                 }
                 catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "[catalog] detail lookup failed for {Title}", works[i].Title); }
             }).ConfigureAwait(false);
@@ -533,6 +544,7 @@ public sealed class CatalogService(
             }
             row.WorkKey = d.WorkKey; row.Title = d.Title; row.Year = d.Year; row.MediaType = d.MediaType;
             row.PosterUrl = d.PosterUrl; row.BackdropUrl = d.BackdropUrl; row.Overview = d.Overview; row.Rating = d.Rating; row.RatingSource = d.RatingSource;
+            row.Provider = d.Provider; row.ProviderId = d.ProviderId;
             row.Source = source; row.Rank = i; row.SeedTitle = seedTitle; row.Seeders = d.Seeders; row.BestRelease = d.BestRelease;
             row.ReleaseDate = d.ReleaseDate; row.RefreshedAt = now;
         }

@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Artwork;
@@ -28,13 +29,18 @@ public record RailItem
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? MediaType { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Season { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Episode { get; init; }
+    /// <summary>The title route key the card opens; null when nothing names the work yet.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkKey { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Year { get; init; }
+    /// <summary>The title at a metadata provider when the catalog knows it, so the title page can request it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Provider { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? ProviderId { get; init; }
 }
 
 /// <summary>Continue Watching / Ready to Play cards also name the catalog work they belong to (explicit nulls).</summary>
 public sealed record WorkRailItem : RailItem
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkId { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkKey { get; init; }
     /// <summary>Next-episode cards only: "ready" (on disk), "downloading" or "missing". Omitted elsewhere.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NextState { get; init; }
     /// <summary>0-1 download progress of that next episode while it is downloading.</summary>
@@ -673,6 +679,10 @@ public sealed partial class BrowseService(
             InTheatricalWindow = gate.InTheatricalWindow,
             NextHomeReleaseAt = gate.NextHomeReleaseAt,
             MediaType = MediaTypes.Normalize(row.MediaType),
+            WorkKey = NonEmpty(WorkKeySlug.WorkKeyFor(row.Title, MediaTypes.IsSeries(row.MediaType) ? null : row.Year)),
+            Year = row.Year,
+            Provider = row.Provider,
+            ProviderId = row.ProviderId,
         };
     }
 
