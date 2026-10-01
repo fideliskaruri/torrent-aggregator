@@ -12,7 +12,7 @@ namespace TorrentFlow.Engine.Client;
 /// <summary>
 /// Singleton owner of MonoTorrent's <see cref="ClientEngine"/>. Torrents use the standard (rarest-first) picker.
 /// </summary>
-internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
+internal sealed partial class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 {
     private readonly ILogger<MonoTorrentBackend> _logger;
     private readonly EngineOptions _options;
@@ -32,12 +32,16 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         _logger = logger;
         _options = options.Value;
         Directory.CreateDirectory(_options.EngineDirectory);
-        Engine = new ClientEngine(BuildSettings(_options),
-            Factories.Default.WithHttpClientCreator(family =>
-                TorrentHttpLimits.Configure(Factories.Default.CreateHttpClient(family), _options.MaxWebSeedResponseBytes)));
+        // Header probes delete their folder when they finish; one cut short by a crash is cleared here.
+        DeleteProbeFolder(ProbeRoot);
+        Engine = new ClientEngine(BuildSettings(_options), CreateFactories());
     }
 
     public ClientEngine Engine { get; }
+
+    /// <summary>MonoTorrent's defaults, with web seed responses capped.</summary>
+    private Factories CreateFactories() => Factories.Default.WithHttpClientCreator(family =>
+        TorrentHttpLimits.Configure(Factories.Default.CreateHttpClient(family), _options.MaxWebSeedResponseBytes));
 
     public async Task<byte[]> DownloadMetadataAsync(string magnet, CancellationToken ct)
     {
@@ -391,17 +395,23 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             var start = file.OffsetInTorrent;
             var end = start + file.Length;
             if (!spans.Any(s => s.Start < end && start < s.End) || File.Exists(file.FullPath)) continue;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(file.FullPath)!);
-                using var stream = new FileStream(file.FullPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
-                if (!SparseFile.Mark(stream.SafeFileHandle))
-                    _logger.LogInformation("Could not mark {Path} sparse; its boundary piece may allocate the whole file", file.FullPath);
-            }
-            catch (IOException error)
-            {
-                _logger.LogInformation(error, "Could not prepare sparse file {Path}", file.FullPath);
-            }
+            CreateSparse(file.FullPath);
+        }
+    }
+
+    /// <summary>A new empty file marked sparse (Windows), so a write far into it allocates only what is written.</summary>
+    private void CreateSparse(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
+            if (OperatingSystem.IsWindows() && !SparseFile.Mark(stream.SafeFileHandle))
+                _logger.LogInformation("Could not mark {Path} sparse; its boundary piece may allocate the whole file", path);
+        }
+        catch (IOException error)
+        {
+            _logger.LogInformation(error, "Could not prepare sparse file {Path}", path);
         }
     }
 
@@ -569,11 +579,12 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         return File.Exists(cached) ? File.ReadAllBytes(cached) : null;
     }
 
-    /// <summary>Test seam for the loopback swarm: connect to a known peer without trackers or DHT.</summary>
-    internal async Task AddPeerAsync(string hash, IPEndPoint endPoint)
+    /// <summary>Test seam for the loopback swarm: connect to a known peer without trackers or DHT. False when the hash is not loaded.</summary>
+    internal async Task<bool> AddPeerAsync(string hash, IPEndPoint endPoint)
     {
-        if (_managers.TryGetValue(hash, out var m))
-            await m.AddPeerAsync(new PeerInfo(new Uri($"ipv4://{endPoint.Address}:{endPoint.Port}")));
+        if (!_managers.TryGetValue(hash, out var m) && !_probeManagers.TryGetValue(hash, out m)) return false;
+        await m.AddPeerAsync(new PeerInfo(new Uri($"ipv4://{endPoint.Address}:{endPoint.Port}")));
+        return true;
     }
 
     internal static string HashOf(TorrentManager m) => m.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
