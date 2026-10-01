@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
 import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import {
+  ArrowDownUp,
   ChevronRight,
   Download,
   ExternalLink,
@@ -32,6 +33,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -131,7 +139,15 @@ import {
   SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
-import { parseStoredBoolean, usePersistedState } from "@/hooks/use-persisted-state";
+import { parseStoredBoolean, storedOneOf, usePersistedState } from "@/hooks/use-persisted-state";
+import {
+  DEFAULT_DOWNLOAD_SORT,
+  DOWNLOAD_SORT_LABELS,
+  DOWNLOAD_SORTS,
+  downloadSortShortLabel,
+  sortDownloadGroups,
+  type DownloadSort,
+} from "./sort";
 import {
   mergeOwnedTransferSnapshots,
 } from "@/lib/clients/transfer-ownership";
@@ -244,6 +260,11 @@ export default function ClientPage() {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [mediaTab, setMediaTab] = useState<DownloadTab>(DEFAULT_DOWNLOAD_TAB);
+  const [sort, setSort] = usePersistedState<DownloadSort>(
+    "tf-downloads-sort",
+    DEFAULT_DOWNLOAD_SORT,
+    storedOneOf(DOWNLOAD_SORTS),
+  );
   // Which series' dialog is open, by the group's own identity key — and which
   // of its seasons is showing. Both live here, not inside the dialog
   // component, so a notification link can open the dialog on its season and a
@@ -503,6 +524,7 @@ export default function ClientPage() {
   // One row per work, built from the search/status/tab-narrowed list — this is
   // what the compact main list actually draws.
   const grouped = useMemo(() => groupDownloads(filtered), [filtered]);
+  const sortedGroups = useMemo(() => sortDownloadGroups(grouped, sort), [grouped, sort]);
 
   // Select-all is about the rows on screen. The dialog shares this one
   // `selected` set and can check episodes the page's filters hide, so counting
@@ -1421,18 +1443,44 @@ export default function ClientPage() {
           <TabsContent value={mediaTab} className="min-w-0 space-y-4">
           {/* Toolbar */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <InputGroup className="h-auto max-w-sm flex-1">
-              <InputGroupAddon>
-                <Search aria-hidden className="size-3.5" />
-              </InputGroupAddon>
-              <InputGroupInput
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter torrents…"
-                aria-label="Filter downloads"
-                data-client-filter
-              />
-            </InputGroup>
+            <div className="flex min-w-0 items-center gap-2 sm:max-w-md sm:flex-1">
+              <InputGroup className="h-auto min-w-0 flex-1">
+                <InputGroupAddon>
+                  <Search aria-hidden className="size-3.5" />
+                </InputGroupAddon>
+                <InputGroupInput
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Filter torrents…"
+                  aria-label="Filter downloads"
+                  data-client-filter
+                />
+              </InputGroup>
+              <Select value={sort} onValueChange={(value) => setSort(value as DownloadSort)}>
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Sort downloads"
+                  title="Sort"
+                  className="shrink-0 text-[13px]"
+                  data-downloads-sort
+                >
+                  <ArrowDownUp aria-hidden className="size-3.5 text-muted-foreground" />
+                  <SelectValue>{downloadSortShortLabel(sort)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent position="popper" align="end">
+                  {DOWNLOAD_SORTS.map((option) => (
+                    <SelectItem
+                      key={option}
+                      value={option}
+                      className="min-h-11 sm:min-h-0"
+                      data-downloads-sort-option={option}
+                    >
+                      {DOWNLOAD_SORT_LABELS[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <ScrollArea className="min-w-0 sm:shrink-0">
             <ToggleGroup
               type="single"
@@ -1579,7 +1627,7 @@ export default function ClientPage() {
                 `SeriesDownloadDialog` now.
               */}
               <div className="divide-y divide-border">
-                {grouped.map((group) => {
+                {sortedGroups.map((group) => {
                   if (group.kind === "series") {
                     return (
                       <SeriesOverviewRow
