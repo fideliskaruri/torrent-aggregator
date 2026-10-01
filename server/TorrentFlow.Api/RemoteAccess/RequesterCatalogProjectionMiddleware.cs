@@ -72,6 +72,8 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
                 root = await ProjectSearchAsync(root, userId, requests, context.RequestAborted);
             else if (IsTitleDetailPath(path))
                 root = await ProjectTitleDetailAsync(root, userId, requests, context.RequestAborted);
+            else if (path.StartsWith("/api/browse", StringComparison.OrdinalIgnoreCase))
+                root = StripForbidden(ProjectBrowse(root));
             else
                 root = StripForbidden(root);
 
@@ -154,10 +156,38 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
             if (item.TryGetPropertyValue(name, out var value) && value is not null)
                 next[name] = value.DeepClone();
         }
+        AddState(next, state);
+        return next;
+    }
+
+    /// <summary>The caller's own state for one title: the derived request phase and counts, never transfer detail.</summary>
+    private static void AddState(JsonObject next, CatalogRequestState state)
+    {
         next["inLibrary"] = state.InLibrary;
         next["requestStatus"] = state.RequestStatus is null ? null : JsonValue.Create(state.RequestStatus);
         next["requestId"] = state.RequestId is null ? null : JsonValue.Create(state.RequestId);
-        return next;
+        next["availableSeasons"] = new JsonArray((state.AvailableSeasons ?? []).Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
+        next["requestDone"] = state.Done;
+        next["requestTotal"] = state.Total;
+    }
+
+    /// <summary>
+    /// Browse cards for a requester: a card is either in the library ("ready") or not. The owner's file quality and
+    /// episode counts (the Downloaded rail's subtitle) and the indexer check states never reach them.
+    /// </summary>
+    private static JsonNode ProjectBrowse(JsonNode root)
+    {
+        foreach (var rail in (root["rails"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            var downloaded = string.Equals(rail["id"]?.GetValue<string>(), TorrentFlow.Metadata.Browse.BrowseService.YourLibraryRailId,
+                StringComparison.Ordinal);
+            foreach (var item in (rail["items"] as JsonArray ?? []).OfType<JsonObject>())
+            {
+                if (downloaded) item["subtitle"] = null;
+                if (item["availability"]?.GetValue<string>() is not "ready") item["availability"] = null;
+            }
+        }
+        return root;
     }
 
     private static async Task<JsonNode> ProjectTitleDetailAsync(JsonNode root, string userId, MediaRequestService requests, CancellationToken ct)
@@ -193,10 +223,8 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
             ["episodesTruncated"] = obj["episodesTruncated"]?.DeepClone(),
             ["known"] = obj["known"]?.DeepClone(),
             ["generatedAt"] = obj["generatedAt"]?.DeepClone(),
-            ["inLibrary"] = state.InLibrary,
-            ["requestStatus"] = state.RequestStatus is null ? null : JsonValue.Create(state.RequestStatus),
-            ["requestId"] = state.RequestId is null ? null : JsonValue.Create(state.RequestId),
         };
+        AddState(next, state);
 
         if (obj["seasons"] is JsonArray seasons)
         {

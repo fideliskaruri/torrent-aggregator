@@ -78,6 +78,9 @@ public sealed class RequestDecisionService(
         if (changed == 0)
             return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
         await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
+        // Friends who asked for the same title and scope share this decision; only this one grabs.
+        foreach (var other in await ClaimSameAskAsync(db, row, MediaRequestStatus.Approved, now, ct))
+            await notifications.TryPublishAsync(other.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", other.Title, "/requests");
         LastGrab = Task.Run(() => GrabAsync(id, lifetime.ApplicationStopping), CancellationToken.None);
         return (DecisionOutcome.Done, row.Status);
     }
@@ -99,9 +102,31 @@ public sealed class RequestDecisionService(
                 .SetProperty(r => r.UpdatedAt, now), ct);
         if (changed == 0)
             return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
-        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
-            row.DecisionReason is { } reasonText ? $"{row.Title}: {reasonText}" : row.Title, "/requests");
+        foreach (var other in (await ClaimSameAskAsync(db, row, MediaRequestStatus.Declined, now, ct)).Prepend(row))
+            await notifications.TryPublishAsync(other.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
+                row.DecisionReason is { } reasonText ? $"{other.Title}: {reasonText}" : other.Title, "/requests");
         return (DecisionOutcome.Done, row.Status);
+    }
+
+    /// <summary>
+    /// The other pending requests for the same title and scope (<see cref="RequestRules.SameAskKey"/>) take the decision
+    /// <paramref name="row"/> just got. Each is claimed atomically, so a concurrent decision on one of them wins once.
+    /// </summary>
+    private static async Task<List<MediaRequest>> ClaimSameAskAsync(TorrentFlowDbContext db, MediaRequest row, string status, DateTime now,
+        CancellationToken ct)
+    {
+        var key = RequestRules.SameAskKey(row);
+        var pending = await db.MediaRequests.AsNoTracking()
+            .Where(r => r.Id != row.Id && r.WorkKey == row.WorkKey && r.Status == MediaRequestStatus.Pending).ToListAsync(ct);
+        var claimed = new List<MediaRequest>();
+        foreach (var other in pending.Where(r => RequestRules.SameAskKey(r) == key))
+        {
+            var changed = await db.MediaRequests.Where(r => r.Id == other.Id && r.Status == MediaRequestStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, status).SetProperty(r => r.DecisionReason, row.DecisionReason)
+                    .SetProperty(r => r.DecidedAt, now).SetProperty(r => r.UpdatedAt, now), ct);
+            if (changed > 0) claimed.Add(other);
+        }
+        return claimed;
     }
 
     private async Task GrabAsync(string id, CancellationToken ct)

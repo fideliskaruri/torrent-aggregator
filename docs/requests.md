@@ -30,20 +30,42 @@ unreleased or still in cinemas.
 - **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season,
   a requester has **Request** in the same place. Series open the request dialog (whole series or
   specific seasons, plus an optional note). After sending, the button reads **Requested**; later states
-  are "Approved", "Available" (already in the library) or "Declined" with a way to ask again. Request
+  are "Approved", "Downloading, 3 of 10" (counts only), "Available" or "Declined" with a way to ask again.
+  The state follows what was asked for, not the approval: a film is "Available" only once its file is in the
+  library, and a season request only marks the seasons it asked for ("Season 2 available", with
+  **Request more seasons**). A series is never "Available" as a whole. Request
   sends the catalog id the title payload names (`provider`, `providerId`; see
   [sources.md](sources.md#browse-cards-and-catalog-ids)). When no catalog id is known, the page says
   "Couldn't match this title to a catalog entry. Search for it to request it." instead of showing a
   Request button.
 - **Library** (`/watchlist`) is the owner's Library page, read-only: it is fed from
-  `GET /api/requester/library` and has no delete, paths, folders or automation.
+  `GET /api/requester/library` and has no delete, paths, folders or automation. Browse cards carry no
+  file quality, episode counts or availability badges for a requester.
 - **Requests** (`/requests`) is one page. The owner sees the inbox of everyone's requests; a requester
   sees their own, with **Cancel request** while it is pending.
 
 The server still enforces the boundary: requesters only reach the catalog reads listed in
 [remote-access.md](remote-access.md#requesters), and those answers are stripped of magnets, hashes,
-releases, file paths and transfer state and carry the caller's own `inLibrary`, `requestStatus` and
-`requestId` instead.
+releases, file paths and transfer state and carry the caller's own `inLibrary`, `requestStatus`,
+`requestId`, `availableSeasons`, `requestDone` and `requestTotal` instead.
+
+### Request state
+
+One derivation (`LibraryOnDisk` in `Requests/RequestState.cs`) answers "what has arrived" for the title
+page, the Requests page (both roles), notifications and the requester Library. Its source of truth is the
+owner's Downloaded rail: finished transfers whose files are still on disk, mapped to their works and
+episodes. An approved film is `downloading` until its file is there, then `available`; a season request
+counts the aired episodes of the requested seasons (`done` of `total`) and is `available` when all of them
+are there. Pending, declined and cancelled requests pass through unchanged.
+
+### Shared requests
+
+Requests are one per title and scope across requesters (same work key, scope and seasons). When a second
+requester asks for something already requested, their row joins it: if the first is still pending it stays
+pending and the owner is not notified again; if it is already approved the joiner's row is approved too and
+they get the "Request approved" notification. The owner's inbox shows one card naming everyone who asked
+(`requesters`); approving or declining it decides every pending row of that ask and notifies each requester,
+while only one grab is started.
 
 ### Previewing as a requester
 
@@ -97,12 +119,14 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
   failure is 502 `search_failed` without the cause.
 - `GET /seasons?provider=&providerId=&mediaType=&title=&year=` — `{ seasons }`, the catalog's season numbers
   (1–500, sorted, distinct, at most 100). A catalog failure is 502 `seasons_failed` without the cause.
-- `GET /requests` — `{ requests }`, the caller's own requests, newest first (at most 200).
+- `GET /requests` — `{ requests }`, the caller's own requests, newest first (at most 200). `status` is the
+  derived state (`downloading` and `available` replace `approved`/`fulfilled` once something has started or
+  arrived) with `done`/`total` episode counts for series.
 - `POST /requests` — body `{ provider, providerId, mediaType, title, year, posterUrl, scope, seasons, note }`.
   JSON only (415), at most 16 KB (413), unknown fields and wrong types are 400. Rules:
   - A film is `movie` scope; a `tv` title is `seasons` (1–100 seasons, numbers 1–500) or `series`.
-  - 409 `in_library` when the title is already in the owner's library (watch list or a download target).
-    Library knowledge is per title, not per season, so any scope of a title in the library is refused.
+  - 409 `in_library` when what is asked for is already on disk: the film's file, or every requested season.
+    Watch-list items and download targets that have not finished do not count.
   - 409 `duplicate` when the caller already has an open request for the same work with an overlapping
     scope: two movie requests, anything against `series`, or season lists sharing a season.
   - 409 `too_many_open` when the caller already has `MaxOpenPerUser` open requests.
@@ -111,8 +135,8 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
     scope), the create path runs the same approve + request-lane grab as a manual approval before the
     response. The returned request then has status `approved`, `decisionReason` `"Auto-approved"`, and
     `decidedAt` set.
-- `GET /library` — `{ titles }`: `key`, `title`, `year`, `mediaType`, `posterUrl` for works with a downloaded
-  target plus fulfilled requests (at most 500 of each). Nothing else.
+- `GET /library` — `{ titles }`: `key`, `title`, `year`, `mediaType`, `posterUrl` for the titles on the owner's
+  Downloaded rail (finished, files on disk; at most 500). Nothing else.
 - `POST /requests/{id}/cancel` — only the caller's own request; 404 `not_found` otherwise. 409
   `not_pending` unless it is still pending. Returns `{ request }` with status `cancelled`.
 
@@ -122,8 +146,9 @@ title-search box still has its own 60/minute per-client guard against keystroke 
 ## Owner API
 
 - `GET /api/requests?status=` — owner only (requesters get 403). `{ requests, pendingCount }`, newest first
-  (at most 500), optionally filtered by status (400 for an unknown status). Each row adds `requestedBy`
-  (the email), `workKey` and the link ids.
+  (at most 500), optionally filtered by status (400 for an unknown status). Rows for the same ask and status
+  are folded into one: `requestedBy` (the first requester's email), `requesters` (every email), `phase`
+  (the derived state above), `done`/`total`, `workKey` and the link ids. `pendingCount` counts asks.
 - `POST /api/requests/{id}/approve` — pending only (409 `not_pending`, 404 `not_found`). Marks it `approved`,
   then grabs in the background through the owner's own grab path (`GrabService`) on the `request` queue lane:
   one release for a film; one exact release per aired episode of the chosen seasons (the whole series is
@@ -143,6 +168,9 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   Replaces the full set. Valid modes: `none`, `moviesOnly`, `everything`. `none` (or empty mode) drops that
   email. Emails are normalized lowercased; invalid email/mode or unknown fields are 400. Returns the same
   shape as GET.
+- One episode is grabbed once whichever path gets there first (request approval, the hunter, a season
+  download or an on-demand grab): `GrabService` keys in-flight grabs by work and episode (not resolution)
+  and skips an episode that already has a transfer or is covered by a season pack.
 - Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request whose
   grabbed transfers have all completed becomes `fulfilled`.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**

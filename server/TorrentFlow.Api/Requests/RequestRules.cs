@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Api.Requests;
@@ -81,6 +82,16 @@ public static partial class RequestRules
     /// <summary>The identity used to spot duplicates: the catalog id when there is one, else the work key.</summary>
     public static string Identity(string provider, string? providerId, string mediaType, string workKey) =>
         providerId is { Length: > 0 } ? $"{provider}:{mediaType}:{providerId}" : $"work:{mediaType}:{workKey}";
+
+    /// <summary>
+    /// Two requests ask for the same thing when they name the same work and scope (the same seasons), whoever sent them
+    /// and whichever catalog they came from: one owner card, one decision, one grab.
+    /// </summary>
+    public static string SameAskKey(MediaRequest r) =>
+        $"{r.WorkKey}|{r.Scope}|{(r.Scope == MediaRequestScope.Seasons ? FormatSeasons(ParseSeasons(r.Seasons)) : "")}";
+
+    /// <summary>A series as a whole is never "in the library"; only its seasons are.</summary>
+    public static bool IsSeriesType(string mediaType) => mediaType is "tv" or "series";
 
     public static IReadOnlyList<int> ParseSeasons(string? stored) =>
         string.IsNullOrWhiteSpace(stored) ? [] :

@@ -43,7 +43,11 @@ export function RequestAction({
           // Focus lands here after a request when no button is left to hold it.
           tabIndex={-1}
           variant={view.tone}
-          data-request-status={state.inLibrary ? "available" : (state.requestStatus ?? "pending")}
+          data-request-status={
+            state.inLibrary || (!state.requestStatus && (state.availableSeasons?.length ?? 0) > 0)
+              ? "available"
+              : (state.requestStatus ?? "pending")
+          }
           className="self-center justify-self-start px-2 py-1 text-[13px]"
         >
           {view.label}

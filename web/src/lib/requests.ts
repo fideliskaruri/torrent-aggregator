@@ -24,9 +24,17 @@ export interface RequesterTitle {
   requestId: string | null;
 }
 
+/**
+ * Where a request stands. A requester's rows and title states carry the
+ * server's derived phase (`LibraryOnDisk.Progress`): "downloading" once
+ * something started, "available" only when the film's or every wanted
+ * episode's files are on disk. The owner's rows keep the stored status.
+ */
 export type RequestStatus =
   | "pending"
   | "approved"
+  | "downloading"
+  | "available"
   | "declined"
   | "fulfilled"
   | "partial"
@@ -56,6 +64,9 @@ export interface RequesterRequest {
   decidedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Episodes (or the film) on disk out of those wanted; counts only. */
+  done: number;
+  total: number;
 }
 
 /** One title from `GET /api/requester/library`: identity and art only. */
@@ -82,6 +93,10 @@ export function parseLibrary(json: unknown): RequesterLibraryTitle[] {
 /** One row of the owner's `GET /api/requests`. */
 export interface OwnerRequest extends RequesterRequest {
   requestedBy: string;
+  /** Everyone who asked for this title and scope; the card is one decision for all of them. */
+  requesters: string[];
+  /** What the requesters see (the derived phase), beside the stored status the actions follow. */
+  phase: RequestStatus | null;
   /** The title's key, for "Pick a release yourself". Empty when the server did not send one. */
   workKey: string;
 }
@@ -93,10 +108,21 @@ export function parseOwnerRequests(json: unknown): { requests: OwnerRequest[]; p
   const byId = new Map(
     rows.map((row) => {
       const r = (row ?? {}) as Record<string, unknown>;
-      return [str(r.id) ?? "", { requestedBy: str(r.requestedBy) ?? "", workKey: str(r.workKey) ?? "" }] as const;
+      const requestedBy = str(r.requestedBy) ?? "";
+      const requesters = Array.isArray(r.requesters) ? r.requesters.filter((e): e is string => typeof e === "string" && e.length > 0) : [];
+      return [
+        str(r.id) ?? "",
+        { requestedBy, requesters: requesters.length > 0 ? requesters : [requestedBy], workKey: str(r.workKey) ?? "", phase: asStatus(r.phase) },
+      ] as const;
     }),
   );
-  const requests = base.map((r) => ({ ...r, requestedBy: byId.get(r.id)?.requestedBy ?? "", workKey: byId.get(r.id)?.workKey ?? "" }));
+  const requests = base.map((r) => ({
+    ...r,
+    requestedBy: byId.get(r.id)?.requestedBy ?? "",
+    requesters: byId.get(r.id)?.requesters ?? [],
+    workKey: byId.get(r.id)?.workKey ?? "",
+    phase: byId.get(r.id)?.phase ?? null,
+  }));
   const pending = int(body.pendingCount);
   return { requests, pendingCount: pending !== null && pending >= 0 ? pending : requests.filter((r) => r.status === "pending").length };
 }
@@ -190,6 +216,8 @@ export function autoApproveModeLabel(mode: AutoApproveMode): string {
 const STATUSES: readonly RequestStatus[] = [
   "pending",
   "approved",
+  "downloading",
+  "available",
   "declined",
   "fulfilled",
   "partial",
@@ -205,6 +233,11 @@ function asStatus(value: unknown): RequestStatus | null {
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function count(value: unknown): number {
+  const n = int(value);
+  return n !== null && n > 0 ? n : 0;
 }
 
 function int(value: unknown): number | null {
@@ -268,6 +301,8 @@ export function parseRequests(json: unknown): RequesterRequest[] {
       decidedAt: str(r.decidedAt),
       createdAt: str(r.createdAt) ?? "",
       updatedAt: str(r.updatedAt) ?? "",
+      done: count(r.done),
+      total: count(r.total),
     }];
   });
 }
@@ -308,10 +343,13 @@ export function statusLabel(status: RequestStatus): string {
       return "Waiting for approval";
     case "approved":
       return "Approved";
+    case "downloading":
+      return "Downloading";
+    case "available":
+    case "fulfilled":
+      return "Available";
     case "declined":
       return "Declined";
-    case "fulfilled":
-      return "Ready";
     case "partial":
       return "Partly done";
     case "failed":
@@ -324,10 +362,19 @@ export function statusLabel(status: RequestStatus): string {
 export type StatusTone = "accent" | "success" | "danger" | "outline";
 
 export function statusTone(status: RequestStatus): StatusTone {
-  if (status === "pending" || status === "approved" || status === "partial") return "accent";
-  if (status === "fulfilled") return "success";
+  if (status === "pending" || status === "approved" || status === "downloading" || status === "partial") return "accent";
+  if (status === "fulfilled" || status === "available") return "success";
   if (status === "declined" || status === "failed") return "danger";
   return "outline";
+}
+
+/**
+ * The one status line for a request, wherever it shows: "Downloading, 3 of 10"
+ * while a season is on its way, otherwise the plain label. Counts only.
+ */
+export function progressLabel(status: RequestStatus, done: number, total: number): string {
+  if (status === "downloading" && total > 1) return `${statusLabel(status)}, ${done} of ${total}`;
+  return statusLabel(status);
 }
 
 export function scopeLabel(request: Pick<RequesterRequest, "scope" | "seasons">): string {
@@ -449,12 +496,24 @@ export interface RequestState {
   inLibrary: boolean;
   requestStatus: RequestStatus | null;
   requestId: string | null;
+  /** A series' seasons whose files are all on disk; a series is never in the library as a whole. */
+  availableSeasons?: number[];
+  requestDone?: number;
+  requestTotal?: number;
 }
 
 /** Reads the requester fields the server adds to search and title payloads; absent fields mean "nothing known". */
 export function parseRequestState(json: unknown): RequestState {
   const r = (json ?? {}) as Record<string, unknown>;
-  return { inLibrary: r.inLibrary === true, requestStatus: asStatus(r.requestStatus), requestId: str(r.requestId) };
+  const seasons = Array.isArray(r.availableSeasons) ? r.availableSeasons.filter((s): s is number => int(s) !== null) : [];
+  return {
+    inLibrary: r.inLibrary === true,
+    requestStatus: asStatus(r.requestStatus),
+    requestId: str(r.requestId),
+    availableSeasons: seasons,
+    requestDone: count(r.requestDone),
+    requestTotal: count(r.requestTotal),
+  };
 }
 
 export interface RequestView {
@@ -467,14 +526,29 @@ export interface RequestView {
 
 /** What sits where the owner's Download would: a status, a Request button, or both. */
 export function requestViewFor(state: RequestState, isSeries: boolean): RequestView {
-  if (state.inLibrary || state.requestStatus === "fulfilled") {
+  const seasons = state.availableSeasons ?? [];
+  if (!isSeries && (state.inLibrary || state.requestStatus === "available" || state.requestStatus === "fulfilled")) {
     return { label: "Available", tone: "success", action: null };
+  }
+  // A series is never available as a whole: only the seasons whose files are all here.
+  if (isSeries && (state.requestStatus === "available" || state.requestStatus === "fulfilled" || (!state.requestStatus && seasons.length > 0))) {
+    return {
+      label: seasons.length > 0 ? `${formatSeasons(seasons)} available` : "Available",
+      tone: "success",
+      action: "Request more seasons",
+    };
   }
   switch (state.requestStatus) {
     case "pending":
       return { label: "Requested", tone: "accent", action: isSeries ? "Request more seasons" : null };
     case "approved":
       return { label: "Approved", tone: "accent", action: isSeries ? "Request more seasons" : null };
+    case "downloading":
+      return {
+        label: progressLabel("downloading", state.requestDone ?? 0, state.requestTotal ?? 0),
+        tone: "accent",
+        action: isSeries ? "Request more seasons" : null,
+      };
     case "declined":
       return { label: "Declined", tone: "danger", action: "Request again" };
     case "partial":
