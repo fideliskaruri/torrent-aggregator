@@ -329,13 +329,6 @@
           "TorrentFlow.Data": "[1.0.0, )"
         }
       },
-      "torrentflow.media": {
-        "type": "Project",
-        "dependencies": {
-          "TorrentFlow.Core": "[1.0.0, )",
-          "TorrentFlow.Data": "[1.0.0, )"
-        }
-      },
       "torrentflow.metadata": {
         "type": "Project",
         "dependencies": {

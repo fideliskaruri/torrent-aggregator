@@ -5,7 +5,6 @@
     <Project Path="server/TorrentFlow.Data/TorrentFlow.Data.csproj" />
     <Project Path="server/TorrentFlow.Engine/TorrentFlow.Engine.csproj" />
     <Project Path="server/TorrentFlow.Library/TorrentFlow.Library.csproj" />
-    <Project Path="server/TorrentFlow.Media/TorrentFlow.Media.csproj" />
     <Project Path="server/TorrentFlow.Metadata/TorrentFlow.Metadata.csproj" />
     <Project Path="server/TorrentFlow.Search/TorrentFlow.Search.csproj" />
   </Folder>

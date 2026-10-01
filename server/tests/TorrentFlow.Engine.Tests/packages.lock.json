@@ -546,7 +546,6 @@
           "TorrentFlow.Data": "[1.0.0, )",
           "TorrentFlow.Engine": "[1.0.0, )",
           "TorrentFlow.Library": "[1.0.0, )",
-          "TorrentFlow.Media": "[1.0.0, )",
           "TorrentFlow.Metadata": "[1.0.0, )",
           "TorrentFlow.Search": "[1.0.0, )"
         }
@@ -570,13 +569,6 @@
         }
       },
       "torrentflow.library": {
-        "type": "Project",
-        "dependencies": {
-          "TorrentFlow.Core": "[1.0.0, )",
-          "TorrentFlow.Data": "[1.0.0, )"
-        }
-      },
-      "torrentflow.media": {
         "type": "Project",
         "dependencies": {
           "TorrentFlow.Core": "[1.0.0, )",

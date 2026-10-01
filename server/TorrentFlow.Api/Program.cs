@@ -14,12 +14,11 @@ using TorrentFlow.Api.Notifications;
 using TorrentFlow.Data;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
-using TorrentFlow.Media;
 using TorrentFlow.Metadata;
 using TorrentFlow.Search;
 using TorrentFlow.Api;
 
-// Culture-neutral formatting everywhere (numbers in headers, ffmpeg args, logs), whatever the machine locale is.
+// Culture-neutral formatting everywhere (numbers in headers, logs), whatever the machine locale is.
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
@@ -110,15 +109,13 @@ builder.Services
     .AddSearchModule(builder.Configuration)
     .AddMetadataModule(builder.Configuration)
     .AddEngineModule(builder.Configuration)
-    .AddLibraryModule(builder.Configuration)
-    .AddMediaModule(builder.Configuration);
+    .AddLibraryModule(builder.Configuration);
 
 builder.Services.AddControllers(options => options.Conventions.Add(new RequesterAllowConvention()))
     .AddApplicationPart(typeof(SearchModule).Assembly)
     .AddApplicationPart(typeof(MetadataModule).Assembly)
     .AddApplicationPart(typeof(EngineModule).Assembly)
     .AddApplicationPart(typeof(LibraryModule).Assembly)
-    .AddApplicationPart(typeof(MediaModule).Assembly)
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -185,28 +182,11 @@ app.UseMiddleware<RequesterAuthorizationMiddleware>();
 // Strip owner-only fields and attach the caller's request state on shared catalog reads.
 app.UseMiddleware<RequesterCatalogProjectionMiddleware>();
 
-// Streaming is off by default (see EngineOptions.Streaming); its routes answer 404 so the SPA can tell it apart.
-string[] streamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path;
-    if (!context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions>>().CurrentValue.Streaming
-        && streamingRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
-    {
-        context.Response.StatusCode = StatusCodes.Status404NotFound;
-        await context.Response.WriteAsJsonAsync(new { error = "Streaming is turned off.", streamingDisabled = true });
-        return;
-    }
-    await next();
-});
-app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engine,
-    TorrentFlow.Engine.Settings.ClientSettingsStore settings, IConfiguration configuration, HttpContext http) =>
+app.MapGet("/api/features", (TorrentFlow.Engine.Settings.ClientSettingsStore settings, IConfiguration configuration, HttpContext http) =>
 {
     http.Response.Headers.CacheControl = "no-store";
-    // Streaming routes are refused on the tunnel, so the SPA must hide playback there too.
     return Results.Json(new
     {
-        streaming = engine.CurrentValue.Streaming && !RemoteAccessClaims.IsTunnel(http),
         runningInContainer = settings.RunningInContainer,
         openFolder = !settings.RunningInContainer && !RemoteAccessClaims.IsTunnel(http),
         displayPathMappings = configuration.GetSection("TorrentFlow:DisplayPathMappings").GetChildren()

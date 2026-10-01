@@ -26,7 +26,6 @@
     <ProjectReference Include="..\TorrentFlow.Metadata\TorrentFlow.Metadata.csproj" />
     <ProjectReference Include="..\TorrentFlow.Engine\TorrentFlow.Engine.csproj" />
     <ProjectReference Include="..\TorrentFlow.Library\TorrentFlow.Library.csproj" />
-    <ProjectReference Include="..\TorrentFlow.Media\TorrentFlow.Media.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TorrentFlow.Api.Tests" />

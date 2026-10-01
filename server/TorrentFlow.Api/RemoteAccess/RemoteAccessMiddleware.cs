@@ -33,7 +33,6 @@ public static class RemoteAccessClaims
 /// </summary>
 public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessStore store, AccessTokenValidator validator, RequesterDirectory requesters, ILogger<RemoteAccessMiddleware> logger)
 {
-    private static readonly string[] StreamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
     public const string AuthHeader = "X-TorrentFlow-Auth";
 
     public async Task InvokeAsync(HttpContext context)
@@ -130,12 +129,6 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
         if (path.Equals("/api/settings/open-folder", StringComparison.OrdinalIgnoreCase))
         {
             await WriteJson(context, StatusCodes.Status409Conflict, new { error = "Folder opening is unavailable through remote access.", openFolderDisabled = true });
-            return;
-        }
-        // Cloudflare's terms and its 100 s proxy timeout rule out video over the tunnel.
-        if (StreamingRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
-        {
-            await WriteJson(context, StatusCodes.Status404NotFound, new { error = "Streaming isn't available through remote access.", streamingDisabled = true });
             return;
         }
         await next(context);
