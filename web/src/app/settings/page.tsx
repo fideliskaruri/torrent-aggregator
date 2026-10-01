@@ -672,7 +672,8 @@ export default function SettingsPage() {
   }
 
   const settingsQuery = {
-    data: loading ? null : true,
+    // A failed load keeps the form hidden, so there is no data to show under the error.
+    data: loading || loadError ? null : true,
     loading,
     error: loadError,
     refetch: () => {
