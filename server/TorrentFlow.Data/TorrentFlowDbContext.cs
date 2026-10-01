@@ -74,6 +74,8 @@ public partial class TorrentFlowDbContext : DbContext
 
             entity.HasIndex(e => new { e.UserId, e.WorkKey, e.Scope }, "AcquisitionTarget_userId_workKey_scope_idx");
 
+            entity.HasIndex(e => new { e.UserId, e.RunId }, "AcquisitionTarget_userId_runId_idx");
+
             entity.HasIndex(e => e.WorkId, "AcquisitionTarget_workId_idx");
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -87,6 +89,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.InfoHash).HasColumnName("infoHash");
             entity.Property(e => e.FileIndex).HasColumnName("fileIndex");
             entity.Property(e => e.RealMisses).HasDefaultValue(0).HasColumnName("realMisses");
+            entity.Property(e => e.RunId).HasColumnName("runId");
             entity.Property(e => e.PreferredResolution).HasColumnName("preferredResolution");
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.Scope).HasColumnName("scope");

@@ -58,7 +58,8 @@ links, save paths) stay off-stage.
   only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at once. The queue
   runs one unit per (title, season), up to 6 side by side, retries misses after 1m, 5m, 15m, 1h, 3h and
   then every 6h, and after 3 fruitless tries (not counting busy search sites or dead swarms) notifies the
-  owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
+  owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue. Each season order is a
+  run (`AcquisitionTarget.RunId`) with one counts-only summary notification (see notifications.md).
 - **The server decides a season's episodes** (`ISeasonShapeLookup`, `SeasonShapeService`). Download season
   ignores any episode list the browser sends, and requests read the same shape. For anime it is
   `AnimeFranchiseService`: the AniList first season and its released TV/ONA sequels laid over the one TMDB

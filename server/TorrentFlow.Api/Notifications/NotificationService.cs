@@ -15,6 +15,8 @@ public static class NotificationKind
     public const string RequestFailed = "request.failed";
     public const string DownloadCompleted = "download.completed";
     public const string DownloadFailed = "download.failed";
+    /// <summary>A season download's counts after its first pass, updated in place by later finds.</summary>
+    public const string DownloadSummary = "download.summary";
 }
 
 public sealed record NotificationView(string Id, string Kind, string Title, string? Body, string? Link, DateTime CreatedAt, DateTime? ReadAt);
@@ -80,6 +82,26 @@ public sealed class NotificationService(
     {
         try { await PublishAsync(recipientUserId, kind, title, body, link, CancellationToken.None); }
         catch (Exception ex) { logger.LogWarning(ex, "Could not record a {Kind} notification", kind); }
+    }
+
+    /// <summary>
+    /// The one notification behind <paramref name="link"/>: published (and pushed) when <paramref name="create"/> and there is
+    /// none yet; otherwise its text changes in place, keeping its time and read state, and nothing is pushed again.
+    /// </summary>
+    public async Task UpsertAsync(string recipientUserId, string kind, string title, string? body, string link, bool create, CancellationToken ct = default)
+    {
+        await using (var db = await factory.CreateDbContextAsync(ct))
+        {
+            var existing = await db.Notifications.FirstOrDefaultAsync(n => n.RecipientUserId == recipientUserId && n.Link == link, ct);
+            if (existing is not null)
+            {
+                existing.Title = Clip(title, MaxTitle)!;
+                existing.Body = Clip(body, MaxBody);
+                await db.SaveChangesAsync(ct);
+                return;
+            }
+        }
+        if (create) await PublishAsync(recipientUserId, kind, title, body, link, ct);
     }
 
     public async Task<IReadOnlyList<NotificationView>> ListAsync(string userId, int limit, CancellationToken ct)

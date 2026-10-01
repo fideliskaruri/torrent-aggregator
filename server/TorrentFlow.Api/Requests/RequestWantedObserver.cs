@@ -45,6 +45,11 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         await notifications.TryPublishAsync(LocalUser.Id, NotificationKind.DownloadFailed, $"Still looking for {subject}", body, help.Link);
     }
 
+    /// <summary>The owner's one note per season download, counts only; later finds change its numbers in place.</summary>
+    public Task RunSummaryAsync(WantedRunSummary run, bool create, CancellationToken ct) =>
+        notifications.UpsertAsync(LocalUser.Id, NotificationKind.DownloadSummary, run.Summary.Message,
+            run.Summary.Action is { Length: > 0 } next ? next : null, run.Link, create, ct);
+
     /// <summary>Requests in <paramref name="statuses"/> for this title whose scope includes the season (or the film).</summary>
     private async Task<IReadOnlyList<string>> Covering(string workKey, int? season, string[] statuses, CancellationToken ct)
     {
