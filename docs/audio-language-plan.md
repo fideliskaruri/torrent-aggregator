@@ -1,6 +1,7 @@
-# Audio language plan (BUG-U, OPS-522)
+# Audio language plan (BUG-U, OPS-522) and Find another source (FEAT-30)
 
-Status: plan only. Nothing here is built yet. Phase 2 waits for critique.
+Status: plan only. Nothing here is built yet. Phase 2 waits for critique. Section 6 adds the owner-approved
+"Find another source" feature (1 Oct 15:26), which uses the language rule from section 3.
 
 Owner, 1 Oct: "frieren episodes downloading chinese audio. mushoku tensei getting french audio... seems we do need
 ffmpeg to check such details before we download right? or we can check the titles of the files themselves?"
@@ -544,3 +545,496 @@ Fixtures (outside the repo, in `D:\code\memtest\audiolang\fixtures`):
     override the quality order.
 11. **Apostrophe fix in this bug?** Recommended: yes. It's small, and it is one of the root causes for Frieren E05
     and E06.
+
+## 6. Find another source (FEAT-30, owner approved 1 Oct 15:26)
+
+The owner asked for five things:
+
+- Rename "Find another release" to "Find another source".
+- Offer it on finished films and episodes too, owner only:
+  - the title page (film hero and episode cards);
+  - Downloads (film rows and the series dialog's episode cards).
+- A finished download keeps its files until the new one is Ready, then they are deleted.
+- The replaced release is blocked server-side, so no automatic pick takes it again, and the picker shows why.
+- Extend the existing alternatives endpoints and `ReleaseSwapDialog` without forking them. The dialog shows each
+  alternative's audio and subtitle languages from Layer 1.
+
+Tracking: FEAT-30, plan task OPS-526. Bugs found on the way are in 6.8.
+
+### 6.1 How Sonarr and Radarr do it
+
+Read from their source (`develop` branches, 1 Oct). Paths are relative to `src/NzbDrone.Core/` unless they start
+with `frontend/`.
+
+**Language: names and tags before the download, file contents only after.**
+
+- **Where it comes from.** Before a grab, the language comes from the release name, plus a `language` attribute
+  when a Newznab or Torznab indexer sends one (`Indexers/Newznab/NewznabRssParser.cs`, `GetLanguages`).
+- **How names are read.** `Parser/LanguageParser.cs` matches words (`japanese`, `chinese`, `french`) and tags
+  (`FRENCH`, `TRUEFRENCH`, `VFF`, `ita`, `german`, `rus`). It keeps one language list per release, so audio and
+  subtitles aren't told apart:
+  - `[CHS]`, `[CHT]`, `[BIG5]`, `[GB]`, `简`, `繁` and `字幕` ("subtitles") all count as Chinese.
+  - `VOSTFR` and `MULTi` count as nothing, because the French tag needs a separator before `FR`.
+  - German `DL` adds "Original"; `ML` adds Original and English.
+- **Sonarr v4 scoring.** Custom formats score languages. A Language condition
+  (`CustomFormats/Specifications/LanguageSpecification.cs`) gets a score in the quality profile, and the profile's
+  minimum score rejects the rest. "Original" resolves to the series' original language, and the condition has
+  "except" and negate options.
+- **Radarr's profile language.** Radarr also has a profile language (Any, Original or one language) that rejects
+  outright, for example "Original Language (Japanese) is wanted, but found French"
+  (`DecisionEngine/Specifications/LanguageSpecification.cs`, a permanent rejection).
+- **File contents.** These are read only once the file is in the library. `MediaFiles/MediaInfo/UpdateMediaInfoService.cs`
+  probes files on import and rescan. That feeds display and file naming, never the grab.
+
+**Blocklist and re-search.**
+
+- **What a row holds.** The series, its episodes, the release name, quality, languages, indexer, size, publish date,
+  info hash and a message (`Blocklisting/BlocklistService.cs`, `Block`).
+- **How it matches.** A torrent matches by info hash, or by title and indexer when there is no hash. The match covers
+  the whole series (`Blocklisted(seriesId, release)`).
+- **Who writes it.**
+  - Failed-download handling (`Handle(DownloadFailedEvent)`).
+  - The owner's "Remove from queue", which offers "Do not blocklist", "Blocklist and search" and "Blocklist only"
+    (`frontend/src/Activity/Queue/RemoveQueueItemModal.tsx`).
+- **Re-search.** `Download/RedownloadFailedDownloadService.cs` searches that episode again, or the whole season when
+  every episode failed. It skips this when the owner chose "Blocklist only" or turned the setting off. A separate
+  setting covers grabs made from interactive search.
+- **Who reads it.** `DecisionEngine/Specifications/BlocklistSpecification.cs` rejects the release permanently with
+  "Release is blocklisted", so RSS sync, automatic searches and re-searches skip it.
+- **Interactive search.** It still lists a blocked release, with the rejection in a red popover, and its grab button
+  still works (`frontend/src/InteractiveSearch/InteractiveSearchRow.tsx`).
+- **Lifetime.** Entries stay until removed on the Blocklist page. Deleting the series deletes them.
+- **Upgrades.** The old file stays until the new one is imported, then goes to the recycle bin
+  (`MediaFiles/UpgradeMediaFileService.cs`).
+
+**What we adopt, and where we differ.**
+
+| Idea | Sonarr / Radarr | Here |
+|---|---|---|
+| Language before download | name + indexer tag, one language list | name + nyaa category (Layer 1) with audio and subtitles kept apart, plus the header read (Layer 2), which they don't have |
+| Ranking | a custom-format score the owner builds | the fixed fit order Preferred, Neutral, Backup, Clash (3.1) from a three-choice setting (3.4): the same idea as a score with fixed weights |
+| Block on failure | yes, then re-search | a failed video check blocks the release; the wanted queue's existing retry is the re-search (6.4.5) |
+| Block when the owner removes a release | "Blocklist and search" in Remove from queue | Find another source blocks the release it replaces; picking the new one is the search |
+| Match | info hash, whole series | info hash, per user; work and episode stored for the text (6.4.5) |
+| Hand pick of a blocked release | listed as rejected, still grabbable | listed last with the reason and "Use it anyway" (6.4.5) |
+| Replacing a finished file | upgrade: old file kept until the new one is imported | old files kept until the new one is Ready (6.4.4) |
+
+### 6.2 What exists today
+
+- **The name.** "Find another release" appears in:
+  - `release-swap-dialog.tsx:268` (dialog title);
+  - `downloads/page.tsx:2395` (film row More menu);
+  - `series-download-dialog.tsx:488` and `:492` (the failed episode's button and its aria-label), `:579` (episode
+    More menu) and `:694` (the header's "Find another release for {episode}").
+
+  Comments mention it in `types.ts:62`, `release-card.tsx:3` and `release-swap-dialog.tsx:2`. `inbox.ts` and the
+  toasts never name it; the toasts say "Switched to {release}". The server names it once: `DownloadOpenController.cs:65`
+  "Delete it, or find another release."
+- **Unfinished downloads only.** `canFindAnotherRelease` (`release-swap-dialog.tsx:75-79`) hides it for finished rows
+  and season packs. The server refuses finished rows twice:
+  - `ReleaseSwapService.cs:39-40`: "This download is already complete, so there's nothing to replace."
+  - `ReleaseSwap.cs:35-36`: "Only downloads that haven't finished can be replaced."
+- **Downloads only.** The dialog takes a Downloads `ClientTorrent`, but uses only `hash`, `name`, `workTitle` and the
+  health fields (`state`, `queuePosition`, `peers`, `dlspeed`). The title page has a transfer `infoHash` but no
+  `ClientTorrent`.
+- **The swap is immediate** (`ReleaseSwap.cs:12-103`). It:
+  1. adds the new row;
+  2. marks both hashes as tried in `ReleaseAttempts` (:67-70);
+  3. moves every link (`CarrySwapLinks`, :131-156): the target (reset to queued at 0%), grab jobs, the watchlist
+     and requests, plus a "Replaced {hash}" history row;
+  4. hard-deletes the old row (:72);
+  5. removes its partial files without a tombstone (:79-86).
+- **Nothing blocks a release outside the swap.**
+  - `ReleaseAttempts` (key `UserId, WorkKey, Scope, Hash`, no reason column) is read only by the swap
+    (`ReleaseSwapService.cs:50, 64`, `ReleaseSwap.cs:39-41` "That release has already been tried.").
+  - The engine refuses a hash that failed its video check only while that row still exists
+    (`TorrentEngineService.cs:295`, `RefusedRelease` at :389).
+  - The ladder's attempted set lasts one run (`GrabService.cs:178, 218`).
+  - There is no blocklist table.
+- **"Ready".** The engine parks a finished row with `VerifiedAt` (`TorrentEngineService.cs:1508-1527`). It then runs
+  the video check and the layout (`FinalizeLayoutLockedAsync`, :1540-1547) and raises `TorrentCompleted`, an
+  in-memory event (:1557-1562). A row that fails the check (`LayoutOutcome.Invalid` or `Unchecked`) gets no event.
+  The title page reads "downloaded" from the target (`TitleService.cs:93-95`).
+- **Files.** Releases share the season folder, and the layout step moves finished files into place. Deleting with
+  files goes through an `EngineDeletion` tombstone that a worker retries across restarts
+  (`TorrentEngineService.cs:1249-1307`, `DeletionCleanup.cs`). Open uses the row's manifest; on the title page the row
+  is found by the target's hash (`DownloadOpenController.cs:59-72`).
+
+### 6.3 Name and copy
+
+- **The action** is **Find another source** everywhere it's offered: menu items, buttons, aria-labels ("Find another
+  source for Episode 28"), the series dialog header ("Find another source for {episode}") and the dialog title.
+- **"Site" for search sites.** Inside the dialog, "source" already means a search site ("Look on", "All sources",
+  `?source=`). The site picker therefore says **site**:
+  - "All sites" and "Searching all sites…";
+  - "Picks the best one on {site, or any site} and switches to it.";
+  - "No other releases on {site}" (unchanged);
+  - the server's "That site is turned off or can't search this kind of title. Choose another site."
+    (`ReleaseSwapService.cs:86`).
+
+  Code names (`source`, `data-swap-source*`) stay.
+- **Server messages that tell the owner what to do** say "find another source":
+  - `DownloadOpenController.cs:65`;
+  - `TorrentEngineService.cs:114, 434, 435, 521, 1497`;
+  - `MonoTorrentBackend.cs:236`;
+  - `GrabService.cs:437`.
+- **Server messages that stay.** Messages that describe what TorrentFlow does ("Trying another release.", "TorrentFlow
+  is looking for another release.") stay. `CompletedMediaValidator`'s two messages also stay, because
+  `RefusedRelease` (`TorrentEngineService.cs:389`) compares them as text.
+- **`inbox.ts`** needs no rename, because it never names the action. A replacement's completion reaches the inbox
+  through the existing completed status.
+- **Dialog copy that depends on the current download** (from `current` in the GET, 6.4.7):
+
+  | Current download | Note under the buttons | After picking |
+  |---|---|---|
+  | Unfinished (today) | "Switching removes this release's partial files. Completed files and other downloads are kept." | toast "Switched to {release}" |
+  | Finished | "Your current file stays until the new one is ready. Then TorrentFlow deletes it and won't pick that release again." | toast "Downloading {release}. Your current file stays until the new one is ready." |
+  | Files missing | "The files are already gone. The new one takes this download's place when it's ready." | the same toast as Finished |
+  | A replacement is already downloading | "A new source is already downloading for this: {release} ({progress})." The list can't be used. | none |
+
+- **Current-download box.** For a finished row, the box shows the current file's languages in place of peers, speed
+  and stall time: "Current release · Ready", then "Audio: Chinese (default), Japanese · Subtitles: Chinese" with
+  "from the file" or "from the name".
+
+### 6.4 Design
+
+#### 6.4.1 Where it's offered (owner only)
+
+One web helper, `canFindAnotherSource(subject)`, replaces `canFindAnotherRelease`. It requires the built-in client,
+a hash, and not a season pack row (`packEpisodes`). Whether the download has finished no longer matters, so none of
+the three different "finished" tests (6.8) feed it. Imported rows still get the server's 409, and the dialog says why
+(today's behaviour).
+
+| Place | Today | Change |
+|---|---|---|
+| Downloads, film row More menu (`page.tsx:2389-2397`) | unfinished only | also finished and Files missing rows |
+| Series dialog, episode card More menu (`series-download-dialog.tsx:573-581`) | unfinished only | also finished and Files missing episodes |
+| Series dialog, visible card button (:482-494) and header button (:679-696) | failed episodes | unchanged, so finished cards gain no extra button |
+| Title page, film hero (`title-detail.tsx` action row, about :1219-1345) | none | an outline button **Find another source** after Open and Show in folder (after the status link while downloading). Shown when `caps.canDownload` and the film has a built-in transfer hash |
+| Title page, episode card (`episode-list.tsx:563-886`) | none | a small More menu (`…`) with **Find another source**. Shown when `canDownload`, the card has a transfer hash and it isn't `fromPack`. Passed through the card's existing `onAction` prop, so the memoised card fetches nothing |
+
+Episodes that came in a season pack are left out for now (open question 17).
+
+#### 6.4.2 One dialog for both pages
+
+- **Location.** `ReleaseSwapDialog` moves to `web/src/components/releases/release-swap-dialog.tsx`, beside
+  `release-card.tsx` and `release-picker-dialog.tsx`, because two pages use it. It is a move, not a copy.
+- **Props.** It takes a small subject instead of a `ClientTorrent`: `{ hash, workTitle?, label?, live? }`.
+  - `live` holds the fields the Downloads page already has (`state`, `queuePosition`, `peers`, `dlspeed`).
+  - The title page passes `{ hash, workTitle, label: "Episode 28" }`.
+- **Content.** The description line and the current-download box come from the new `current` block of the GET
+  (6.4.7), so the title page needs no Downloads data.
+- **Title page.** It mounts the dialog once, in `TitleDetail`. `onSwapped` refetches `/api/title/{workKey}` and shows
+  the toast.
+
+#### 6.4.3 Unfinished downloads (unchanged)
+
+Today's immediate swap stays, with two changes:
+
+- It writes a block for the old hash instead of marking both hashes as tried (6.4.5).
+- It copies `ReplacesHash` to the new row when the row it replaces was itself a pending replacement (6.4.4).
+
+#### 6.4.4 Finished downloads: old files stay until the new one is Ready
+
+**Gates.** The finished refusals go: `ReleaseSwapService.cs:39-40`, and `IsDownloaded(old) || live?.Progress >= .9999`
+in `ReleaseSwap.cs:35`. The `Origin != User` refusal stays.
+
+**Mode.** `SwapAsync` picks one of two modes:
+
+- **Deferred**, when the old row is finished and its files are present.
+- **Immediate**, otherwise: unfinished, or Files missing, where there is nothing to keep.
+
+Deferred swap:
+
+1. **Same checks as today.** The hash must match the magnet, the release must not already be in Downloads, and it
+   must fit in storage. The storage check counts the old files plus the new reservation, since both exist for a
+   while. If it doesn't fit, the owner reads "There isn't room for the new download while the current file is kept.
+   Free up {size}, or delete the current download first." and nothing changes.
+2. **New row.** Created as today (same folder, category, work, `QueueKey` and lane), plus a new column
+   `EngineTorrent.ReplacesHash = old.Hash`. The old row stays Parked with its manifest.
+3. **Links stay on the old hash** (target, grab jobs, watchlist, requests).
+   - The title page keeps "Downloaded" and Open on the old file, and requests stay fulfilled.
+   - The title payload gains `transfer.replacing { progress, state }`, so the hero's status link and the episode card
+     read "Replacing 42%".
+4. **Block the old hash now** (reason `replaced`, `ReplacedBy` = the new hash), so automatic picks skip it from this
+   moment.
+5. **Start it** as today: `PromoteAsync`, or `ForceAsync` if the old row was forced.
+6. **Same-name guard.** One metadata step already keeps a file in its release folder when the flat path is taken
+   (`MonoTorrentBackend.DropWrapperAsync`, :259-287). In that step, a file whose flat path the replaced row's manifest
+   owns goes into a folder named after the new release.
+   - This also applies to single-file torrents, which today write straight into the season folder.
+   - So a v2 with the same file name never hash-checks against, or overwrites, the old file. Without the guard,
+     MonoTorrent could check the old file as partial data of the new torrent and then overwrite it. That isn't
+     verified inside MonoTorrent; P23 proves the guard either way.
+7. **Ready.** The new row is Ready when `FinalizeLayoutLockedAsync` (validate: true) returns `LaidOut` or
+   `Unchanged`, not `Invalid` or `Unchecked` (:1540-1547). `CompleteReplacementAsync` runs right after that call,
+   outside its hash lock (the delete takes its own), and before `TorrentCompleted` is raised (:1557-1562):
+   1. `CarrySwapLinks(old, new)`, the existing method, called here instead of at swap time. A `ready` flag makes it
+      set the target to downloaded at 100% at once; today it resets the target to queued at 0%, because the new row
+      has only just started. It also writes the "Replaced" history row.
+   2. `RemoveManyAsync([old.Hash], deleteFiles: true)`, the normal delete: a tombstone, the row removed, and the
+      files deleted by the worker with retries across restarts. Files that another row owns are kept.
+   3. `ReplacesHash` is cleared.
+   4. The completion event gains `Replaced` (`EngineTorrentCompletedEventArgs`, `ITorrentEngine.cs:272`):
+      - the notification reads "{Title}, episode 28: the new source is ready. The old file was removed.";
+      - request checks see the moved links. They only re-check approved requests
+        (`RequestDecisionService.OnTorrentCompletedAsync`), so fulfilled ones aren't announced twice.
+
+   A new file that went into its own folder (step 6) stays there. Open and the title page follow the manifest.
+8. **The new one fails** (an error, a failed video check, or the owner deletes it). The old row and its links are
+   untouched. `ReleaseTargetsAsync` only releases targets on the failing hash (`CompletedLayoutFinalizer.cs:360-375`),
+   and none point at the new one yet. A failed video check blocks the new hash (`failed_check`). The owner can open
+   the dialog again.
+9. **The old row is deleted first.** `RemoveManyAsync` finds the row whose `ReplacesHash` is the deleted hash and moves
+   the links to it at once. Otherwise `Reconcile` would mark the episode "no longer available" while its replacement
+   downloads.
+10. **Restart.** `ReplacesHash` is persisted. On start, the engine re-runs `FinalizeLayoutLockedAsync(validate: true)`
+    for finished rows that still have it, then completes them. This covers the OPS-530 window for replacements.
+11. **A second swap while one is pending** on the old hash gets a 409: "A new source is already downloading for this.
+    Wait for it, or delete it in Downloads first." The pending row is unfinished, so it can be swapped from Downloads
+    with the immediate swap, which carries `ReplacesHash` forward.
+12. **Downloads list.** Both rows show under the same film or episode (`ClientTorrentsController.cs:108-126`). The old
+    row's note says "Being replaced"; the new row's says "Replaces {release} when ready" (DTO fields `replacedBy` and
+    `replaces`).
+
+**Immediate swap for Files missing rows.** The target may already be unlinked, because `Reconcile` sets it to
+failed and clears `InfoHash` when the files are absent (`TitleService.cs:76-82`).
+
+- `ReleaseSwapService` passes the target it resolves on `EngineReleaseSwap` as a new `TargetId`: by hash, or else by
+  work and episode (`title` for a film).
+- `CarrySwapLinks` also moves that target and clears its error, not only targets with `InfoHash == old.Hash`.
+- The engine can't match on `Scope` itself, because the formats differ: the target's is `episode`, `season` or
+  `title`, while the swap's is `s00001e00028`, `season:N` or `movie`.
+
+This also closes `docs/todo-list.md:51`.
+
+#### 6.4.5 The release blocklist
+
+**Table.** `ReleaseBlock` replaces `ReleaseAttempt`: one concept ("don't pick this release again"), one table, as the
+DRY rule in rules.md requires.
+
+| Column | Notes |
+|---|---|
+| `UserId`, `Hash` | key; lowercase info hash |
+| `WorkKey`, `Scope` | `Work.WorkKey`, plus the episode key (`s00001e00028`), `season:N` or `movie`; used for the text and for listing |
+| `Title`, `Source` | release name and site, for the picker |
+| `Reason` | `replaced` or `failed_check` |
+| `ReplacedBy` | the new hash, for `replaced` |
+| `BlockedAt` | |
+
+- **Migration.** `ReplaceReleaseAttemptsWithBlocks` also adds `EngineTorrent.ReplacesHash`. It works like this:
+  - It copies the old hashes that past swaps replaced as `replaced` blocks, found from the "Replaced {hash}" history
+    rows (`DownloadHistories.Context = 'release-swap'`, `ReleaseSwap.cs:133-135`).
+  - The owner's picks, which today are also marked "tried", are not carried over.
+  - It then drops `ReleaseAttempts`.
+  - The work key that `ReleaseSwapService.cs:50` reads from attempts now comes from the block's `ReplacedBy`.
+- **Why match by hash, per user.**
+  - One info hash is one torrent, so for a film or a one-episode release "this hash" is exactly "this work and
+    episode".
+  - The hash also survives two things an episode key doesn't:
+    - A2 can give the same episode different page coordinates depending on the season-shape source (S1E29 or S2E1,
+      1.7).
+    - The swap derives a work key from the release name when the row has no work (`ReleaseSwapService.cs:52`).
+  - Sonarr also matches by hash.
+  - Packs: replacing one episode inside a pack isn't in this change, so a pack hash is only blocked when the whole pack
+    is replaced or fails.
+- **One helper**, `TorrentFlow.Data/ReleaseBlocks.cs`, holds `LoadAsync(db, userId)`, `AddAsync(...)` and
+  `Note(block)`. It lives in Data because the Engine (writers) and the Library (readers) both use it.
+
+**Writers.**
+
+1. Any swap, for the hash it replaces (`replaced`).
+2. A failed video check (`failed_check`): `CompletedLayoutFinalizer.MarkFailedCheckAsync`, for the not-a-video
+   case only (`releaseTargets: true`, :89), not the unreadable one (:95).
+   - `ReleaseTargetsAsync` (:360-375) already hands the episode back to the wanted queue (queued, no release). That
+     is the re-search.
+   - The block stops the queue from taking the same release again once its row is deleted (OPS-527). This keeps the
+     promise "TorrentFlow will choose another release".
+3. Not language refusals. Those depend on the setting and are worked out again on every pick. Their header facts are
+   cached per hash (3.3).
+4. Not send failures (no peers, metadata timeout), which are often temporary.
+
+**Readers.** Every automatic pick and both pickers:
+
+1. **Episode ladder and season packs.** `GrabService.Prepare` loads the blocks once, and `Eligible` drops blocked
+   candidates first, with reason `blocked_replaced` or `blocked_failed`. This covers the wanted queue, the title
+   page's Download and Retry, requests, rules for episodes, on demand, and season packs (`GrabService.Pack.cs:48`).
+2. **Films.** The film path (`GrabService.cs:312-340`) skips `Eligible`, so it gets the same check, counted in
+   `FilmRejection`.
+3. **Rules' non-episode branch** (`AutomationService.cs:86-102`) skips blocked candidates. OPS-528 covers routing it
+   through GrabService.
+4. **Results with only a `.torrent` link** have no hash until the file is fetched.
+   - `EngineAddRequest.SkipBlocked` makes the engine refuse a blocked hash with `Unusable = "blocked"`.
+   - `GrabService.Send` sets it for automatic picks only, beside `Language` (3.2). Hand picks never set it.
+   - `Send` maps the refusal to the candidate's reason.
+5. **The two pickers**, swap alternatives (`ReleaseSwapService.Alternatives`) and "Pick a release yourself"
+   (`ReleasePicker.Search`):
+   - Blocked results are no longer silently dropped. They come back last in their group with a `blocked` note.
+   - They are never the recommended one, and "Find the best one for me" never picks them.
+   - Hashes already in Downloads stay excluded.
+6. **`SwapAsync`** loses "That release has already been tried." (`ReleaseSwap.cs:39-41`). Picking a blocked release
+   by hand is the owner's choice. The block stays, as in Sonarr, so automatic picks keep skipping it.
+7. **Not the search page.** Its results are shared across titles and cached per query (`TorrentSearchService`,
+   `ReleaseRanking`), and it is a raw search.
+
+**What the owner reads.**
+
+| Where | Text |
+|---|---|
+| Wanted and Activity detail | "40 results: 22 other episodes, 2 you replaced, 1 failed before" |
+| Everything blocked | "We only found releases you replaced or that failed before." / "Pick a release yourself, or search for the title." |
+| Picker card | badge **Blocked**, then "You replaced this on 1 Oct." or "This failed the video check on 1 Oct."; button **Use it anyway** |
+
+**Lifetime.**
+
+- Blocks stay when a title is removed from the library, so adding it again doesn't bring the bad release back. Sonarr
+  deletes them with the series (open question 16).
+- There is no unblock screen in this change. A hand pick still works, so a block is never a dead end (open
+  question 15).
+
+#### 6.4.6 Languages in the dialog
+
+- **Per alternative.** Each one carries `audio`, `subtitles`, `languageFit` (`preferred | neutral | backup | clash`)
+  and `languageNote` ("French audio", "Chinese subtitles only", "English dub").
+  - They come from `ReleaseLanguage.Detect(title, null, sourceCategory)` and `Judge(want, facts)`, which is Layer 1
+    (3.1): names and the nyaa category only.
+  - Searching never downloads anything.
+- **Card.** `ReleaseCard` gains one line under the title: "Audio: Japanese · Subtitles: English", or "Audio: not
+  stated" when the name says nothing. The note joins the existing `why` line ("French audio, so automatic picks skip
+  it"). "Pick a release yourself" uses the same card, so it shows the same line.
+- **Order.** `ReleaseSwapService.Rank` (:143-186) sorts by the language fit first, then by today's score, the same
+  order as `Eligible` (3.1). Clashes stay visible, because it is the owner's choice, but they sort last and never get
+  "Best match".
+- **Current download.** It shows the same line, read from the file on disk when it has finished (`MediaTracks`, the
+  Layer 2 reader from 3.3, run on the local file's first MiB). Otherwise the line comes from its name.
+- **"Find the best one for me" on a finished download** compares the top alternative's fit and quality with the
+  current file. It doesn't compare live seeders, which a parked row doesn't have (`ConnectedSeeders ?? 0`,
+  `ReleaseSwapService.cs:134`, 6.8). If nothing fits better, the owner reads "Nothing better than what you have was
+  found on {site}. Your current file was kept."
+
+#### 6.4.7 API (same routes, new fields)
+
+```
+GET /api/client/torrents/{hash}/alternatives[?source=]
+{
+  health,                                   // unchanged
+  current: { title, state, finished, filesMissing,
+             audio: [], subtitles: [], languageBasis: "file" | "name" | null,
+             replacing?: { hash, title, progress } },
+  alternatives: [{ token, hash, title, seeders, peers, sizeBytes?, quality?, source, why,
+                   audio: [], subtitles: [], languageFit, languageNote?,
+                   blocked?: { reason, note, at } }],
+  sources, recommendedToken?                // never a blocked or clashing one
+}
+POST /api/client/torrents/{hash}/alternatives   { token } | { best: true, source? }   // body unchanged
+-> EngineAddResult { ok, message, hash, pending }   // pending = true for a deferred swap
+```
+
+- **409s.** They stay for imported rows, packs and an unknown episode. One is added for "already downloading"
+  (6.4.4 step 11). The "already complete" 409 goes.
+- **Other endpoints.**
+  - `GET /api/title/{workKey}` and `/progress` add `transfer.replacing`.
+  - `GET /api/client/torrents` adds `replaces` and `replacedBy`.
+- **Requesters.** The requester allow-list doesn't change, because these routes are owner-only
+  (`RequesterAllowList.cs:20-36`).
+
+### 6.5 Code map
+
+| File | Change |
+|---|---|
+| `TorrentFlow.Data/Entities/ReleaseBlock.cs` (new), `ReleaseAttempt.cs` (deleted), `TorrentFlowDbContext.cs`, migration `ReplaceReleaseAttemptsWithBlocks` | the block table; `EngineTorrent.ReplacesHash` |
+| `TorrentFlow.Data/ReleaseBlocks.cs` (new) | load, add, note: the one block rule |
+| `TorrentFlow.Engine/ReleaseSwap.cs` | deferred and immediate modes; blocks instead of attempts; links found by target key; `ReplacesHash` carried |
+| `TorrentFlow.Engine/TorrentEngineService.cs` | `CompleteReplacementAsync` after a Valid finalize; the start-up pass; `RemoveManyAsync` moves links to a pending replacement; the `SkipBlocked` refusal; action-name messages |
+| `TorrentFlow.Engine/Client/MonoTorrentBackend.cs` | same-name guard beside `DropWrapperAsync`; message at :236 |
+| `TorrentFlow.Engine/Layout/CompletedLayoutFinalizer.cs` | `failed_check` block in `MarkFailedCheckAsync` |
+| `TorrentFlow.Core/Contracts/Engine/ITorrentEngine.cs` | `EngineAddRequest.SkipBlocked`, `EngineAddResult.Pending`, `EngineReleaseSwap.TargetId`, `EngineTorrentCompletedEventArgs.Replaced` |
+| `TorrentFlow.Library/Features/Grabs/ReleaseSwapService.cs` | no finished gate; `current`; languages; blocked rows; fit-first `Rank`; the best rule for finished rows; the "site" message |
+| `.../Grabs/GrabService.cs`, `GrabService.Pack.cs`, `FilmSelection.cs`, `EpisodeRejections.cs`, `GrabFailure.cs` | blocks in `Prepare`, `Eligible` and the film path; `SkipBlocked`; reason codes and labels |
+| `.../Grabs/ReleasePicker.cs` | blocked and language fields |
+| `.../Automation/AutomationService.cs` | block check in the non-episode branch |
+| `.../Titles/TitleService.cs`, `TitleController.cs` | `transfer.replacing` |
+| `TorrentFlow.Engine/Controllers/ClientTorrentsController.cs`, `DownloadOpenController.cs` | `replaces` and `replacedBy`; the action name at :65 |
+| `TorrentFlow.Api/Notifications/DownloadNotificationWatcher.cs` | replacement wording |
+| `web/src/components/releases/release-swap-dialog.tsx` (moved from `app/downloads/`) | subject prop, rename, copy per state, current languages, blocked rows, "site" wording |
+| `web/src/components/releases/release-card.tsx`, `release-picker-dialog.tsx` | language line, Blocked badge, "Use it anyway" |
+| `web/src/app/downloads/page.tsx`, `series-download-dialog.tsx`, `types.ts` | rename, `canFindAnotherSource`, row notes |
+| `web/src/components/title/title-detail.tsx`, `episode-list.tsx`, `types.ts` | hero button, card menu, "Replacing x%", dialog mount |
+| `docs/dotnet-port.md:25, 47`, `docs/todo-list.md:45, 47, 51`, `docs/api-open-file.md:86`, `docs/season-pack-fallback.md` | the new name; `ReleaseBlock` replaces `ReleaseAttempt`; blocks outlive the row |
+
+### 6.6 Proof (no unit tests)
+
+Same instance and fixture rules as section 4: port 3987, legal payloads only. Extra fixtures:
+
+- two encodes of one open movie under a film's name, for example `Sintel.2010.720p` and `Sintel.2010.1080p`;
+- episode-shaped releases, as in section 4;
+- a v1 and v2 pair with the same file name and different bytes;
+- one payload that isn't a real video.
+
+| # | Proves | How | Pass when |
+|---|---|---|---|
+| P17 | Rename | Playwright at 390/768/1280: Downloads film menu, series dialog card menu, failed card button, header button; title page hero and card menu. Then `rg "Find another release" web/src server` | every label and aria-label says "Find another source"; `rg` finds nothing outside comments about history; the site picker says "All sites" |
+| P18 | Finished film kept until Ready | the film fixture at 720p downloads to Ready; on the title page hero, Find another source, pick 1080p | POST returns `pending: true`. While it downloads: the old row is Ready, the old file's size and mtime are unchanged, `GET /api/title/{workKey}` still has the old hash and "downloaded", and the hero shows "Replacing x%". After Ready: the target has the new hash, the old row is gone, the tombstone is processed, the old file is gone, Activity shows "Replaced", and the notification uses the replacement wording |
+| P19 | Finished episode, both entry points | P18 for one episode from the series dialog card menu, and for another from the title page card menu | as P18; other episodes untouched |
+| P20 | Block honoured | after P18, delete the new download so the film is wanted again; the feed lists the blocked release with the most seeders; run the wanted queue; open both pickers; press "Find the best one for me" | the ladder skips it ("1 you replaced"); both pickers list it last with "You replaced this on …" and "Use it anyway"; best never picks it; a hand pick of it downloads and the block stays |
+| P21 | `.torrent`-only candidate | a feed entry for the blocked release with a `.torrent` link and no hash | the engine refuses it as blocked and the ladder moves on; the same entry picked by hand downloads |
+| P22 | Failed new source | a finished episode; pick the payload that isn't a real video | the new row fails its check; the old file and links are unchanged; a `failed_check` block exists; the dialog shows it as failed |
+| P23 | Same file name | a finished episode from v1; pick v2 | the old file's hash is unchanged until Ready; v2 downloads into its own folder; after Ready only v2 remains |
+| P24 | Restart while pending | stop the app mid-download, then start it again | `ReplacesHash` survives; the replacement completes as in P18 |
+| P25 | Old row deleted first | while pending, delete the old row in Downloads | the links move to the replacement at once; the title page shows "Downloading x%", not "no longer available" |
+| P26 | Files missing | remove a finished fixture file from my own download folder; Find another source from the row | it is offered; the dialog says the files are already gone; at Ready the episode is linked to the new row |
+| P27 | Languages in the dialog | GET alternatives for crafted names (Tsundere `MULTi`, `VOSTFR`, `[CHT]`, `Dual Audio`, a neutral name); Playwright screenshots at 390/768/1280 | each card shows the right audio and subtitle line; clashes sort last and never get "Best match"; a finished row's current line says "from the file" |
+| P28 | Storage | a storage cap that fits only one copy | the plain "isn't room" message; nothing changes |
+| P29 | Owner only | a requester session in Playwright; GET and POST as requester | no button on the title page; the API returns 403 |
+| P30 | Migration | start 3987 on a fresh copy of `memtest\stable\data`; count rows with sqlite before and after | replaced hashes become `replaced` blocks, the owner's picks don't, and `ReleaseAttempts` is gone |
+
+### 6.7 Open questions for the critic (continued)
+
+12. **Blocked releases in pickers.** Shown last with the reason and "Use it anyway" (recommended, as in Sonarr's
+    interactive search), or hidden?
+13. **Block key.** Info hash per user, with the work and episode stored for the text (recommended)? Or the work plus
+    episode coordinates, which A2 makes unstable?
+14. **What blocks.** The owner's replacement and a failed video check (recommended). Language refusals and send
+    failures don't block.
+15. **Unblocking.** None in this change, since a hand pick still works (recommended). Later, a Settings list like
+    Sonarr's Blocklist page.
+16. **Removing a title** keeps its blocks (recommended). Sonarr deletes them with the series.
+17. **Episodes from a season pack.** Not in this change (recommended). `docs/season-pack-fallback.md` 4.4 already
+    designs the per-episode release (`ReleaseFileAsync`), which this would build on.
+18. **"Source" and "site".** The action says source, and the site picker says site. Agree?
+19. **Server messages.** Advice to the owner says "find another source". Descriptions of what TorrentFlow does stay,
+    and `CompletedMediaValidator`'s text stays because it is compared as text. Agree?
+20. **Both rows in Downloads while pending** (recommended, with notes), or hide the old one until the swap completes?
+21. **Order of work.** Four slices, each shipping on its own with its proofs:
+    1. the rename and the languages in the dialog;
+    2. the blocklist;
+    3. deferred finished swaps;
+    4. the title page entry points.
+
+### 6.8 Found on the way
+
+Filed:
+
+- OPS-527 (FEAT-30): a failed release can be picked again once its row is gone. Fixed by 6.4.5.
+- OPS-528 (FEAT-30): rules send non-episode releases straight to the engine.
+- OPS-529 (FEAT-28): "Pick a release yourself" ignores the anime mapping and drops the ranking's reasons.
+- OPS-530 (FEAT-17): a row parked just before its video check is never checked after a restart.
+- OPS-531 (FEAT-16): Notifications hide "That torrent link was not found".
+
+Noted, not filed (minor, or not reachable from the UI):
+
+- `SwapBest` compares against `ConnectedSeeders ?? 0` (`ReleaseSwapService.cs:134`), so on a paused download any
+  alternative with one seeder counts as better. 6.4.6 changes the rule for finished downloads.
+- The season-pack swap, which the UI never offers, resolves one arbitrary claimed episode (`ReleaseSwapService.cs:54`)
+  and leaves `FileIndex` set (`ReleaseSwap.cs:140-143`).
+- The swap removes partial files without a tombstone (`ReleaseSwap.cs:79-86`).
+- The swap's "already in your downloads" check has no user filter (`ReleaseSwap.cs:37`). There is only one local user
+  today.
+- Alternatives without a magnet are dropped (`ReleaseSwapService.cs:209`).
+- The web tests "finished" in four places with three rules:
+  - `progress >= 0.9999`: `canFindAnotherRelease` (`release-swap-dialog.tsx:78`) and `packLabel`
+    (`release-display.ts:263`);
+  - `>= 1`: `showsProgressBar` (:179);
+  - state `downloaded`: `canOpenFinishedFile` (:190).
+
+  The new gate uses none of them.
