@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
@@ -25,6 +26,9 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
 }
 
+/// <summary>An attempt cut short by shutdown: never a failed release; the wanted queue picks it up again after the restart.</summary>
+public sealed class ShuttingDownException(CancellationToken ct) : OperationCanceledException("TorrentFlow is shutting down.", ct);
+
 /// <summary>What one ladder rung fetched and how much survived each filter (TS RungDiagnostic).</summary>
 public sealed class RungDiagnostic
 {
@@ -43,8 +47,11 @@ public sealed class RungDiagnostic
 
 public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
-    EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null)
+    EpisodeSearchIdentity? searchIdentity = null, AnimeEpisodeMappings? episodeMappings = null, IHostApplicationLifetime? lifetime = null)
 {
+    /// <summary>True once the app began shutting down: probes are cancelled and the client stops before callers' tokens fire.</summary>
+    private bool Stopping => lifetime?.ApplicationStopping.IsCancellationRequested == true;
+
     private readonly object episodeGate = new();
     private readonly Dictionary<string, Task<GrabResult>> episodeFlights = [];
 
@@ -231,6 +238,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             }
             if (queryFailed) break;
         }
+        // A search cut short by shutdown is no miss: the run starts over after the restart.
+        if (Stopping) throw new ShuttingDownException(ct);
         var searches = memo.Count;
         object Report(string reason) => new { reason, searches, triedSeasonPacks = false, manualSearchQuery = query,
             mapping = input.EpisodeMapping, candidates = decisions.Values.ToArray(), rungs = diagnostics };
@@ -331,6 +340,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             releases.Remove(candidate);
         }
         if (lastFailure != null) return lastFailure;
+        if (Stopping) throw new ShuttingDownException(ct);
         var summary = FilmSelection.Summarize(response.Results, key, floor);
         var failure = FilmSelection.NoMatch(title, floor, response.Sources, summary) with { Detail = FilmSelection.Explain(response.Sources, summary, floor) };
         logger?.LogInformation("Film not found {Title}: {Detail}", title, failure.Detail);
@@ -399,7 +409,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
-        catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
+        catch (Exception error) when (!ct.IsCancellationRequested && !Stopping) { result = new(false, error.Message); }
+        // A failure caused by shutdown is no verdict on the release: nothing is recorded and the attempt resumes after the restart.
+        if (!result.Ok && Stopping) throw new ShuttingDownException(ct);
         var hash = LibraryJson.Hash(result.Hash) ?? LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);
         var queued = result.Details?.Action == EngineAddDetails.Queued;
         var logged = EngineAddMessages.Outcome(result);

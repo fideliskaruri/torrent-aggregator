@@ -38,6 +38,9 @@ public partial class AcquisitionTarget
     /// <summary>The season download (a Download season click or a request) that last asked for this row; its one summary notification is keyed by it.</summary>
     public string? RunId { get; set; }
 
+    /// <summary>When the owner clicked this one episode on its own; it stays its own wanted unit (with click priority) until it settles, across restarts. Null for season orders.</summary>
+    public DateTime? ClickedAt { get; set; }
+
     public string? Error { get; set; }
 
     public DateTime CreatedAt { get; set; }

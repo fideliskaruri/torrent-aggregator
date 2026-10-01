@@ -98,13 +98,23 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var tracked = await SeedAsync(wanted.WorkKey, wanted.WorkId, scope, wanted.Season, episodes, wanted.PreferredResolution, restart: wanted.Single, ct);
         // Each season download is one run: every episode it asked for, already started or not, counts toward its one summary.
         string? runId = null;
-        if (wanted.Season != null && tracked.Count > 0 && !wanted.Single)
+        await using (var db = await factory.CreateDbContextAsync(ct))
         {
-            runId = Ids.New();
             var keys = tracked.Keys.ToArray();
-            await using var db = await factory.CreateDbContextAsync(ct);
-            await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && keys.Contains(t.TargetKey))
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.RunId, runId), ct);
+            if (wanted.Season != null && tracked.Count > 0 && !wanted.Single)
+            {
+                runId = Ids.New();
+                // A season order takes back its episodes clicked on their own, also after a restart.
+                await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && keys.Contains(t.TargetKey))
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.RunId, runId).SetProperty(t => t.ClickedAt, (DateTime?)null), ct);
+            }
+            else if (wanted.Single && tracked.Count == 1)
+            {
+                // The click is remembered so a restart brings it back as its own unit with click priority.
+                var clickedAt = time.GetUtcNow().UtcDateTime;
+                await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && keys.Contains(t.TargetKey) && t.InfoHash == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.ClickedAt, clickedAt), ct);
+            }
         }
         // A clicked episode is a unit of its own, so the click never restarts or reschedules the rest of its season.
         var unit = new Unit(wanted.WorkKey, wanted.Season,
@@ -189,6 +199,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                     .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, transfer.Status).SetProperty(t => t.Progress, 0)
                     .SetProperty(t => t.InfoHash, transfer.InfoHash).SetProperty(t => t.FilePath, (string?)null)
                     .SetProperty(t => t.RealMisses, t => t.RealMisses + miss)
+                    .SetProperty(t => t.ClickedAt, t => transfer.InfoHash == null ? t.ClickedAt : null)
                     .SetProperty(t => t.Error, transfer.Error).SetProperty(t => t.UpdatedAt, now), ct);
             }
     }
@@ -281,8 +292,15 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         await ReleaseFailedPacksAsync(db, ct);
         var rows = await db.AcquisitionTargets.AsNoTracking()
             .Where(t => t.UserId == LocalUser.Id && t.Status == "queued" && t.InfoHash == null && (t.Scope == "episode" || t.Scope == "title"))
-            .Select(t => new { t.WorkKey, t.Season, t.Episode, t.Scope, t.UpdatedAt }).ToListAsync(ct);
-        foreach (var row in rows.Where(r => r.Scope == "title" || r.Episode is not { } episode || !OnItsOwn(new(r.WorkKey, r.Season, episode)))
+            .Select(t => new { t.WorkKey, t.Season, t.Episode, t.Scope, t.UpdatedAt, t.ClickedAt }).ToListAsync(ct);
+        // A clicked film or episode comes back as its own unit with its click priority, never absorbed into its season's run.
+        foreach (var row in rows.Where(r => r.ClickedAt != null).OrderBy(r => r.ClickedAt))
+        {
+            var unit = new Unit(row.WorkKey, row.Scope == "title" ? null : row.Season, row.Scope == "title" ? null : row.Episode);
+            if (plans.ContainsKey(unit) || !all && row.UpdatedAt > cutoff) continue;
+            plans.TryAdd(unit, new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null, Single: true));
+        }
+        foreach (var row in rows.Where(r => r.ClickedAt == null && (r.Scope == "title" || r.Episode is not { } episode || !OnItsOwn(new(r.WorkKey, r.Season, episode))))
             .GroupBy(r => new Unit(r.WorkKey, r.Scope == "title" ? null : r.Season)))
         {
             if (plans.ContainsKey(row.Key) || !all && row.Max(r => r.UpdatedAt) > cutoff) continue;
@@ -316,7 +334,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             running[unit] = Task.Run(async () =>
             {
                 try { await RunAsync(unit, ct); }
-                catch (Exception error) when (!ct.IsCancellationRequested)
+                catch (Exception error) when (!ct.IsCancellationRequested && error is not ShuttingDownException)
                 {
                     logger.LogWarning(error, "Wanted {WorkKey} season {Season} attempt failed", unit.WorkKey, unit.Season);
                     Reschedule(unit, null, [GrabFailure.FromException(error)], null, null);

@@ -71,6 +71,11 @@ peers, scene names, magnet links, save paths) stay off-stage.
   swarms) notifies the owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
   Each season order is a run (`AcquisitionTarget.RunId`) with one counts-only summary notification (see
   notifications.md); a single click is not a run.
+  A click stamps `AcquisitionTarget.ClickedAt` (cleared once a release is sent or a season order takes the row), so
+  after a restart the startup scan rebuilds it as its own `Single` unit ahead of the season runs. A search or send
+  cut short by shutdown (`ApplicationStopping`) throws `ShuttingDownException`: nothing is logged as failed or
+  skipped and no retry wait is set. Dead releases keep their engine error row, so after a restart they are refused at
+  once instead of waiting out the metadata timeout again.
 - **The server decides a season's episodes** (`ISeasonShapeLookup`, `SeasonShapeService`). Download season
   ignores any episode list the browser sends, and requests read the same shape. For anime it is
   `AnimeFranchiseService`: the AniList first season and its released TV/ONA sequels laid over the one TMDB
