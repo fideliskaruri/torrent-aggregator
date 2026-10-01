@@ -23,14 +23,13 @@ import {
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { useApiQuery } from "@/hooks/use-api-query";
 import {
   LoadingGlyph,
   PageSkeletonFrame,
   SkeletonBlock,
 } from "@/components/ui/loading";
-import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { cn } from "@/lib/utils";
 import {
   buildRuleCreatePayload,
@@ -126,15 +125,10 @@ function buildRuleRetargetPayload(
 }
 
 export default function RulesPage() {
-  const {
-    data: rulesData,
-    loading,
-    error,
-    refetch: load,
-  } = useApiQuery<Rule[]>("/api/rules", {
+  const rulesQuery = useApiQuery<Rule[]>("/api/rules", {
     select: (json) => (json as { rules?: Rule[] }).rules ?? [],
   });
-  const showLoading = useStableLoading(loading && rulesData == null && !error);
+  const { data: rulesData, refetch: load } = rulesQuery;
   const rules = rulesData ?? [];
   const [running, setRunning] = useState(false);
   const [runReviewOpen, setRunReviewOpen] = useState(false);
@@ -387,12 +381,16 @@ export default function RulesPage() {
     }
   }
 
-  if (loading && rulesData == null && !error) {
-    return <RulesSkeleton visible={showLoading} />;
-  }
 
 
   return (
+    <PageQueryBoundary
+      query={rulesQuery}
+      skeleton={(visible) => <RulesSkeleton visible={visible} />}
+      errorTitle="Could not load rules"
+      frame={(node) => <div className="container-app max-w-3xl py-6 pb-24 sm:py-8">{node}</div>}
+    >
+    {() => (
     <div className="container-app max-w-3xl py-6 pb-24 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Auto-download rules"
@@ -767,13 +765,7 @@ export default function RulesPage() {
             </div>
           );
         })}
-        {error ? (
-          <TfErrorState
-            title="Could not load rules"
-            message={error}
-            onRetry={load}
-          />
-        ) : !rules.length ? (
+        {!rules.length ? (
           <TfEmptyState
             icon={Zap}
             title="No rules yet"
@@ -815,6 +807,8 @@ export default function RulesPage() {
         onConfirm={() => void confirmRemove()}
       />
     </div>
+    )}
+    </PageQueryBoundary>
   );
 }
 

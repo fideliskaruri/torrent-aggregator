@@ -18,6 +18,8 @@ import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { PosterImage } from "@/components/browse/poster-image";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
+import { cn } from "@/lib/utils";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useSessionInfo } from "@/lib/session";
 import { useCapabilities } from "@/lib/capabilities";
@@ -256,8 +258,12 @@ export default function RequestsPage() {
       </section>
       ) : null}
 
-      {list.loading ? (
-        <ul className="space-y-2" aria-busy="true" aria-label="Loading requests">
+      <PageQueryBoundary
+        query={list}
+        errorTitle="Couldn't load requests"
+        isEmpty={() => rows.length === 0}
+        skeleton={(visible) => (
+        <ul className={cn("space-y-2", !visible && "invisible")} aria-busy="true" aria-label="Loading requests">
           {Array.from({ length: 3 }, (_, i) => (
             <li key={i} className="surface flex gap-3 p-3" aria-hidden>
               <div className="skeleton aspect-[2/3] w-12 shrink-0 rounded-md" />
@@ -268,9 +274,8 @@ export default function RequestsPage() {
             </li>
           ))}
         </ul>
-      ) : list.error && rows.length === 0 ? (
-        <TfErrorState title="Couldn't load requests" message={list.error} onRetry={list.refetch} retrying={list.refreshing} />
-      ) : rows.length === 0 ? (
+        )}
+        empty={
         reviewing ? (
           <TfEmptyState icon={Inbox} title="No requests" description="When a friend asks for a title it shows up here." />
         ) : (
@@ -282,7 +287,9 @@ export default function RequestsPage() {
             actionHref="/"
           />
         )
-      ) : (
+        }
+      >
+        {() => (
         <ul className="space-y-2" data-owner-request-list>
           {rows.map((request) => {
             const busy = busyId === request.id;
@@ -402,7 +409,8 @@ export default function RequestsPage() {
             );
           })}
         </ul>
-      )}
+        )}
+      </PageQueryBoundary>
 
       <ConfirmDialog
         open={declining != null}
