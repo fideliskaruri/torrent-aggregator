@@ -902,9 +902,11 @@ export function SeriesDownloadDialog({
             {/*
               In the panel, not on the tab: a checkbox inside role="tab" breaks
               the rail's arrow keys, and phones pick seasons from a Select.
+              -top-3 matches the panel's py-3: sticky offsets count from the
+              padded edge, so top-0 would sit 12px low over the first cards.
             */}
             <div
-              className="sticky top-0 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
+              className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
               data-season-select-all-row
             >
               <Checkbox
