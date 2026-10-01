@@ -43,6 +43,7 @@ import {
   type NavItem,
 } from "@/lib/navigation";
 import { pendingBadge } from "@/lib/requests";
+import { NavPendingBadge } from "./nav-pending-badge";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 import { signOut } from "@/lib/sign-out";
@@ -153,14 +154,7 @@ export function MobileNav() {
                     />
                     {label}
                     {href === REQUESTS_HREF && requestsBadge ? (
-                      <Badge
-                        variant="solid"
-                        data-nav-requests-pending
-                        aria-label={`${requestsBadge} pending`}
-                        className="ml-auto min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
-                      >
-                        {requestsBadge}
-                      </Badge>
+                      <NavPendingBadge count={requestsBadge} data-nav-requests-pending className="ml-auto" />
                     ) : null}
                   </Link>
                 </li>

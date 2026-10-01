@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFeatures, useDisplayPath } from "@/lib/features";
+import { useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { MaxActiveDownloadsControl } from "@/components/settings/max-active-downloads";
 import { Link, useSearchParams } from "react-router";
@@ -7,9 +7,7 @@ import { toast } from "@/lib/toast";
 import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import {
   ArrowDownUp,
-  ChevronRight,
-  Download,
-  FolderTree,
+  ChevronRight,  FolderTree,
   HardDriveDownload,
   Magnet,
   MoreHorizontal,
@@ -17,18 +15,14 @@ import {
   Play,
   RefreshCw,
   Search,
-  Trash2,
-  Zap,
-  ChevronDown,
+  Trash2,  ChevronDown,
 } from "lucide-react";
-import { formatBytes, formatDuration, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
 import { Button } from "@/components/ui/button";
 import { useDownloadSetup } from "@/components/setup/download-setup";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,29 +52,22 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenuItem,  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfWorkThumb } from "@/components/tf/work-thumb";
-import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import {
   titleHrefForName,
   titlePath,
 } from "@/components/title/work-key";
-import { seasonProgressLabel } from "@/components/title/season-progress";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
-import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
+import { speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
 import {
-  groupDownloads,
-  seriesEpisodeTally,
-  statusCounts,
+  groupDownloads,  statusCounts,
   isDownloading,
   isError,
   isPaused,
@@ -97,22 +84,9 @@ import {
   type DownloadTab,
 } from "./media-filter";
 import {
-  releaseDisplayFacts,
-  sourceChip,
-  canDownloadNow,
-  canOpenFinishedFile,
-  forcedStartLabel,
-  pauseResumeAction,
-  pauseResumeTargets,
-  rollupChip,
-  rowStateBadge,
-  showsProgressBar,
-  transferErrorMessage,
-  transferLabel,
-  transfersLabel,
-  waitReasonLabel,
-  packLabel,
-} from "./release-display";
+  releaseDisplayFacts,  pauseResumeTargets,
+  rollupChip,  transferLabel,
+  transfersLabel,} from "./release-display";
 import {
   isValidTorrentSourceInput,
   parseTorrentSourceInput,
@@ -129,14 +103,19 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
-import { FolderMenuItem } from "./folder-menu-item";
+import {
+  DownloadGroupSummary,
+  DownloadTransferRow,
+  type DownloadTransferRowProps,
+} from "./download-transfer-row";
+import { IconMenuButton, groupMenuItems } from "./row-menu";
 import {
   downloadLinkFrom,
   downloadLinkKey,
   findLinkedDownload,
   withoutDownloadLink,
 } from "./download-link";
-import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
+import { ReleaseSwapDialog } from "./release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
@@ -1890,7 +1869,6 @@ function SeriesOverviewRow({
   onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
-  const pct = progressPercent(group.progress);
   const head = group.torrents[0];
   const query = artworkQueryForRelease(head.name, head.category);
   const art = artwork[query.key];
@@ -1898,25 +1876,6 @@ function SeriesOverviewRow({
   const checkedCount = transferIds.filter((transferId) => selected.has(transferId)).length;
   const allSelected = transferIds.length > 0 && checkedCount === transferIds.length;
   const chip = rollupChip(group);
-  const tally = seriesEpisodeTally(group);
-  // The title page's season line, worded the same; no aired total is known here.
-  const tallyText = seasonProgressLabel({ ...tally, aired: null });
-  const missingFiles = group.torrents.filter((t) => t.filesMissing === true).length;
-  const barTone = isDownloaded(group.state)
-    ? "bg-success"
-    : isError(group.state) || chip.failing
-      ? "bg-destructive"
-      : isPaused(group.state) || isQueued(group.state)
-        ? "bg-subtle-foreground"
-        : "bg-primary";
-  const titleHref = downloadTitleHref(head);
-  // Once several members failed the chip carries the count; repeating one
-  // member's error text would read as if it were the whole series' story.
-  const groupErrorMessage =
-    group.counts.error === 1
-      ? transferErrorMessage(group.torrents.find((t) => isError(t.state)) ?? { state: group.state })
-      : null;
-  const targets = pauseResumeTargets(group.torrents);
 
   return (
     <div
@@ -1934,87 +1893,7 @@ function SeriesOverviewRow({
         aria-label={`Select all of ${group.title}`}
         className="shrink-0"
       />
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-start gap-2.5">
-          {titleHref ? (
-            <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
-              <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={40} />
-            </Link>
-          ) : (
-            <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={40} />
-          )}
-          <div className="min-w-0 flex-1 space-y-1">
-            {titleHref ? (
-              <Link
-                to={titleHref}
-                className="flex items-center min-h-[44px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:block lg:min-h-0"
-              >
-                <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug hover:text-brand-foreground">
-                  {group.title}
-                </p>
-              </Link>
-            ) : (
-              <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">
-                {group.title}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant={chip.variant} data-group-state>
-                {chip.label}
-              </Badge>
-              {missingFiles > 0 ? (
-                <Badge
-                  variant="danger"
-                  title={`${missingFiles} ${missingFiles === 1 ? "download's files are" : "downloads' files are"} no longer on disk`}
-                  data-files-missing
-                >
-                  Files missing
-                </Badge>
-              ) : null}
-              <span className="text-[12px] text-subtle-foreground tabular-nums">
-                {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
-                {" · "}
-                {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
-                {group.sizeBytes > 0 ? ` · ${formatBytes(group.sizeBytes)}` : null}
-              </span>
-            </div>
-            {tallyText ? (
-              <p
-                data-group-episodes
-                className="text-[12px] tabular-nums text-muted-foreground"
-              >
-                {tallyText}
-              </p>
-            ) : null}
-            {groupErrorMessage ? (
-              <p
-                className="text-[12px] leading-snug text-destructive"
-                data-group-error-message
-              >
-                {groupErrorMessage}
-              </p>
-            ) : null}
-            {showsProgressBar(group) ? (
-              <div className="flex items-center gap-2 pt-0.5">
-                <Progress
-                  value={pct}
-                  aria-label={`${group.title} combined download progress`}
-                  className="h-1.5 flex-1 max-w-[18rem]"
-                  indicatorClassName={barTone}
-                />
-                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                  {pct}%
-                </span>
-                {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                    ↓ {speedLabel(group.dlspeed)}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={art?.posterUrl} />
 
       <div className="col-start-2 flex items-center justify-end gap-2 sm:col-start-auto lg:gap-1">
         <Button
@@ -2028,46 +1907,9 @@ function SeriesOverviewRow({
           Details
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`More actions for ${group.title}`}
-              data-group-more
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {targets.pause.length ? (
-              <DropdownMenuItem
-                onClick={() => onActionMany("pause", targets.pause)}
-              >
-                <Pause />
-                Pause all
-              </DropdownMenuItem>
-            ) : null}
-            {targets.resume.length ? (
-              <DropdownMenuItem
-                onClick={() => onActionMany("resume", targets.resume)}
-              >
-                <Play />
-                Resume all
-              </DropdownMenuItem>
-            ) : null}
-            {targets.pause.length || targets.resume.length ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => onDeleteRequest([...group.torrents])}
-              data-group-delete
-            >
-              <Trash2 />
-              Delete all…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <IconMenuButton label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
+          {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
+        </IconMenuButton>
       </div>
     </div>
   );
@@ -2075,363 +1917,29 @@ function SeriesOverviewRow({
 
 /**
  * A film's row. A film is one download, and grouping it would only add a
- * disclosure triangle that reveals itself — so it keeps its own identity, its
+ * disclosure triangle that reveals itself, so it keeps its own identity, its
  * own poster and its own controls rather than routing through the series
  * dialog.
  */
 function FilmRow({
   torrent: t,
-  isSelected,
-  highlighted,
-  openingHash,
   artwork,
-  onToggleSelect,
-  onAction,
-  onOpenFolder,
-  onOpenFile,
-  onCopyPath,
-  onCopyMagnet,
-  onDeleteRequest,
-}: {
-  torrent: ClientTorrent;
-  isSelected: boolean;
-  /** The download a notification's "View details" pointed at. */
-  highlighted: boolean;
-  openingHash: string | null;
+  ...rest
+}: Omit<DownloadTransferRowProps, "kind" | "title" | "titleHref" | "posterUrl" | "showThumb"> & {
   artwork: ReturnType<typeof useReleaseArtwork>;
-  onToggleSelect: (hash: string, additive: boolean) => void;
-  onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
-  onOpenFolder: (t: ClientTorrent) => void;
-  onOpenFile: (t: ClientTorrent, mode: OpenDownloadMode) => void;
-  onCopyPath: (t: ClientTorrent) => void;
-  onCopyMagnet: (t: ClientTorrent) => void;
-  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
-  const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
-  const { openFolder } = useFeatures();
-  const displayPath = useDisplayPath();
   const display = releaseDisplayFacts(t, query);
-  const art = artwork[query.key];
-  const badge = rowStateBadge(t);
-  const busy = openingHash === t.transferId;
-  // A pack's largest file is one episode of many, so a pack only gets Show in folder.
-  const canOpen = openFolder && canOpenFinishedFile(t) && !t.packEpisodes;
-  const barTone = isDownloaded(t.state)
-    ? "bg-success"
-    : isError(t.state)
-      ? "bg-destructive"
-      : isPaused(t.state) || isQueued(t.state)
-        ? "bg-subtle-foreground"
-        : "bg-primary";
-  const titleHref = downloadTitleHref(t);
-  const isBuiltin = t.ownerClientType === "builtin";
-  const errorMessage = transferErrorMessage(t);
-  const pauseResume = pauseResumeAction(t);
-  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
-  const rowRef = useRef<HTMLDivElement>(null);
-  // Bring the linked row into view and give it focus, so the keyboard and a
-  // screen reader start from the download the user asked to see.
-  useEffect(() => {
-    if (!highlighted) return;
-    rowRef.current?.scrollIntoView({ block: "center" });
-    rowRef.current?.focus({ preventScroll: true });
-  }, [highlighted]);
-
   return (
-    <div
-      ref={rowRef}
-      className={cn(
-        "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
-        isSelected ? "bg-brand-dim" : "hover:bg-muted/60",
-        highlighted && "ring-2 ring-inset ring-brand",
-      )}
-      data-client-torrent
-      data-highlighted={highlighted || undefined}
-      role="button"
-      tabIndex={0}
-      aria-pressed={isSelected}
-      aria-label={`${isSelected ? "Deselect" : "Select"} ${display.title}`}
-      data-hash={t.hash}
-      data-owner-client={t.ownerClientType}
-      data-retention={t.retentionState}
-      data-torrent-error={isError(t.state) ? "true" : undefined}
-      onClick={(e) => {
-        if (
-          e.target instanceof HTMLElement &&
-          (e.target.closest("button") ||
-            e.target.closest("select") ||
-            e.target.closest('[role="checkbox"]') ||
-            e.target.closest("a"))
-        ) {
-          return;
-        }
-        onToggleSelect(t.transferId, e.ctrlKey || e.metaKey || e.shiftKey);
-      }}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onToggleSelect(t.transferId, e.ctrlKey || e.metaKey || e.shiftKey);
-        }
-      }}
-    >
-      <div className="flex items-center gap-2 sm:contents">
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={() => onToggleSelect(t.transferId, true)}
-          aria-label={`Select ${display.title}`}
-          className="shrink-0"
-        />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-start gap-2.5" title={t.name}>
-            {titleHref ? (
-              <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
-                <TfWorkThumb title={display.title} posterUrl={art?.posterUrl} sizePx={40} />
-              </Link>
-            ) : (
-              <TfWorkThumb title={display.title} posterUrl={art?.posterUrl} sizePx={40} />
-            )}
-            <div className="min-w-0 flex-1 space-y-1">
-              {titleHref ? (
-                <Link
-                  to={titleHref}
-                  className="flex items-center min-h-[44px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:block lg:min-h-0"
-                >
-                  <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug hover:text-brand-foreground">
-                    {display.title}
-                  </p>
-                </Link>
-              ) : (
-                <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">
-                  {display.title}
-                </p>
-              )}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge
-                  variant={badge.variant}
-                  title={badge.filesMissing ? "The downloaded files are no longer on disk" : undefined}
-                  data-torrent-state
-                  data-files-missing={badge.filesMissing || undefined}
-                >
-                  {badge.label}
-                </Badge>
-                {t.imported && <Badge variant="outline">Imported</Badge>}
-                {packLabel(t) ? (
-                  <span className="text-[12px] text-muted-foreground" data-season-pack>
-                    {packLabel(t)}
-                  </span>
-                ) : null}
-                {forcedStartLabel(t) ? (
-                  <span className="text-[12px] text-muted-foreground" data-torrent-forced>
-                    {forcedStartLabel(t)}
-                  </span>
-                ) : waitReasonLabel(t.state, t.waitReason) ? (
-                  <span
-                    className="text-[12px] text-subtle-foreground"
-                    data-wait-reason={t.waitReason ?? undefined}
-                  >
-                    {waitReasonLabel(t.state, t.waitReason)}
-                  </span>
-                ) : null}
-                {/*
-                  One quality tag at most (resolution). Source tags (WEB-DL),
-                  scene/tracker chips, peer counts and the folder path are
-                  torrent mechanics — they leave the row and live in the
-                  overflow's Details.
-                */}
-                {display.qualityChip ? <Badge variant="outline">{display.qualityChip}</Badge> : null}
-                {t.sizeBytes > 0 || (isDownloading(t.state) && t.eta != null && t.eta > 0) ? (
-                  <span className="text-[12px] text-subtle-foreground tabular-nums">
-                    {t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null}
-                    {t.sizeBytes > 0 && isDownloading(t.state) && t.eta != null && t.eta > 0 ? " · " : ""}
-                    {isDownloading(t.state) && t.eta != null && t.eta > 0
-                      ? `ETA ${formatDuration(t.eta)}`
-                      : ""}
-                  </span>
-                ) : null}
-              </div>
-              {errorMessage ? (
-                <p
-                  className="text-[12px] leading-snug text-destructive"
-                  data-torrent-error-message
-                >
-                  {errorMessage}
-                </p>
-              ) : null}
-              {showsProgressBar(t) ? (
-                <div className="flex items-center gap-2 pt-0.5">
-                  <Progress
-                    value={pct}
-                    aria-label={`${display.title} download progress`}
-                    className="h-1.5 flex-1 max-w-[18rem]"
-                    indicatorClassName={barTone}
-                  />
-                  <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
-                    {pct}%
-                  </span>
-                  {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
-                    <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                      ↓ {speedLabel(t.dlspeed)}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-2 lg:gap-0.5">
-        {canDownloadNow(t) && isBuiltin ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="lg:mr-1.5"
-            onClick={() => onAction("force", t)}
-            aria-label={`Download ${display.title} now`}
-            data-torrent-force-now
-          >
-            <Zap className="h-3.5 w-3.5" />
-            Download now
-          </Button>
-        ) : null}
-        {isError(t.state) ? (
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            className="lg:mr-1.5"
-            onClick={() => onAction("resume", t)}
-            aria-label={`Retry ${display.title}`}
-            data-torrent-retry
-            data-torrent-resume
-          >
-            <Download className="h-3.5 w-3.5" />
-            Retry
-          </Button>
-        ) : isPaused(t.state) && t.progress < 1 ? (
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            className="lg:mr-1.5"
-            onClick={() => onAction("resume", t)}
-            aria-label={`Resume ${display.title}`}
-            data-torrent-resume
-          >
-            <Download className="h-3.5 w-3.5" />
-            Resume
-          </Button>
-        ) : null}
-        {canOpen ? (
-          <TfOpenFileButton
-            name={display.title}
-            busy={busy}
-            className="lg:mr-1.5"
-            onClick={() => onOpenFile(t, "open")}
-          />
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="More actions"
-              data-torrent-more
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {/*
-              Details is where the torrent mechanics went: the raw release
-              name, the source tag (WEB-DL), the category, the live peer count
-              and the folder path. None of it belongs in the default row, but
-              it is real information a power user occasionally wants, so it is
-              one keystroke away rather than gone.
-            */}
-            <div
-              className="px-2 py-1.5 text-[12px] leading-relaxed text-subtle-foreground"
-              data-torrent-details
-            >
-              <p className="font-medium text-muted-foreground">Details</p>
-              {(() => {
-                const facts = [
-                  sourceChip(t.name),
-                  t.ownerClientLabel,
-                  t.category,
-                  t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
-                ].filter(Boolean);
-                return facts.length ? <p className="tabular-nums">{facts.join(" · ")}</p> : null;
-              })()}
-              {t.savePath ? <p className="break-all font-mono">{displayPath(t.savePath)}</p> : null}
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onCopyMagnet(t)}
-              disabled={t.imported}
-              data-copy-magnet
-            >
-              <Magnet />
-              Copy magnet link
-            </DropdownMenuItem>
-            <FolderMenuItem
-              torrent={t}
-              busy={busy}
-              onOpenFolder={onOpenFolder}
-              onOpenFile={onOpenFile}
-              onCopyPath={onCopyPath}
-            />
-            <DropdownMenuSeparator />
-            {canDownloadNow(t) ? (
-              <DropdownMenuItem
-                onClick={() => onAction("force", t)}
-                data-torrent-force
-              >
-                <Zap />
-                Download now
-              </DropdownMenuItem>
-            ) : null}
-            {canFindAnotherRelease(t) ? (
-              <DropdownMenuItem
-                onClick={() => onAction("swap", t)}
-                data-find-release
-              >
-                <Search />
-                Find another release
-              </DropdownMenuItem>
-            ) : null}
-            {pauseResume === "pause" ? (
-              <DropdownMenuItem
-                onClick={() => onAction("pause", t)}
-              >
-                <Pause />
-                Pause
-              </DropdownMenuItem>
-            ) : pauseResume === "resume" ? (
-              <DropdownMenuItem
-                onClick={() => onAction("resume", t)}
-              >
-                <Play />
-                {isError(t.state) ? "Retry" : "Resume"}
-              </DropdownMenuItem>
-            ) : null}
-            {hasLifecycleItems ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => onDeleteRequest([t])}
-              data-delete-torrent
-            >
-              <Trash2 />
-              Delete…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+    <DownloadTransferRow
+      torrent={t}
+      kind="torrent"
+      title={display.title}
+      titleHref={downloadTitleHref(t)}
+      posterUrl={artwork[query.key]?.posterUrl}
+      showThumb
+      {...rest}
+    />
   );
 }
 

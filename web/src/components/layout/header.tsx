@@ -4,7 +4,6 @@ import { ChevronDown, CircleUser, Eye, LogOut, Search } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { openSearchOverlay } from "@/components/search/search-overlay";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import {
@@ -25,6 +24,7 @@ import {
 } from "@/components/ui/navigation-menu";
 import { Separator } from "@/components/ui/separator";
 import { pendingBadge } from "@/lib/requests";
+import { NavPendingBadge } from "./nav-pending-badge";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -232,14 +232,7 @@ export function Header() {
                     >
                       {label}
                       {href === REQUESTS_HREF && requestsBadge ? (
-                        <Badge
-                          variant="solid"
-                          data-nav-requests-pending
-                          aria-label={`${requestsBadge} pending`}
-                          className="min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
-                        >
-                          {requestsBadge}
-                        </Badge>
+                        <NavPendingBadge count={requestsBadge} data-nav-requests-pending />
                       ) : null}
                     </Link>
                   </NavigationMenuLink>
@@ -262,14 +255,7 @@ export function Header() {
                   >
                     More
                     {requestsBadge && moreRow.some((item) => item.href === REQUESTS_HREF) ? (
-                      <Badge
-                        variant="solid"
-                        data-nav-more-pending
-                        aria-label={`${requestsBadge} pending`}
-                        className="min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
-                      >
-                        {requestsBadge}
-                      </Badge>
+                      <NavPendingBadge count={requestsBadge} data-nav-more-pending />
                     ) : null}
                     <ChevronDown className="size-3.5" aria-hidden />
                   </DropdownMenuTrigger>
