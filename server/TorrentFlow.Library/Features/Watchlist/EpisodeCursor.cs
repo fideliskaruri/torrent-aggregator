@@ -16,7 +16,7 @@ public readonly record struct EpisodeCursor(int Season, int Episode)
         (Season == other.Value.Season && Episode > other.Value.Episode);
     public static EpisodeCursor? Parse(string? value) => HuntCursor.Parse(value) is { } parsed ? new(parsed.Season, parsed.Episode) : null;
     public static bool IsSeries(string? type) => HuntCursor.IsSeries(type);
-    /// <summary>The shared hunt rule (<see cref="HuntCursor"/>); prewarm and the timeline read rows through it too.</summary>
+    /// <summary>The shared hunt rule (<see cref="HuntCursor"/>); the timeline reads rows through it too.</summary>
     public static EpisodeCursor? Resolve(WatchListItem item) =>
         HuntCursor.Resolve(item.MediaType, item.MonitorMode, item.CursorSeason, item.CursorEpisode, item.LastEpisode,
             item.FromSeason, item.FromEpisode, item.NextEpisodeHint) is { } cursor ? new(cursor.Season, cursor.Episode) : null;

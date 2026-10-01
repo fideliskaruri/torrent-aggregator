@@ -9,7 +9,7 @@ namespace TorrentFlow.Library.Features.Watchlist;
 /// Pins the first episode of a new-episodes-only series: the first one to air after the row's
 /// <see cref="WatchListItem.NewEpisodesSince"/>, from metadata air dates, which is the next season premiere when
 /// the show is between seasons. This is the one place a new-episodes-only cursor starts; the watchlist add and the
-/// automation hunt both call it, and prewarm, the timeline and wait reasons read the pinned cursor. Nothing here
+/// automation hunt both call it, and the timeline and wait reasons read the pinned cursor. Nothing here
 /// falls back to S01E01.
 /// </summary>
 internal static class NewEpisodes

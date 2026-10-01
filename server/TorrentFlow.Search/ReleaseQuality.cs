@@ -37,8 +37,8 @@ public static class ReleaseQuality
     public static bool IsImplausible(TorrentResult r) => Match(r.Title, @"\bsample\b").Success
         || ParseResolution(r.Title) >= 720 && r.SizeBytes is > 0 and < 52428800;
     /// <summary>
-    /// Port of quality.ts directPlayableFromTitle: infer container/codecs from the name and ask what the playback
-    /// decision would be under the conservative default browser profile (fMP4 with H.264 + AAC only).
+    /// Port of quality.ts directPlayableFromTitle: infer container/codecs from the name and whether a conservative
+    /// player (fMP4 with H.264 + AAC only) could play the file as is. Ranking still prefers those: most devices play them.
     /// </summary>
     public static bool? DirectPlayableFromTitle(string title)
     {

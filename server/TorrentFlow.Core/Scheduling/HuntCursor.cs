@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace TorrentFlow.Core.Scheduling;
 
 /// <summary>
-/// Which episode a monitored series hunts next. Automation, the timeline and prewarm all read a library row
+/// Which episode a monitored series hunts next. Automation and the timeline both read a library row
 /// through this one rule, so they cannot disagree about the same row.
 /// </summary>
 public static class HuntCursor

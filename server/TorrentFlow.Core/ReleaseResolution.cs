@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace TorrentFlow.Core;
 
-/// <summary>The resolution contract used by search ranking, acquisition and playback.</summary>
+/// <summary>The resolution contract used by search ranking and acquisition.</summary>
 public static class ReleaseResolution
 {
     private static readonly (Regex Pattern, int Resolution)[] Patterns = new (string, int)[]

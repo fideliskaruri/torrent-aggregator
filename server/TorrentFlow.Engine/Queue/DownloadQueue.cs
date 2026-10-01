@@ -38,7 +38,7 @@ public static class DownloadQueue
 {
     public const string QueuedStatus = "queued";
     public const int DefaultMaxActiveDownloads = 2;
-    /// <summary>Only kept downloads are queued — streams and prewarm are never blocked.</summary>
+    /// <summary>The origin of every download TorrentFlow keeps; only these rows are queued.</summary>
     public const string QueueableOrigin = "user";
 
     /// <summary>Parses a cap the way the TypeScript engine reads TORRENTFLOW_MAX_ACTIVE_DOWNLOADS.</summary>
