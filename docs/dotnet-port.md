@@ -22,8 +22,8 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
 
 ## Manual release replacement
 
-The server supports **Find another release** for incomplete built-in movie and episode rows.
-The Downloads dialog (`web/src/app/downloads/release-swap-dialog.tsx`) offers a source picker, one-click
+The server supports **Find another source** for incomplete built-in movie and episode rows.
+The dialog (`web/src/components/releases/release-swap-dialog.tsx`) offers a source picker, one-click
 "Find the best one for me", and a manual list. The API returns connected seeders/peers, speed and observed
 stall duration, then alternatives sorted best first by `ReleaseSwapService.Rank`. An explicit swap request replaces that release and deletes only its
 recorded incomplete payload and partial-file siblings—not shared folders, unrelated or completed files.
