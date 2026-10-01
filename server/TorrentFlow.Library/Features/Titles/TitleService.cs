@@ -123,7 +123,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         await using var db = await factory.CreateDbContextAsync(ct);
         var cat = await catalog.FindByWorkKeyAsync(key, ct);
         // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
-        var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key).Select(x => new { x.Provider, x.ProviderId }).FirstOrDefaultAsync(ct);
+        var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key)
+            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.IdsJson }).FirstOrDefaultAsync(ct);
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
@@ -257,7 +258,14 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("status", watch?.Status), ("cursorSeason", watch?.CursorSeason), ("cursorEpisode", watch?.CursorEpisode),
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
+        // The names and ids a grab of this title searches with: the saved work's, else the provider record's.
+        var names = work != null ? WorkNames.Read(work.NamesJson, work.CanonicalTitle)
+            : query.Provider != null ? WorkNames.Of(query.Provider) : WorkNames.Legacy(title, null);
+        var ids = (work != null ? WorkIds.FromJson(work.IdsJson) ?? new() : query.Provider?.Ids ?? new())
+            .Merge(WorkIds.From(identity?.Provider, identity?.ProviderId));
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
+            ("names", names.All.Select(n => new { text = n.Text, kind = n.Kind.ToString().ToLowerInvariant() }).ToArray()),
+            ("ids", new { tmdb = ids.Tmdb, anilist = ids.AniList, mal = ids.Mal, imdb = ids.Imdb }),
             ("provider", identity?.Provider), ("providerId", identity?.ProviderId),
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)),

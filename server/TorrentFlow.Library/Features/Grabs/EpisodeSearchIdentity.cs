@@ -37,11 +37,12 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
             try
             {
                 var catalog = await metadata.GetByIdAsync(provider, known.Item1 == "movie" ? "movie" : "tv", providerId, ct);
+                IReadOnlyList<string> catalogNames = catalog == null ? [] : WorkNames.Of(catalog).MatchNames();
                 if (catalog != null && (year == null || catalog.Year == null || catalog.Year == year) &&
-                    (catalog.Aliases ?? []).Prepend(catalog.Title).Any(n => EpisodeLadder.NormalizeTitle(n) == wanted))
+                    catalogNames.Prepend(catalog.Title).Any(n => EpisodeLadder.NormalizeTitle(n) == wanted))
                 {
                     // Requests and automation carry no page aliases; the provider's own names are the same ones the title page sends.
-                    if (existing.Count == 0) existing = UniqueNames(catalog.Aliases ?? [], title);
+                    if (existing.Count == 0) existing = UniqueNames(catalogNames, title);
                     known = (AnimeIdentity.IsAnime(catalog) ? "anime" : known.Item1, existing);
                 }
             }
@@ -51,8 +52,8 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         try { matches = await lookup.SearchAsync(title, 5, ct); }
         catch (Exception) when (!ct.IsCancellationRequested) { return known; }
         var anime = matches.FirstOrDefault(c => AnimeIdentity.IsAnime(c) && (year == null || c.Year == null || c.Year == year) &&
-            new[] { c.Title }.Concat(c.Aliases ?? []).Any(name => EpisodeLadder.NormalizeTitle(name) == wanted));
-        return anime == null ? known : ("anime", UniqueNames(new[] { anime.Title }.Concat(anime.Aliases ?? []).ToList(), title));
+            WorkNames.Of(c).MatchNames().Prepend(c.Title).Any(name => EpisodeLadder.NormalizeTitle(name) == wanted));
+        return anime == null ? known : ("anime", UniqueNames(WorkNames.Of(anime).MatchNames().Prepend(anime.Title).ToList(), title));
     }
 
     internal static List<string> UniqueNames(IReadOnlyList<string> names, string canonicalTitle)

@@ -31,6 +31,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     private const string MediaFields = """
       id
+      idMal
       title { romaji english native }
       synonyms
       coverImage { large extraLarge }
@@ -191,6 +192,18 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     }
 
     private static bool HasRelevant(string q, IEnumerable<JsonElement> media) => media.Any(m => Relevance.HasRelevantTitle(q, Titles(m)));
+
+    /// <summary>The same names as <see cref="Titles"/>, in the same order, labelled.</summary>
+    private static List<WorkName> Names(JsonElement m)
+    {
+        var names = new List<WorkName>();
+        if (m.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.Object)
+            foreach (var (key, kind) in new[] { ("english", WorkNameKind.English), ("romaji", WorkNameKind.Romaji), ("native", WorkNameKind.Native) })
+                if (Str(t, key) is { } s && !string.IsNullOrWhiteSpace(s)) names.Add(new(s, kind));
+        foreach (var synonym in StrArray(m, "synonyms") ?? [])
+            if (!string.IsNullOrWhiteSpace(synonym)) names.Add(new(synonym, WorkNames.IsNative(synonym) ? WorkNameKind.Native : WorkNameKind.Synonym));
+        return [.. WorkNames.Of(names).All];
+    }
 
     public async Task<AniListWork?> GetWorkByIdAsync(string id, CancellationToken ct = default)
     {
@@ -376,6 +389,8 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             ExternalId = id.ToString(CultureInfo.InvariantCulture),
             Title = title,
             Aliases = titles.Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList(),
+            Names = Names(m),
+            Ids = new(AniList: id > 0 ? id : null, Mal: Int(m, "idMal") is > 0 and var mal ? mal : null),
             PosterUrl = Cover(m),
             BackdropUrl = Str(m, "bannerImage").OrEmpty(null),
             Synopsis = StripHtml(Str(m, "description")),

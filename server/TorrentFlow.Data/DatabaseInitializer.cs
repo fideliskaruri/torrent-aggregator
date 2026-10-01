@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data.Entities;
 
 namespace TorrentFlow.Data;
@@ -68,6 +70,8 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
                 await LogReleaseBlockBackfillAsync(conn, ct);
         }
 
+        await BackfillWorkNamesAsync(db, ct);
+
         if (!await db.Users.AnyAsync(u => u.Id == LocalUser.Id, ct))
         {
             var now = DateTime.UtcNow;
@@ -77,7 +81,29 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>
-    /// A consistent copy (WAL included) of the database file in <c>backups/</c> beside it, named after the newest pending
+    /// Labels the names and ids of works saved before <c>namesJson</c>/<c>idsJson</c> existed (and of works another path
+    /// created without them), from their title, legacy aliases and provider claim. <c>aliasesJson</c> is left as it was.
+    /// </summary>
+    private async Task BackfillWorkNamesAsync(TorrentFlowDbContext db, CancellationToken ct)
+    {
+        var rows = await db.Works.Where(w => w.NamesJson == null || w.IdsJson == null).ToListAsync(ct);
+        if (rows.Count == 0) return;
+        foreach (var work in rows)
+        {
+            if (work.NamesJson == null)
+            {
+                string?[] aliases = [];
+                try { aliases = JsonSerializer.Deserialize<string?[]>(work.AliasesJson ?? "[]") ?? []; }
+                catch (JsonException) { }
+                work.NamesJson = WorkNames.Legacy(work.CanonicalTitle, aliases, work.Provider).ToJson();
+            }
+            work.IdsJson ??= WorkIds.From(work.Provider, work.ProviderId).ToJson() ?? "{}";
+        }
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Labelled the names and ids of {Count} works", rows.Count);
+    }
+
+    /// <summary> of the database file in <c>backups/</c> beside it, named after the newest pending
     /// migration. Null for a database that is not a file. Updating without a backup is refused: the error says why.
     /// </summary>
     private async Task<string?> BackupAsync(System.Data.Common.DbConnection conn, string migration, CancellationToken ct)

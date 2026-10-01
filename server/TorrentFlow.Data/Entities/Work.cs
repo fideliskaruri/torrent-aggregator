@@ -15,7 +15,14 @@ public partial class Work
 
     public string MediaType { get; set; } = null!;
 
+    /// <summary>Unlabelled names from before <see cref="NamesJson"/>; kept for rollback, read by nothing.</summary>
     public string? AliasesJson { get; set; }
+
+    /// <summary>Labelled names; read them through <see cref="ReadNames"/>.</summary>
+    public string? NamesJson { get; set; }
+
+    /// <summary>Ids at every provider; read them through <see cref="ReadIds"/>.</summary>
+    public string? IdsJson { get; set; }
 
     public string? Provider { get; set; }
 

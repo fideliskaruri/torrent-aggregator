@@ -11,6 +11,7 @@ using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Automation;
 using TorrentFlow.Library.Features.Common;
+using TorrentFlow.Library.Features.Titles;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
@@ -55,7 +56,8 @@ public interface IWantedObserver
 /// A wanted row is an <see cref="AcquisitionTarget"/> with status "queued" and no transfer yet.
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
-    TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine) : BackgroundService
+    TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine,
+    WorkNamesRefresh? names = null) : BackgroundService
 {
     /// <summary>
     /// A run waits on searches and on the engine admitting each find (a magnet is admitted before its file list
@@ -358,6 +360,12 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 t.Scope == scope && t.Season == unit.Season && t.Status == "queued" && t.InfoHash == null).ToListAsync(ct))
             .Where(t => unit.Episode is { } clicked ? t.Episode == clicked : t.Episode is not { } episode || !OnItsOwn(unit with { Episode = episode }))
             .ToList();
+        if (names != null && rows.Count > 0)
+        {
+            // A work whose names never came from its provider gets them now (at most once a day), before this grab searches.
+            try { await names.RefreshAsync(unit.WorkKey, null, fetch: true, ct); }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation(error, "Could not refresh the names of {WorkKey}", unit.WorkKey); }
+        }
         var work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == unit.WorkKey, ct);
         plans.TryGetValue(unit, out var plan);
         var started = plan?.Order;
@@ -370,9 +378,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         }
         string? lane = plan?.Lane;
         foreach (var observer in observers) lane ??= await observer.LaneAsync(unit.WorkKey, unit.Season, ct);
-        IReadOnlyList<string> aliases = [];
-        try { aliases = JsonSerializer.Deserialize<string[]>(work.AliasesJson ?? "[]") ?? []; }
-        catch (JsonException) { }
+        IReadOnlyList<string> aliases = work.ReadNames().Others(work.CanonicalTitle);
         // A library show's item moves its next-up cursor when that episode starts, as a click always did.
         var watchId = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.WorkId == work.Id)
             .Select(x => x.Id).FirstOrDefaultAsync(ct);

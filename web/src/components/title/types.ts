@@ -128,6 +128,20 @@ export interface TitleLibraryState {
   };
 }
 
+/** One labelled name of a work. English and romaji are searched first; native script only matches. */
+export interface WorkName {
+  text: string;
+  kind: "english" | "romaji" | "synonym" | "native" | "original";
+}
+
+/** A work's ids at each provider (null when unknown). */
+export interface WorkIds {
+  tmdb: number | null;
+  anilist: number | null;
+  mal: number | null;
+  imdb: string | null;
+}
+
 /** The complete payload for one title page. */
 export interface TitleDetailPayload {
   workKey: string;
@@ -139,6 +153,10 @@ export interface TitleDetailPayload {
    * label (BUG-010). Empty when the provider offers none.
    */
   aliases: string[];
+  /** Every labelled name a grab of this title searches and matches with (the saved work's, else the provider's). */
+  names: WorkName[];
+  /** The title's ids at each provider that knows it. */
+  ids: WorkIds;
   year: number | null;
   /** Canonical media type, or null when nothing vouches for one. */
   mediaType: string | null;
