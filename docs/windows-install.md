@@ -90,7 +90,8 @@ has the same tray behaviour. Put a `portable` file next to it to keep data besid
 - **Tray icon.** Left-click opens TorrentFlow in the browser. Right-click shows a menu:
   - *Open TorrentFlow*
   - *Pause all downloads* / *Resume all downloads*: normal downloads only. Streams and
-    pre-warm transfers are left alone.
+    pre-warm transfers are left alone. Resumed downloads join the queue, so only as many start
+    as the downloads-at-once setting allows.
   - *Quit TorrentFlow*: shuts down cleanly and saves the engine state.
 
   Windows may put new icons in the hidden-icons overflow at first. Drag it onto the taskbar to

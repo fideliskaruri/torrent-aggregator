@@ -17,6 +17,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | Search takes 5–16 s | qa-search-perf (Astra, server only) | Running |
 | UI QA bugs: source controls under 44px on desktop, queued "Download now", send field errors, Advanced JSON crash, offline and expired sign-in banners, sweep of the other pages | qa-ui (Opus 5.5) | Running |
 | One request made two Frieren download groups (38 releases, 58 GB) | req-dup-grab (Astra, server) | Fixed and simulator/MCP verified: 38 distinct episodes, not duplicate grabs; canonical request identity merges both groups. Approval/decline/cancel races are guarded. |
+| BUG-D, BUG-K, BUG-T server half: only Download now passes the cap (Resume and Resume all queue), cap changes apply at once, delete returns at once with a restart-safe cleanup worker, settings report `effectiveMaxActive` / `maxActiveSource` | queue (server only, branch fix/queue-cap) | Server done and API-verified with real Ubuntu/Fedora/Debian ISOs on a data copy; not merged. Adds migration `AddForcedReasonAndDeletions`. The UI half is the web agent's |
 
 ## Next
 
