@@ -420,6 +420,7 @@ export default function RequestsPage() {
         title={`Decline ${declining?.title ?? "this request"}?`}
         description="They'll see it was declined, and your reason if you give one."
         cancelLabel="Keep it"
+        variant="destructive"
         confirmLabel="Decline request"
         onConfirm={() => {
           if (declining) void decide(declining, "decline", reason);

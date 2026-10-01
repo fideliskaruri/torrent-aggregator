@@ -16,7 +16,7 @@
  * and never pays for it: the server already rendered the board.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { BrowseGenre, BrowsePayload } from "@/lib/browse";
 import {
   browseApiUrl,
@@ -25,14 +25,13 @@ import {
   type BrowseQuery,
   type BrowseView,
 } from "@/lib/browse/views";
-import { TfErrorState } from "@/components/tf/error-state";
+import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { BrowseBoard } from "./browse-board";
 import { BrowseEmptyState, type BrowseEmptyView } from "./browse-empty-state";
 import { BrowseNav, GenreFilters } from "./browse-nav";
 import { BrowseSkeleton } from "./browse-skeleton";
 import { isFirstRun } from "./first-run";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 interface BrowseFirstRunProps {
   /** Why the server pass failed, or null when it simply had nothing. */
@@ -77,64 +76,49 @@ function BrowseFirstRunView({
     }
   }, [data]);
 
-  const rails = useMemo(() => data?.rails ?? [], [data]);
-  const showLoading = useStableLoading(loading && !data && !error);
   const genres = data?.genres ?? knownGenres.get(query.view) ?? [];
   const filters = <GenreFilters query={query} genres={genres} />;
-  const nav = <BrowseNav query={query} />;
 
+  // A failed server pass has no data and is the error to show; a request that
+  // failed after it wins.
   const failure = data ? null : (error ?? (dismissedServerError ? null : serverError));
-
-  if (failure) {
-    return (
-      <>
-        {nav}
-        <div className="container-app min-w-0">{filters}</div>
-        <div className="container-app min-w-0 py-14">
-          <TfErrorState
-            title="Browse could not load"
-            message={failure}
-            retrying={loading}
-            onRetry={() => {
-              // The server pass is not repeatable from here, so the retry hands
-              // the question to the API route — the same builder, reachable.
-              setDismissedServerError(true);
-              refetch();
-            }}
-          />
-        </div>
-      </>
-    );
-  }
-
-  if (loading && !data && !error) {
-    return (
-      <>
-        {nav}
-        <div className="container-app min-w-0">{filters}</div>
-        <BrowseSkeleton visible={showLoading} grid={Boolean(query.genre)} />
-      </>
-    );
-  }
-
-  // Between the two honest outcomes, and only now that a request has actually
-  // resolved: a real catalog, or a genuinely empty one.
-  if (data && !isFirstRun(rails)) {
-    return (
-      <>
-        {nav}
-        <BrowseBoard payload={data} filters={filters} />
-      </>
-    );
-  }
 
   return (
     <>
-      {nav}
-      <div className="container-app min-w-0">
-        {filters}
-        <BrowseEmptyState onRetry={onReload} view={emptyView(query, genres)} />
-      </div>
+      <BrowseNav query={query} />
+      <PageQueryBoundary
+        query={{
+          data,
+          loading,
+          error: failure,
+          refreshing: loading,
+          refetch: () => {
+            // The server pass is not repeatable from here, so the retry hands
+            // the question to the API route: the same builder, reachable.
+            setDismissedServerError(true);
+            refetch();
+          },
+        }}
+        errorTitle="Browse could not load"
+        skeleton={(visible) => (
+          <>
+            <div className="container-app min-w-0">{filters}</div>
+            <BrowseSkeleton visible={visible} grid={Boolean(query.genre)} />
+          </>
+        )}
+        // Only once a request has actually resolved: a real catalog, or a
+        // genuinely empty one.
+        isEmpty={(payload) => isFirstRun(payload.rails ?? [])}
+        empty={<BrowseEmptyState onRetry={onReload} view={emptyView(query, genres)} />}
+        frame={(node, kind) => (
+          <div className="container-app min-w-0">
+            {filters}
+            {kind === "error" ? <div className="py-14">{node}</div> : node}
+          </div>
+        )}
+      >
+        {(payload) => <BrowseBoard payload={payload} filters={filters} />}
+      </PageQueryBoundary>
     </>
   );
 }

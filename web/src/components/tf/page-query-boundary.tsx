@@ -43,7 +43,7 @@ export function PageQueryBoundary<T>({
   empty?: ReactNode;
   children: (data: T) => ReactNode;
   /** Wraps the error and empty views when they stand in for the whole page. */
-  frame?: (node: ReactNode) => ReactNode;
+  frame?: (node: ReactNode, kind: "error" | "empty") => ReactNode;
 }) {
   const { data, loading, error, refetch, refreshing = false } = query;
   const pending = loading && data == null && !error;
@@ -61,9 +61,9 @@ export function PageQueryBoundary<T>({
   ) : null;
 
   // A signed-out 401 settles with no data and no error: that is empty.
-  if (data == null) return <>{frame(errorView ?? empty ?? null)}</>;
+  if (data == null) return <>{frame(errorView ?? empty ?? null, errorView ? "error" : "empty")}</>;
   if (isEmpty(data) && empty != null) {
-    return <>{frame(errorView ?? empty)}</>;
+    return <>{frame(errorView ?? empty, errorView ? "error" : "empty")}</>;
   }
   return (
     <>

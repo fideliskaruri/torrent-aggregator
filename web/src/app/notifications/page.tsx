@@ -17,7 +17,6 @@ import { PageSkeletonFrame } from "@/components/ui/loading";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useStableLoading } from "@/components/ui/use-stable-loading";
 import {
   ACTIVITY_BATCH_SIZE,
   ACTIVITY_PAGE_SIZE,

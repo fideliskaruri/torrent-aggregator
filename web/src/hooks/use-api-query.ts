@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createRequestLifecycle } from "@/lib/observability/poll-schedule";
 import { sessionAwareFetch } from "@/lib/session-expiry";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
 
 export type ApiQueryState<T> = {
   data: T | null;
@@ -169,10 +170,8 @@ export function useApiQuery<T = unknown>(
    * slow-but-working endpoint is not aborted in a loop.
    */
   const lifecycleRef = useRef(createRequestLifecycle());
-  /** When the tab went hidden, or null while visible. */
-  const hiddenSinceRef = useRef<number | null>(null);
-  /** A poll tick was dropped because the tab was hidden. */
-  const missedTickRef = useRef(false);
+  /** Resolves the poll tick waiting on the request now running. */
+  const settleTickRef = useRef<(() => void) | null>(null);
 
   const refetch = useCallback(() => {
     setAttempt((n) => n + 1);
@@ -191,6 +190,9 @@ export function useApiQuery<T = unknown>(
     // hook, and reading it here keeps the cleanup off `ref.current`.
     const lifecycle = lifecycleRef.current;
     const generation = lifecycle.begin(Date.now());
+    // The poll tick (if any) that asked for this request waits on it alone.
+    const settleTick = settleTickRef.current;
+    settleTickRef.current = null;
 
     if (dataIdentityRef.current === dataIdentity) {
       setRefreshing(true);
@@ -249,6 +251,7 @@ export function useApiQuery<T = unknown>(
         // superseded request settling late must not report the current one as
         // idle, nor claim the endpoint answered — it was aborted.
         lifecycle.settled(generation);
+        settleTick?.();
         if (!cancelled) {
           setLoading(false);
           setRefreshing(false);
@@ -264,59 +267,39 @@ export function useApiQuery<T = unknown>(
       // suppress the next poll, and waiting for `finally` to say so depends on
       // the fetch actually rejecting.
       lifecycle.abandon(generation);
+      settleTick?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, active, attempt, emptyOnUnauthorized, dataIdentity, ...deps]);
 
-  // Polling is a separate effect so changing the interval does not cancel an
-  // in-flight request.
-  useEffect(() => {
-    if (!url || !enabled || !refreshMs || refreshMs <= 0) return;
-    const id = setInterval(() => {
-      const decision = lifecycleRef.current.decide({
-        hidden:
-          document.visibilityState === "hidden",
-        now: Date.now(),
-        intervalMs: refreshMs,
-      });
-      if (!decision.poll) {
-        if (decision.reason === "hidden") missedTickRef.current = true;
-        return;
+  // Polling runs on the app's one poller (`useVisiblePoll`): visible tabs
+  // only, the next tick scheduled once this request settles, and a refresh as
+  // soon as the tab is shown again. A request past its deadline does not hold
+  // polling hostage: the tick gives up waiting, and the next one supersedes
+  // (aborts) it.
+  const pollOnce = useCallback(() => {
+    const lifecycle = lifecycleRef.current;
+    const decision = lifecycle.decide({
+      hidden: false,
+      now: Date.now(),
+      intervalMs: refreshMs,
+    });
+    if (!decision.poll) return;
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(done, lifecycle.deadlineMs(refreshMs));
+      function done() {
+        clearTimeout(timer);
+        if (settleTickRef.current === done) settleTickRef.current = null;
+        resolve();
       }
+      settleTickRef.current = done;
       setAttempt((n) => n + 1);
-    }, refreshMs);
-    return () => clearInterval(id);
-  }, [url, enabled, refreshMs]);
-
-  // Coming back to a tab that missed a poll refreshes once, immediately.
-  // Without this the visibility gate would trade server load for a stale
-  // first screen, which is not a trade this app gets to make.
-  useEffect(() => {
-    if (!url || !enabled || !refreshMs || refreshMs <= 0) return;
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        hiddenSinceRef.current = Date.now();
-        return;
-      }
-      const hiddenSince = hiddenSinceRef.current;
-      const hiddenForMs = hiddenSince ? Date.now() - hiddenSince : 0;
-      hiddenSinceRef.current = null;
-      const missedTick = missedTickRef.current;
-      missedTickRef.current = false;
-      // Same lifecycle that gates the interval: a stale screen is a reason to
-      // want fresh data, never a reason to abort a request still inside its
-      // deadline.
-      const decision = lifecycleRef.current.decideVisibilityRefresh({
-        now: Date.now(),
-        intervalMs: refreshMs,
-        hiddenForMs,
-        missedTick,
-      });
-      if (decision.refresh) setAttempt((n) => n + 1);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [url, enabled, refreshMs]);
+    });
+  }, [refreshMs]);
+  useVisiblePoll(pollOnce, {
+    intervalMs: refreshMs,
+    enabled: Boolean(url) && enabled,
+  });
 
   const dataBelongsToIdentity = storedDataIdentity === dataIdentity;
   const visibleError =

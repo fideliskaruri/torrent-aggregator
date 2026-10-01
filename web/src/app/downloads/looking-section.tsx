@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
-import { startVisiblePoller } from "./polling";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
 
 /** One target from GET /api/wanted that has no release yet. */
 interface WantedRow {
@@ -88,10 +88,7 @@ export function LookingSection() {
     void load();
   }, [load]);
 
-  useEffect(
-    () => startVisiblePoller({ poll: load, intervalMs: () => 3_000 }),
-    [load],
-  );
+  useVisiblePoll(load, { intervalMs: 3_000 });
 
   const groups = useMemo(
     () => groupRows(rows).sort((a, b) => Number(b.looking) - Number(a.looking)),

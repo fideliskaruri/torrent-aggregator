@@ -5,7 +5,7 @@ import {
   setMaxActiveDownloads,
   type DownloadLimits,
 } from "@/lib/download-limits";
-import { startVisiblePoller } from "./polling";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
 
 /** Pressing + three times in a row sends one save. */
 const SAVE_DELAY_MS = 400;
@@ -62,12 +62,9 @@ export function useMaxActiveDownloads({
     if (!enabled) return;
     const abort = new AbortController();
     void refresh(abort.signal);
-    const stop = startVisiblePoller({ poll: () => refresh(), intervalMs: () => REFRESH_MS });
-    return () => {
-      abort.abort();
-      stop();
-    };
+    return () => abort.abort();
   }, [enabled, refresh]);
+  useVisiblePoll(() => refresh(), { intervalMs: REFRESH_MS, enabled });
 
   const save = useCallback(async (value: number, press: number) => {
     pendingRef.current = null;
