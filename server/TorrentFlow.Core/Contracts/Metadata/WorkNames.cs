@@ -105,18 +105,36 @@ public sealed class WorkNames
     public static WorkNames Of(MediaMetadata metadata) =>
         metadata.Names is { Count: > 0 } labelled ? Of(labelled) : Legacy(metadata.Title, metadata.Aliases, metadata.Source);
 
-    /// <summary>A stored work's names (<c>Work.NamesJson</c>), or just its title when it has none.</summary>
-    public static WorkNames Read(string? json, string? title)
+    /// <summary>
+    /// A stored work's names (<c>Work.NamesJson</c>). When none are stored or they can't be read, the names the work had
+    /// before labelling: its title and legacy <c>aliasesJson</c>, labelled by <see cref="Legacy"/>.
+    /// </summary>
+    public static WorkNames Read(string? json, string? title, string? legacyAliasesJson = null, string? provider = null) =>
+        TryRead(json) ?? Legacy(title, LegacyAliases(legacyAliasesJson), provider);
+
+    /// <summary>Stored names, or null when the JSON is missing, empty or malformed.</summary>
+    public static WorkNames? TryRead(string? json)
     {
-        if (!string.IsNullOrWhiteSpace(json))
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
         {
-            try
-            {
-                if (JsonSerializer.Deserialize<List<WorkName>>(json, Json) is { Count: > 0 } stored) return Of(stored);
-            }
-            catch (JsonException) { }
+            return JsonSerializer.Deserialize<List<WorkName>>(json, Json) is { Count: > 0 } stored && Of(stored) is { All.Count: > 0 } names ? names : null;
         }
-        return Legacy(title, null);
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>The strings of a legacy <c>aliasesJson</c> array; anything else in it, or JSON that won't parse, is skipped.</summary>
+    public static IReadOnlyList<string> LegacyAliases(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToList()
+                : [];
+        }
+        catch (JsonException) { return []; }
     }
 
     public string? ToJson() => All.Count == 0 ? null : JsonSerializer.Serialize(All, Json);

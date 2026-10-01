@@ -1603,6 +1603,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("namesJson");
 
+                    b.Property<string>("NamesRefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("namesRefreshedAt");
+
                     b.Property<string>("OriginalLanguage")
                         .HasColumnType("TEXT")
                         .HasColumnName("originalLanguage");

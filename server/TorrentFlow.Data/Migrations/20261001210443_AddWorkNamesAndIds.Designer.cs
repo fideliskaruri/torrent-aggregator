@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261001204738_AddWorkNamesAndIds")]
+    [Migration("20261001210443_AddWorkNamesAndIds")]
     partial class AddWorkNamesAndIds
     {
         /// <inheritdoc />
@@ -431,6 +431,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<string>("AudioLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audioLanguage");
+
                     b.Property<int?>("AutomationIntervalMinutes")
                         .HasColumnType("INTEGER")
                         .HasColumnName("automationIntervalMinutes");
@@ -842,6 +846,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("kind");
 
+                    b.Property<string>("Language")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("language");
+
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")
                         .HasColumnName("magnet");
@@ -858,6 +866,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("Retention")
                         .HasColumnType("TEXT")
                         .HasColumnName("retention");
+
+                    b.Property<string>("Rung")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rung");
 
                     b.Property<string>("SavePath")
                         .HasColumnType("TEXT")
@@ -1201,6 +1213,50 @@ namespace TorrentFlow.Data.Migrations
                     b.HasKey("UserId", "WorkKey", "Scope", "Hash");
 
                     b.ToTable("ReleaseAttempt", (string)null);
+                });
+
+            modelBuilder.Entity("TorrentFlow.Data.Entities.ReleaseBlock", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReplacedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "Hash");
+
+                    b.HasIndex("UserId", "WorkKey", "Scope");
+
+                    b.ToTable("ReleaseBlock", (string)null);
                 });
 
             modelBuilder.Entity("TorrentFlow.Data.Entities.RequestAutoApproveRule", b =>
@@ -1549,6 +1605,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("NamesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("namesJson");
+
+                    b.Property<string>("NamesRefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("namesRefreshedAt");
 
                     b.Property<string>("OriginalLanguage")
                         .HasColumnType("TEXT")

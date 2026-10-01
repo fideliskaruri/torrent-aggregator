@@ -31,6 +31,9 @@ public partial class Work
     /// <summary>ISO 639-1 original language from the provider; null when unknown. Stored only.</summary>
     public string? OriginalLanguage { get; set; }
 
+    /// <summary>When names, ids, format and language were last taken from the work's own provider; null when never.</summary>
+    public DateTime? NamesRefreshedAt { get; set; }
+
     public string? Provider { get; set; }
 
     public string? ProviderId { get; set; }

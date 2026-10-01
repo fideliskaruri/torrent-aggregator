@@ -124,7 +124,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var cat = await catalog.FindByWorkKeyAsync(key, ct);
         // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
         var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key)
-            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
+            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.AliasesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
@@ -259,7 +259,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
         // The names and ids a grab of this title searches with: the saved work's, else the provider record's.
-        var names = work != null ? WorkNames.Read(work.NamesJson, work.CanonicalTitle)
+        var names = work != null ? WorkNames.Read(work.NamesJson, work.CanonicalTitle, work.AliasesJson, work.Provider)
             : query.Provider != null ? WorkNames.Of(query.Provider) : WorkNames.Legacy(title, null);
         var ids = (work != null ? WorkIds.FromJson(work.IdsJson) ?? new() : query.Provider?.Ids ?? new())
             .Merge(WorkIds.From(identity?.Provider, identity?.ProviderId));

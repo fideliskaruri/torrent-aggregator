@@ -29,6 +29,12 @@ namespace TorrentFlow.Data.Migrations
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
+                name: "namesRefreshedAt",
+                table: "Work",
+                type: "TEXT",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
                 name: "originalLanguage",
                 table: "Work",
                 type: "TEXT",
@@ -48,6 +54,10 @@ namespace TorrentFlow.Data.Migrations
 
             migrationBuilder.DropColumn(
                 name: "namesJson",
+                table: "Work");
+
+            migrationBuilder.DropColumn(
+                name: "namesRefreshedAt",
                 table: "Work");
 
             migrationBuilder.DropColumn(
