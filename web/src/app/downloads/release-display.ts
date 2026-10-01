@@ -148,15 +148,17 @@ export function canDownloadNow(torrent: Pick<ClientTorrent, "state" | "forced">)
  * those keep the one that matches their state.
  */
 export function pauseResumeAction(
-  torrent: Pick<ClientTorrent, "state" | "ownerClientType">,
+  torrent: Pick<ClientTorrent, "state" | "ownerClientType" | "refused">,
 ): "pause" | "resume" | null {
+  // A release refused for a program file or no video would only fetch the same files again.
+  if (torrent.refused === true) return null;
   if (isError(torrent.state) || isPaused(torrent.state)) return "resume";
   if (isDownloaded(torrent.state)) return torrent.ownerClientType === "builtin" ? null : "pause";
   return "pause";
 }
 
 /** A set's members split by the one of Pause and Resume each admits: what "Pause all" and "Resume all" act on. */
-export function pauseResumeTargets<T extends Pick<ClientTorrent, "state" | "ownerClientType">>(
+export function pauseResumeTargets<T extends Pick<ClientTorrent, "state" | "ownerClientType" | "refused">>(
   torrents: readonly T[],
 ): { pause: T[]; resume: T[] } {
   const targets: { pause: T[]; resume: T[] } = { pause: [], resume: [] };
@@ -223,6 +225,8 @@ export function sourceChip(raw: string): string | null {
 export interface ReleaseDisplayFacts {
   /** The work's display title (show or film name), never a raw release string. */
   title: string;
+  /** The work's year, so remakes (Dune 1984, Dune 2021) read apart; null when unknown. */
+  year: number | null;
   /** `S09E01`, `S01 pack`, … or null when the name states no episode. */
   episodeLabel: string | null;
   /**
@@ -244,12 +248,19 @@ export function releaseDisplayFacts(
     .replace(BRACKET_GROUP, "")
     .replace(/\s+/g, " ")
     .trim();
-  const title = query.title || fallback || torrent.name;
+  // The catalog title wins; the release name only stands in for a download no work claims.
+  const title = torrent.workTitle?.trim() || query.title || fallback || torrent.name;
   return {
     title,
+    year: torrent.workTitle?.trim() && typeof torrent.workYear === "number" ? torrent.workYear : null,
     episodeLabel: parseEpisode(torrent.name).label,
     qualityChip: qualityChipLabel(torrent.name),
   };
+}
+
+/** A film's headline: "Dune (1984)", or the title alone when the year is unknown. */
+export function titleWithYear(title: string, year: number | null | undefined): string {
+  return typeof year === "number" && year > 0 ? `${title} (${year})` : title;
 }
 
 /** Finished the way the server counts it: downloaded, or every byte is in. */

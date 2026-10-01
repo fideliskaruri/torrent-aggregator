@@ -181,6 +181,34 @@ public sealed class ClientTorrentsController(
             var hash = torrent["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant();
             if (hash != null && packs.FirstOrDefault(p => p.Hash == hash) is { } pack) torrent["packEpisodes"] = pack.Count;
         }
+        await AnnotateReplacedAsync(db, torrents, targetHashes, ct);
+    }
+
+    /// <summary>
+    /// A failed release the app already handed back is history, not something for the owner: <c>replaced</c> when the
+    /// film or episode it was fetched for has moved on (another release, Ready, or looking again), so Downloads neither
+    /// lists it as needing attention nor offers Retry. <c>refused</c> marks a release refused for a program file or no
+    /// video: retrying it would fetch the same thing, so it is never offered.
+    /// </summary>
+    private static async Task AnnotateReplacedAsync(TorrentFlowDbContext db, List<JsonObject> torrents, HashSet<string> linked, CancellationToken ct)
+    {
+        static string? Text(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+        static int? Number(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
+        var failed = torrents.Where(t => Text(t, "state") == "error").ToList();
+        foreach (var torrent in failed)
+            if (Text(torrent, "error") is TorrentFlow.Core.MediaFileRules.DangerousMessage or TorrentFlow.Core.MediaFileRules.NoVideoMessage) torrent["refused"] = true;
+        var orphaned = failed.Where(t => Text(t, "workKey") != null && Text(t, "hash") is { } h && !linked.Contains(h.Trim().ToLowerInvariant())).ToList();
+        if (orphaned.Count == 0) return;
+        var workKeys = orphaned.Select(t => Text(t, "workKey")!).Distinct().ToList();
+        var targets = await db.AcquisitionTargets.AsNoTracking().Where(a => a.UserId == LocalUser.Id && workKeys.Contains(a.WorkKey))
+            .Select(a => new { a.WorkKey, a.Scope, a.Season, a.Episode }).ToListAsync(ct);
+        foreach (var torrent in orphaned)
+        {
+            var (workKey, season, episode) = (Text(torrent, "workKey"), Number(torrent, "season"), Number(torrent, "episode"));
+            // Its own target now points elsewhere: Ready, another release, or the queue looking again.
+            if (targets.Any(a => a.WorkKey == workKey && (episode == null ? a.Scope == "title" : a.Season == season && a.Episode == episode)))
+                torrent["replaced"] = true;
+        }
     }
 
     /// <summary>

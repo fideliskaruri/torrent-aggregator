@@ -163,7 +163,7 @@ export function DownloadTransferRow({
           Download now
         </Button>
       ) : null}
-      {isError(t.state) ? (
+      {isError(t.state) && t.refused !== true ? (
         <Button
           type="button"
           variant="default"
@@ -261,7 +261,7 @@ export function DownloadTransferRow({
           checked={isSelected}
           onCheckedChange={() => onToggleSelect(t.transferId, true)}
           aria-label={`Select ${title}`}
-          className={cn("shrink-0", card && "mt-0.5")}
+          className={cn("shrink-0 max-md:z-[1]", card && "mt-0.5")}
         />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start gap-2.5">

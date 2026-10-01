@@ -75,7 +75,8 @@ import {
   type DownloadTab,
 } from "./media-filter";
 import {
-  releaseDisplayFacts,  pauseResumeTargets,
+  releaseDisplayFacts,
+  titleWithYear,  pauseResumeTargets,
   rollupChip,  transferLabel,
   transfersLabel,  swapSubjectFor,} from "./release-display";
 import {
@@ -1857,7 +1858,7 @@ function SeriesOverviewRow({
         checked={allSelected ? true : checkedCount > 0 ? "indeterminate" : false}
         onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`}
-        className="shrink-0"
+        className="shrink-0 max-md:z-[1]"
       />
       <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={art?.posterUrl} />
 
@@ -1900,7 +1901,7 @@ function FilmRow({
     <DownloadTransferRow
       torrent={t}
       kind="torrent"
-      title={display.title}
+      title={titleWithYear(display.title, display.year)}
       titleHref={downloadTitleHref(t)}
       posterUrl={artwork.artFor(t)?.posterUrl}
       showThumb
