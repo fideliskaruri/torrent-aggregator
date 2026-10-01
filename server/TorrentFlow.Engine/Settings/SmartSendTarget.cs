@@ -70,13 +70,11 @@ public static class SmartSendTargets
         return path;
     }
 
-    /// <summary>Prefer catalog year; otherwise the first 19xx/20xx token still present in the release name.</summary>
+    /// <summary>Prefer catalog year; otherwise the release name's year (<see cref="TorrentFlow.Core.ReleaseNames.ReleaseYear"/>).</summary>
     internal static int? MovieYear(string? title, MediaMetadata? metadata)
     {
         if (metadata?.Year is int y && y is >= 1870 and <= 2100) return y;
-        if (string.IsNullOrWhiteSpace(title)) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(title, @"\b((?:19|20)\d{2})\b");
-        return m.Success && int.TryParse(m.Groups[1].Value, out var year) && year is >= 1870 and <= 2100 ? year : null;
+        return string.IsNullOrWhiteSpace(title) ? null : TorrentFlow.Core.ReleaseNames.ReleaseYear(title);
     }
 
     private static string? FirstNonEmpty(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrEmpty(v));

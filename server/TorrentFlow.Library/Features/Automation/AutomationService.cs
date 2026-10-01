@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+using TorrentFlow.Core.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -239,17 +241,17 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
             await using var db = await factory.CreateDbContextAsync(ct);
             var known = await db.Works.AsNoTracking().FirstOrDefaultAsync(
                 w => w.Provider == "anilist" && w.ProviderId == item.ExternalId, ct);
-            var key = ReleaseNames.WorkKeyFor(item.Title);
+            var key = WorkKeySlug.WorkKeyFor(item.Title);
             if (known != null)
             {
                 var aliases = JsonSerializer.Deserialize<string[]>(known.AliasesJson ?? "[]") ?? [];
-                if (aliases.Prepend(known.CanonicalTitle).Any(name => ReleaseNames.WorkKeyMatches(key, name, known.Year)))
+                if (aliases.Prepend(known.CanonicalTitle).Any(name => WorkKeySlug.Matches(key, name, known.Year)))
                     return new() { Source = "anilist", ExternalId = item.ExternalId, Title = known.CanonicalTitle,
                         MediaType = "anime", Year = known.Year, Aliases = aliases };
             }
             var resolved = await metadata.GetByIdAsync("anilist", "tv", item.ExternalId, ct);
             if (resolved?.Source != "anilist" || resolved.ExternalId != item.ExternalId) return null;
-            return (resolved.Aliases ?? []).Prepend(resolved.Title).Any(name => ReleaseNames.WorkKeyMatches(key, name, resolved.Year))
+            return (resolved.Aliases ?? []).Prepend(resolved.Title).Any(name => WorkKeySlug.Matches(key, name, resolved.Year))
                 ? resolved : null;
         }
         catch (Exception) when (!ct.IsCancellationRequested) { return null; }

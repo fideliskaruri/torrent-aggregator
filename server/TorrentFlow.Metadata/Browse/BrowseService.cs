@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Globalization;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -278,7 +279,7 @@ public sealed partial class BrowseService(
     public static bool LibraryTorrentCanSurface(EngineTorrent t) => t.Progress >= 1 && t.Status != "removed" && t.Status != "error";
 
     /// <summary>A season pack represents the work over single episodes.</summary>
-    public static bool LibraryRepresentativePreference(string name) => ReleaseNames.ParseEpisode(name).IsSeasonPack;
+    public static bool LibraryRepresentativePreference(string name) => ReleaseEpisodeParser.Parse(name).IsSeasonPack;
 
     [GeneratedRegex(@"\b(2160p|1080p|720p|576p|480p|4k)\b", RegexOptions.IgnoreCase)] private static partial Regex ResolutionPattern();
 
@@ -305,18 +306,18 @@ public sealed partial class BrowseService(
         var episodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var release in releases)
         {
-            var fallbackSeason = ReleaseNames.ParseEpisode(release.Name).Season;
-            var videos = LocalFiles.RecordedFilePaths(release.VerifiedFilesJson).Where(ReleaseNames.IsSupportedVideoFileName)
+            var fallbackSeason = ReleaseEpisodeParser.Parse(release.Name).Season;
+            var videos = LocalFiles.RecordedFilePaths(release.VerifiedFilesJson).Where(MediaFileRules.IsVideo)
                 .Select(p => Path.GetFileNameWithoutExtension(p.Replace('\\', '/').Split('/')[^1])).ToList();
             if (videos.Count == 0)
             {
-                var parsed = ReleaseNames.ParseEpisode(release.Name);
+                var parsed = ReleaseEpisodeParser.Parse(release.Name);
                 if (parsed.Episode is int single) episodes.Add($"{parsed.Season ?? fallbackSeason}x{single}");
                 continue;
             }
             foreach (var name in videos)
             {
-                var parsed = ReleaseNames.ParseEpisode(name);
+                var parsed = ReleaseEpisodeParser.Parse(name);
                 episodes.Add(parsed.Episode is int episode ? $"{parsed.Season ?? fallbackSeason}x{episode}" : $"file:{name.ToLowerInvariant()}");
             }
         }
@@ -342,7 +343,7 @@ public sealed partial class BrowseService(
             {
                 slot = queries.Count;
                 slotByKey[key] = slot;
-                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ReleaseNames.DetectContentKind(name))));
+                queries.Add(new ArtworkQuery(title, identity.Year, MediaTypes.Normalize(ReleaseKinds.DetectContentKind(name))));
             }
             slots.Add(slot);
         }

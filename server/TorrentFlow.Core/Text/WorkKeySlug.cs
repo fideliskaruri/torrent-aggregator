@@ -12,6 +12,7 @@ public static partial class WorkKeySlug
 {
     [GeneratedRegex("[^a-z0-9]+")] private static partial Regex NonSlug();
     [GeneratedRegex(@"\s+")] private static partial Regex Whitespace();
+    [GeneratedRegex("[-_]+")] private static partial Regex Separators();
     [GeneratedRegex(@"-(?:19|20)\d{2}$")] private static partial Regex TrailingYear();
     [GeneratedRegex(@"-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)")]
     private static partial Regex LegacySizeGroup();
@@ -67,6 +68,21 @@ public static partial class WorkKeySlug
         if (candidates.Any(c => SameKey(c, withYear) || SameKey(c, bare))) return true;
         if (year != null) return false;
         return bare.Length > 0 && candidates.Any(c => SameKey(TrailingYear().Replace(c, ""), bare));
+    }
+
+    private static readonly HashSet<string> MinorWords =
+        ["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"];
+
+    /// <summary>work-key.ts displayTitleFromWorkKey: the slug spelled back out as words, never a guessed year.</summary>
+    public static string DisplayTitle(string? key)
+    {
+        var raw = (key ?? "").Trim();
+        try { raw = Uri.UnescapeDataString(raw); } catch (UriFormatException) { }
+        var words = Whitespace().Replace(Separators().Replace(raw, " "), " ").Trim();
+        if (words.Length == 0) return "";
+        return string.Join(' ', words.Split(' ').Select((w, i) =>
+            i > 0 && MinorWords.Contains(w.ToLowerInvariant()) ? w.ToLowerInvariant()
+            : w[0] is >= 'a' and <= 'z' ? char.ToUpperInvariant(w[0]) + w[1..] : w));
     }
 
     /// <summary>JS encodeURIComponent.</summary>

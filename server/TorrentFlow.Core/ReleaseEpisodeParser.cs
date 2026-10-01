@@ -36,6 +36,25 @@ public static class ReleaseEpisodeParser
         var parsed = ParseBase(t);
         return parsed with { SpecialType = SpecialType(t), IsMultiSeason = parsed.IsMultiSeason ?? false };
     }
+    private static readonly string[] EpisodeRanges =
+    [
+        @"\bS\d{1,3}\s*E\d{1,4}\s*[-–—~]\s*(?:S\d{1,3}\s*)?E?\d{1,4}\b",
+        @"\b\d{1,3}x\d{1,4}\s*[-–—~]\s*(?:\d{1,3}x)?\d{1,4}\b",
+        @"\b(?:episodes?|eps?|e)\s*\.?\s*\d{1,4}\s*[-–—~]\s*(?:episodes?|eps?|e)?\s*\.?\s*\d{1,4}\b",
+        @"(?:\s[-–—]\s*|\[)\d{1,4}(?:v\d+)?\s*[-–—~]\s*\d{1,4}(?:v\d+)?(?=\s|[\])]|$)",
+        @"\bS\d{1,3}E\d{1,4}(?:v\d+)?E\d{1,4}\b",
+    ];
+
+    /// <summary>pack-preference.ts isEpisodeRangeRelease: an episode range is multi-file even when <see cref="Parse"/> reads its first episode.</summary>
+    public static bool IsEpisodeRange(string? title) => EpisodeRanges.Any(p => M(title ?? "", p).Success);
+
+    /// <summary>A batch, season pack, multi-season pack or episode range: anything that is not one episode.</summary>
+    public static bool IsMultiEpisode(string? title, EpisodeInfo? episode = null)
+    {
+        var ep = episode ?? Parse(title);
+        return ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || IsEpisodeRange(title);
+    }
+
     private static EpisodeInfo Single(int? season, int episode, bool scene = false) => new()
     {
         Season = season, Episode = episode,

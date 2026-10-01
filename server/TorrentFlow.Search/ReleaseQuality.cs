@@ -1,5 +1,6 @@
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
+using static TorrentFlow.Core.ReleaseEpisodeParser;
 
 namespace TorrentFlow.Search;
 

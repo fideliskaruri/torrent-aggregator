@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
