@@ -20,9 +20,6 @@ public sealed class EngineOptions
 
     [Range(1, 500)] public int MaxConnectionsPerTorrent { get; set; } = 120;
 
-    /// <summary>Speculative next-episode warming must not crowd out real transfers (TS prewarm peer cap was 20).</summary>
-    [Range(1, 500)] public int PrewarmMaxConnections { get; set; } = 10;
-
     [Range(1, 200)] public int MaxHalfOpenConnections { get; set; } = 40;
 
     /// <summary>MonoTorrent write/read cache, shared by all live torrents. Too small and writes throttle a fast line.</summary>
@@ -33,14 +30,6 @@ public sealed class EngineOptions
     public int MaxWebSeedResponseBytes { get; set; } = Client.TorrentHttpLimits.MaxBufferedResponseBytes;
 
     [Range(1, 1000)] public int MaxOpenFiles { get; set; } = 40;
-
-    /// <summary>
-    /// In-app streaming (play while downloading, prewarm, swarm probes). Off by default: MonoTorrent's streaming
-    /// piece picker downloads sequentially and measured ~7x slower than the standard picker on the same swarm.
-    /// </summary>
-    public bool Streaming { get; set; }
-
-    public const string StreamingKey = Section + ":Streaming";
 
     public bool Dht { get; set; } = true;
 

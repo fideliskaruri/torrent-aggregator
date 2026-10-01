@@ -9,9 +9,7 @@ using MonoTorrent.Connections;
 namespace TorrentFlow.Engine.Client;
 
 /// <summary>
-/// Singleton owner of MonoTorrent's <see cref="ClientEngine"/>. Torrents use the standard (rarest-first) picker unless
-/// <see cref="EngineOptions.Streaming"/> is on, in which case they are added with <c>AddStreamingAsync</c> so any of
-/// them can serve a read stream. The streaming picker downloads sequentially and is much slower on a full download.
+/// Singleton owner of MonoTorrent's <see cref="ClientEngine"/>. Torrents use the standard (rarest-first) picker.
 /// </summary>
 internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 {
@@ -20,8 +18,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
     private readonly ConcurrentDictionary<string, TorrentManager> _managers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _errors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte[]> _metadata = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _purposes = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Kept transfers restricted to chosen files (a season pack): nothing may turn another file on.</summary>
+    /// <summary>Transfers restricted to chosen files (a season pack): nothing may turn another file on.</summary>
     private readonly ConcurrentDictionary<string, IReadOnlySet<int>> _selections = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -121,11 +118,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         }
     }
 
-    private TorrentSettings TorrentSettingsFor(string purpose, bool createContainingDirectory = true) => new TorrentSettingsBuilder
+    private TorrentSettings TorrentSettingsFor(bool createContainingDirectory = true) => new TorrentSettingsBuilder
     {
-        MaximumConnections = purpose == Core.Contracts.Engine.TorrentPurpose.Prewarm
-            ? Math.Min(_options.PrewarmMaxConnections, _options.MaxConnectionsPerTorrent)
-            : _options.MaxConnectionsPerTorrent,
+        MaximumConnections = _options.MaxConnectionsPerTorrent,
         AllowDht = _options.Dht,
         AllowPeerExchange = true,
         // A multi-file torrent downloads into its own release folder, so two releases sharing a season folder never
@@ -144,20 +139,16 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
                 return new BackendAddOutcome(true, "", Snapshot(existing));
 
             Directory.CreateDirectory(spec.SavePath);
-            var settings = TorrentSettingsFor(spec.Purpose, spec.CreateContainingDirectory);
+            var settings = TorrentSettingsFor(spec.CreateContainingDirectory);
             if (spec.TorrentBytes is { Length: > 0 })
             {
                 var torrent = Torrent.Load(spec.TorrentBytes);
                 _metadata[spec.Hash] = spec.TorrentBytes;
-                manager = _options.Streaming
-                    ? await Engine.AddStreamingAsync(torrent, spec.SavePath, settings)
-                    : await Engine.AddAsync(torrent, spec.SavePath, settings);
+                manager = await Engine.AddAsync(torrent, spec.SavePath, settings);
             }
             else if (spec.Magnet is not null && MagnetLink.TryParse(spec.Magnet, out var magnet) && magnet is not null)
             {
-                manager = _options.Streaming
-                    ? await Engine.AddStreamingAsync(magnet, spec.SavePath, settings)
-                    : await Engine.AddAsync(magnet, spec.SavePath, settings);
+                manager = await Engine.AddAsync(magnet, spec.SavePath, settings);
             }
             else
             {
@@ -193,9 +184,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             await OneTrackerPerTierAsync(manager);
             if (!spec.ForceHashCheck || manager.HasMetadata)
                 await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
-            _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
-            if (spec.Purpose == Core.Contracts.Engine.TorrentPurpose.Keep && spec.SelectedFiles is { Count: > 0 } chosen)
+            if (spec.SelectedFiles is { Count: > 0 } chosen)
             {
                 _selections[spec.Hash] = chosen;
                 // Before the wrapper is dropped (only chosen files leave the release folder) and before any piece is asked for.
@@ -204,7 +194,6 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             else _selections.TryRemove(spec.Hash, out _);
             if (!spec.ForceHashCheck && spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
             else if (spec.FlattenWrapper && manager.HasMetadata) await DropWrapperAsync(manager, spec.SavePath);
-            if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
             if (manager.HasMetadata && _selections.TryGetValue(spec.Hash, out var kept)) PrepareSparseNeighbours(manager, kept);
             // Also applies to magnets: MetadataMode re-enters StartAsync after receiving metadata,
             // and StartingMode must hash before downloading when this flag is cleared.
@@ -400,20 +389,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         }
     }
 
-    private static async Task DeselectAllAsync(TorrentManager manager)
-    {
-        foreach (var file in manager.Files)
-            if (file.Priority != Priority.DoNotDownload) await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
-    }
-
     private void OnStateChanged(object? sender, TorrentStateChangedEventArgs e)
     {
-        // Stream/prewarm fetch only what the player asks for, so their files start deselected once metadata lands.
         if (e.OldState == TorrentState.Metadata && e.TorrentManager.HasMetadata
-            && _purposes.TryGetValue(HashOf(e.TorrentManager), out var purpose) && purpose != Core.Contracts.Engine.TorrentPurpose.Keep)
-            _ = DeselectAllAsync(e.TorrentManager).ContinueWith(
-                t => _logger.LogWarning(t.Exception, "Deselecting files failed"), TaskContinuationOptions.OnlyOnFaulted);
-        else if (e.OldState == TorrentState.Metadata && e.TorrentManager.HasMetadata
             && _selections.TryGetValue(HashOf(e.TorrentManager), out var chosen))
             _ = ApplySelectionAsync(e.TorrentManager, chosen).ContinueWith(
                 t => _logger.LogWarning(t.Exception, "Applying the chosen files failed"), TaskContinuationOptions.OnlyOnFaulted);
@@ -473,7 +451,6 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             if (!_managers.ContainsKey(hash))
             {
                 _metadata.TryRemove(hash, out _);
-                _purposes.TryRemove(hash, out _);
                 _errors.TryRemove(hash, out _);
                 _selections.TryRemove(hash, out _);
             }
@@ -486,10 +463,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public async Task SetSelectedFilesAsync(string hash, IReadOnlySet<int>? selected)
     {
-        // Selecting everything makes it a kept download: metadata landing later must not deselect it as a stream.
-        if (selected is null && _purposes.ContainsKey(hash)) _purposes[hash] = Core.Contracts.Engine.TorrentPurpose.Keep;
         if (selected is null) _selections.TryRemove(hash, out _);
-        else if (_purposes.TryGetValue(hash, out var kept) && kept == Core.Contracts.Engine.TorrentPurpose.Keep) _selections[hash] = selected;
+        else if (_managers.ContainsKey(hash)) _selections[hash] = selected;
         if (!_managers.TryGetValue(hash, out var m) || !m.HasMetadata) return;
         for (var i = 0; i < m.Files.Count; i++)
         {
@@ -498,24 +473,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         }
     }
 
-    public async Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct)
-    {
-        if (!_managers.TryGetValue(hash, out var m)) throw new FileNotFoundException($"Torrent {hash} is not live.");
-        if (!m.HasMetadata) await m.WaitForMetadataAsync(ct);
-        if (fileIndex < 0 || fileIndex >= m.Files.Count) throw new ArgumentOutOfRangeException(nameof(fileIndex));
-        var file = m.Files[fileIndex];
-        // Playback never turns on a file a kept selective download (a season pack) did not choose.
-        if (_selections.TryGetValue(hash, out var chosen) && !chosen.Contains(fileIndex))
-            throw new FileNotFoundException("This file is not part of the download.");
-        if (file.Priority == Priority.DoNotDownload) await m.SetFilePriorityAsync(file, Priority.Normal);
-        if (m.State is TorrentState.Stopped or TorrentState.Paused) await m.StartAsync();
-        if (m.StreamProvider is null) throw new InvalidOperationException("Streaming is turned off.");
-        return await _sharedStreams.GetValue(m, static mgr => new SharedTorrentStreams(mgr)).OpenAsync(file, ct);
-    }
-
     internal bool HasSideState(string hash) =>
-        _metadata.ContainsKey(hash) || _purposes.ContainsKey(hash) || _errors.ContainsKey(hash);
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TorrentManager, SharedTorrentStreams> _sharedStreams = new();
+        _metadata.ContainsKey(hash) || _selections.ContainsKey(hash) || _errors.ContainsKey(hash);
 
     public byte[]? GetMetadata(string hash)
     {
@@ -588,29 +547,6 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         for (var i = 0; i < bits.Length; i++)
             if (bits[i]) bytes[i >> 3] |= (byte)(0x80 >> (i & 7));
         return Convert.ToBase64String(bytes);
-    }
-
-    public IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex)
-    {
-        if (!_managers.TryGetValue(hash, out var m) || !m.HasMetadata || m.Torrent is null) return [];
-        if (fileIndex < 0 || fileIndex >= m.Files.Count) return [];
-        var file = m.Files[fileIndex];
-        if (file.Length <= 0) return [];
-        var pieceLength = (long)m.Torrent.PieceLength;
-        var bitfield = m.Bitfield;
-        var fileStart = file.OffsetInTorrent;
-        var fileEnd = fileStart + file.Length;
-        var ranges = new List<(long Start, long End)>();
-        for (var piece = file.StartPieceIndex; piece <= file.EndPieceIndex && piece < bitfield.Length; piece++)
-        {
-            if (!bitfield[piece]) continue;
-            var start = Math.Clamp(Math.Max(piece * pieceLength, fileStart) - fileStart, 0, file.Length);
-            var end = Math.Clamp(Math.Min((piece + 1) * pieceLength, fileEnd) - fileStart, 0, file.Length);
-            if (end <= start) continue;
-            if (ranges.Count > 0 && start <= ranges[^1].End) ranges[^1] = (ranges[^1].Start, Math.Max(ranges[^1].End, end));
-            else ranges.Add((start, end));
-        }
-        return ranges;
     }
 
     public async ValueTask DisposeAsync()

@@ -32,8 +32,8 @@ internal sealed partial class TorrentEngineService
                 var old = await FindAsync(db, hash, ct);
                 if (old is null) return new(false, NotFound);
                 var live = backend.Get(hash);
-                if (old.Origin != TorrentOrigin.User || IsDownloaded(old) || live?.Progress >= .9999 || OpenStreamCount(hash) > 0)
-                    return new(false, "Only incomplete kept downloads that are not playing can be replaced.");
+                if (old.Origin != TorrentOrigin.User || IsDownloaded(old) || live?.Progress >= .9999)
+                    return new(false, "Only downloads that haven't finished can be replaced.");
                 if (await db.EngineTorrents.AnyAsync(r => r.Hash == nextHash, ct))
                     return new(false, "That release is already in your downloads.");
                 if (await db.ReleaseAttempts.AnyAsync(r => r.UserId == LocalUser.Id && r.WorkKey == request.WorkKey

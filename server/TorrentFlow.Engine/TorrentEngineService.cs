@@ -18,8 +18,8 @@ namespace TorrentFlow.Engine;
 /// <summary>
 /// The built-in engine: EngineTorrent row lifecycle + download queue on top of <see cref="ITorrentBackend"/>.
 /// Queue decisions (admit / promote / demote) are serialised by one gate so two concurrent adds can never
-/// both take the last slot. Lifecycle operations on one transfer (add, start, pause, resume, force, delete, stream
-/// open) are serialised by a per-hash lock, and every deferred start re-reads the row first, so a pause or delete
+/// both take the last slot. Lifecycle operations on one transfer (add, start, pause, resume, force, delete) are
+/// serialised by a per-hash lock, and every deferred start re-reads the row first, so a pause or delete
 /// that lands between a queue decision and the client start wins instead of being resurrected.
 /// </summary>
 internal sealed partial class TorrentEngineService(
@@ -52,15 +52,11 @@ internal sealed partial class TorrentEngineService(
     private readonly ConcurrentDictionary<string, byte> _starting = new(StringComparer.Ordinal);
     // When each transfer was last loaded into the client; the metadata deadline counts from here, not the row.
     private readonly ConcurrentDictionary<string, DateTime> _startedAt = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _openStreams = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _pendingDetach = new(StringComparer.Ordinal);
     private readonly CompletedLayoutManifestStore _layoutManifest = layoutManifest ?? new CompletedLayoutManifestStore(Path.Combine(options.CurrentValue.EngineDirectory, "layout-manifest.json"));
     // Lifecycle operations bump _wakes; a tick that found nothing live, queued or stranded records the generation it
     // started under, and later ticks skip the database until the next wake. A failed tick never marks idle.
     private int _wakes;
     private int _idleAtWake = -1;
-    // Completed transfers whose content layout waits for the last reader to close (guarded by _openStreams).
-    private readonly HashSet<string> _pendingLayout = new(StringComparer.Ordinal);
 
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
     public event EventHandler<EngineTorrentFailedEventArgs>? TorrentFailed;
@@ -87,7 +83,7 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>
     /// An explicit SavePath wins; otherwise a named release is routed like resolveSmartSendTarget
-    /// (&lt;base&gt;/&lt;category&gt;/&lt;show&gt;/Season NN), which is what every Next send path (grab, automation, prewarm) uses.
+    /// (&lt;base&gt;/&lt;category&gt;/&lt;show&gt;/Season NN), which is what every send path (grab, automation) uses.
     /// </summary>
     private DownloadTarget ResolveTarget(ClientConfig config, EngineAddRequest request)
     {
@@ -103,11 +99,6 @@ internal sealed partial class TorrentEngineService(
 
     public async Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default)
     {
-        var purpose = request.Purpose is TorrentPurpose.Stream or TorrentPurpose.Prewarm ? request.Purpose : TorrentPurpose.Keep;
-        if (purpose != TorrentPurpose.Keep && !options.CurrentValue.Streaming)
-            return new EngineAddResult(false, "Streaming is turned off.");
-        var origin = TorrentOrigin.FromPurpose(purpose);
-
         var bytes = request.TorrentBytes;
         if (bytes is null && !string.IsNullOrWhiteSpace(request.TorrentUrl))
         {
@@ -164,7 +155,7 @@ internal sealed partial class TorrentEngineService(
             if (request.SelectedFiles is { Count: > 0 } && (bytes ?? LoadTorrentFile(hash)) is null)
                 return new(false, "Couldn't read this release's file list, so no files were chosen.", Hash: hash);
             await _queueGate.WaitAsync(ct);
-            try { admission = await AdmitAsync(request, hash, magnet, purpose, origin, config, target, savePath, ct); }
+            try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, ct); }
             finally { _queueGate.Release(); }
 
             if (admission.StartRow is not { } row)
@@ -176,9 +167,8 @@ internal sealed partial class TorrentEngineService(
                 // The row is persisted as downloading: the request token must not strand it half-started.
                 try
                 {
-                    // Kept downloads are admitted immediately; the monitor owns their metadata deadline.
-                    var outcome = await StartInBackendAsync(row, purpose,
-                        purpose == TorrentPurpose.Keep ? null : TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), CancellationToken.None);
+                    // Downloads are admitted immediately; the monitor owns their metadata deadline.
+                    var outcome = await StartInBackendAsync(row, CancellationToken.None);
                     if (!outcome.Ok)
                     {
                         await MarkErrorAsync(hash, outcome.Message);
@@ -284,25 +274,16 @@ internal sealed partial class TorrentEngineService(
     }
 
     /// <summary>Runs under the hash lock and the queue gate: decides start / queue and persists the row.</summary>
-    private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet, string purpose, string origin,
+    private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet,
         ClientConfig config, DownloadTarget target, string savePath, CancellationToken ct)
     {
         static Admission Done(EngineAddResult result) => new(result, null, []);
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var existing = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
-        var lane = purpose == TorrentPurpose.Keep ? TorrentLane.Rank(request.Lane) : 0;
+        var lane = TorrentLane.Rank(request.Lane);
 
-        if (existing is not null && TorrentOrigin.Rank(origin) > TorrentOrigin.Rank(existing.Origin))
-        {
-            existing.Origin = origin;
-            // A stream/prewarm row carried no real lane; the keep request that adopts it decides.
-            if (origin == TorrentOrigin.User) existing.Lane = lane;
-            existing.UpdatedAt = Now;
-            await db.SaveChangesAsync(ct);
-            if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, SelectionOf(existing));
-        }
-        else if (existing is not null && purpose == TorrentPurpose.Keep && lane < existing.Lane)
+        if (existing is not null && lane < existing.Lane)
         {
             // Lanes only rise: the owner asking for something automation queued moves it up, never the reverse.
             existing.Lane = lane;
@@ -325,13 +306,13 @@ internal sealed partial class TorrentEngineService(
         if (existing is not null && IsDownloaded(existing))
             return Done(new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash));
 
-        if (existing is not null && existing.Status == EngineTorrentStatus.Queued && !request.Forced && purpose == TorrentPurpose.Keep)
+        if (existing is not null && existing.Status == EngineTorrentStatus.Queued && !request.Forced)
         {
             var pos = await QueuePositionAsync(db, hash, ct);
             return Done(QueuedResult(hash, pos));
         }
 
-        if (purpose == TorrentPurpose.Keep && existing is null)
+        if (existing is null)
         {
             var reserved = DownloadQueue.QueuedReservedBytes(await QueueRowsAsync(db, ct));
             var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.ExpectedSizeBytes, reserved, request.OverrideStorageCap);
@@ -340,9 +321,9 @@ internal sealed partial class TorrentEngineService(
 
         var rows = await QueueRowsAsync(db, ct);
         var schedule = Schedule;
-        var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), CapFor(schedule), origin, request.Forced, schedule.Open);
+        var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), CapFor(schedule), TorrentOrigin.User, request.Forced, schedule.Open);
 
-        var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin, Lane = lane };
+        var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = TorrentOrigin.User, Lane = lane };
         row.Name = FirstNonBlank(request.Name, existing?.Name, TorrentSource.NameFromMagnet(magnet), hash)!;
         row.Magnet = magnet ?? existing?.Magnet;
         row.TorrentUrl = request.TorrentUrl ?? existing?.TorrentUrl;
@@ -352,7 +333,7 @@ internal sealed partial class TorrentEngineService(
         row.QueueKey = request.QueueKey ?? existing?.QueueKey;
         if (request.ExpectedSizeBytes is > 0 && row.SizeBytes <= 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
         if ((existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error)
-            && purpose == TorrentPurpose.Keep && request.SelectedFiles is { Count: > 0 } picked)
+            && request.SelectedFiles is { Count: > 0 } picked)
         {
             row.SelectedFilesJson = JsonSerializer.Serialize(picked.Distinct().Order().ToArray());
             // The reservation covers the pieces the selection touches, not the whole release.
@@ -450,7 +431,7 @@ internal sealed partial class TorrentEngineService(
         return meta;
     }
 
-    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, string purpose, TimeSpan? metadataTimeout, CancellationToken ct)
+    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, CancellationToken ct)
     {
         var bytes = LoadTorrentFile(row.Hash);
         if (bytes is null && string.IsNullOrWhiteSpace(row.Magnet))
@@ -464,11 +445,11 @@ internal sealed partial class TorrentEngineService(
             : _layoutManifest.IndexedPaths(row.Hash, row.SavePath) ?? _layoutManifest.PlacedPaths(row.Hash, row.SavePath);
         var reuseFlatLayout = row.TorrentUrl == DownloadRecoveryService.SeedingMarker
             || !recovered && indexed is null && _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
-        // A kept download writes straight into the save path, without its release folder, wherever that is free.
-        var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout && purpose == TorrentPurpose.Keep;
-        var selection = purpose == TorrentPurpose.Keep ? SelectionOf(row) : null;
+        // A download writes straight into the save path, without its release folder, wherever that is free.
+        var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout;
+        var selection = SelectionOf(row);
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten, recovered,
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), TorrentPurpose.Keep, null, !reuseFlatLayout, indexed, flatten, recovered,
             selection);
         var wasLoaded = backend.Contains(row.Hash);
         try
@@ -481,8 +462,8 @@ internal sealed partial class TorrentEngineService(
                 if (flatten && backend.Get(row.Hash) is { Files.Count: > 0 } placed && row.SavePath is { } save
                     && placed.Files.Any(f => string.Equals(Path.GetFullPath(f.FullPath), Path.GetFullPath(Path.Combine(save, f.Path)), StringComparison.OrdinalIgnoreCase)))
                     _layoutManifest.Place(row.Hash, save, placed.Files.OrderBy(f => f.Index).Select(f => (string?)f.FullPath).ToList());
-                // Already live as a stream (files deselected): a kept download wants its selection (every file unless chosen).
-                if (wasLoaded && purpose == TorrentPurpose.Keep) await backend.SetSelectedFilesAsync(row.Hash, selection);
+                // Already live: re-apply its selection (every file unless chosen).
+                if (wasLoaded) await backend.SetSelectedFilesAsync(row.Hash, selection);
             }
             return outcome;
         }
@@ -495,7 +476,7 @@ internal sealed partial class TorrentEngineService(
 
     private async Task<IDisposable> LockHashAsync(string hash, CancellationToken ct)
     {
-        // Every lifecycle operation (add, start, pause, resume, force, delete, stream open) passes through here.
+        // Every lifecycle operation (add, start, pause, resume, force, delete) passes through here.
         WakeMonitor();
         HashLock entry;
         lock (_hashLocks)
@@ -545,13 +526,6 @@ internal sealed partial class TorrentEngineService(
             owner.ReleaseRef(hash, entry);
         }
     }
-
-    private static string PurposeOf(EngineTorrent row) => row.Origin switch
-    {
-        TorrentOrigin.Stream => TorrentPurpose.Stream,
-        TorrentOrigin.Prewarm => TorrentPurpose.Prewarm,
-        _ => TorrentPurpose.Keep,
-    };
 
     // ---------------------------------------------------------------- queue
 
@@ -613,7 +587,6 @@ internal sealed partial class TorrentEngineService(
         {
             await using var db = await dbFactory.CreateDbContextAsync();
             var candidates = DownloadQueue.DemotionCandidates(await QueueRowsAsync(db, CancellationToken.None), CapFor(Schedule));
-            lock (_openStreams) candidates.RemoveAll(h => _openStreams.GetValueOrDefault(h) > 0);
             if (candidates.Count == 0) return [];
             var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && candidates.Contains(r.Hash)).ToListAsync();
             foreach (var r in rows)
@@ -712,7 +685,7 @@ internal sealed partial class TorrentEngineService(
                 await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
                 var row = await FindAsync(db, hash, CancellationToken.None);
                 if (row is null || row.Status != EngineTorrentStatus.Downloading || IsDownloaded(row)) return true;
-                var outcome = await StartInBackendAsync(row, PurposeOf(row), null, CancellationToken.None);
+                var outcome = await StartInBackendAsync(row, CancellationToken.None);
                 if (outcome.Ok) return true;
                 logger.LogWarning("Starting {Hash} failed: {Message}", hash, outcome.Message);
                 await MarkErrorAsync(hash, outcome.Message);
@@ -741,7 +714,7 @@ internal sealed partial class TorrentEngineService(
             {
                 using (await LockHashAsync(seed.Hash, ct))
                 {
-                    var outcome = await StartInBackendAsync(seed, TorrentPurpose.Keep, null, ct);
+                    var outcome = await StartInBackendAsync(seed, ct);
                     if (!outcome.Ok) await MarkErrorAsync(seed.Hash, outcome.Message);
                 }
             }
@@ -869,13 +842,7 @@ internal sealed partial class TorrentEngineService(
     private static EngineTorrentInfo ToInfo(EngineTorrent row, BackendSnapshot? live, QueueView view, bool includeFiles)
     {
         var lane = row.Origin == TorrentOrigin.User ? TorrentLane.FromRank(row.Lane) : null;
-        var retention = row.Origin switch
-        {
-            TorrentOrigin.User => "kept",
-            TorrentOrigin.Stream => "stream",
-            TorrentOrigin.Prewarm => "prewarm",
-            _ => "unknown",
-        };
+        var retention = row.Origin == TorrentOrigin.User ? "kept" : "unknown";
         // Prefer durable non-live statuses so list reads after pause/error/cap demotion match the DB immediately
         // (FQ-DL-002/004). Queued wins over a still-attached backend mid-detach; active Downloading still uses live.
         var durable = row.Status is EngineTorrentStatus.Paused or EngineTorrentStatus.Queued
@@ -909,7 +876,6 @@ internal sealed partial class TorrentEngineService(
                 Peers = live.Peers,
                 Seeders = live.Seeders,
                 Error = live.Error ?? row.Error,
-                Playable = state == "downloaded" ? true : null,
                 Category = row.Category,
                 SavePath = row.SavePath,
                 RetentionState = retention,
@@ -933,7 +899,6 @@ internal sealed partial class TorrentEngineService(
             State = display,
             Peers = 0,
             Error = row.Error,
-            Playable = display == "downloaded" ? true : null,
             Category = row.Category,
             SavePath = row.SavePath,
             RetentionState = retention,
@@ -985,7 +950,7 @@ internal sealed partial class TorrentEngineService(
             if (!missing)
             {
                 // Once persisted, a disconnected HTTP caller must not leave an orphaned running transfer.
-                var outcome = await StartInBackendAsync(row, TorrentPurpose.Keep, null, CancellationToken.None);
+                var outcome = await StartInBackendAsync(row, CancellationToken.None);
                 if (!outcome.Ok)
                 {
                     await MarkErrorAsync(hash, outcome.Message);
@@ -1075,7 +1040,7 @@ internal sealed partial class TorrentEngineService(
                     return new EngineActionResult(true, "Already downloaded");
                 if (reannounceIfLive && row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
                 {
-                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
+                    await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
                     await backend.ResumeAsync(hash);
                     return new EngineActionResult(true, "Re-announced");
                 }
@@ -1104,14 +1069,14 @@ internal sealed partial class TorrentEngineService(
         {
             if (backend.Contains(row.Hash))
             {
-                // Loaded earlier as a stream (files deselected): a kept download fetches its selection.
-                if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(row.Hash, SelectionOf(row));
+                // Re-apply the persisted selection (every file unless chosen) before resuming.
+                await backend.SetSelectedFilesAsync(row.Hash, SelectionOf(row));
                 // The metadata deadline counts from this start, not from before the pause.
                 _startedAt[row.Hash] = Now;
                 await backend.ResumeAsync(row.Hash);
                 return new EngineActionResult(true, okMessage);
             }
-            var outcome = await StartInBackendAsync(row, PurposeOf(row), null, CancellationToken.None);
+            var outcome = await StartInBackendAsync(row, CancellationToken.None);
             if (outcome.Ok) return new EngineActionResult(true, okMessage);
             await MarkErrorAsync(row.Hash, outcome.Message);
             return new EngineActionResult(false, outcome.Message);
@@ -1154,7 +1119,6 @@ internal sealed partial class TorrentEngineService(
                 await db.SaveChangesAsync(ct);
                 if (backend.Contains(hash)) await backend.RemoveAsync(hash);
                 _startedAt.TryRemove(hash, out _);
-                lock (_openStreams) { _pendingDetach.Remove(hash); _pendingLayout.Remove(hash); }
                 removed.Add((hash, row.SavePath, files));
                 for (var i = 0; i < results.Count; i++)
                     if (results[i].Hash == hash) results[i] = (hash, new EngineActionResult(true, "Removed"));
@@ -1199,124 +1163,15 @@ internal sealed partial class TorrentEngineService(
         return new EngineActionResult(true, "Selection updated");
     }
 
-    public async Task<Stream> OpenFileStreamAsync(string infoHash, string fileIndexOrPath, CancellationToken ct = default)
-    {
-        var hash = infoHash.Trim().ToLowerInvariant();
-        int index;
-        using (await LockHashAsync(hash, ct))
-        {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var row = await FindAsync(db, hash, ct) ?? throw new FileNotFoundException(NotFound);
-            row.LastUsedAt = Now;
-            await db.SaveChangesAsync(ct);
-
-            if (!backend.Contains(hash) && IsDownloaded(row))
-            {
-                var files = VerifiedFiles(row);
-                var match = ResolveIndex(fileIndexOrPath, files.Select(f => f.Path).ToList());
-                var path = files[match].FullPath ?? throw new FileNotFoundException("File path not recorded.");
-                var local = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
-                // Counted like a live stream so the content layout never moves a file out from under a reader.
-                lock (_openStreams) _openStreams[hash] = _openStreams.GetValueOrDefault(hash) + 1;
-                return new TrackedStream(local, () => OnStreamClosed(hash));
-            }
-            if (!backend.Contains(hash))
-            {
-                // The row's own purpose: playing a kept download must not deselect the files it is downloading.
-                var outcome = await StartInBackendAsync(row, PurposeOf(row), TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), ct);
-                if (!outcome.Ok) throw new IOException(outcome.Message);
-            }
-            var live = backend.Get(hash) ?? throw new FileNotFoundException(NotFound);
-            index = ResolveIndex(fileIndexOrPath, live.Files.Select(f => f.Path).ToList());
-            // Counted before the lock is released so a completion in between defers its detach.
-            lock (_openStreams) _openStreams[hash] = _openStreams.GetValueOrDefault(hash) + 1;
-        }
-        try
-        {
-            var inner = await backend.OpenStreamAsync(hash, index, ct);
-            return new TrackedStream(inner, () => OnStreamClosed(hash));
-        }
-        catch
-        {
-            OnStreamClosed(hash);
-            throw;
-        }
-    }
-
-    internal int OpenStreamCount(string hash)
-    {
-        lock (_openStreams) return _openStreams.GetValueOrDefault(hash);
-    }
-
-    public async Task<IReadOnlyList<EngineByteRange>> GetDownloadedRangesAsync(string infoHash, int fileIndex, CancellationToken ct = default)
-    {
-        var hash = infoHash.Trim().ToLowerInvariant();
-        if (backend.Contains(hash))
-            return backend.DownloadedRanges(hash, fileIndex).Select(r => new EngineByteRange(r.Start, r.End)).ToList();
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var row = await FindAsync(db, hash, ct);
-        if (row is null || !IsDownloaded(row)) return [];
-        var files = VerifiedFiles(row);
-        return fileIndex >= 0 && fileIndex < files.Count && files[fileIndex].Size > 0 ? [new EngineByteRange(0, files[fileIndex].Size)] : [];
-    }
-
-    private void OnStreamClosed(string hash)
-    {
-        bool detach;
-        lock (_openStreams)
-        {
-            var n = _openStreams.GetValueOrDefault(hash) - 1;
-            if (n > 0) _openStreams[hash] = n;
-            else _openStreams.Remove(hash);
-            detach = n <= 0 && (_pendingDetach.Contains(hash) || _pendingLayout.Contains(hash));
-        }
-        if (detach)
-            _ = DetachDeferredAsync(hash).ContinueWith(t => logger.LogWarning(t.Exception, "Deferred detach of {Hash} failed", hash),
-                TaskContinuationOptions.OnlyOnFaulted);
-    }
-
-    /// <summary>
-    /// A completion that landed while a player was reading: detach now that the last stream closed, then lay the files
-    /// out (the layout waits for the same moment, since it renames the files the reader had open).
-    /// </summary>
-    private async Task DetachDeferredAsync(string hash)
-    {
-        using (await LockHashAsync(hash, CancellationToken.None))
-        {
-            bool detach;
-            lock (_openStreams)
-            {
-                if (_openStreams.GetValueOrDefault(hash) > 0) return;
-                detach = _pendingDetach.Remove(hash);
-                if (!_pendingLayout.Remove(hash) && !detach) return;
-            }
-            if (detach)
-            {
-                await backend.RemoveAsync(hash);
-                _startedAt.TryRemove(hash, out _);
-            }
-            await FinalizeLayoutLockedAsync(hash);
-        }
-    }
-
     /// <summary>
     /// Validates and lays out a parked download. Caller holds the hash lock; runs only once the client has let go of
-    /// the files and no reader is open, otherwise it is deferred to the last stream's close.
+    /// the files.
     /// </summary>
-    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash) => (await FinalizeLayoutLockedAsync(hash, validate: true, tidy: false)).Outcome;
+    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash) => (await FinalizeLayoutLockedAsync(hash, validate: true)).Outcome;
 
-    /// <param name="tidy">An owner's re-run over old downloads: an open stream skips the row instead of deferring it.</param>
-    private async Task<LayoutResult> FinalizeLayoutLockedAsync(string hash, bool validate, bool tidy)
+    private async Task<LayoutResult> FinalizeLayoutLockedAsync(string hash, bool validate)
     {
         if (layout is null) return LayoutResult.Unchanged;
-        lock (_openStreams)
-        {
-            if (_openStreams.GetValueOrDefault(hash) > 0)
-            {
-                if (!tidy) _pendingLayout.Add(hash);
-                return LayoutResult.Unchanged;
-            }
-        }
         if (backend.Contains(hash)) return LayoutResult.Unchanged;
         try
         {
@@ -1343,8 +1198,8 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>
     /// Re-runs the content layout over every finished download, oldest first: files still sitting in a release folder
-    /// move into place (all-or-nothing per torrent). A transfer the client holds or a reader has open is skipped. Media
-    /// was validated when it finished, so it is not re-probed.
+    /// move into place (all-or-nothing per torrent). A transfer the client holds is skipped. Media was checked when it
+    /// finished, so it is not checked again.
     /// </summary>
     public async Task<LayoutTidyResult> TidyAsync(CancellationToken ct)
     {
@@ -1359,15 +1214,13 @@ internal sealed partial class TorrentEngineService(
         foreach (var hash in hashes)
         {
             ct.ThrowIfCancellationRequested();
-            bool busy;
-            lock (_openStreams) busy = _openStreams.GetValueOrDefault(hash) > 0;
-            if (busy || backend.Contains(hash))
+            if (backend.Contains(hash))
             {
                 skipped++;
                 continue;
             }
             LayoutResult result;
-            using (await LockHashAsync(hash, ct)) result = await FinalizeLayoutLockedAsync(hash, validate: false, tidy: true);
+            using (await LockHashAsync(hash, ct)) result = await FinalizeLayoutLockedAsync(hash, validate: false);
             if (result.Outcome != LayoutOutcome.LaidOut) continue;
             tidied++;
             moved += result.Moved;
@@ -1376,15 +1229,6 @@ internal sealed partial class TorrentEngineService(
         logger.LogInformation("[content-layout] tidy: {Tidied} of {Checked} downloads rearranged, {Moved} files moved, {Kept} videos kept in a release folder, {Skipped} busy",
             tidied, hashes.Count, moved, kept, skipped);
         return new LayoutTidyResult(hashes.Count, tidied, moved, kept, skipped);
-    }
-
-    private static int ResolveIndex(string fileIndexOrPath, IReadOnlyList<string> paths)
-    {
-        if (int.TryParse(fileIndexOrPath, out var i) && i >= 0 && i < paths.Count) return i;
-        var norm = fileIndexOrPath.Replace('\\', '/').Trim('/');
-        for (var k = 0; k < paths.Count; k++)
-            if (string.Equals(paths[k].Replace('\\', '/').Trim('/'), norm, StringComparison.OrdinalIgnoreCase)) return k;
-        throw new FileNotFoundException($"No file '{fileIndexOrPath}' in torrent.");
     }
 
     private static Task<EngineTorrent?> FindAsync(TorrentFlowDbContext db, string hash, CancellationToken ct) =>
@@ -1458,8 +1302,9 @@ internal sealed partial class TorrentEngineService(
                 }
                 if (row.Status == EngineTorrentStatus.Parked && IsDownloaded(row))
                 {
-                    // Finalised while a stream was open; the last stream normally detaches it, this is the backstop.
-                    if (OpenStreamCount(row.Hash) == 0) { detach.Add(row.Hash); finalize.Add(row.Hash); }
+                    // Finished but still loaded (an earlier detach failed): detach and lay it out now.
+                    detach.Add(row.Hash);
+                    finalize.Add(row.Hash);
                     continue;
                 }
                 if (live.HasMetadata)
@@ -1505,13 +1350,8 @@ internal sealed partial class TorrentEngineService(
                             completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                             continue;
                         }
-                        // Detaching under an open stream would cut the player off mid-file.
-                        var deferred = false;
-                        lock (_openStreams)
-                        {
-                            if (_openStreams.GetValueOrDefault(row.Hash) > 0) { _pendingDetach.Add(row.Hash); deferred = true; }
-                        }
-                        if (!deferred) { detach.Add(row.Hash); finalize.Add(row.Hash); }
+                        detach.Add(row.Hash);
+                        finalize.Add(row.Hash);
                         completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                     }
                 }
@@ -1535,7 +1375,7 @@ internal sealed partial class TorrentEngineService(
             if (lostHashes.Contains(hash)) continue;
             LayoutOutcome outcome;
             using (await LockHashAsync(hash, CancellationToken.None)) outcome = await FinalizeLayoutLockedAsync(hash);
-            // Not playable video: it is an error row now, not a finished download.
+            // Not real video: it is an error row now, not a finished download.
             if (outcome == LayoutOutcome.Invalid) completed.RemoveAll(e => e.Hash == hash);
         }
         foreach (var hash in stranded)

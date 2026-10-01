@@ -19,14 +19,13 @@ public sealed class ExternalDownloadImportTests
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         var seedOptions = new EngineOptions { DataDirectory = Path.Combine(h.Root, "seed"), Dht = false, PublicTrackers = [],
-            Streaming = false, ListenPort = port, LocalPeerDiscovery = false };
+            ListenPort = port, LocalPeerDiscovery = false };
         await using var seed = new MonoTorrentBackend(Options.Create(seedOptions), NullLogger<MonoTorrentBackend>.Instance);
         await seed.AddAsync(new BackendAddSpec(candidate.Hash, null, candidate.TorrentBytes, candidate.SavePath, "keep", null, false, ForceHashCheck: true), default);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         while (seed.Get(candidate.Hash)?.State != "complete") await Task.Delay(100, timeout.Token);
         h.Options.Dht = false;
         h.Options.PublicTrackers = ["https://must-not-contact.invalid/announce"];
-        h.Options.Streaming = false;
         h.Options.LocalPeerDiscovery = false;
         h.Options.ListenPort = 0;
         await using var backend = new MonoTorrentBackend(Options.Create(h.Options), NullLogger<MonoTorrentBackend>.Instance);
@@ -59,7 +58,6 @@ public sealed class ExternalDownloadImportTests
         var candidate = Assert.Single((await ExternalDownloadScannerTests.Scanner(h.Root).ScanAsync()).Candidates);
         h.Options.Dht = false;
         h.Options.PublicTrackers = [];
-        h.Options.Streaming = false;
         h.Options.ListenPort = 0;
         await using var backend = new MonoTorrentBackend(Options.Create(h.Options), NullLogger<MonoTorrentBackend>.Instance);
         var engine = new TorrentEngineService(h.Db, backend, new StaticOptionsMonitor<EngineOptions>(h.Options),

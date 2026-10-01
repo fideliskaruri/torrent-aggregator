@@ -2,14 +2,13 @@ namespace TorrentFlow.Core.Contracts.Engine;
 
 /// <summary>
 /// The built-in torrent engine. Implemented by TorrentFlow.Engine; consumed by Library (grabs, automation)
-/// and Media (streaming). All hashes are lowercase hex v1 info hashes.
+/// and the API host. All hashes are lowercase hex v1 info hashes.
 /// </summary>
 public interface ITorrentEngine
 {
     /// <summary>
-    /// Adds (or dedupes) a transfer. Kept downloads (<see cref="TorrentPurpose.Keep"/>) go through the
-    /// chronological download queue unless <see cref="EngineAddRequest.Forced"/> is set; stream and prewarm
-    /// adds always start immediately.
+    /// Adds (or dedupes) a transfer. Downloads go through the chronological download queue unless
+    /// <see cref="EngineAddRequest.Forced"/> is set.
     /// </summary>
     Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default);
 
@@ -50,23 +49,8 @@ public interface ITorrentEngine
     /// <summary>Selects which files transfer. Indices refer to <see cref="EngineTorrentInfo.Files"/>.</summary>
     Task<EngineActionResult> SelectFilesAsync(string infoHash, IReadOnlyCollection<int> fileIndices, CancellationToken ct = default);
 
-    /// <summary>
-    /// Opens a seekable read stream over one file of a transfer. While the transfer is live the pieces
-    /// under the read position are prioritised and reads wait for them; a completed (parked) transfer is
-    /// served straight from disk. <paramref name="fileIndexOrPath"/> is a file index ("0") or the
-    /// file's torrent-relative path.
-    /// </summary>
-    Task<Stream> OpenFileStreamAsync(string infoHash, string fileIndexOrPath, CancellationToken ct = default);
-
     /// <summary>Bytes reserved by queued kept downloads that have not written anything yet.</summary>
     Task<long> QueuedReservedBytesAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Hash-verified byte ranges of one file (file-relative, end exclusive), merged and ascending. Empty when the
-    /// transfer is not live or has no metadata; a completed (parked) transfer reports the whole file.
-    /// </summary>
-    Task<IReadOnlyList<EngineByteRange>> GetDownloadedRangesAsync(string infoHash, int fileIndex, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<EngineByteRange>>([]);
 
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
@@ -81,36 +65,16 @@ public sealed class EngineTorrentFailedEventArgs(string hash, string name, strin
     public string Origin { get; } = origin;
 }
 
+/// <summary>Every download is kept; requests still name the purpose so older callers keep compiling.</summary>
 public static class TorrentPurpose
 {
     public const string Keep = "keep";
-    public const string Stream = "stream";
-    public const string Prewarm = "prewarm";
 }
 
 /// <summary>EngineTorrent.origin values.</summary>
 public static class TorrentOrigin
 {
     public const string User = "user";
-    public const string Stream = "stream";
-    public const string Prewarm = "prewarm";
-    public const string Evicting = "evicting";
-
-    public static string FromPurpose(string purpose) => purpose switch
-    {
-        TorrentPurpose.Stream => Stream,
-        TorrentPurpose.Prewarm => Prewarm,
-        _ => User,
-    };
-
-    /// <summary>Origins only promote (prewarm → stream → user); Play never demotes a kept download.</summary>
-    public static int Rank(string? origin) => origin switch
-    {
-        User => 3,
-        Stream => 2,
-        Evicting => 1,
-        _ => 0,
-    };
 }
 
 /// <summary>
@@ -262,10 +226,9 @@ public sealed record EngineTorrentInfo
     public int? Seeders { get; init; }
     public TransferHealth? Health { get; init; }
     public string? Error { get; init; }
-    public bool? Playable { get; init; }
     public string? Category { get; init; }
     public string? SavePath { get; init; }
-    /// <summary>kept | stream | prewarm | unknown</summary>
+    /// <summary>kept | unknown</summary>
     public string? RetentionState { get; init; }
     public int? QueuePosition { get; init; }
     /// <summary>owner | request | automation (<see cref="TorrentLane"/>).</summary>
@@ -289,9 +252,6 @@ public sealed record EngineTorrentInfo
 }
 
 public sealed record EngineFileInfo(int Index, string Path, long Length, bool Selected, double Progress, string? FullPath = null);
-
-/// <summary>A file-relative byte range; <see cref="End"/> is exclusive.</summary>
-public sealed record EngineByteRange(long Start, long End);
 
 public sealed class EngineTorrentCompletedEventArgs(string hash, string name, string? savePath, string origin) : EventArgs
 {

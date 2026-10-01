@@ -64,7 +64,7 @@ internal sealed class EngineRoot : IAsyncDisposable
             .AddTorrentFlowData($"Data Source={Path.Combine(root, "test.db")};Pooling=False")
             .BuildServiceProvider();
         await services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
-        var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5, Streaming = true };
+        var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5 };
         var h = new EngineRoot(root, services, options);
         await using var db = await h.Db.CreateDbContextAsync();
         var settings = await new ClientSettingsStore(h.Db).EnsureAsync(db);

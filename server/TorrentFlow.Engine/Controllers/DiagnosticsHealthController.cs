@@ -73,14 +73,12 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
     /// <summary>
     /// Aggregate pressure over transfers loaded in the client, redacted like redactEnginePressureDetails (no
     /// per-torrent names or hashes). The MonoTorrent client exists for the process lifetime, so it is always present.
-    /// Parking and park retries are not separate states here: a completed transfer detaches in the monitor pass
-    /// unless a reader holds it open, which is what <c>streamLeases</c> counts.
+    /// Parking and park retries are not separate states here: a completed transfer detaches in the monitor pass.
     /// </summary>
     private object EnginePressure()
     {
         var live = HttpContext.RequestServices.GetRequiredService<ITorrentBackend>().List();
-        var engine = HttpContext.RequestServices.GetRequiredService<TorrentEngineService>();
-        int active = 0, paused = 0, complete = 0, peers = 0, leases = 0, leased = 0, unknown = 0;
+        int active = 0, paused = 0, complete = 0, peers = 0, unknown = 0;
         long down = 0, up = 0;
         foreach (var t in live)
         {
@@ -89,9 +87,6 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
             peers += Math.Max(0, t.Peers);
             down += Math.Max(0, t.DownloadRate);
             up += Math.Max(0, t.UploadRate);
-            var open = engine.OpenStreamCount(t.Hash);
-            leases += open;
-            if (open > 0) leased++;
             if (!t.HasMetadata) unknown++;
         }
         return new
@@ -108,8 +103,6 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
                 wires = peers,
                 downloadSpeed = down,
                 uploadSpeed = up,
-                streamLeases = leases,
-                leasedTorrents = leased,
                 parking = 0,
                 parkRetryPending = 0,
                 completionMismatch = 0,

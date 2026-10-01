@@ -51,7 +51,7 @@ public sealed class ClientTorrentsController(
                 var deduped = rows.Where(t => !string.IsNullOrWhiteSpace(t.Hash))
                     .GroupBy(t => t.Hash.Trim().ToLowerInvariant()).Select(g => g.Last());
                 var owned = owner == BuiltinOwner
-                    ? BuiltinListOrder(deduped).Select(t => BuiltinListRow(Owned(StripCacheStats(t), owner), t)).ToList()
+                    ? BuiltinListOrder(deduped).Select(t => BuiltinListRow(Owned(t, owner), t)).ToList()
                     : deduped.Select(t => Owned(t, owner)).ToList();
                 return (Torrents: owned, Issue: (ClientIssue?)null);
             }
@@ -81,18 +81,14 @@ public sealed class ClientTorrentsController(
 
     /// <summary>
     /// Matches the shape Next lists for built-in rows. Canonical work identity is resolved below, not inferred
-    /// from release names. A row that is not loaded in the client reports no peer count and no positive
-    /// playability claim (only a known-invalid <c>playable: false</c>), exactly like the persisted-row branch there.
+    /// from release names. A row that is not loaded in the client reports no peer count, exactly like the
+    /// persisted-row branch there.
     /// </summary>
     private JsonObject BuiltinListRow(JsonObject node, EngineTorrentInfo t)
     {
         node.Remove("workId");
         node.Remove("queueKey");
-        if (!IsLoaded(t.Hash))
-        {
-            node.Remove("peers");
-            if (t.Playable != false) node.Remove("playable");
-        }
+        if (!IsLoaded(t.Hash)) node.Remove("peers");
         return node;
     }
 
@@ -224,12 +220,6 @@ public sealed class ClientTorrentsController(
             i > 0 && MinorWords.Contains(w.ToLowerInvariant()) ? w.ToLowerInvariant()
             : w[0] is >= 'a' and <= 'z' ? char.ToUpperInvariant(w[0]) + w[1..] : w));
     }
-
-    /// <summary>Stream/prewarm entries are cache, not downloads: the UI must not show their live speeds as progress.</summary>
-    internal static EngineTorrentInfo StripCacheStats(EngineTorrentInfo t) =>
-        t.RetentionState is "stream" or "prewarm"
-            ? t with { Progress = 0, Dlspeed = 0, Upspeed = 0, Eta = 0, Peers = 0 }
-            : t;
 
     /// <summary>OwnedClientTorrent: the transfer tagged with the client that owns it (transfer-ownership tagOwnedTorrents).</summary>
     private JsonObject Owned(EngineTorrentInfo t, string owner = BuiltinOwner)

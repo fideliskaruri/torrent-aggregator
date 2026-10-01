@@ -69,13 +69,12 @@ public class LoopbackSwarmTests(ITestOutputHelper output) : IAsyncLifetime
         try { Directory.Delete(_root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    private MonoTorrentBackend Leecher(string name, bool streaming = false) => new(Options.Create(new EngineOptions
+    private MonoTorrentBackend Leecher(string name) => new(Options.Create(new EngineOptions
     {
         DataDirectory = Path.Combine(_root, name),
         ListenPort = FreePort(),
         Dht = false,
         PublicTrackers = [],
-        Streaming = streaming,
     }), NullLogger<MonoTorrentBackend>.Instance);
 
     private static async Task WaitUntil(Func<bool> condition, TimeSpan timeout, string message)
@@ -152,51 +151,5 @@ public class LoopbackSwarmTests(ITestOutputHelper output) : IAsyncLifetime
         await backend.RemoveAsync(_hash);                           // release the file handles
         Assert.Equal(_payload, await File.ReadAllBytesAsync(path));
         Assert.False(backend.HasSideState(_hash));                   // no per-hash state outlives the transfer
-    }
-
-    [Fact]
-    public async Task StreamingOffAddsWithTheStandardPickerAndRefusesStreams()
-    {
-        await using var backend = Leecher("standard");
-        var save = Path.Combine(_root, "standard", "downloads");
-        var added = await backend.AddAsync(new BackendAddSpec(_hash, null, _torrentBytes, save, TorrentPurpose.Keep, null), CancellationToken.None);
-        Assert.True(added.Ok, added.Message);
-        Assert.Null(backend.Engine.Torrents.Single().StreamProvider);
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => backend.OpenStreamAsync(_hash, 0, CancellationToken.None));
-        Assert.Equal("Streaming is turned off.", error.Message);
-        await backend.RemoveAsync(_hash);
-    }
-
-    [Fact]
-    public async Task StreamSeamReadsBytesInOrderAndSeeks()
-    {
-        await using var backend = Leecher("stream", streaming: true);
-        var save = Path.Combine(_root, "stream", "downloads");
-        var added = await backend.AddAsync(new BackendAddSpec(_hash, null, _torrentBytes, save, TorrentPurpose.Stream, null), CancellationToken.None);
-        Assert.True(added.Ok, added.Message);
-        await backend.AddPeerAsync(_hash, _seederEndPoint);
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await using var stream = await backend.OpenStreamAsync(_hash, 0, cts.Token);
-        Assert.True(stream.CanSeek);
-        Assert.Equal(FileSize, stream.Length);
-
-        // Seek into the middle first: the provider must prioritise those pieces even though nothing is downloaded.
-        var mid = FileSize / 2 + 7;
-        stream.Seek(mid, SeekOrigin.Begin);
-        var tail = new byte[4096];
-        await stream.ReadExactlyAsync(tail, cts.Token);
-        Assert.Equal(_payload.AsSpan(mid, tail.Length).ToArray(), tail);
-
-        stream.Seek(0, SeekOrigin.Begin);
-        var all = new byte[FileSize];
-        var read = 0;
-        while (read < FileSize)
-        {
-            var n = await stream.ReadAsync(all.AsMemory(read, Math.Min(100_000, FileSize - read)), cts.Token);
-            Assert.True(n > 0, "stream ended early");
-            read += n;
-        }
-        Assert.Equal(_payload, all);
     }
 }
