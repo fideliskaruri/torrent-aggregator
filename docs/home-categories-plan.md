@@ -274,6 +274,7 @@ Evidence root: `D:\code\memtest\homecats\shots` (`api\keyless`, `api\keyed`, `ke
 | P11 | Available now first (follow-up) | `tools\gates.py` applies the card gate to every card of All, 3 types and 2 genre pages; the walk checks the hero and each row's lead card | No film in cinemas or not out yet outside In cinemas; no row led by a gated card; In cinemas last on All and Films only; unaired anime at the end of Anime this season | `api\keyless2\gates.txt`, `api\keyed2\gates.txt`, `keyless2\walk.txt`, `keyed2\walk.txt` |
 | P12 | Hero available now (follow-up) | headless walk, both roles, 3 widths, both runs | Hero never gated: keyless Backrooms, keyed Unabomber (Popular films; out on Netflix per TMDB); Anime hero has aired | `keyless2\owner-all-1280.png`, `keyed2\owner-all-1280.png`, `walk.txt` |
 | P13 | Stable after the follow-up | 4 loads of each view, both runs | Identical in every view, no duplicates | `api\keyless2\summary.txt`, `api\keyed2\summary.txt` |
+| P14 | Title page agrees with home | `tools\agree.py` calls each film card's title extras with the card's own params and compares the gate | Keyless 304 of 304 agree (12 In cinemas on both); keyed 339 of 339 (24); adding the key at runtime checks home films within 15 s | `api\keyless6\agree.txt`, `api\keyed8\agree.txt`, `api\keyless3\agree.txt` |
 
 ## 11. Critic findings and resolutions
 

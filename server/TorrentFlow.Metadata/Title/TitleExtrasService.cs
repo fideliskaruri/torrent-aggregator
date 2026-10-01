@@ -67,12 +67,11 @@ public sealed class TitleExtrasService(
     RecommendationService recommendations,
     AnimeFranchiseService franchises,
     TimeProvider time,
-    ILogger<TitleExtrasService> logger, CinemetaClient? cinemeta = null)
+    ILogger<TitleExtrasService> logger, CinemetaClient? cinemeta = null, Browse.HomeReleaseCache? homeRelease = null)
 {
     public const int ExtrasTimeoutMs = 4_000;
     public const int EpisodePlaceholderCap = 200;
     public const int AnimeEpisodePlaceholderCap = 5000;
-    private static readonly HashSet<string> HomeReleaseTypes = ["4", "5", "6"];
     private readonly BoundedTtlCache<TitleExtrasPayload> _memo = new(400, time);
 
     public TitleExtrasPayload Empty(string key, int? season) => new()
@@ -173,8 +172,15 @@ public sealed class TitleExtrasService(
                 if (metadata is { Synopsis: null, ExternalId: { } hitId })
                     metadata = await cinemeta.GetByIdAsync(hitId, kind, ct) ?? metadata;
             }
+            // The film's home card evidence (TMDB release dates when there is a key) through the shared rule; with no key
+            // that is the 21-day window on both pages.
+            var signal = isSeries || metadata is null || homeRelease is null ? null
+                : await homeRelease.SignalForAsync(q.Title, q.Year ?? metadata.Year, ct).ConfigureAwait(false);
+            var gate = isSeries ? Browse.TheatricalGate.Open
+                : Browse.HomeRelease.TheatricalGateFromSignal("movie", metadata?.ReleaseDate, signal, time.GetUtcNow());
             if (metadata is not null) result = result with { Overview = metadata.Synopsis, Rating = metadata.Rating,
                 RatingSource = metadata.Rating is null ? null : "cinemeta", ReleaseDate = metadata.ReleaseDate,
+                InTheatricalWindow = gate.InTheatricalWindow, NextHomeReleaseAt = gate.NextHomeReleaseAt,
                 Genres = metadata.Genres ?? [], Resolved = true };
         }
         if (isSeries && normalized != "anime")
@@ -256,9 +262,10 @@ public sealed class TitleExtrasService(
             episodes = Enumerable.Range(1, Math.Min(count, EpisodePlaceholderCap)).Select(i => new TitleEpisodeMeta(i, null, null, null, null, null)).ToList();
 
         var releaseDate = CatalogText.ParseReleaseDate(TmdbClient.Str(d, series ? "first_air_date" : "release_date"));
-        var (released, next, checkedDates) = series ? (false, null, false) : HomeRelease(d, time.GetUtcNow().UtcDateTime);
-        var today = time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var inWindow = !series && releaseDate is not null && string.CompareOrdinal(releaseDate, today) <= 0 && checkedDates && !released;
+        // The same gate home cards use (HomeRelease.TheatricalGateFromSignal), fed by this detail's release_dates.
+        var now = time.GetUtcNow();
+        var gate = series ? Browse.TheatricalGate.Open : Browse.HomeRelease.TheatricalGateFromSignal("movie", releaseDate,
+            Browse.HomeRelease.ClassifyHomeReleaseEvidence(Browse.HomeRelease.ReleaseDatesOf(d), now), now);
         var vote = TmdbClient.Num(d, "vote_average");
 
         return empty with
@@ -273,8 +280,8 @@ public sealed class TitleExtrasService(
             Rating = vote is { } v && v > 0 ? Math.Round(v * 10, MidpointRounding.AwayFromZero) / 10 : null,
             RatingSource = vote is > 0 ? "tmdb" : null,
             ReleaseDate = releaseDate,
-            InTheatricalWindow = inWindow,
-            NextHomeReleaseAt = inWindow ? next : null,
+            InTheatricalWindow = gate.InTheatricalWindow,
+            NextHomeReleaseAt = gate.NextHomeReleaseAt,
             Genres = d.TryGetProperty("genres", out var g) && g.ValueKind == JsonValueKind.Array
                 ? g.EnumerateArray().Select(x => TmdbClient.Str(x, "name")).OfType<string>().ToList() : [],
             VoteCount = TmdbClient.Int(d, "vote_count"),
@@ -310,27 +317,6 @@ public sealed class TitleExtrasService(
                     entries.AddRange(list.EnumerateArray().Select(x => (TmdbClient.Str(c, "iso_3166_1") ?? "", TmdbClient.Str(x, "certification")?.Trim() ?? "")));
         var valid = entries.Where(e => e.Cert.Length > 0).ToList();
         return valid.FirstOrDefault(e => e.Country == "US").Cert ?? valid.FirstOrDefault().Cert;
-    }
-
-    /// <summary>Digital / Physical / TV release evidence (types 4–6) from append_to_response=release_dates.</summary>
-    public static (bool Released, string? Next, bool Checked) HomeRelease(JsonElement d, DateTime now)
-    {
-        if (!d.TryGetProperty("release_dates", out var rd) || !rd.TryGetProperty("results", out var rds) || rds.ValueKind != JsonValueKind.Array)
-            return (false, null, false);
-        var released = false;
-        DateTime? next = null;
-        foreach (var c in rds.EnumerateArray())
-        {
-            if (!c.TryGetProperty("release_dates", out var list) || list.ValueKind != JsonValueKind.Array) continue;
-            foreach (var x in list.EnumerateArray())
-            {
-                if (!x.TryGetProperty("type", out var t) || !HomeReleaseTypes.Contains(t.GetRawText())) continue;
-                if (!DateTime.TryParse(TmdbClient.Str(x, "release_date"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var at)) continue;
-                if (at <= now) released = true;
-                else if (next is null || at < next) next = at;
-            }
-        }
-        return (released, next?.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture), true);
     }
 
     /// <summary>extras/route.ts toSimilarLink.</summary>

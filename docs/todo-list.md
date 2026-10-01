@@ -56,8 +56,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
   - "New episodes of your shows" from the TVmaze schedule of library shows.
   - Collections and franchises (TMDB collections).
   - Without TMDB release dates, a film counts as in cinemas for 21 days after release. On 1 Oct that caught 12 of 24 films still in cinemas and wrongly gated 16 (`shots\api\keyed2\calibration.txt`): long runs (The Odyssey, digital 15 Nov) still lead keyless rows, and a streaming original released in the last 21 days (Unabomber, Netflix) shows as In cinemas until it is 22 days old. A better keyless signal is needed to do better (for example Cinemeta's `dvdRelease` when present).
-  - The title page has its own TMDB-only in-cinemas check (`TitleExtrasService`), so without a key a film in its first 21 days shows In cinemas on home but not on its title page. Move it onto `HomeRelease.TheatricalGateFromSignal`.
-  - After a TMDB key is added, home release checks done without the key stay cached as unknown for up to 15 minutes, so the 21-day rule applies until they expire.
+  - Right after the TMDB key is removed, home keeps its TMDB-sourced cards until the catalog refreshes, and their title pages read Cinemeta's release day instead, which can be days off: 15 of 339 film cards disagreed in that window (`shots\api\keyless5\agree.txt`). A fresh keyless catalog agrees on all of them (`keyless6`).
   - Requesters still see the Downloaded rail (by design, OPS-515); revisit if the owner wants it hidden.
 
 ## Closed

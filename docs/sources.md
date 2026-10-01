@@ -270,6 +270,10 @@ the card gate that draws the "In cinemas" and "Coming" chips (`ReleaseGates.Gate
 A film in cinemas moves to one In cinemas row, last on All and Films; a film not out
 yet leaves home; an unaired series or anime moves to the end of its row. The hero is
 the first ungated title, Because you're watching first. "In cinemas" follows TMDB
-release dates (`HomeReleaseCache`, cached 6 h, misses 15 min). With no dates (no key,
-or TMDB lists none) a film counts as in cinemas for 21 days after its release date
-(`HomeRelease.UncheckedCinemaDays`).
+release dates (`HomeReleaseCache`, keyed by the card's TMDB id, or its work key when it
+has none, so namesakes never share evidence; checked dates cached 6 h, misses kept in
+memory 15 min and dropped as soon as the key changes). With no dates (no key, or TMDB
+lists none) a film counts as in cinemas for 21 days after its release date
+(`HomeRelease.UncheckedCinemaDays`). Title pages use the same gate
+(`HomeRelease.TheatricalGateFromSignal`) and evidence, so a card and its title page
+always agree.

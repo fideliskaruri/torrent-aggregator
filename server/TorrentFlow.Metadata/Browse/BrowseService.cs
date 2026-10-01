@@ -380,7 +380,7 @@ public sealed partial class BrowseService(
         foreach (var spec in specs)
         {
             if (!byRail.TryGetValue(spec.Id, out var rows) || rows.Count == 0) continue;
-            rails.Add(new Rail(spec.Id, spec.Title, [.. rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now))])
+            rails.Add(new Rail(spec.Id, spec.Title, [.. rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(HomeReleaseCache.KeyOf(r)), now))])
             {
                 Kind = spec.Kind,
                 Genre = spec.Genre?.Id,
@@ -443,7 +443,7 @@ public sealed partial class BrowseService(
         homeReleases.ScheduleRefresh(rows, signals);
         var now = time.GetUtcNow();
         return new Rail(BecauseRailId, $"Because you're watching {seed.Title}",
-            rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now)).ToList());
+            rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(HomeReleaseCache.KeyOf(r)), now)).ToList());
     }
 
     private async Task RefreshRelatedInBackgroundAsync(CatalogSeed seed)

@@ -122,7 +122,10 @@ public static partial class HomeRelease
 
 /// <summary>
 /// src/lib/browse/home-release-cache.ts: TMDB release-date evidence cached in SearchCache under
-/// <c>browse:home-release:{workKey}</c>. Reads never touch the network; refreshes are background, bounded to 4.
+/// <c>browse:home-release:{tmdb:id, or the work key when the row has no TMDB id}</c>. Reads never touch the network;
+/// refreshes are background, bounded to 4.
+/// Only checked evidence is persisted (6 h). A miss stays in memory for 15 minutes and is dropped the moment the TMDB
+/// key is added, removed or replaced. With no key there is nothing to read or refresh, so the 21-day rule decides.
 /// </summary>
 public sealed class HomeReleaseCache(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
@@ -133,7 +136,7 @@ public sealed class HomeReleaseCache(
 {
     public const string CachePrefix = "browse:home-release:";
     public const string PayloadKind = "browse-home-release";
-    public const int PayloadVersion = 2;
+    public const int PayloadVersion = 3;
     private static readonly TimeSpan CheckedTtl = TimeSpan.FromHours(6);
     private static readonly TimeSpan UnknownTtl = TimeSpan.FromMinutes(15);
     private const int Concurrency = 4;
@@ -141,19 +144,41 @@ public sealed class HomeReleaseCache(
 
     private readonly ConcurrentDictionary<string, (DateTimeOffset ExpiresAt, HomeReleaseSignal Signal)> _memory = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _pending = new(StringComparer.Ordinal);
+    private readonly Lock _keyLock = new();
+    private (long Revision, bool HasKey) _keyState;
 
     /// <summary>The background refresh task of the last <see cref="ScheduleRefresh"/> call (tests await it).</summary>
     public Task LastRefresh { get; private set; } = Task.CompletedTask;
 
     public void Reset() { _memory.Clear(); _pending.Clear(); }
 
+    /// <summary>On any TMDB key change, drops every unchecked signal so the next home load checks again.</summary>
+    private (long Revision, bool HasKey) SyncKeyState()
+    {
+        var state = (tmdb.CredentialRevision, tmdb.HasKey);
+        lock (_keyLock)
+        {
+            if (_keyState == state) return state;
+            _keyState = state;
+            foreach (var (key, entry) in _memory)
+                if (!entry.Signal.Checked) _memory.TryRemove(key, out _);
+        }
+        return state;
+    }
+
     private sealed record Payload(string Kind, int Version, HomeReleaseSignal Signal);
+
+    /// <summary>The evidence key: the TMDB id when the row has one (namesakes share a work key), else the work key.</summary>
+    public static string KeyOf(CatalogEntry row) => TmdbIdOf(row) is { } id ? $"tmdb:{id}" : row.WorkKey;
+
+    private static int? TmdbIdOf(CatalogEntry row) =>
+        row.Provider == "tmdb" && int.TryParse(row.ProviderId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : null;
 
     private static List<CatalogEntry> Candidates(IEnumerable<CatalogEntry> rows, DateTimeOffset now)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        return rows.Where(r => !string.IsNullOrEmpty(r.WorkKey) && !seen.Contains(r.WorkKey) && HomeRelease.IsMovie(r.MediaType)
-            && r.ReleaseDate is { } d && DateTime.SpecifyKind(d, DateTimeKind.Utc) <= now.UtcDateTime && seen.Add(r.WorkKey)).ToList();
+        return rows.Where(r => !string.IsNullOrEmpty(r.WorkKey) && HomeRelease.IsMovie(r.MediaType)
+            && r.ReleaseDate is { } d && DateTime.SpecifyKind(d, DateTimeKind.Utc) <= now.UtcDateTime && seen.Add(KeyOf(r))).ToList();
     }
 
     public static HomeReleaseSignal? Decode(string payload)
@@ -189,16 +214,18 @@ public sealed class HomeReleaseCache(
     {
         var now = time.GetUtcNow();
         var output = new Dictionary<string, HomeReleaseSignal>(StringComparer.Ordinal);
-        var needed = new List<CatalogEntry>();
+        if (!SyncKeyState().HasKey) return output;
+        var needed = new List<string>();
         foreach (var row in Candidates(rows, now))
         {
-            if (_memory.TryGetValue(row.WorkKey, out var hit) && hit.ExpiresAt > now) output[row.WorkKey] = hit.Signal;
-            else { _memory.TryRemove(row.WorkKey, out _); needed.Add(row); }
+            var key = KeyOf(row);
+            if (_memory.TryGetValue(key, out var hit) && hit.ExpiresAt > now) output[key] = hit.Signal;
+            else { _memory.TryRemove(key, out _); needed.Add(key); }
         }
         if (needed.Count == 0) return output;
         try
         {
-            var keys = needed.Select(r => CachePrefix + r.WorkKey).ToList();
+            var keys = needed.Select(k => CachePrefix + k).ToList();
             var nowUtc = now.UtcDateTime;
             await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var cached = await db.SearchCaches.AsNoTracking().Where(r => keys.Contains(r.CacheKey) && r.ExpiresAt > nowUtc)
@@ -206,10 +233,11 @@ public sealed class HomeReleaseCache(
             foreach (var row in cached)
             {
                 if (!row.CacheKey.StartsWith(CachePrefix, StringComparison.Ordinal)) continue;
-                var workKey = row.CacheKey[CachePrefix.Length..];
-                if (workKey.Length == 0 || Decode(row.Payload) is not { } signal) continue;
-                output[workKey] = signal;
-                _memory[workKey] = (new DateTimeOffset(DateTime.SpecifyKind(row.ExpiresAt, DateTimeKind.Utc)), signal);
+                var key = row.CacheKey[CachePrefix.Length..];
+                // Older builds persisted misses too; only checked evidence is trusted from disk.
+                if (key.Length == 0 || Decode(row.Payload) is not { Checked: true } signal) continue;
+                output[key] = signal;
+                _memory[key] = (new DateTimeOffset(DateTime.SpecifyKind(row.ExpiresAt, DateTimeKind.Utc)), signal);
             }
         }
         catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "[home-release] cache read failed"); }
@@ -220,25 +248,46 @@ public sealed class HomeReleaseCache(
     public void ScheduleRefresh(IEnumerable<CatalogEntry> rows, IReadOnlyDictionary<string, HomeReleaseSignal> known)
     {
         var now = time.GetUtcNow();
-        var work = Candidates(rows, now).Where(r => !known.ContainsKey(r.WorkKey) && _pending.TryAdd(r.WorkKey, 0)).ToList();
+        var state = SyncKeyState();
+        if (!state.HasKey) return;
+        var work = Candidates(rows, now).Where(r => !known.ContainsKey(KeyOf(r)) && _pending.TryAdd(KeyOf(r), 0)).ToList();
         if (work.Count == 0) return;
         LastRefresh = Task.Run(() => Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = Concurrency }, async (row, token) =>
         {
             try
             {
                 var signal = await FetchSignalAsync(row, now).ConfigureAwait(false);
-                await WriteSignalAsync(row.WorkKey, signal, now).ConfigureAwait(false);
+                await WriteSignalAsync(KeyOf(row), signal, now, state).ConfigureAwait(false);
             }
             catch (Exception e) { logger.LogDebug(e, "[home-release] refresh failed for {WorkKey}", row.WorkKey); }
-            finally { _pending.TryRemove(row.WorkKey, out _); }
+            finally { _pending.TryRemove(KeyOf(row), out _); }
         }));
+    }
+
+    /// <summary>
+    /// One film's evidence for the title page when it has no TMDB detail of its own (a Cinemeta card): the same lookup
+    /// and cache entry as its home card. Null with no key, so the 21-day rule decides on both pages.
+    /// </summary>
+    public async Task<HomeReleaseSignal?> SignalForAsync(string title, int? year, CancellationToken ct = default)
+    {
+        var state = SyncKeyState();
+        if (!state.HasKey) return null;
+        var now = time.GetUtcNow();
+        var row = new CatalogEntry { WorkKey = Catalog.CatalogText.CatalogWorkKey(title, year, "movie"), Title = title, Year = year,
+            MediaType = "movie", ReleaseDate = now.UtcDateTime };
+        if ((await ReadSignalsAsync([row], ct).ConfigureAwait(false)).TryGetValue(KeyOf(row), out var known)) return known;
+        var signal = await FetchSignalAsync(row, now).ConfigureAwait(false);
+        await WriteSignalAsync(KeyOf(row), signal, now, state).ConfigureAwait(false);
+        return signal;
     }
 
     private async Task<HomeReleaseSignal> FetchSignalAsync(CatalogEntry row, DateTimeOffset now)
     {
         try
         {
-            var reference = await artwork.ResolveTmdbRefAsync(new ArtworkQuery(row.Title, row.Year, "movie")).ConfigureAwait(false);
+            // A row that knows its TMDB id uses it: a title search can land on a namesake ("The Runner" found "Runner").
+            var reference = TmdbIdOf(row) is { } id ? new TmdbRef(id, "movie")
+                : await artwork.ResolveTmdbRefAsync(new ArtworkQuery(row.Title, row.Year, "movie")).ConfigureAwait(false);
             if (reference is null || reference.MediaType != "movie") return HomeReleaseSignal.None;
             var detail = await tmdb.FetchDetailAsync("movie", reference.Id, 4_000).ConfigureAwait(false);
             if (detail is null) return HomeReleaseSignal.None;
@@ -247,9 +296,15 @@ public sealed class HomeReleaseCache(
         catch (Exception e) when (e is not OutOfMemoryException) { return HomeReleaseSignal.None; }
     }
 
-    private async Task WriteSignalAsync(string workKey, HomeReleaseSignal signal, DateTimeOffset now)
+    private async Task WriteSignalAsync(string workKey, HomeReleaseSignal signal, DateTimeOffset now, (long Revision, bool HasKey) state)
     {
-        var expiresAt = now + (signal.Checked ? CheckedTtl : UnknownTtl);
+        if (!signal.Checked)
+        {
+            // A miss stays in memory only, and only if the key it was fetched with is still the key.
+            lock (_keyLock) { if (_keyState == state) _memory[workKey] = (now + UnknownTtl, signal); }
+            return;
+        }
+        var expiresAt = now + CheckedTtl;
         _memory[workKey] = (expiresAt, signal);
         try
         {
