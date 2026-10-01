@@ -35,16 +35,7 @@
  */
 
 import { Link } from "react-router";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { buttonVariants } from "@/components/ui/button";
 import {
   capOverridePrompt,
@@ -154,25 +145,32 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
   const prompt = facts ? capOverridePrompt(facts) : null;
 
   return (
-    <AlertDialog
+    <ConfirmDialog
       open={open}
+      // Any close that is not the explicit confirm is a cancel. Radix routes
+      // Esc and the overlay through here, so this is the single place that
+      // guarantees "dismissed" never means "sent". Cancel is rendered first so
+      // Radix focuses the safe choice, and a reflexive Enter cannot trigger
+      // "Download anyway".
       onOpenChange={(next) => {
-        // Any close that is not the explicit confirm is a cancel. Radix routes
-        // Esc and the overlay through here, so this is the single place that
-        // guarantees "dismissed" never means "sent".
         if (!next) onCancel();
       }}
+      title={facts?.overridable ? prompt?.title : blockedTitle(facts)}
+      description={facts?.overridable ? prompt?.summary : blockedBody(facts)}
+      cancelLabel={prompt?.cancelLabel ?? "Cancel"}
+      confirmLabel={prompt?.confirmLabel ?? "Download anyway"}
+      hideConfirm={!facts?.overridable}
+      onConfirm={onConfirm}
+      secondaryAction={
+        <Link
+          to={facts?.settingsHref ?? "/settings?tab=folders"}
+          className={cn(buttonVariants({ variant: "secondary" }), "max-md:min-h-11 pointer-coarse:min-h-11")}
+          onClick={onCancel}
+        >
+          {facts?.overridable ? (prompt?.raiseCapLabel ?? "Raise the cap") : "Open settings"}
+        </Link>
+      }
     >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {facts?.overridable ? prompt?.title : blockedTitle(facts)}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {facts?.overridable ? prompt?.summary : blockedBody(facts)}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-
         {facts?.overridable && prompt ? (
           <div className="space-y-3 rounded-lg border border-border bg-background p-3.5">
             {prompt.bar ? <StorageBarView bar={prompt.bar} /> : null}
@@ -184,33 +182,6 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
             {prompt.note}
           </p>
         ) : null}
-
-        <AlertDialogFooter>
-          {/*
-            Cancel is rendered first deliberately. Radix moves initial focus to
-            the first tabbable element in the content, so this keeps the safe
-            choice as the default and stops "Download anyway" from being
-            triggered by a reflexive Enter at a frustrating moment.
-          */}
-          <AlertDialogCancel className="max-md:min-h-11 pointer-coarse:min-h-11">
-            {prompt?.cancelLabel ?? "Cancel"}
-          </AlertDialogCancel>
-
-          <Link
-            to={facts?.settingsHref ?? "/settings?tab=folders"}
-            className={cn(buttonVariants({ variant: "secondary" }), "max-md:min-h-11 pointer-coarse:min-h-11")}
-            onClick={onCancel}
-          >
-            {facts?.overridable ? (prompt?.raiseCapLabel ?? "Raise the cap") : "Open settings"}
-          </Link>
-
-          {facts?.overridable ? (
-            <AlertDialogAction className="max-md:min-h-11 pointer-coarse:min-h-11" onClick={onConfirm}>
-              {prompt?.confirmLabel ?? "Download anyway"}
-            </AlertDialogAction>
-          ) : null}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    </ConfirmDialog>
   );
 }

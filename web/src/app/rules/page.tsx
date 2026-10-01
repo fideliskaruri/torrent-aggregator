@@ -20,16 +20,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
@@ -791,74 +782,38 @@ export default function RulesPage() {
         ) : null}
       </div>
 
-      <AlertDialog
+      <ConfirmDialog
         open={runReviewOpen}
-        onOpenChange={(open) => {
-          if (!running) setRunReviewOpen(open);
-        }}
-      >
-        <AlertDialogContent data-rules-automation-review>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Run rule automation?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This searches {rules.filter((rule) => rule.enabled).length} enabled{" "}
-              {rules.filter((rule) => rule.enabled).length === 1 ? "rule" : "rules"}
-              {" "}and may immediately download matching video releases.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={running}>Review rules</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={running || hasUnsupportedRules}
-              onClick={(event) => {
-                event.preventDefault();
-                void runAll().finally(() => setRunReviewOpen(false));
-              }}
-            >
-              {running ? (
-                <LoadingGlyph className="h-3.5 w-3.5" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
-              Search and download matches
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setRunReviewOpen}
+        contentData={{ "data-rules-automation-review": true }}
+        title="Run rule automation?"
+        description={`This searches ${rules.filter((rule) => rule.enabled).length} enabled ${
+          rules.filter((rule) => rule.enabled).length === 1 ? "rule" : "rules"
+        } and may download matching video releases right away.`}
+        cancelLabel="Review rules"
+        busy={running}
+        confirmDisabled={hasUnsupportedRules}
+        icon={<Play className="h-3.5 w-3.5" />}
+        confirmLabel="Search and download matches"
+        onConfirm={() => void runAll().finally(() => setRunReviewOpen(false))}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(pendingRemove)}
         onOpenChange={(open) => {
           if (!open) setPendingRemove(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete rule?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingRemove
-                ? `"${pendingRemove.name}" will stop matching releases. Past sends stay in Notifications.`
-                : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmRemove();
-              }}
-              disabled={removing}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {removing ? (
-                <LoadingGlyph className="h-3.5 w-3.5" />
-              ) : null}
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Delete rule?"
+        description={
+          pendingRemove
+            ? `"${pendingRemove.name}" stops matching releases. Past sends stay in Notifications.`
+            : undefined
+        }
+        variant="destructive"
+        busy={removing}
+        confirmLabel="Delete rule"
+        onConfirm={() => void confirmRemove()}
+      />
     </div>
   );
 }

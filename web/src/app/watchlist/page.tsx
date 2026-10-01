@@ -39,16 +39,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { PosterImage } from "@/components/browse/poster-image";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
@@ -96,7 +87,7 @@ import {
 import { activityLine, needsAttention, positionLine } from "./card-state";
 import { CheckSchedule } from "@/components/library/check-schedule";
 import { removeFromLibraryCopy } from "./remove-copy";
-import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
+import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 
 interface WatchItem {
   nextCheckAt?: string | null;
@@ -462,23 +453,21 @@ export default function WatchlistPage() {
         }
       } else {
         const query = (data.noReleaseFound as { manualSearchQuery?: string | null } | null | undefined)?.manualSearchQuery;
-        toast.error(
-          data.message || "On-demand grab failed",
-          typeof data.workKey === "string" && data.workKey
-            ? {
-                duration: Infinity,
-                classNames: PICK_TOAST_CLASSNAMES,
-                action: pickReleaseToastButton({
+        toastDownloadOutcome({
+          ok: false,
+          message: data.message || "On-demand grab failed",
+          pick:
+            typeof data.workKey === "string" && data.workKey
+              ? {
                   workKey: data.workKey,
                   title: item.title,
                   season,
                   episode,
                   query: query ?? null,
                   onPicked: load,
-                }),
-              }
-            : undefined,
-        );
+                }
+              : null,
+        });
       }
     } catch {
       toast.error("Network error");
@@ -1195,101 +1184,67 @@ export default function WatchlistPage() {
         />
       )}
 
-      <AlertDialog
+      <ConfirmDialog
         open={automationReviewOpen}
-        onOpenChange={(open) => {
-          if (!runningAuto) setAutomationReviewOpen(open);
-        }}
-      >
-        <AlertDialogContent data-automation-review>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Run Library automation?</AlertDialogTitle>
-            <AlertDialogDescription>
-              TorrentFlow will search every monitored title and may immediately
-              send matching releases to your download client. Review enabled
-              titles and rules before continuing.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={runningAuto}>Review library</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={runningAuto}
-              onClick={(event) => {
-                event.preventDefault();
-                void runAutomation().finally(() => setAutomationReviewOpen(false));
-              }}
-            >
-              {runningAuto ? (
-                <LoadingGlyph className="h-3.5 w-3.5" />
-              ) : (
-                <Radar className="h-3.5 w-3.5" />
-              )}
-              Search and download matches
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setAutomationReviewOpen}
+        contentData={{ "data-automation-review": true }}
+        title="Run library automation?"
+        description="TorrentFlow searches every monitored title and may send matching releases to your download client right away. Review enabled titles and rules before you continue."
+        cancelLabel="Review library"
+        busy={runningAuto}
+        icon={<Radar className="h-3.5 w-3.5" />}
+        confirmLabel="Search and download matches"
+        onConfirm={() => void runAutomation().finally(() => setAutomationReviewOpen(false))}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(pendingRemove)}
         onOpenChange={(open) => {
           if (!open) setPendingRemove(null);
         }}
-      >
-        <AlertDialogContent data-remove-from-library>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {removeFromLibraryCopy(pendingRemove?.title).title}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingRemove
-                ? removeFromLibraryCopy(pendingRemove.title).body
-                : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmRemove();
-              }}
-              disabled={removing}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {removing ? (
-                <LoadingGlyph className="h-3.5 w-3.5" />
-              ) : null}
-              {removeFromLibraryCopy(pendingRemove?.title).confirmLabel}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        contentData={{ "data-remove-from-library": true }}
+        title={removeFromLibraryCopy(pendingRemove?.title).title}
+        description={pendingRemove ? removeFromLibraryCopy(pendingRemove.title).body : undefined}
+        variant="destructive"
+        busy={removing}
+        confirmLabel={removeFromLibraryCopy(pendingRemove?.title).confirmLabel}
+        onConfirm={() => void confirmRemove()}
+      />
 
       {/* Deleting files.
           The confirm stays disabled until a plan has come back and says
           something can actually be removed, so nobody can press it without
           having been shown the file count and the size. */}
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => {
-          if (!open && !deleting) {
+          if (!open) {
             setPendingDelete(null);
             setDeletePlan(null);
             setDeletePlanError(null);
           }
         }}
+        contentData={{ "data-delete-files-dialog": true }}
+        title="Delete downloaded files?"
+        description={
+          pendingDelete
+            ? `This removes the media for “${pendingDelete.title}” from your disk. It cannot be undone, and the title stays in your library.`
+            : undefined
+        }
+        variant="destructive"
+        busy={deleting}
+        confirmDisabled={deletePlan?.outcome !== "deletes"}
+        /* The button restates the quantity, so the number is in front of the
+           user at the moment they press it and not only in the paragraph
+           above. A release count stands in when the engine recorded no file
+           list ("0 files" would read as "nothing"). */
+        confirmLabel={
+          deletePlan?.outcome === "deletes"
+            ? deleteButtonLabel(deletePlan)
+            : "Delete files"
+        }
+        onConfirm={() => void confirmDeleteFiles()}
       >
-        <AlertDialogContent data-delete-files-dialog>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete downloaded files?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete
-                ? `This permanently removes media for “${pendingDelete.title}” from your disk. It cannot be undone, and it does not remove the title from your library.`
-                : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
           {pendingDelete ? (
             <div className="space-y-3">
               {(() => {
@@ -1364,29 +1319,7 @@ export default function WatchlistPage() {
               </div>
             </div>
           ) : null}
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmDeleteFiles();
-              }}
-              disabled={deleting || deletePlan?.outcome !== "deletes"}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {deleting ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
-              {/* The button restates the quantity, so the number is in front of
-                  the user at the moment they press it and not only in the
-                  paragraph above. A release count stands in when the engine
-                  recorded no file list — "0 files" would read as "nothing". */}
-              {deletePlan?.outcome === "deletes"
-                ? deleteButtonLabel(deletePlan)
-                : "Delete files"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      </ConfirmDialog>
 
       <StorageCapDialog {...capOverride.dialogProps} />
     </div>

@@ -14,16 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { PosterImage } from "@/components/browse/poster-image";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
@@ -413,12 +404,20 @@ export default function RequestsPage() {
         </ul>
       )}
 
-      <AlertDialog open={declining != null} onOpenChange={(open) => (!open ? setDeclining(null) : undefined)}>
-        <AlertDialogContent data-owner-decline-dialog>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Decline {declining?.title}?</AlertDialogTitle>
-            <AlertDialogDescription>They'll see it was declined, and your reason if you give one.</AlertDialogDescription>
-          </AlertDialogHeader>
+      <ConfirmDialog
+        open={declining != null}
+        onOpenChange={(open) => (!open ? setDeclining(null) : undefined)}
+        contentData={{ "data-owner-decline-dialog": true }}
+        confirmData={{ "data-owner-decline-confirm": true }}
+        title={`Decline ${declining?.title ?? "this request"}?`}
+        description="They'll see it was declined, and your reason if you give one."
+        cancelLabel="Keep it"
+        confirmLabel="Decline request"
+        onConfirm={() => {
+          if (declining) void decide(declining, "decline", reason);
+          setDeclining(null);
+        }}
+      >
           <div className="space-y-1.5">
             <Label htmlFor="decline-reason" className="text-xs text-muted-foreground">
               Reason <span className="font-normal text-subtle-foreground">(optional)</span>
@@ -434,20 +433,7 @@ export default function RequestsPage() {
               data-owner-decline-reason
             />
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (declining) void decide(declining, "decline", reason);
-                setDeclining(null);
-              }}
-              data-owner-decline-confirm
-            >
-              Decline request
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      </ConfirmDialog>
     </div>
   );
 }

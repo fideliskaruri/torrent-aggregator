@@ -92,7 +92,7 @@ import {
   postTitleAction,
   rethrowAcquisitionFetchError,
 } from "./title-action-request";
-import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
+import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -140,10 +140,6 @@ export interface TitleDetailProps {
 }
 
 const DOWNLOAD_KEY = "download";
-/** Keeps a toast's Retry a 44px touch target on phones. */
-const RETRY_TOAST_CLASSNAMES = {
-  actionButton: "max-sm:min-h-11 max-sm:px-4!",
-} as const;
 
 /**
  * Renders a button's icon + label with the pending spinner **overlaid** rather
@@ -443,21 +439,21 @@ export function TitleDetail(props: TitleDetailProps) {
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
-        const pick =
-          err instanceof NoReleaseFoundError && canDownloadRef.current
-            ? pickReleaseToastButton({
-                workKey: props.workKey,
-                title: cleanDisplayTitle(data?.title ?? props.title ?? label),
-                season: action.season ?? null,
-                episode: action.episode ?? null,
-                query: err.query,
-                onPicked: refetch,
-              })
-            : undefined;
-        toast.error(
-          err instanceof Error ? err.message : `Could not get ${label}`,
-          pick ? { action: pick, duration: Infinity, classNames: PICK_TOAST_CLASSNAMES } : undefined,
-        );
+        toastDownloadOutcome({
+          ok: false,
+          message: err instanceof Error ? err.message : `Could not get ${label}`,
+          pick:
+            err instanceof NoReleaseFoundError && canDownloadRef.current
+              ? {
+                  workKey: props.workKey,
+                  title: cleanDisplayTitle(data?.title ?? props.title ?? label),
+                  season: action.season ?? null,
+                  episode: action.episode ?? null,
+                  query: err.query,
+                  onPicked: refetch,
+                }
+              : null,
+        });
       }
     },
     // Every changing value runAction needs is read from `actionDeps.current`.
@@ -519,14 +515,14 @@ export function TitleDetail(props: TitleDetailProps) {
       // "Pick a release yourself" for the season, prefilled with our search.
       const pickAction = (report: SeasonGrabReport | null | undefined) =>
         canDownloadRef.current
-          ? pickReleaseToastButton({
+          ? {
               workKey: props.workKey,
               title: cleanDisplayTitle(props.title ?? props.workKey),
               season: targetSeason,
               query: report?.manualSearchQuery ?? null,
               onPicked: refetch,
-            })
-          : undefined;
+            }
+          : null;
 
       spentSeasonGrabs.current.add(key);
       inFlightSeasonGrabs.current.add(key);
@@ -628,20 +624,19 @@ export function TitleDetail(props: TitleDetailProps) {
         // for just those episodes.
         const partial = report.coveredEpisodes < report.totalEpisodes;
         const partialRetry = retryAction(report);
-        const partialPick = partial ? pickAction(report) : undefined;
+        const partialPick = partial ? pickAction(report) : null;
         const partialDescription = partial
           ? seasonGrabFailureDescription(report, outcome.value.message)
           : undefined;
-        toast.success(outcome.value.message, {
+        // A partial start names why the rest did not start and stays until the
+        // user retries or dismisses it; a full start fades.
+        toastDownloadOutcome({
+          ok: true,
           id: toastId,
+          message: outcome.value.message,
           description: partialDescription ?? report.planReason ?? undefined,
-          // Stays until the user retries or dismisses it; a full start fades.
-          duration: partialRetry || partialPick ? Infinity : undefined,
-          // Retry keeps the toast open (preventDefault), so it owns the action
-          // slot; the pick then sits in the cancel slot, which closes the toast.
-          action: partialRetry ?? partialPick,
-          cancel: partialRetry ? partialPick : undefined,
-          classNames: partialPick ? PICK_TOAST_CLASSNAMES : partialRetry ? RETRY_TOAST_CLASSNAMES : undefined,
+          retry: partialRetry,
+          pick: partialPick,
         });
         refetch();
       } catch (err) {
@@ -662,15 +657,13 @@ export function TitleDetail(props: TitleDetailProps) {
             : `Could not download season ${targetSeason}`;
         const failure =
           err instanceof SeasonGrabFailureError ? err : undefined;
-        const failureRetry = failure ? retryAction(failure.report) : undefined;
-        const failurePick = failure ? pickAction(failure.report) : undefined;
-        toast.error(message, {
+        toastDownloadOutcome({
+          ok: false,
           id: toastId,
-          duration: Infinity,
+          message,
           description: failure?.description,
-          action: failureRetry ?? failurePick,
-          cancel: failureRetry ? failurePick : undefined,
-          classNames: failurePick ? PICK_TOAST_CLASSNAMES : failureRetry ? RETRY_TOAST_CLASSNAMES : undefined,
+          retry: failure ? retryAction(failure.report) : undefined,
+          pick: failure ? pickAction(failure.report) : null,
         });
       } finally {
         inFlightSeasonGrabs.current.delete(key);
