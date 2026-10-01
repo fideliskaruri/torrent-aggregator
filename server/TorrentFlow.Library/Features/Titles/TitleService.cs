@@ -141,7 +141,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         await db.SaveChangesAsync(ct);
         var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null) || local.Any(x => x.Status == EngineTorrentStatus.Queued), ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
-            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? Display(key);
+            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? TorrentFlow.Core.Text.WorkKeySlug.DisplayTitle(key);
         var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
         var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
@@ -317,16 +317,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         }
         return result;
     }
-    private static int? ReleaseYear(string name)
-    {
-        if (EpisodeCursor.Parse(name) != null) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(name, @"\b((?:19|20)\d{2})\b");
-        return m.Success ? int.Parse(m.Groups[1].Value) : null;
-    }
-    private static string Display(string key)
-    {
-        string[] minor = ["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"];
-        return string.Join(' ', System.Text.RegularExpressions.Regex.Split(Uri.UnescapeDataString(key).Trim(), @"[-_\s]+")
-            .Select((x, i) => i > 0 && minor.Contains(x.ToLowerInvariant()) ? x.ToLowerInvariant() : x.Length > 0 ? char.ToUpperInvariant(x[0]) + x[1..] : x));
-    }
+    /// <summary>A film release's year; episodes carry none.</summary>
+    private static int? ReleaseYear(string name) =>
+        EpisodeCursor.Parse(name) != null ? null : TorrentFlow.Core.ReleaseNames.ReleaseYear(name);
 }

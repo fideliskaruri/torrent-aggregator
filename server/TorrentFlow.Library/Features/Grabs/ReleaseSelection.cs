@@ -24,11 +24,6 @@ public static class ReleaseSelection
     public static bool MatchesWork(string key, string title, int? year = null) => TorrentFlow.Core.Text.WorkKeySlug.Matches(key, title, year);
     public static int? Resolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
     public static bool MeetsFloor(string title, int? floor) => floor == null || Resolution(title) >= floor;
-    public static int? Year(string title)
-    {
-        var years = Regex.Matches(title, @"\b((?:19|20)\d{2})\b").Where(x => x.Index > 0 && int.Parse(x.Value) <= DateTime.UtcNow.Year + 5).ToArray();
-        return years.Length > 0 ? int.Parse(years[^1].Value) : null;
-    }
     /// <summary>Exact single-episode match (TS matchesTargetEpisode): packs, batches and ranges never satisfy an episode.</summary>
     public static bool ExactEpisode(TorrentResult result, EpisodeCursor cursor) => EpisodeLadder.MatchesTargetEpisode(result, cursor);
     public static bool SameWork(TorrentResult result, string title, IReadOnlyList<string> aliases)
