@@ -216,8 +216,8 @@ settings; do not expose an unauthenticated host to untrusted networks.
 
 ## Browse cards and catalog ids
 
-Catalog rows (`CatalogEntry`: the Trending now, Popular series and Because you're
-watching lists) store the provider and id of the title they list, for example
+Catalog rows (`CatalogEntry`: the home rails and the Because you're watching lists)
+store the provider and id of the title they list, for example
 Cinemeta with an IMDb `tt` id. Migration `AddCatalogProviderId` clears the old rows
 once so they rebuild with ids. `GET /api/browse` cards carry `workKey`, `year`,
 `provider` and `providerId`, and a card's link passes them to the title page.
@@ -230,7 +230,37 @@ request it." instead of showing a Request button.
 
 The home page shows each title once. `BrowseService.DistinctAcrossRails` keeps one
 seen set across the rails in order: your own rails first, then Because you're
-watching, Trending now and Popular series. The first card for a
+watching, then the home rails in `HomeRails` order. The first card for a
 work stays. Cards are the same work when they share a provider id, a work key, or a
 normalised title and type (plus year for films), so a show listed by both Cinemeta
-and TMDB still appears once. A rail can therefore show fewer than its 24 cards.
+and TMDB still appears once. Each catalog rail claims only the cards it shows (24 on
+a rail, 48 on a genre page) from up to 96 stored, so a rail stays full even when
+earlier rails list the same titles.
+
+## Home rails
+
+`HomeRails` (`server/TorrentFlow.Metadata/Browse/HomeRails.cs`) is the one list of
+home rails. Each rail has an id (`films-popular`, `series-crime`), a title, a kind
+(films, series or anime), an optional genre and its feeds in order:
+
+| Rails | With a TMDB key | Without a key |
+|---|---|---|
+| Popular films, Popular series | TMDB `trending/{movie,tv}/week` | Cinemeta `movie/top`, `series/top` |
+| New films | TMDB discover: US digital or physical release in the last 90 days | Cinemeta `movie/year`, this year |
+| New series | TMDB discover: first aired in the last 180 days | Cinemeta `series/year`, this year |
+| Top rated films, Top rated series | TMDB discover by rating with a vote floor | none: the rail is left out |
+| Film and series genres | TMDB discover `with_genres` | Cinemeta `top` with the genre |
+| Anime this season, Trending anime, Top rated anime, anime genres | AniList | AniList |
+
+`GET /api/browse` takes `type` (`films`, `series`, `anime`) and `genre` (a genre
+rail's genre id) and answers 400 with a plain `error` for anything else. All shows
+the featured rails, a type shows its featured rails then its genre rails, and a
+genre page shows one rail of up to 48. `genres` lists the type's genre chips.
+
+Rails refresh once per local day. A rail is refetched when it has no rows, its rows
+are from an earlier day, or its preferred provider changed (a key was added or
+removed). Only a feed that returns at least 6 titles replaces a rail, so a failed
+or thin refresh keeps yesterday's rows. Nothing is shuffled. A request waits (up to
+12 s) only for its view's rails that have no rows; the rest refresh in the
+background, and the hourly worker refreshes every stale rail. Plan and proof:
+`docs/home-categories-plan.md`.
