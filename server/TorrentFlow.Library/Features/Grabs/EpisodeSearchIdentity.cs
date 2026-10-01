@@ -28,7 +28,7 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
         IReadOnlyList<string>? aliases, CancellationToken ct, string? provider = null, string? providerId = null)
     {
         var existing = UniqueNames(aliases ?? [], title);
-        var known = (AnimeIdentity.IsAnime(provider, mediaType) ? "anime" : mediaType ?? "tv", (IReadOnlyList<string>)existing);
+        var known = (AnimeIdentity.IsAnime(provider, mediaType, providerId) ? "anime" : mediaType ?? "tv", (IReadOnlyList<string>)existing);
         if (known.Item1 == "anime" && existing.Count > 0) return known;
         if (string.IsNullOrWhiteSpace(title)) return known;
         var wanted = EpisodeLadder.NormalizeTitle(title);

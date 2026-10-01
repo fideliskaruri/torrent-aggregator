@@ -402,7 +402,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = TorrentPurpose.Keep,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
-                Placement = Placement(input, pack),
+                Placement = Placement(input, candidate, pack),
                 QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
@@ -466,13 +466,15 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// Where the work lands: its catalog title and the catalog season (the episode's, or the pack's), so every episode
     /// of a show shares one folder whatever its release is called.
     /// </summary>
-    private static WorkPlacement? Placement(GrabInput input, PackSelection? pack)
+    private static WorkPlacement? Placement(GrabInput input, TorrentResult release, PackSelection? pack)
     {
         var title = (input.Title ?? "").Trim();
         if (title.Length == 0) return null;
         var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
         var film = pack == null && input.Cursor == null;
-        return new(title, input.Year, input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType), film, film ? null : season);
+        // An anime source decides on its own: the work's AniList (or other anime catalog) identity, or a release from a site's anime category.
+        var anime = input.Anime || AnimeIdentity.IsAnime(input.Provider, input.MediaType, input.ProviderId) || AnimeIdentity.IsAnimeSiteCategory(release.Category);
+        return new(title, input.Year, anime, film, film ? null : season);
     }
 
     private static async Task LogSkip(TorrentFlowDbContext db, GrabInput input, string query, string message, CancellationToken ct)

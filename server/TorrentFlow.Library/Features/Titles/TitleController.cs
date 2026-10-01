@@ -96,6 +96,9 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         if (providerId == null) provider = null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        // An identity is unique to one work; a page-derived identity already held by another work key is not copied here.
+        if (verified == null && provider != null && await db.Works.AnyAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type && x.WorkKey != workKey, ct))
+            provider = providerId = null;
         if (work == null)
         {
             work = new() { Id = Ids.New(), WorkKey = workKey, CanonicalTitle = title, MediaType = type, Year = detail["year"] as int?,

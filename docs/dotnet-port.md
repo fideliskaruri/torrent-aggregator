@@ -830,8 +830,10 @@ The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is built by 
 `SmartSendTargets.BuildPath`. Every grab (film, episode, season pack, request, wanted queue, picked release) sends its
 catalog work (`WorkPlacement`), so the show folder is the catalog title the UI shows and the season is the catalog's
 own season, never read from the torrent's name; sends with no work (search page, automation) read both from the
-release. Anime, decided by the one shared rule `AnimeIdentity` (AniList or catalog type anime, TMDB original language
-ja with Animation, Cinemeta Animation made in Japan), keeps the single `Anime` category but goes to
+release. Anime is decided by the one shared rule `AnimeIdentity`. Metadata from an anime source (AniList, Kitsu,
+MyAnimeList, AniDB, an anime addon id such as `kitsu:123`, catalog type anime, or a release from a site's anime
+category such as nyaa) is anime with no other check. Only TMDB or Cinemeta metadata falls back to genres: an Anime
+genre, or Animation made in Japan (TMDB original language ja with genre 16). Anime keeps the single `Anime` category but goes to
 `Anime Series/<Show>/Season NN` or `Anime Movies/<Title (Year)>` under the download root (or under the Anime path rule
 when one is set). The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.
