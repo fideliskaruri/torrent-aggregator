@@ -14,10 +14,3 @@ export function factsLine(
     .filter((part) => part.length > 0)
     .join(" · ");
 }
-
-// Formatting lives in `@/lib/format`. Re-exported here so older imports keep working.
-export {
-  formatBytes,
-  formatDuration,
-  formatRelativeTime,
-} from "./format";

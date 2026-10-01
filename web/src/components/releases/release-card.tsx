@@ -66,7 +66,7 @@ export function ReleaseCard({
         {release.quality ? <Badge variant="outline">{release.quality}p</Badge> : null}
         <span>{release.seeders} {release.seeders === 1 ? "seeder" : "seeders"}</span>
         <span aria-hidden>·</span>
-        <span>{release.sizeBytes != null ? formatBytes(release.sizeBytes) : "Size unknown"}</span>
+        <span>{formatBytes(release.sizeBytes) ?? "Size unknown"}</span>
         {release.source ? (
           <>
             <span aria-hidden>·</span>
@@ -96,3 +96,4 @@ export function ReleaseCard({
     </li>
   );
 }
+

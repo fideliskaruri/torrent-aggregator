@@ -487,7 +487,7 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
   const stalledText = !health
     ? checking ? "Checking…" : "Unknown"
     : health.stalledForSeconds > 0
-      ? formatDuration(health.stalledForSeconds)
+      ? formatDuration(health.stalledForSeconds) ?? "Not stalled"
       : "Not stalled";
   const status = stateLabel(health?.state ?? torrent.state, torrent.queuePosition);
 
@@ -505,7 +505,7 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
         </div>
         <div className="min-w-0">
           <dt className="text-xs text-subtle-foreground">Speed</dt>
-          <dd className="text-foreground" data-health-speed>{formatSpeed(speed) ?? "—"}</dd>
+          <dd className="text-foreground" data-health-speed>{formatSpeed(speed) ?? "Idle"}</dd>
         </div>
         <div className="min-w-0">
           <dt className="text-xs text-subtle-foreground">Stalled for</dt>
@@ -515,3 +515,4 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
     </section>
   );
 }
+

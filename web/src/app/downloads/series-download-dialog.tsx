@@ -26,7 +26,7 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { formatBytes, formatEta } from "@/lib/format";
+import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,7 +58,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
-import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
+import { progressPercent } from "@/components/tf/active-row-state";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
   isDownloaded,
@@ -364,7 +364,7 @@ function EpisodeCard({
   const busy = openingHash === t.transferId;
   // A pack's largest file is one episode of many, so a pack only gets Show in folder.
   const canOpen = openFolder && canOpenFinishedFile(t) && !entry.isSeasonPack && !t.packEpisodes;
-  const speed = speedLabel(t.dlspeed);
+  const speed = formatSpeed(t.dlspeed);
   const etaText = isDownloading(t.state) ? formatEta(t.eta, { prefix: " · " }) : null;
   const errorMessage = transferErrorMessage(t);
   const [errorExpanded, setErrorExpanded] = useState(false);
@@ -438,7 +438,7 @@ function EpisodeCard({
               </span>
             ) : null}
             <span className="text-[12px] tabular-nums text-subtle-foreground">
-              {formatBytes(t.sizeBytes)}
+              {formatBytes(t.sizeBytes) ?? "Unknown size"}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}
               {etaText ?? ""}
             </span>
@@ -663,7 +663,7 @@ export function SeriesDownloadDialog({
   const pct = progressPercent(group.progress);
   const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
   const art = artwork[query.key];
-  const speed = speedLabel(group.dlspeed);
+  const speed = formatSpeed(group.dlspeed);
   const chip = rollupChip(group);
   const headerBarTone = chip.failing ? "bg-destructive" : barTone(group.state);
   const showBar = showsProgressBar(group);
@@ -757,7 +757,7 @@ export function SeriesDownloadDialog({
                 data-mobile-group-facts
               >
                 {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-                {formatBytes(group.sizeBytes)}
+                {formatBytes(group.sizeBytes) ?? "Unknown size"}
                 {showBar ? ` · ${pct}%` : null}
               </span>
               {isDownloading(group.state) && speed ? (
@@ -820,7 +820,7 @@ export function SeriesDownloadDialog({
                 <span className="text-[12px] tabular-nums text-subtle-foreground">
                   {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"} ·{" "}
                   {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
-                  {formatBytes(group.sizeBytes)}
+                  {formatBytes(group.sizeBytes) ?? "Unknown size"}
                 </span>
               </div>
               {showBar ? (
@@ -1005,3 +1005,4 @@ export function SeriesDownloadDialog({
     </Dialog>
   );
 }
+

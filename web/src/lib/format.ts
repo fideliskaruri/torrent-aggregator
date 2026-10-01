@@ -5,13 +5,16 @@
  * and whether a date was hydration-safe. Everything below is the contract:
  * binary bytes, null when idle/unknown, fixed English month names for calendar
  * dates so SSR and the browser never disagree.
+ *
+ * Invalid or unknown values return null so callers omit the field. Do not print
+ * em dashes or en dashes in UI copy.
  */
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** Format byte sizes for UI display (binary 1024). */
-export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null || Number.isNaN(bytes) || bytes < 0) return "—";
+/** Format byte sizes for UI display (binary 1024). Null when unknown/invalid. */
+export function formatBytes(bytes: number | null | undefined): string | null {
+  if (bytes == null || Number.isNaN(bytes) || bytes < 0) return null;
   if (bytes === 0) return "0 B";
   // Math.floor(log(0.8)/log(1024)) is -1, which would index past the start of
   // `units` and scale the value *up* ("819 undefined"). Sub-byte values are
@@ -25,28 +28,20 @@ export function formatBytes(bytes: number | null | undefined): string {
 }
 
 /**
- * Same as {@link formatBytes}. Kept as a named alias so storage copy that used
- * to call `formatBytesShort` (decimal 1000) keeps a stable import path while
- * sharing the binary formatter.
- */
-export function formatBytesShort(n: number | null | undefined): string {
-  return formatBytes(n);
-}
-
-/**
  * Human download/upload speed, or null when nothing is moving.
- * Idle callers omit the chip rather than printing "0 B/s" or "—/s".
+ * Idle callers omit the chip rather than printing "0 B/s".
  */
 export function formatSpeed(bytesPerSec: number | null | undefined): string | null {
   if (bytesPerSec == null || !Number.isFinite(bytesPerSec) || bytesPerSec <= 0) {
     return null;
   }
-  return `${formatBytes(bytesPerSec)}/s`;
+  const size = formatBytes(bytesPerSec);
+  return size ? `${size}/s` : null;
 }
 
 /** Elapsed/remaining time as a compact duration: "45s", "12m", "6d 16h". */
-export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+export function formatDuration(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
   if (seconds < 60) return `${Math.round(seconds)}s`;
 
   const units: [label: string, size: number][] = [
@@ -66,7 +61,7 @@ export function formatDuration(seconds: number | null | undefined): string {
     parts.push(`${n}${label}`);
     if (parts.length === 2) break;
   }
-  return parts.join(" ");
+  return parts.length > 0 ? parts.join(" ") : "0s";
 }
 
 /**
@@ -81,7 +76,7 @@ export function formatEta(
 ): string | null {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return null;
   const duration = formatDuration(seconds);
-  if (duration === "—") return null;
+  if (!duration) return null;
   return `${options?.prefix ?? ""}ETA ${duration}`;
 }
 
@@ -202,12 +197,10 @@ function formatLongCalendar(year: number, month: number, day: number): string {
  * never disagree.
  *
  * - `relative`: "2h ago", then a short calendar date past ~30 days
- * - `short`: "May 4, 2023" (long month) — title release dates
- * - `air`: "12 Mar 2026" (day-first short month) — episode air dates
+ * - `short`: "May 4, 2023" (long month) for title release dates
+ * - `air`: "12 Mar 2026" (day-first short month) for episode air dates
  *
- * Returns null for missing/invalid input (callers omit the row). Relative
- * style historically returned "—" for empty; pass-through keeps that for
- * callers that still expect a string via {@link formatRelativeTime}.
+ * Returns null for missing/invalid input (callers omit the row).
  */
 export function formatWhen(
   input: Date | string | null | undefined,
@@ -233,7 +226,7 @@ export function formatWhen(
     return formatAirCalendar(parts.year, parts.month, parts.day);
   }
 
-  // short — long month, US-ish order used on the title hero.
+  // short: long month, US-ish order used on the title hero.
   return formatLongCalendar(parts.year, parts.month, parts.day);
 }
 
@@ -257,11 +250,4 @@ export function formatDayGroupLabel(
   if (key === todayKey) return "Today";
   if (key === yesterdayKey) return "Yesterday";
   return formatShortCalendar(parts.year, parts.month, parts.day, now);
-}
-
-/** @deprecated Prefer {@link formatWhen} with style "relative". */
-export function formatRelativeTime(
-  date: Date | string | null | undefined,
-): string {
-  return formatWhen(date, { style: "relative" }) ?? "—";
 }

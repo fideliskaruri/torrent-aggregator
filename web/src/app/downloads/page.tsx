@@ -21,7 +21,7 @@ import {
   Zap,
   ChevronDown,
 } from "lucide-react";
-import { formatBytes, formatEta } from "@/lib/format";
+import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
 import { Button } from "@/components/ui/button";
@@ -74,7 +74,7 @@ import {
 import { seasonProgressLabel } from "@/components/title/season-progress";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
-import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
+import { progressPercent } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
@@ -1128,7 +1128,7 @@ export default function ClientPage() {
       ? [{ id: "attention" as const, label: needsAttentionLabel(stats.error), hook: "attention" }]
       : []),
   ];
-  const liveSpeed = stats.downloading > 0 ? speedLabel(stats.dlspeed) : null;
+  const liveSpeed = stats.downloading > 0 ? formatSpeed(stats.dlspeed) : null;
   const clientUnavailable = offline && !isBuiltin;
 
   return (
@@ -2006,9 +2006,9 @@ function SeriesOverviewRow({
                 <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
                   {pct}%
                 </span>
-                {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
+                {isDownloading(group.state) && formatSpeed(group.dlspeed) ? (
                   <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                    ↓ {speedLabel(group.dlspeed)}
+                    ↓ {formatSpeed(group.dlspeed)}
                   </span>
                 ) : null}
               </div>
@@ -2272,9 +2272,9 @@ function FilmRow({
                   <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
                     {pct}%
                   </span>
-                  {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
+                  {isDownloading(t.state) && formatSpeed(t.dlspeed) ? (
                     <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
-                      ↓ {speedLabel(t.dlspeed)}
+                      ↓ {formatSpeed(t.dlspeed)}
                     </span>
                   ) : null}
                 </div>
@@ -2512,3 +2512,4 @@ function ClientSkeleton({ visible = true }: { visible?: boolean }) {
     </PageSkeletonFrame>
   );
 }
+

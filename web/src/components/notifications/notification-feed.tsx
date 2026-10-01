@@ -14,7 +14,7 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
-import { formatRelativeTime } from "@/lib/format";
+import { formatWhen } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
 import { isReleasePickLink, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
@@ -124,7 +124,7 @@ export function NotificationFeed() {
                 <div className="min-w-0 flex-1 space-y-1">
                   <p className={item.readAt ? "text-muted-foreground" : "font-semibold text-foreground"}>{item.title}</p>
                   {item.body && <p className="break-words text-sm text-muted-foreground">{item.body}</p>}
-                  <time className="block text-xs text-subtle-foreground" dateTime={item.createdAt}>{formatRelativeTime(item.createdAt)}</time>
+                  <time className="block text-xs text-subtle-foreground" dateTime={item.createdAt}>{formatWhen(item.createdAt, { style: "relative" })}</time>
                   {item.link && <Button asChild variant="link" className="h-auto min-h-11 px-0">
                     <Link to={item.link} onClick={() => { if (!item.readAt) void read(item.id); }}
                       aria-label={`Open ${item.title}`} data-notification-open>{isReleasePickLink(item.link) ? PICK_RELEASE_LABEL : "View details"}</Link>

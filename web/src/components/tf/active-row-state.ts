@@ -3,12 +3,8 @@
  *
  * Shared by the `/downloads` page, which renders its own state wording
  * (`stateLabel` in `src/app/downloads/page.tsx`) but reuses progress percent
- * here. Speed formatting lives in `@/lib/format` (`formatSpeed`);
- * `speedLabel` is kept as a thin alias so existing downloads call sites stay
- * a one-line import change.
+ * here. Speed formatting lives in `@/lib/format` (`formatSpeed`).
  */
-
-import { formatSpeed } from "@/lib/format";
 
 /**
  * Percent as a whole number, floored.
@@ -21,9 +17,4 @@ export function progressPercent(progress: number): number {
   if (!Number.isFinite(progress)) return 0;
   const clamped = Math.min(1, Math.max(0, progress));
   return Math.floor(clamped * 100);
-}
-
-/** Human speed, or null when nothing is moving. @see formatSpeed */
-export function speedLabel(dlspeed: number): string | null {
-  return formatSpeed(dlspeed);
 }
