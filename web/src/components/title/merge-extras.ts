@@ -31,7 +31,10 @@ export type EpisodeRowModel = TitleEpisode & {
 const ROW_CAP = 200;
 
 export interface MergedEpisodes {
+  /** The rows to render: the first ROW_CAP episodes. */
   rows: EpisodeRowModel[];
+  /** Every row, uncapped, so a season's progress counts episode 1118 of a long anime too. */
+  allRows: EpisodeRowModel[];
   truncated: boolean;
 }
 
@@ -92,6 +95,7 @@ export function mergeEpisodes(input: {
   const all = [...byNumber.values()].sort((a, b) => a.episode - b.episode);
   return {
     rows: all.slice(0, ROW_CAP),
+    allRows: all,
     truncated: Boolean(input.truncated) || all.length > ROW_CAP,
   };
 }

@@ -893,7 +893,7 @@ function TitleContent({
     activeSeason == null ||
     (extras != null && extras.season === activeSeason);
   const episodeExtras = extrasDescribeActiveSeason ? extras : null;
-  const { rows, truncated } = mergeEpisodes({
+  const { rows, allRows, truncated } = mergeEpisodes({
     season: activeSeason,
     episodes: onKnownSeason ? payload.episodes : [],
     meta: episodeExtras?.episodes ?? [],
@@ -901,12 +901,16 @@ function TitleContent({
     transfers: progress?.episodeTransfers,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
+  // Progress counts every row, not only the rendered ones: a long anime's
+  // downloads sit around episode 1118, far past the row cap. When the server
+  // itself cut the list short, only its per-season summary saw every episode.
+  const rowsCoverSeason = !(onKnownSeason && payload.episodesTruncated);
   const seasonProgress: Record<number, SeasonProgress> = {};
   for (const s of seasons) {
     const aired = providerAiredFor(extras?.airedEpisodes, s.season);
     seasonProgress[s.season] =
-      s.season === activeSeason && rows.length > 0
-        ? seasonProgressFromRows(rows, aired)
+      s.season === activeSeason && allRows.length > 0 && rowsCoverSeason
+        ? seasonProgressFromRows(allRows, aired)
         : seasonProgressFromSummary(s, aired);
   }
   const showProgress = payload.isSeries
@@ -1402,6 +1406,7 @@ function TitleContent({
             seasonProgress={seasonProgress}
             season={activeSeason}
             episodes={rows}
+            episodeTotal={allRows.length}
             truncated={truncated}
             loadState={episodeListState}
             busy={rows.length === 0 && refreshing && season != null && season !== payload.season}

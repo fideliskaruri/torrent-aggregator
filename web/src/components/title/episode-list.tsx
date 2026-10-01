@@ -81,6 +81,8 @@ export interface EpisodeListProps {
   seasonProgress?: Record<number, SeasonProgress>;
   season: number | null;
   episodes: EpisodeRowModel[];
+  /** Episodes in the season before the row cap; defaults to the rendered count. */
+  episodeTotal?: number;
   truncated: boolean;
   loadState: EpisodeListLoadState;
   /** Non-null while a season change is in flight. */
@@ -115,6 +117,7 @@ export function EpisodeList({
   seasonProgress = {},
   season,
   episodes,
+  episodeTotal,
   truncated,
   loadState,
   busy,
@@ -219,7 +222,7 @@ export function EpisodeList({
   // season, so "7 episodes" beats the old "7 in season 1" echo.
   const seasonCountLabel =
     season != null
-      ? episodeSeasonCountLabel(episodes.length, loadState, season)
+      ? episodeSeasonCountLabel(Math.max(episodeTotal ?? 0, episodes.length), loadState, season)
       : null;
   const activeProgress =
     season != null && !busy && view.kind !== "loading" ? seasonProgress[season] ?? null : null;
