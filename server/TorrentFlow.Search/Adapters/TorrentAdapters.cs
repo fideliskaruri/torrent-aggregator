@@ -137,7 +137,7 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
     {
         if (o.Category is not ("all" or "movies") || string.IsNullOrWhiteSpace(o.Query)) return [];
-        var hosts = IndexerHttp.MirrorList(Setting("YTS_BASE_URL"), "https://yts.mx/api/v2", "https://yts.lt/api/v2", "https://movies-api.accel.li/api/v2");
+        var hosts = IndexerHttp.MirrorList(Setting("YTS_BASE_URL"), "https://yts.lt/api/v2", "https://movies-api.accel.li/api/v2", "https://yts.gg/api/v2");
         var json = await Http.MirrorsAsync(Id, hosts, h => $"{h}/list_movies.json?query_term={EncodeUriComponent(o.Query.Trim())}&limit={Math.Min(o.Limit ?? 20, 50)}&sort_by=seeds", "TorrentFlow/1.0", cancellationToken);
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("data", out var data)) return [];
@@ -150,7 +150,7 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
             var hash = S(t, "hash").ToLowerInvariant();
             results.Add(new() { Id = $"yts-{S(movie, "id")}-{(t.TryGetProperty("hash", out _) ? S(t, "hash") : S(t, "quality"))}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true), SizeBytes = Size(S(t, "size")),
                 SizeLabel = S(t, "size"), Seeders = I(t, "seeds"), Leechers = I(t, "peers"), Category = "movies", Source = Id,
-                SourceUrl = S(movie, "url") is { Length: > 0 } url ? url : $"https://yts.mx/movies/{S(movie, "slug")}", PublishedAt = YtsUploaded(t), Tags = ReleaseQuality.ExtractTags(title),
+                SourceUrl = S(movie, "url") is { Length: > 0 } url ? url : $"https://yts.lt/movies/{S(movie, "slug")}", PublishedAt = YtsUploaded(t), Tags = ReleaseQuality.ExtractTags(title),
                 Metadata = S(movie, "medium_cover_image").Length == 0 ? null : new() { Source = "tmdb", MediaType = "movie",
                     ExternalId = S(movie, "imdb_code") is { Length: > 0 } imdb ? imdb : S(movie, "id"), Title = S(movie, "title"), PosterUrl = S(movie, "medium_cover_image"),
                     Synopsis = S(movie, "summary") is { Length: > 0 } summary ? summary : S(movie, "description_full"), Year = I(movie, "year"),
