@@ -418,6 +418,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
                 pack?.ReserveBytes ?? candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
             var failure = storage != null ? GrabFailure.Storage
+                : result.Unusable != null ? GrabFailure.BadRelease
                 : result.InvalidField == "savePath" ? new GrabFailure("download_folder", "The download folder cannot be used.",
                     "Choose a writable download folder in Settings, then retry.")
                 : result.Message.Contains("file list", StringComparison.OrdinalIgnoreCase)

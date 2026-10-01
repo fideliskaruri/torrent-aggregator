@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
@@ -227,7 +228,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
     {
         if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) return false;
         var paths = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(x => x.Name).OfType<string>().ToArray();
-        return paths.Length > 0 && !paths.Any(x => Regex.IsMatch(x, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$"));
+        return paths.Length > 0 && !paths.Any(MediaFileRules.IsVideo);
     }
     private static int? PackSeason(string name)
     {

@@ -32,6 +32,9 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static readonly GrabFailure Metadata = new("metadata_unavailable",
         "The release we picked never sent its file list.",
         "Try again later, or pick a release yourself.") { Brief = "had a release that never sent its file list" };
+    public static readonly GrabFailure BadRelease = new("bad_release",
+        "The release we picked had a program file or no video in it.", PickYourself)
+        { Brief = "had only unsafe or fake releases" };
     public static readonly GrabFailure Unknown = new("download_failed",
         "The download could not be started.",
         "Try again. If it keeps failing, pick a release yourself.");

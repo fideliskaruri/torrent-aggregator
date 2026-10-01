@@ -148,9 +148,7 @@ public static class ReleaseNames
 
     // ---------------------------------------------------------------- filters.ts
 
-    private static readonly Regex VideoExt = new(@"\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    public static bool IsSupportedVideoFileName(string name) => VideoExt.IsMatch(name.Replace('\\', '/'));
+    public static bool IsSupportedVideoFileName(string name) => TorrentFlow.Core.MediaFileRules.IsVideo(name);
 
     // ---------------------------------------------------------------- smart-category.ts cleanTitle / showFolder
 

@@ -15,8 +15,10 @@ internal enum LayoutOutcome
     Unchanged,
     /// <summary>Files moved to their final paths and the manifest now records them.</summary>
     LaidOut,
-    /// <summary>ffprobe found no playable video; the row is now an error so another release can be chosen.</summary>
+    /// <summary>Not a real video download; the row is now an error and its wanted items look for another release.</summary>
     Invalid,
+    /// <summary>A file could not be read even after retries; the row is an error until the owner retries. Nothing moved.</summary>
+    Unchecked,
 }
 
 /// <summary>A layout run: what happened, how many files moved, and how many videos had to stay in their release folder.</summary>
@@ -26,11 +28,11 @@ internal sealed record LayoutResult(LayoutOutcome Outcome, int Moved = 0, int Ke
 }
 
 /// <summary>
-/// Finishes a completed download once nothing holds its files: optional ffprobe validation, then the content layout.
+/// Finishes a completed download once nothing holds its files: the built-in media check, then the content layout.
 /// The TypeScript engine rewrote paths before the store opened; MonoTorrent downloads a multi-file torrent into its
 /// release folder (so two releases never write over each other mid-download) and the same planner decisions are applied
 /// here, after the client has let go of the files, with the manifest in <c>verifiedFilesJson</c> updated so later
-/// streams and deletes find the files where they now are.
+/// opens and deletes find the files where they now are. A download that fails the check is never moved.
 /// </summary>
 internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator, TimeProvider time, ILogger<CompletedLayoutFinalizer> logger)
 {
@@ -66,21 +68,34 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// <summary>
     /// Lays out one parked row: every file still where MonoTorrent put it moves to its final place; files already laid
     /// out stay put (and keep their names reserved). Safe to run again — that is how Tidy finishes a layout whose
-    /// conflict has since gone. <paramref name="validate"/> runs ffprobe first; a re-run of an accepted download skips it.
+    /// conflict has since gone. <paramref name="validate"/> runs the media check first; a re-run of an accepted download
+    /// skips it.
     /// </summary>
     public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct,
         IReadOnlyList<(string Hash, string FullPath)>? live = null)
     {
         var manifest = TorrentEngineService.VerifiedFiles(row);
         if (manifest.Count == 0 || string.IsNullOrWhiteSpace(row.SavePath)) return LayoutResult.Unchanged;
+        // Kept files only: a season pack's skipped files have no path here, and their partial fragments are already gone.
         var present = manifest.Where(f => f.FullPath is not null).Select(f => f.FullPath!).ToList();
         if (present.Count == 0) return LayoutResult.Unchanged;
 
-        if (validate && await validator.ValidateAsync(present, ct) == MediaVerdict.Invalid)
+        if (validate)
         {
-            await MarkInvalidAsync(db, row, ct);
-            logger.LogWarning("[builtin-engine] rejected completed non-media payload {Hash}", row.Hash);
-            return new LayoutResult(LayoutOutcome.Invalid);
+            var check = await validator.ValidateAsync(manifest.Select(f => f.Path).ToList(), present, ct);
+            if (check.Verdict == MediaVerdict.Invalid)
+            {
+                await MarkFailedCheckAsync(db, row, CompletedMediaValidator.InvalidCompletedMediaMessage, releaseTargets: true, ct);
+                logger.LogWarning("[builtin-engine] rejected {Hash} ({Name}): {Reason}", row.Hash, row.Name, check.Reason);
+                return new LayoutResult(LayoutOutcome.Invalid);
+            }
+            if (check.Verdict == MediaVerdict.Unreadable)
+            {
+                await MarkFailedCheckAsync(db, row, CompletedMediaValidator.UncheckedMessage, releaseTargets: false, ct);
+                logger.LogWarning("[builtin-engine] could not check {Hash} ({Name}): {Reason}", row.Hash, row.Name, check.Reason);
+                return new LayoutResult(LayoutOutcome.Unchecked);
+            }
+            logger.LogInformation("[builtin-engine] checked {Hash}: {Reason}", row.Hash, check.Reason);
         }
 
         var dest = Path.GetFullPath(row.SavePath);
@@ -317,28 +332,45 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         return null;
     }
 
-    private async Task MarkInvalidAsync(TorrentFlowDbContext db, EngineTorrent row, CancellationToken ct)
+    /// <summary>
+    /// A download that did not pass the media check is an error row, not a finished download: nothing may open it or
+    /// count it as downloaded. Its files stay where they are (never laid out), and the manifest stays so a delete finds
+    /// them. <paramref name="releaseTargets"/> hands its wanted items back to the wanted queue, which looks for another
+    /// release and never re-adds this one while the row exists (the engine refuses it).
+    /// </summary>
+    private async Task MarkFailedCheckAsync(TorrentFlowDbContext db, EngineTorrent row, string message, bool releaseTargets, CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
         row.Status = EngineTorrentStatus.Error;
-        row.Error = CompletedMediaValidator.InvalidCompletedMediaMessage;
+        row.Error = message;
         row.Progress = 1;
-        // No longer "downloaded": nothing may play it or treat it as complete. The manifest stays so a delete finds the files.
         row.VerifiedAt = null;
         row.VerifiedBitfield = null;
         row.ForcedAt = null;
         row.UpdatedAt = now;
-        var hash = row.Hash.ToLowerInvariant();
-        var upper = row.Hash.ToUpperInvariant();
-        var targets = await db.AcquisitionTargets.Where(t => t.InfoHash == hash || t.InfoHash == upper).ToListAsync(ct);
+        if (releaseTargets) await ReleaseTargetsAsync(db, row.Hash, message, now, ct);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Hands the wanted items a failed release was meant to fill back to the wanted queue (queued, no release), which
+    /// picks another release on its next scan. Tracks the changes; the caller saves.
+    /// </summary>
+    internal static async Task ReleaseTargetsAsync(TorrentFlowDbContext db, string hash, string message, DateTime now, CancellationToken ct)
+    {
+        var lower = hash.ToLowerInvariant();
+        var upper = hash.ToUpperInvariant();
+        var targets = await db.AcquisitionTargets.Where(t => t.InfoHash == lower || t.InfoHash == upper).ToListAsync(ct);
         foreach (var t in targets)
         {
             t.Progress = 0;
-            t.Status = "failed";
-            t.Error = CompletedMediaValidator.InvalidCompletedMediaMessage;
+            t.Status = "queued";
+            t.InfoHash = null;
+            t.FileIndex = null;
+            t.FilePath = null;
+            t.Error = message;
             t.UpdatedAt = now;
         }
-        await db.SaveChangesAsync(ct);
     }
 
     private static void RemoveEmptyParents(IEnumerable<string> files, string dest)

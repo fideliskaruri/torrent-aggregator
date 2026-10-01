@@ -21,12 +21,8 @@ public sealed record PackFileMapping(IReadOnlyDictionary<int, int> Episodes, str
 /// </summary>
 public static class SeasonPackFiles
 {
-    private static readonly HashSet<string> Video = new(StringComparer.OrdinalIgnoreCase)
-        { ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg" };
-    private static readonly HashSet<string> Unsafe = new(StringComparer.OrdinalIgnoreCase)
-        { ".exe", ".scr", ".bat", ".cmd", ".com", ".lnk", ".msi", ".js", ".vbs", ".ps1", ".jar", ".apk", ".dll" };
+    // Video, program and archive names come from MediaFileRules; disc images are checked first so iso/img stay disc images.
     private static readonly HashSet<string> Disc = new(StringComparer.OrdinalIgnoreCase) { ".iso", ".img", ".vob", ".bdmv", ".mpls", ".ifo" };
-    private static readonly Regex Archive = new(@"\.(?:rar|r\d{2}|zip|7z|\d{3}|tar|gz|bz2|xz)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex DiscFolder = new(@"(?:^|[\\/])(?:VIDEO_TS|BDMV|AUDIO_TS)(?:[\\/]|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex Extra = new(@"(?:^|[\\/ ._\-\[(])(?:samples?|extras?|featurettes?|bonus|specials?|behind[ ._-]the[ ._-]scenes|deleted[ ._-]scenes|trailers?|NCOP\d*|NCED\d*|creditless|OVA|OAD)(?:[\\/ ._\-\])]|$)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -46,10 +42,10 @@ public static class SeasonPackFiles
             var path = file.Path.Replace('\\', '/');
             var name = System.IO.Path.GetFileName(path);
             var ext = System.IO.Path.GetExtension(name);
-            if (Unsafe.Contains(ext)) return Reject("unsafe", notes);
-            if (Archive.IsMatch(name)) return Reject("archive", notes);
+            if (MediaFileRules.IsDangerous(name)) return Reject("unsafe", notes);
             if (Disc.Contains(ext) || DiscFolder.IsMatch(path)) return Reject("disc_image", notes);
-            if (!Video.Contains(ext)) continue;
+            if (MediaFileRules.IsArchive(name)) return Reject("archive", notes);
+            if (!MediaFileRules.IsVideo(name)) continue;
             if (Extra.IsMatch(path)) { notes.Add($"ignored extra {name}"); continue; }
             var marks = AnyEpisodeMark.Count(name);
             var match = SxxEyy.Match(name) is { Success: true } s ? s : NxMM.Match(name);

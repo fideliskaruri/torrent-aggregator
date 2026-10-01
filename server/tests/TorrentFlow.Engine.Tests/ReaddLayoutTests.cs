@@ -71,7 +71,7 @@ internal sealed class RealEngineHarness : IAsyncDisposable
         var backend = new MonoTorrentBackend(Options.Create(options), NullLogger<MonoTorrentBackend>.Instance);
         var storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
         var layout = new CompletedLayoutFinalizer(
-            new CompletedMediaValidator(new FfprobeLocator(null), NullLogger<CompletedMediaValidator>.Instance),
+            new CompletedMediaValidator(NullLogger<CompletedMediaValidator>.Instance),
             TimeProvider.System,
             NullLogger<CompletedLayoutFinalizer>.Instance);
         var engine = new TorrentEngineService(
@@ -109,23 +109,26 @@ public sealed class ReaddLayoutTests
         }
     }
 
-    private static string? MediaFixture()
+    /// <summary>
+    /// A file the built-in media check accepts: an MP4 box header and 1.5 MiB of non-zero bytes. Written under the test
+    /// root, outside its download folder.
+    /// </summary>
+    private static string MediaFixture(string root)
     {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            var f = Path.Combine(dir.FullName, "scripts", "probes", "player-screenshots", "media", "Demo Show S01E01 1080p WEB-DL H.264.mp4");
-            if (File.Exists(f)) return f;
-        }
-        return null;
+        var path = Path.Combine(root, "fixture.mp4");
+        var bytes = new byte[3 << 19];
+        new Random(42).NextBytes(bytes);
+        byte[] header = [0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p', (byte)'i', (byte)'s', (byte)'o', (byte)'m'];
+        header.CopyTo(bytes, 0);
+        File.WriteAllBytes(path, bytes);
+        return path;
     }
 
     [Fact]
     public async Task ReaddingALaidOutTransferSeedsTheExistingFlatFiles()
     {
-        var fixture = MediaFixture();
-        Assert.NotNull(fixture);
-
         var root = EngineHarness.NewRoot();
+        var fixture = MediaFixture(root);
         var sourceRoot = Path.Combine(root, "source");
         var sourceRelease = Path.Combine(sourceRoot, "Sintel");
         var downloadRoot = Path.Combine(root, "downloads");
@@ -216,9 +219,8 @@ public sealed class ReaddLayoutTests
     [Fact]
     public async Task ReaddingATransferWhoseExtraWasMovedAsideRechecksItInPlaceAndLeavesTheNeighbourAlone()
     {
-        var fixture = MediaFixture();
-        Assert.NotNull(fixture);
         var root = EngineHarness.NewRoot();
+        var fixture = MediaFixture(root);
         var sourceRoot = Path.Combine(root, "source");
         var downloadRoot = Path.Combine(root, "downloads");
         var first = await ReleaseAsync(sourceRoot, downloadRoot, "Show.S01E01.1080p.WEB", "Show.S01E01.mp4", fixture, "first screen");

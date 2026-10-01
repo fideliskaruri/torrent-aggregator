@@ -9,8 +9,8 @@ public sealed record TorrentPayloadValidation(bool Ok, int? VideoCount = null, s
 
 public static class TorrentFilters
 {
-    public static bool IsUnsafeExecutable(string name) => Match(name, @"\.(?:exe|scr|com|bat|cmd|ps1|psm1|msi|msp|cpl|hta|jar|js|jse|vbs|vbe|wsf|wsh|lnk|pif|reg|dll|sys)$").Success;
-    public static bool IsVideo(string name) => Match(name, @"\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$").Success;
+    public static bool IsUnsafeExecutable(string name) => TorrentFlow.Core.MediaFileRules.IsDangerous(name);
+    public static bool IsVideo(string name) => TorrentFlow.Core.MediaFileRules.IsVideo(name);
     public static bool IsSubtitle(string name) => Match(name, @"\.(?:vtt|srt|ass|ssa)$").Success;
     public static bool IsExtras(string title) => Match(Replace(title, @"[._]"), @"\b(?:samples?|featurettes?|extras?|bonus(?:[ _-]?dis[ck])?|deleted[ _-]?scenes?|behind[ _-]?the[ _-]?scenes|making[ _-]?of|gag[ _-]?reels?|bloopers?|outtakes?|b[ _-]?roll)\b").Success;
     public static TorrentPayloadValidation ValidatePayload(IEnumerable<SelectableFile> files)

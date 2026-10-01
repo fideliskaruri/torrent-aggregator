@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MonoTorrent;
 using MonoTorrent.Client;
 using MonoTorrent.Connections;
+using TorrentFlow.Core;
 
 namespace TorrentFlow.Engine.Client;
 
@@ -20,6 +21,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte[]> _metadata = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Transfers restricted to chosen files (a season pack): nothing may turn another file on.</summary>
     private readonly ConcurrentDictionary<string, IReadOnlySet<int>> _selections = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Magnets whose file list has not been checked yet (<see cref="MediaFileRules"/>).</summary>
+    private readonly ConcurrentDictionary<string, byte> _checkFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public MonoTorrentBackend(IOptions<EngineOptions> options, ILogger<MonoTorrentBackend> logger)
@@ -181,6 +184,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
                 }
             }
             manager.TorrentStateChanged += OnStateChanged;
+            // A magnet's files are checked the moment they are known (OnStateChanged); imports and recoveries are not.
+            if (!manager.HasMetadata && !spec.ForceHashCheck) _checkFiles[spec.Hash] = 0;
+            else _checkFiles.TryRemove(spec.Hash, out _);
             await OneTrackerPerTierAsync(manager);
             if (!spec.ForceHashCheck || manager.HasMetadata)
                 await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
@@ -391,16 +397,36 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     private void OnStateChanged(object? sender, TorrentStateChangedEventArgs e)
     {
-        if (e.OldState == TorrentState.Metadata && e.TorrentManager.HasMetadata
-            && _selections.TryGetValue(HashOf(e.TorrentManager), out var chosen))
-            _ = ApplySelectionAsync(e.TorrentManager, chosen).ContinueWith(
-                t => _logger.LogWarning(t.Exception, "Applying the chosen files failed"), TaskContinuationOptions.OnlyOnFaulted);
+        if (e.OldState == TorrentState.Metadata && e.TorrentManager.HasMetadata)
+        {
+            var hash = HashOf(e.TorrentManager);
+            _selections.TryGetValue(hash, out var chosen);
+            if (_checkFiles.TryRemove(hash, out _) && TorrentEngineService.FileListProblem(
+                    e.TorrentManager.Files.Select((f, i) => (i, f.Path)), chosen) is { } problem)
+                _ = HoldAsync(e.TorrentManager, problem).ContinueWith(
+                    t => _logger.LogWarning(t.Exception, "Holding a refused release failed"), TaskContinuationOptions.OnlyOnFaulted);
+            else if (chosen is not null)
+                _ = ApplySelectionAsync(e.TorrentManager, chosen).ContinueWith(
+                    t => _logger.LogWarning(t.Exception, "Applying the chosen files failed"), TaskContinuationOptions.OnlyOnFaulted);
+        }
         if (e.NewState == TorrentState.Error && e.TorrentManager.Error is { } error)
         {
             var hash = HashOf(e.TorrentManager);
             _errors[hash] = error.Exception?.Message ?? error.Reason.ToString();
             _logger.LogWarning(error.Exception, "Torrent {Hash} entered error state: {Reason}", hash, error.Reason);
         }
+    }
+
+    /// <summary>
+    /// A magnet whose files turn out to hold a program, or no video, downloads nothing: every file is skipped and the
+    /// transfer stopped until the engine's next pass fails it and picks another release.
+    /// </summary>
+    private async Task HoldAsync(TorrentManager manager, MediaFileProblem problem)
+    {
+        _logger.LogInformation("Holding {Hash}: its files fail the release check ({Problem})", HashOf(manager), problem);
+        foreach (var file in manager.Files)
+            if (file.Priority != Priority.DoNotDownload) await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+        if (manager.State is not (TorrentState.Stopped or TorrentState.Stopping)) await manager.StopAsync(TimeSpan.FromSeconds(10));
     }
 
     public bool Contains(string hash) => _managers.ContainsKey(hash);
@@ -453,6 +479,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
                 _metadata.TryRemove(hash, out _);
                 _errors.TryRemove(hash, out _);
                 _selections.TryRemove(hash, out _);
+                _checkFiles.TryRemove(hash, out _);
             }
         }
         finally
@@ -474,7 +501,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
     }
 
     internal bool HasSideState(string hash) =>
-        _metadata.ContainsKey(hash) || _selections.ContainsKey(hash) || _errors.ContainsKey(hash);
+        _metadata.ContainsKey(hash) || _selections.ContainsKey(hash) || _errors.ContainsKey(hash) || _checkFiles.ContainsKey(hash);
 
     public byte[]? GetMetadata(string hash)
     {

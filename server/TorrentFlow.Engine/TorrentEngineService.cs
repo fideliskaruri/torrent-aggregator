@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Torrents;
 using TorrentFlow.Data;
@@ -154,6 +155,12 @@ internal sealed partial class TorrentEngineService(
                 return new(false, "The torrent's file list did not match this release.", Hash: hash);
             if (request.SelectedFiles is { Count: > 0 } && (bytes ?? LoadTorrentFile(hash)) is null)
                 return new(false, "Couldn't read this release's file list, so no files were chosen.", Hash: hash);
+            // Refused before anything downloads: a program file anywhere, or no video among the files it would keep.
+            if ((bytes ?? LoadTorrentFile(hash)) is { } listed && FileListProblem(listed, request.SelectedFiles) is { } problem)
+            {
+                logger.LogWarning("[builtin-engine] refused {Hash} ({Name}) before downloading: {Problem}", hash, request.Name, problem);
+                return new(false, MediaFileRules.Message(problem), Hash: hash) { Unusable = MediaFileRules.Code(problem) };
+            }
             await _queueGate.WaitAsync(ct);
             try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, ct); }
             finally { _queueGate.Release(); }
@@ -283,6 +290,11 @@ internal sealed partial class TorrentEngineService(
         var existing = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
         var lane = TorrentLane.Rank(request.Lane);
 
+        // A release that already failed the media check stays refused while its row is in Downloads, so the wanted
+        // queue and the ladder move on to another release instead of downloading it again.
+        if (existing is { Status: EngineTorrentStatus.Error } && RefusedRelease(existing.Error) is { } refused)
+            return Done(new EngineAddResult(false, refused.Message, null, hash) { Unusable = refused.Code });
+
         if (existing is not null && lane < existing.Lane)
         {
             // Lanes only rise: the owner asking for something automation queued moves it up, never the reverse.
@@ -369,6 +381,37 @@ internal sealed partial class TorrentEngineService(
     private static EngineAddResult QueuedResult(string hash, int? position) =>
         new(true, position is { } p ? $"Queued — #{p} in line" : "Queued", new EngineAddDetails(EngineAddDetails.Queued, 0, 0, position), hash);
 
+    internal const string FakeReleaseMessage = "This release already turned out not to be a real video file, so TorrentFlow won't download it again.";
+
+    /// <summary>The refusal for an error row left by the media check, or null when the error was something else.</summary>
+    private static (string Message, string Code)? RefusedRelease(string? error)
+    {
+        if (error is CompletedMediaValidator.InvalidCompletedMediaMessage or CompletedMediaValidator.LegacyInvalidMessage)
+            return (FakeReleaseMessage, "fake");
+        foreach (var problem in Enum.GetValues<MediaFileProblem>())
+            if (error == MediaFileRules.Message(problem)) return (error, MediaFileRules.Code(problem));
+        return null;
+    }
+
+    /// <summary>The shared file rules over a transfer's files (<see cref="MediaFileRules"/>); null when they pass.</summary>
+    internal static MediaFileProblem? FileListProblem(IEnumerable<(int Index, string Path)> files, IReadOnlyCollection<int>? selected)
+    {
+        var list = files.ToList();
+        var kept = selected is { Count: > 0 } ? list.Where(f => selected.Contains(f.Index)).Select(f => f.Path).ToList() : null;
+        return MediaFileRules.Check(list.Select(f => f.Path), kept);
+    }
+
+    /// <summary>The file rules over a .torrent's file list; null when it passes or cannot be read.</summary>
+    private MediaFileProblem? FileListProblem(byte[] torrent, IReadOnlyCollection<int>? selected)
+    {
+        try { return FileListProblem(MonoTorrent.Torrent.Load(torrent).Files.Select((f, i) => (i, f.Path)), selected); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogInformation(ex, "Could not read a .torrent's file list for the release check");
+            return null;
+        }
+    }
+
     private async Task<byte[]> FetchTorrentAsync(string url, CancellationToken ct)
     {
         var client = httpFactory.CreateClient(HttpClientName);
@@ -439,6 +482,9 @@ internal sealed partial class TorrentEngineService(
         // A laid-out torrent is re-added in its own release folder with each file pointed at where the layout put it, so
         // a file moved aside or kept nested is re-checked in place and a neighbour's file at the flat path is never touched.
         var recovered = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl);
+        // A retry of a release refused for its files is refused again; imported and recovered downloads are not checked.
+        if (!recovered && bytes is not null && FileListProblem(bytes, SelectionOf(row)) is { } problem)
+            return new BackendAddOutcome(false, MediaFileRules.Message(problem));
         var recoveredPaths = recovered ? VerifiedFiles(row).Where(f => f.FullPath is not null).ToDictionary(f => f.Path, f => f.FullPath!) : null;
         IReadOnlyList<string?>? indexed = bytes is null ? null : recovered
             ? recoveredPaths!.Count == 0 ? null : MonoTorrent.Torrent.Load(bytes).Files.Select(f => recoveredPaths.GetValueOrDefault(f.Path)).ToList()
@@ -1182,7 +1228,7 @@ internal sealed partial class TorrentEngineService(
             var live = backend.List().Where(s => !string.Equals(s.Hash, hash, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(s => s.Files.Select(f => (s.Hash, f.FullPath))).ToList();
             var result = await layout.FinalizeDetailedAsync(db, row, validate, CancellationToken.None, live);
-            if (result.Outcome == LayoutOutcome.Invalid) RaiseFailed(new(row.Hash, row.Name, row.Origin));
+            if (result.Outcome is LayoutOutcome.Invalid or LayoutOutcome.Unchecked) RaiseFailed(new(row.Hash, row.Name, row.Origin));
             if (result.Outcome == LayoutOutcome.LaidOut)
                 _layoutManifest.Remember(row.Hash, row.SavePath, VerifiedFiles(row).Select(f => f.FullPath).ToList());
             if (result.Outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
@@ -1314,6 +1360,22 @@ internal sealed partial class TorrentEngineService(
                 }
                 row.Progress = Math.Round(live.Progress, 4);
 
+                // A magnet's files are only known once its metadata arrives; the client holds such a transfer until this
+                // check (MonoTorrentBackend), so a release with a program file or no video fails before it downloads.
+                if (live.HasMetadata && live.State != "complete" && row.Status != EngineTorrentStatus.Error
+                    && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl)
+                    && FileListProblem(live.Files.Select(f => (f.Index, f.Path)), SelectionOf(row)) is { } problem)
+                {
+                    var message = MediaFileRules.Message(problem);
+                    logger.LogWarning("[builtin-engine] refused {Hash} ({Name}) once its files were known: {Problem}", row.Hash, row.Name, problem);
+                    failed.Add(new(row.Hash, row.Name, row.Origin));
+                    row.Status = EngineTorrentStatus.Error;
+                    row.Error = message;
+                    row.ForcedAt = null;
+                    await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, message, Now, ct);
+                    detach.Add(row.Hash);
+                    continue;
+                }
                 var startedAt = _startedAt.TryGetValue(row.Hash, out var t) ? t : row.UpdatedAt;
                 if (live.State == "error")
                 {
@@ -1375,8 +1437,8 @@ internal sealed partial class TorrentEngineService(
             if (lostHashes.Contains(hash)) continue;
             LayoutOutcome outcome;
             using (await LockHashAsync(hash, CancellationToken.None)) outcome = await FinalizeLayoutLockedAsync(hash);
-            // Not real video: it is an error row now, not a finished download.
-            if (outcome == LayoutOutcome.Invalid) completed.RemoveAll(e => e.Hash == hash);
+            // Not a real video, or not readable: it is an error row now, not a finished download.
+            if (outcome is LayoutOutcome.Invalid or LayoutOutcome.Unchecked) completed.RemoveAll(e => e.Hash == hash);
         }
         foreach (var hash in stranded)
         {

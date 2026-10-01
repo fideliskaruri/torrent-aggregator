@@ -60,7 +60,7 @@ public static class EngineModule
         services.AddSingleton<DownloadLimits>();
         services.AddSingleton<MonoTorrentBackend>();
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());
-        services.AddContentLayout(configuration);
+        services.AddContentLayout();
         services.AddSingleton<TorrentEngineService>();
         services.AddSingleton<DownloadRecoveryService>();
         services.AddOptions<ExternalDownloadScanOptions>()

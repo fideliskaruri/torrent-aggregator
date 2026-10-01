@@ -192,6 +192,11 @@ public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? 
     public string? InvalidField { get; init; }
     /// <summary>Set when a storage limit refused the add: setup | inventory | cap | reserve | wont-fit.</summary>
     public string? StorageLimit { get; init; }
+    /// <summary>
+    /// Set when the release itself is unusable, so another release should be tried: dangerous (a program file) |
+    /// no_video (no video, or archives only) | fake (an earlier download of it was not a real video file).
+    /// </summary>
+    public string? Unusable { get; init; }
 }
 
 /// <summary>Mirrors the TypeScript AddTorrentDetails "builtin-transfer" variant.</summary>
