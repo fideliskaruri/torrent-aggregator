@@ -58,6 +58,7 @@ import { MoreLikeThis } from "./more-like-this";
 import { RequestAction } from "@/components/requests/request-action";
 import { useCapabilities } from "@/lib/capabilities";
 import { parseRequestState, type RequesterTitle } from "@/lib/requests";
+import type { CatalogIdentity } from "@/lib/browse/types";
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
@@ -1225,7 +1226,7 @@ function TitleContent({
                 {!caps.canDownload ? (
                   gated ? null : (
                     <RequestAction
-                      title={requestTitleFor(payload, provider, providerId)}
+                      title={requestTitleFor(payload)}
                       state={parseRequestState(payload)}
                       onRequested={onLibraryChanged}
                     />
@@ -1505,13 +1506,9 @@ function withCatalogDefaults(json: unknown): TitleDetailPayload {
   } as TitleDetailPayload;
 }
 
-/** The title as a request names it. Null when there is no catalog id to ask for. */
-function requestTitleFor(
-  payload: TitleDetailPayload,
-  provider: string | null,
-  providerId: string | null,
-): RequesterTitle | null {
-  if (!providerId) return null;
+/** The title as a request names it: the catalog id the server matched. Null when it matched none. */
+function requestTitleFor(payload: TitleDetailPayload & CatalogIdentity): RequesterTitle | null {
+  if (!payload.provider || !payload.providerId) return null;
   const mediaType = payload.mediaType ?? (payload.isSeries ? "tv" : "movie");
   return {
     key: payload.workKey,
@@ -1521,8 +1518,8 @@ function requestTitleFor(
     isSeries: payload.isSeries,
     format: null,
     category: "",
-    provider: provider ?? "tmdb",
-    providerId,
+    provider: payload.provider,
+    providerId: payload.providerId,
     posterUrl: payload.posterUrl ?? null,
     overview: payload.overview ?? null,
     releaseDate: payload.releaseDate ?? null,

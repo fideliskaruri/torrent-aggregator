@@ -14,8 +14,19 @@ using TorrentFlow.Library.Features.Watchlist;
 
 namespace TorrentFlow.Library.Features.Titles;
 
+/// <param name="Provider">The provider record the link's id resolved to (verified).</param>
+/// <param name="Claimed">The provider id the link carried when it could not be verified.</param>
 public sealed record TitleQuery(string WorkKey, string? Title = null, int? Year = null, string? MediaType = null,
-    int? Season = null, int? Remembered = null, MediaMetadata? Provider = null);
+    int? Season = null, int? Remembered = null, MediaMetadata? Provider = null, TitleIdentity? Claimed = null);
+
+/// <summary>A title at a metadata provider: what a request names.</summary>
+public sealed record TitleIdentity(string Provider, string ProviderId)
+{
+    /// <summary>The identity when both parts are present and requests accept the provider, else null.</summary>
+    public static TitleIdentity? From(string? provider, string? providerId) =>
+        provider?.Trim().ToLowerInvariant() is { Length: > 0 } p && IMetadataResolver.SupportsProvider(p) &&
+        providerId?.Trim() is { Length: > 0 } id ? new(p, id) : null;
+}
 
 public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork, ITorrentEngine engine)
 {
@@ -102,7 +113,11 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
     {
         var key = query.WorkKey.Trim().ToLowerInvariant();
         await using var db = await factory.CreateDbContextAsync(ct);
-        var cat = await catalog.FindByWorkKeyAsync(key, ct) ?? await FindCatalogByComputedKey(db, key, ct);
+        var cat = await catalog.FindByWorkKeyAsync(key, ct);
+        // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
+        var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key).Select(x => new { x.Provider, x.ProviderId }).FirstOrDefaultAsync(ct);
+        var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
+            ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var watch = watches.FirstOrDefault(x => ReleaseSelection.MatchesWork(key, x.Title));
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
@@ -232,23 +247,13 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
+            ("provider", identity?.Provider), ("providerId", identity?.ProviderId),
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)),
             ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt, queue) : null),
             ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > episodeLimit),
             ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
-    }
-    /// <summary>
-    /// TS findCatalogByComputedKey: CatalogEntry.workKey comes from the catalog pipeline's own derivation
-    /// (for example "film:dune:2021"), so a browse link's slug misses the exact lookup. Recompute each recent row's key instead.
-    /// </summary>
-    private static async Task<CatalogWork?> FindCatalogByComputedKey(TorrentFlowDbContext db, string key, CancellationToken ct)
-    {
-        var rows = await db.CatalogEntries.AsNoTracking().OrderByDescending(x => x.RefreshedAt).Take(400).ToListAsync(ct);
-        var e = rows.FirstOrDefault(x => ReleaseNames.WorkKeyMatches(key, x.Title, x.Year));
-        return e == null ? null : new(e.Id, e.WorkKey, e.Title, e.Year, e.MediaType, e.PosterUrl, e.BackdropUrl, e.Overview, e.Rating, e.Source, e.Rank,
-            e.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), e.WorkId, e.RatingSource);
     }
     private static bool MultiSeason(string name) => Regex.IsMatch(name, @"(?i)\bS\d+\s*[-–]\s*S?\d+\b|\bcomplete\s+(?:series|collection)\b");
     private static bool InvalidMedia(EngineTorrent row)

@@ -7,7 +7,8 @@ import { requestViewFor, type RequestState, type RequesterTitle } from "@/lib/re
 
 /**
  * What someone who can't download sees where the owner's Download sits: the
- * state of their request, and a Request button while there is something to ask for.
+ * state of their request, and a Request button while there is something to ask
+ * for. A title the catalog can't name says so instead of showing a dead button.
  */
 export function RequestAction({
   title,
@@ -48,14 +49,12 @@ export function RequestAction({
           {view.label}
         </Badge>
       ) : null}
-      {view.action ? (
+      {view.action && canAsk ? (
         <Button
           ref={buttonRef}
           type="button"
           size={size}
           variant={view.label ? "secondary" : "default"}
-          disabled={!canAsk}
-          title={canAsk ? undefined : "Search for this title to request it."}
           onClick={() => title && setAsking(title)}
           data-request-button={title?.key ?? ""}
           className={className ?? "w-full min-w-0 md:w-auto md:min-w-[8rem]"}
@@ -63,6 +62,10 @@ export function RequestAction({
           <Plus aria-hidden />
           {view.action}
         </Button>
+      ) : view.action ? (
+        <p className="self-center text-sm text-subtle-foreground" data-request-unmatched>
+          Couldn't match this title to a catalog entry. Search for it to request it.
+        </p>
       ) : null}
       <RequestDialog
         title={asking}

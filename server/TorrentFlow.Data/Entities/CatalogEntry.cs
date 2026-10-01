@@ -26,6 +26,12 @@ public partial class CatalogEntry
     /// <summary>The provider that supplied <see cref="Rating"/> ("cinemeta", "tmdb", ...), or null when unknown.</summary>
     public string? RatingSource { get; set; }
 
+    /// <summary>The metadata provider that identifies this title ("tmdb", "cinemeta", ...), or null when the chart write could not match one.</summary>
+    public string? Provider { get; set; }
+
+    /// <summary>The title's id at <see cref="Provider"/>.</summary>
+    public string? ProviderId { get; set; }
+
     public string Source { get; set; } = null!;
 
     public int Rank { get; set; }

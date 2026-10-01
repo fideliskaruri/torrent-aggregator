@@ -340,6 +340,14 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("posterUrl");
 
+                    b.Property<string>("Provider")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("providerId");
+
                     b.Property<int>("Rank")
                         .HasColumnType("INTEGER")
                         .HasColumnName("rank");

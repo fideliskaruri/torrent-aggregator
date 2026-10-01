@@ -26,6 +26,7 @@
  */
 import type { RailItem } from "@/lib/browse";
 import { cleanDisplayTitle } from "@/components/browse/availability";
+import { isSeriesMediaType, normalizeMediaType } from "@/lib/metadata/media-type";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
 
@@ -338,16 +339,25 @@ export function titleHrefForName(
 /**
  * Where a browse card should go, or null when there is not enough to go on.
  *
+ * A card the server keyed carries its catalog id too, so the page it opens can
+ * request the work without a search first.
+ *
  * Null is a real answer: a row with no usable title has no work to open, and
  * the card keeps whatever fallback it already had rather than linking to a
  * page that would render a heading of nothing.
  */
 export function titleHrefForItem(item: RailItem): string | null {
   if (item.workKey?.trim()) {
+    const sourceType = normalizeMediaType(item.mediaType);
     return titlePath(item.workKey, {
       title: item.title,
+      year: item.year,
       mediaType: item.mediaType,
       season: item.season,
+      provider: item.provider,
+      providerId: item.providerId,
+      sourceType,
+      series: sourceType ? isSeriesMediaType(sourceType) : null,
     });
   }
   return titleHrefForName(item.title, {

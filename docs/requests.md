@@ -30,7 +30,11 @@ unreleased or still in cinemas.
 - **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season,
   a requester has **Request** in the same place. Series open the request dialog (whole series or
   specific seasons, plus an optional note). After sending, the button reads **Requested**; later states
-  are "Approved", "Available" (already in the library) or "Declined" with a way to ask again.
+  are "Approved", "Available" (already in the library) or "Declined" with a way to ask again. Request
+  sends the catalog id the title payload names (`provider`, `providerId`; see
+  [sources.md](sources.md#browse-cards-and-catalog-ids)). When no catalog id is known, the page says
+  "Couldn't match this title to a catalog entry. Search for it to request it." instead of showing a
+  Request button.
 - **Library** (`/watchlist`) is the owner's Library page, read-only: it is fed from
   `GET /api/requester/library` and has no delete, paths, folders or automation.
 - **Requests** (`/requests`) is one page. The owner sees the inbox of everyone's requests; a requester
@@ -57,7 +61,7 @@ read-only and Request/Cancel are not sent.
 | --- | --- |
 | `id` | GUID string |
 | `requestedByUserId` | FK to `User.id` (the requester's row, created on first sign-in; cascade delete) |
-| `provider`, `providerId` | catalog reference: `tmdb`, `anilist`, `tvmaze` or `itunes`, and its numeric id |
+| `provider`, `providerId` | catalog reference: `tmdb`, `anilist`, `tvmaze` or `itunes` with its numeric id, or `cinemeta` with an IMDb `tt` id |
 | `workKey` | the same work key the library uses, recomputed on the server from the title (and year for films) |
 | `mediaType`, `title`, `year`, `posterUrl` | display fields; the poster must be an https URL on a known catalog image host or it is dropped |
 | `scope` | `movie`, `seasons` or `series` |

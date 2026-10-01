@@ -221,6 +221,8 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.MediaType).HasColumnName("mediaType");
             entity.Property(e => e.Overview).HasColumnName("overview");
             entity.Property(e => e.PosterUrl).HasColumnName("posterUrl");
+            entity.Property(e => e.Provider).HasColumnName("provider");
+            entity.Property(e => e.ProviderId).HasColumnName("providerId");
             entity.Property(e => e.Rank).HasColumnName("rank");
             entity.Property(e => e.Rating).HasColumnName("rating");
             entity.Property(e => e.RatingSource).HasColumnName("ratingSource");

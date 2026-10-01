@@ -61,7 +61,10 @@ public interface IMetadataResolver
         };
 }
 
-/// <summary>A catalog row as used by the title page and browse rails. <paramref name="RatingSource"/> names who supplied <paramref name="Rating"/>, or null when unknown.</summary>
+/// <summary>
+/// A catalog row as used by the title page and browse rails. <paramref name="RatingSource"/> names who supplied <paramref name="Rating"/>,
+/// or null when unknown; <paramref name="Provider"/> and <paramref name="ProviderId"/> name the title at a metadata provider when the chart knew it.
+/// </summary>
 public sealed record CatalogWork(
     string Id,
     string WorkKey,
@@ -76,11 +79,13 @@ public sealed record CatalogWork(
     int Rank,
     string? ReleaseDate,
     string? WorkId,
-    string? RatingSource = null);
+    string? RatingSource = null,
+    string? Provider = null,
+    string? ProviderId = null);
 
 /// <summary>Catalog / work lookups for the title page.</summary>
 public interface ICatalogLookup
 {
-    /// <summary>Latest catalog entry for a work key (accepts legacy key aliases), or null.</summary>
+    /// <summary>Latest catalog entry for a work key (an identity key, a title route key or a legacy key alias), or null.</summary>
     Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken cancellationToken = default);
 }

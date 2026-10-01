@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Artwork;
@@ -26,13 +27,18 @@ public record RailItem
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? MediaType { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Season { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Episode { get; init; }
+    /// <summary>The title route key the card opens; null when nothing names the work yet.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkKey { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Year { get; init; }
+    /// <summary>The title at a metadata provider when the catalog knows it, so the title page can request it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Provider { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? ProviderId { get; init; }
 }
 
 /// <summary>Downloaded cards also name the catalog work they belong to (explicit nulls).</summary>
 public sealed record WorkRailItem : RailItem
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkId { get; init; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkKey { get; init; }
 }
 
 /// <summary>discovery.ts toRailItem: a catalog card also carries overview / releaseDate / theatrical gate explicitly.</summary>
@@ -55,7 +61,8 @@ public sealed record BrowsePayload(IReadOnlyList<Rail> Rails, string GeneratedAt
 public sealed record CatalogSeed(string Title, string? MediaType);
 
 /// <summary>
-/// The Downloaded rail first (one card per work), then the discovery rails; empty rails dropped.
+/// The Downloaded rail first (one card per work), then the discovery rails (because, trending, popular); no work is
+/// shown twice across them and empty rails are dropped.
 /// </summary>
 public sealed partial class BrowseService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
@@ -84,7 +91,7 @@ public sealed partial class BrowseService(
         var discovery = await discoveryTask.ConfigureAwait(false);
 
         var personal = OrganizePersonalRails(library);
-        var rails = personal.Concat(discovery).Where(r => r.Items.Count > 0).ToList();
+        var rails = DistinctAcrossRails(personal.Concat(discovery));
         return new BrowsePayload(rails, time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture));
     }
 
@@ -97,33 +104,59 @@ public sealed partial class BrowseService(
     /// </summary>
     public const string DownloadedRailTitle = "Downloaded";
 
-    /// <summary>The personal rail: every ready work, with no work shown twice.</summary>
+    /// <summary>The personal rail: every ready work. <see cref="DistinctAcrossRails"/> keeps each work once.</summary>
     public static List<Rail> OrganizePersonalRails(Rail? library)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        bool Claim(RailItem item)
-        {
-            var keys = PersonalWorkKeys(item);
-            if (keys.Any(seen.Contains)) return false;
-            seen.UnionWith(keys);
-            return true;
-        }
-
-        var owned = (library?.Cards ?? []).Where(Claim).Cast<object>().ToList();
         var rails = new List<Rail>();
-        if (owned.Count > 0) rails.Add(new Rail(YourLibraryRailId, DownloadedRailTitle, owned));
+        if (library is { Items.Count: > 0 }) rails.Add(new Rail(YourLibraryRailId, DownloadedRailTitle, library.Items));
         return rails;
     }
 
-    private static List<string> PersonalWorkKeys(RailItem item)
+    /// <summary>
+    /// One seen set across the home page, in rail order (personal, because, trending, popular): the first card for a
+    /// work stays and every later one is dropped, then rails left empty go. Cards are the same work when they share a
+    /// provider id, a normalised title + year + type, or a work key (the second guard). The title key applies even
+    /// when both cards have ids, since ids from two providers cannot be compared.
+    /// </summary>
+    public static List<Rail> DistinctAcrossRails(IEnumerable<Rail> rails)
     {
-        var keys = new List<string>();
-        if (item is WorkRailItem { WorkId: { Length: > 0 } workId }) keys.Add($"work:{workId}");
-        if (item is WorkRailItem { WorkKey: { Length: > 0 } workKey }) keys.Add($"key:{workKey}");
-        if (!string.IsNullOrEmpty(item.WatchListItemId)) keys.Add($"watch:{item.WatchListItemId}");
-        var title = RailItemWorkKey(item);
-        if (title.Length > 0) keys.Add($"title:{title}");
-        return keys;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var distinct = new List<Rail>();
+        foreach (var rail in rails)
+        {
+            var items = rail.Cards.Where(card =>
+            {
+                var (check, claim) = SameWorkKeys(card);
+                if (check.Any(seen.Contains)) return false;
+                seen.UnionWith(claim);
+                return true;
+            }).Cast<object>().ToList();
+            if (items.Count > 0) distinct.Add(rail with { Items = items });
+        }
+        return distinct;
+    }
+
+    /// <summary>The keys a card is checked against, and the keys it claims once shown.</summary>
+    private static (string[] Check, string[] Claim) SameWorkKeys(RailItem card)
+    {
+        var group = MediaGroupOf(card.MediaType) switch
+        {
+            "unknown" => card.Season is not null || card.Episode is not null ? "series" : "movie",
+            var known => known,
+        };
+        var exact = new List<string>();
+        if (NonEmpty(card.Provider) is { } provider && NonEmpty(card.ProviderId) is { } providerId) exact.Add($"id:{provider}:{group}:{providerId}");
+        if (NonEmpty(card.WorkKey) is { } workKey) exact.Add($"key:{workKey}");
+        if (card is WorkRailItem { WorkId: { Length: > 0 } workId }) exact.Add($"work:{workId}");
+        if (NonEmpty(card.WatchListItemId) is { } watchId) exact.Add($"watch:{watchId}");
+        var name = card.Title == WorkCollapse.UnknownWorkTitle ? "" : CatalogText.NormalizeForKey(card.Title);
+        if (name.Length == 0) return ([.. exact], [.. exact]);
+        if (group == "series") return ([.. exact, $"series:{name}"], [.. exact, $"series:{name}"]);
+        // A yearless film cannot contradict a dated one (WorkKeySlug.Matches), so each matches the other.
+        var yearless = $"film:{name}:";
+        return card.Year is { } year and not 0
+            ? ([.. exact, $"film:{name}:{year}", yearless], [.. exact, $"film:{name}:{year}", $"film:{name}:*"])
+            : ([.. exact, yearless, $"film:{name}:*"], [.. exact, yearless]);
     }
 
     /// <summary>
@@ -203,6 +236,7 @@ public sealed partial class BrowseService(
                 Availability = "ready",
                 InfoHash = torrent.Hash,
                 MediaType = mediaType,
+                Year = ReleaseNames.WorkIdentity(torrent.Name).Year,
             });
         }
         return new Rail(YourLibraryRailId, DownloadedRailTitle, items);
@@ -388,6 +422,10 @@ public sealed partial class BrowseService(
             InTheatricalWindow = gate.InTheatricalWindow,
             NextHomeReleaseAt = gate.NextHomeReleaseAt,
             MediaType = MediaTypes.Normalize(row.MediaType),
+            WorkKey = NonEmpty(WorkKeySlug.WorkKeyFor(row.Title, MediaTypes.IsSeries(row.MediaType) ? null : row.Year)),
+            Year = row.Year,
+            Provider = row.Provider,
+            ProviderId = row.ProviderId,
         };
     }
 
@@ -418,6 +456,5 @@ public sealed partial class BrowseService(
         return MovieGroup().IsMatch(mt) ? "movie" : "unknown";
     }
 
-    /// <summary>rails.ts railItemWorkKey: workIdentity(title).key.</summary>
-    public static string RailItemWorkKey(RailItem item) => ReleaseNames.WorkIdentity(item.Title).Key;
+    private static string? NonEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 }
