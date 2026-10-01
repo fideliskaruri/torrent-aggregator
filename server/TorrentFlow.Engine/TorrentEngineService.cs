@@ -813,17 +813,6 @@ internal sealed partial class TorrentEngineService(
 
     internal static bool IsDownloaded(EngineTorrent row) => row.VerifiedAt is not null && row.Progress >= 0.9999;
 
-    /// <summary>Port of persistedTorrentDisplayState: the UI state of a row that is not live in the client.</summary>
-    internal static string PersistedDisplayState(EngineTorrent row)
-    {
-        var status = row.Status.ToLowerInvariant();
-        if (status == EngineTorrentStatus.Error) return "error";
-        if (IsDownloaded(row)) return "downloaded";
-        if (status is EngineTorrentStatus.Paused or EngineTorrentStatus.Parked) return "paused";
-        // Waiting for a slot. Distinct from paused: the owner did not stop it, so the UI offers "Download now".
-        if (status == EngineTorrentStatus.Queued) return "queued";
-        return row.Progress > 0 ? "downloading" : "metaDL";
-    }
 
     // ---------------------------------------------------------------- read
 
@@ -930,12 +919,7 @@ internal sealed partial class TorrentEngineService(
             || string.Equals(row.Status, "seeding", StringComparison.OrdinalIgnoreCase);
         if (live is not null && !durable)
         {
-            var state = live.State switch
-            {
-                "complete" => "downloaded",
-                "error" => "error",
-                var s => s,
-            };
+            var state = TransferStates.FromClient(live.State);
             long? eta = null;
             var liveSize = LiveSize(row, live);
             if (live.DownloadRate > 0 && liveSize > 0)
@@ -969,7 +953,7 @@ internal sealed partial class TorrentEngineService(
                 BytesReceived = live.BytesReceived,
             };
         }
-        var display = PersistedDisplayState(row);
+        var display = TransferStates.FromStored(row);
         return new EngineTorrentInfo
         {
             Hash = row.Hash,
@@ -1447,7 +1431,7 @@ internal sealed partial class TorrentEngineService(
             {
                 var live = backend.Get(row.Hash);
                 _health.Observe(new EngineTorrentInfo { Hash = row.Hash, Name = row.Name,
-                    State = live?.State ?? PersistedDisplayState(row), Progress = live?.Progress ?? row.Progress,
+                    State = live is null ? TransferStates.FromStored(row) : TransferStates.FromClient(live.State), Progress = live?.Progress ?? row.Progress,
                     Peers = live?.Peers, Seeders = live?.Seeders, Dlspeed = live?.DownloadRate ?? 0 }, Now);
                 if (live is null)
                 {

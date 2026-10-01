@@ -123,7 +123,7 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
             Hash = t.GetProperty("hash").GetString()!, Name = t.GetProperty("name").GetString()!,
             Progress = t.GetProperty("progress").GetDouble(), SizeBytes = t.GetProperty("size").GetInt64(),
             Dlspeed = t.GetProperty("dlspeed").GetInt64(), Upspeed = t.GetProperty("upspeed").GetInt64(),
-            State = t.GetProperty("state").GetString()!,
+            State = TransferStates.FromClient(t.GetProperty("state").GetString()),
             Eta = Number(t, "eta") is { } eta && eta < 8640000 ? eta : null,
             Peers = (int)((Number(t, "num_seeds") ?? 0) + (Number(t, "num_leechs") ?? 0)),
             Category = Text(t, "category"),

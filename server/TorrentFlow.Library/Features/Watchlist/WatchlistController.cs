@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Core.Scheduling;
@@ -154,7 +155,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var items = await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && (x.Status == "watching" || x.Status == "planned")).ToListAsync(ct);
-        var global = await db.ClientSettings.Where(x => x.UserId == LocalUser.Id).Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct) ?? 1080;
+        var global = SettingsDefaults.ResolutionOrDefault(await db.ClientSettings.Where(x => x.UserId == LocalUser.Id).Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct));
         var updates = new List<object>();
         foreach (var item in items)
         {

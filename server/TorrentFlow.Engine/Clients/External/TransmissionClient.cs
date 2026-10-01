@@ -94,7 +94,7 @@ public sealed class TransmissionClient(HttpClient http) : IExternalTorrentClient
             torrents.Add(new EngineTorrentInfo
             {
                 Hash = hash, Name = name, Progress = progress.GetDouble(), SizeBytes = size, Dlspeed = down, Upspeed = up,
-                State = Status(status), Eta = QBittorrentClient.Number(t, "eta") is > 0 and var eta ? eta : null,
+                State = TransferStates.FromTransmission(status), Eta = QBittorrentClient.Number(t, "eta") is > 0 and var eta ? eta : null,
                 Category = t.TryGetProperty("labels", out var labels) && labels.ValueKind == JsonValueKind.Array
                     && labels.GetArrayLength() > 0 && labels[0].ValueKind == JsonValueKind.String ? labels[0].GetString() : null,
                 SavePath = string.IsNullOrEmpty(path) ? null : path,
@@ -104,12 +104,6 @@ public sealed class TransmissionClient(HttpClient http) : IExternalTorrentClient
         }
         return torrents;
     }
-
-    public static string Status(long code) => code switch
-    {
-        0 => "stopped", 1 => "queuedCheck", 2 => "checking", 3 => "queuedDownload",
-        4 => "downloading", 5 => "queuedSeed", 6 => "seeding", _ => $"status_{code}",
-    };
 
     public Task<EngineActionResult> ActAsync(ClientConfig config, string action, string hash, bool deleteFiles, CancellationToken ct = default) =>
         ExternalClientErrors.Capture(async () =>

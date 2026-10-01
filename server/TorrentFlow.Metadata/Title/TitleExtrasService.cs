@@ -256,7 +256,7 @@ public sealed class TitleExtrasService(
             foreach (var e in eps.EnumerateArray())
                 if (TmdbClient.Int(e, "episode_number") is { } en)
                     episodes.Add(new TitleEpisodeMeta(en, TmdbClient.Str(e, "name"), TmdbClient.Str(e, "overview").OrEmpty(null),
-                        CatalogText.ParseReleaseDate(TmdbClient.Str(e, "air_date")), TmdbClient.Int(e, "runtime"), TmdbClient.StillUrl(TmdbClient.Str(e, "still_path"))));
+                        CatalogText.ParseReleaseDate(TmdbClient.Str(e, "air_date")), TmdbClient.Int(e, "runtime"), tmdb.ImageUrl(TmdbClient.Str(e, "still_path"), Artwork.ArtRole.Thumb)));
         }
         if (episodes.Count == 0 && wanted is { } pw && seasonCounts.TryGetValue(pw, out var count) && count >= 1)
             episodes = Enumerable.Range(1, Math.Min(count, EpisodePlaceholderCap)).Select(i => new TitleEpisodeMeta(i, null, null, null, null, null)).ToList();
