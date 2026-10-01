@@ -22,6 +22,9 @@ public interface ISmartCategorizer
     /// <summary>seasonFolderSegment(parseEpisode(title)): "Season NN" for a single known season, else null.</summary>
     string? SeasonFolder(string title);
 
+    /// <summary>A film rather than a series: catalog type movie, or a release with no season, episode or batch that names a year or "movie".</summary>
+    bool IsFilm(string title, MediaMetadata? metadata);
+
     /// <summary>The owner's category for a kind (anime | movies | tv | ...), matched against their category names.</summary>
     string CategoryLabel(string kind, IReadOnlyList<string> userCategories);
 }

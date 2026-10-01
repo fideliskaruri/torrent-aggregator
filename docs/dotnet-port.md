@@ -834,6 +834,9 @@ release. Anime is decided by the one shared rule `AnimeIdentity`. Metadata from 
 MyAnimeList, AniDB, an anime addon id such as `kitsu:123`, catalog type anime, or a release from a site's anime
 category such as nyaa) is anime with no other check. Only TMDB or Cinemeta metadata falls back to genres: an Anime
 genre, or Animation made in Japan (TMDB original language ja with genre 16). Anime keeps the single `Anime` category but goes to
-`Anime Series/<Show>/Season NN` or `Anime Movies/<Title (Year)>` under the download root (or under the Anime path rule
-when one is set). The layout only works inside the row's save path. Transfers handled by an external client
+`Anime Series/<Show>/Season NN` or `Anime Movies/<Title (Year)>`. Every library is flat under the download root
+(`Movies`, `TV`, `Anime Series`, `Anime Movies`), one Jellyfin library each, never nested in another; with no download
+root the anime libraries sit beside the Anime path rule's folder. `TV` keeps its existing folder name. A send with no
+catalog work tells a film from a series by the catalog type (AniList format `MOVIE` counts), else by a release with no
+season or episode that names a year or "movie"; a site's Live Action category is never anime. The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.

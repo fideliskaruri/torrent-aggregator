@@ -40,6 +40,15 @@ public static class ContentClassifier
         var bTokens = b.Split(' ').Where(t => t.Length > 2).ToArray();
         return aTokens.Length > 0 && bTokens.Length > 0 && bTokens.Count(aTokens.Contains) / (double)bTokens.Length >= .6;
     }
+    /// <summary>
+    /// A film rather than a series: catalog type movie or an AniList "MOVIE" format; with no catalog verdict, a release
+    /// with no season, episode or batch that names a year or "movie".
+    /// </summary>
+    public static bool IsFilm(string title, EpisodeInfo ep, MediaMetadata? metadata) =>
+        metadata?.MediaType == "movie" || string.Equals(metadata?.Format, "MOVIE", StringComparison.OrdinalIgnoreCase)
+        || metadata is not { MediaType: "tv" } && metadata?.Format == null
+            && ep is { Season: null, Episode: null, AbsoluteEpisode: null, IsBatch: false, IsSeasonPack: false }
+            && Has(title, @"\b((19|20)\d{2}|movie|film|gekijou?ban)\b");
     private static bool Anime(string title, string hay, EpisodeInfo ep, MediaMetadata? metadata) =>
         Has(hay, AnimeSignal) || Has(hay, AnimeGroup) || AnimeIdentity.IsAnime(metadata)
         || Has(title, @"[\[(][A-Za-z0-9_-]{2,12}[\])]") && ep.Episode != null && ep.Season == null;
@@ -48,6 +57,9 @@ public static class ContentClassifier
         var title = r.Title; var tags = r.Tags; var hay = $"{title} {string.Join(' ', tags)}";
         var ep = Parse(title); var meta = r.Metadata;
         var strongTv = StrongTv(title, ep);
+        var liveAction = Has(title, @"\blive\s*action\b") || (r.Category?.Contains("live action", StringComparison.OrdinalIgnoreCase) ?? false);
+        // A site's anime category (nyaa "Anime - ...", Torznab 5070) is decisive, the same as an anime metadata source.
+        if (AnimeIdentity.IsAnimeSiteCategory(r.Category) && !liveAction) return "anime";
         var books = Has(hay, Books) && !Has(hay, @"\b(1080p|720p|bluray|webrip|x264|x265)\b");
         var belongs = MetadataMatches(title, meta);
         bool AnimeMetadata() => AnimeIdentity.IsAnime(meta) || meta?.MediaType == "tv"
@@ -57,7 +69,7 @@ public static class ContentClassifier
         {
             if (books) return "books";
             if (belongs && AnimeMetadata()) return "anime";
-            if (r.Source == "nyaa" && !Has(title, @"\blive\s*action\b")) return "anime";
+            if (r.Source == "nyaa" && !liveAction) return "anime";
             if (searchCategory == "anime" && Anime(title, hay, ep, meta)) return "anime";
             return "tv";
         }
@@ -74,9 +86,12 @@ public static class ContentClassifier
         if (r.Source == "yts") return "movies";
         if (r.Source == "nyaa")
         {
-            if (Has(title, @"\b(live\s*action|drama)\b")) return "tv";
+            // Nyaa is an anime site. Its Live Action category (or a live-action or drama release) is a film or a show;
+            // with no category known, a dated film release with no anime sign at all is a plain film.
+            if (liveAction || Has(title, @"\bdrama\b")) return ep.Episode == null && Has(title, @"\b(19|20)\d{2}\b") ? "movies" : "tv";
             if (Has(hay, Music)) return "music";
-            if (Has(title, @"\b(19|20)\d{2}\b") && Has(hay, @"\b(bluray|bdrip|remux|web-?dl|hdtv)\b") && ep.Episode == null) return "movies";
+            if (r.Category == null && Has(title, @"\b(19|20)\d{2}\b") && Has(hay, @"\b(bluray|bdrip|remux|web-?dl|hdtv)\b") && ep.Episode == null
+                && !Has(hay, AnimeGroup) && !AnimeMetadata()) return "movies";
             return "anime";
         }
         var video = Has(hay, @"\b(?:2160p|1080p|720p|576p|480p|blu[-_. ]?ray|bdrip|brrip|remux|web[-_. ]?dl|webrip|hdtv|dvdrip|hdrip|x264|x265|h\.?264|h\.?265|hevc|xvid|divx|avc)\b");
