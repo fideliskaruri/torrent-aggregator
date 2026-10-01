@@ -32,6 +32,7 @@ public sealed class SearchModuleOptions
         ["therarbg.to"] = new() { Concurrency = 2, SpacingMs = 1000 },
         ["torrentgalaxy.one"] = new() { Concurrency = 2, SpacingMs = 1000 },
         ["torrentgalaxy.info"] = new() { Concurrency = 2, SpacingMs = 1000 },
+        ["torrentdownload.info"] = new() { Concurrency = 1, SpacingMs = 1500 },
     };
     /// <summary>Pacing for any site not listed in <see cref="Pacing"/>.</summary>
     public SourcePacing DefaultPacing { get; set; } = new() { Concurrency = 2, SpacingMs = 250 };

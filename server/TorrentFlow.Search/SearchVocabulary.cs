@@ -10,8 +10,9 @@ public static class SearchVocabulary
         && new[] { "all", "movies", "series", "anime", "music", "games", "software", "books", "everything" }.Contains(scope) ? scope : null;
     public static string SourceLabel(string id) => id switch { "nyaa" => "Nyaa", "apibay" => "The Pirate Bay", "torrentscsv" => "Torrents-CSV", "eztv" => "EZTV", "yts" => "YTS", "archive" => "Internet Archive", "torznab" => "Torznab",
         "knaben" => "Knaben", "bitsearch" => "BitSearch", "limetorrents" => "LimeTorrents", "torrentdownloads" => "TorrentDownloads", "animetosho" => "AnimeTosho",
-        "subsplease" => "SubsPlease", "therarbg" => "TheRARBG", _ => id };
-    public static string SourceShortLabel(string id) => id switch { "apibay" => "TPB", "torrentscsv" => "CSV", "archive" => "IA", "limetorrents" => "Lime", "torrentdownloads" => "TDL", "animetosho" => "Tosho", _ => SourceLabel(id) };
+        "subsplease" => "SubsPlease", "therarbg" => "TheRARBG", "torrentdownloadinfo" => "TorrentDownload.info", _ => id };
+    public static string SourceShortLabel(string id) => id switch { "apibay" => "TPB", "torrentscsv" => "CSV", "archive" => "IA", "limetorrents" => "Lime", "torrentdownloads" => "TDL", "animetosho" => "Tosho",
+        "torrentdownloadinfo" => "TDInfo", _ => SourceLabel(id) };
     public static string SourceErrorReason(string? error)
     {
         if (string.IsNullOrEmpty(error)) return "Unavailable";
