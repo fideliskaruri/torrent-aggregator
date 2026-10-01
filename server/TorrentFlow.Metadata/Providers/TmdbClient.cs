@@ -141,7 +141,8 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
     {
         try
         {
-            using var doc = await GetJsonAsync($"/{mediaType}/{Uri.EscapeDataString(id)}", [("language", "en-US")], TimeSpan.FromSeconds(10), false, ct).ConfigureAwait(false);
+            using var doc = await GetJsonAsync($"/{mediaType}/{Uri.EscapeDataString(id)}",
+                [("language", "en-US"), ("append_to_response", "alternative_titles,external_ids")], TimeSpan.FromSeconds(10), false, ct).ConfigureAwait(false);
             return doc == null ? null : MapDetail(doc.RootElement, mediaType);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
@@ -240,7 +241,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         if (r.TryGetProperty("genre_ids", out var g) && g.ValueKind == JsonValueKind.Array)
             foreach (var x in g.EnumerateArray())
                 if (x.TryGetInt32(out var gid) && Genres.TryGetValue(gid, out var name)) genres.Add(name);
-        return new MediaMetadata
+        return WithNames(r, new MediaMetadata
         {
             Source = "tmdb",
             MediaType = mediaType,
@@ -256,7 +257,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
             Genres = genres,
             OriginalLanguage = Str(r, "original_language"),
             OriginCountry = StrArray(r, "origin_country"),
-        };
+        });
     }
 
     public MediaMetadata MapDetail(JsonElement r, string mediaType)
@@ -267,7 +268,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         if (r.TryGetProperty("genres", out var g) && g.ValueKind == JsonValueKind.Array)
             foreach (var x in g.EnumerateArray())
                 if (Str(x, "name") is { } n) genres.Add(n);
-        return new MediaMetadata
+        return WithNames(r, new MediaMetadata
         {
             Source = "tmdb",
             MediaType = mediaType,
@@ -283,7 +284,26 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
             Genres = genres,
             OriginalLanguage = Str(r, "original_language"),
             OriginCountry = StrArray(r, "origin_country"),
-        };
+        });
+    }
+
+    /// <summary>
+    /// TMDB's labelled names and ids: the title is English and the original title Original. An anime's Latin-script
+    /// Japanese alternative titles (with <c>alternative_titles</c> appended) are its Romaji; <c>external_ids</c> gives the IMDb id.
+    /// </summary>
+    private static MediaMetadata WithNames(JsonElement r, MediaMetadata m)
+    {
+        var names = new List<WorkName> { new(m.Title, WorkNameKind.English) };
+        if ((Str(r, "original_title") ?? Str(r, "original_name")) is { } original) names.Add(new(original, WorkNameKind.Original));
+        if (AnimeIdentity.IsAnime(m) && r.TryGetProperty("alternative_titles", out var alt) && alt.ValueKind == JsonValueKind.Object)
+            foreach (var list in new[] { "titles", "results" })
+                if (alt.TryGetProperty(list, out var rows) && rows.ValueKind == JsonValueKind.Array)
+                    foreach (var row in rows.EnumerateArray())
+                        if (Str(row, "iso_3166_1") == "JP" && Str(row, "title") is { } romaji && WorkNames.IsLatin(romaji))
+                            names.Add(new(romaji, WorkNameKind.Romaji));
+        var imdb = (r.TryGetProperty("external_ids", out var ext) ? Str(ext, "imdb_id") : null) ?? Str(r, "imdb_id");
+        var tmdb = int.TryParse(m.ExternalId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id > 0 ? id : (int?)null;
+        return m with { Names = [.. WorkNames.Of(names).All], Ids = new(Tmdb: tmdb, Imdb: string.IsNullOrWhiteSpace(imdb) ? null : imdb) };
     }
 
     private static List<string> Distinct(params string?[] values) =>

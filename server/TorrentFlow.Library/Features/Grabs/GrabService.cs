@@ -133,9 +133,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
         if (input.Cursor != null)
         {
-            IReadOnlyList<string> savedAliases = [];
-            try { savedAliases = JsonSerializer.Deserialize<string[]>(work?.AliasesJson ?? "[]") ?? []; }
-            catch (JsonException) { }
+            var savedAliases = work?.ReadNames().Others(work.CanonicalTitle) ?? [];
             input = input with { Aliases = (input.Aliases ?? []).Concat(savedAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
             var identity = await (searchIdentity ?? new EpisodeSearchIdentity(anime)).ResolveAsync(input.Title,
                 input.Year ?? work?.Year, work?.MediaType == "anime" ? "anime" : input.MediaType, input.Aliases, ct,
@@ -163,9 +161,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             }
             if (work != null && (saved is { Count: > 0 } || work.MediaType != input.MediaType))
             {
-                var aliasesJson = JsonSerializer.Serialize(saved);
+                var namesJson = work.ReadNames().With(saved).ToJson();
                 await db.Works.Where(w => w.Id == work.Id).ExecuteUpdateAsync(s =>
-                    s.SetProperty(w => w.AliasesJson, aliasesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
+                    s.SetProperty(w => w.NamesJson, namesJson).SetProperty(w => w.MediaType, input.MediaType), ct);
             }
         }
         int? floor = input.PreferredResolution ?? SettingsDefaults.ResolutionOrDefault(settings.PreferredResolution);

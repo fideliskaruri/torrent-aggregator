@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Grabs;
@@ -78,7 +79,7 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
         }
         var now = time.GetUtcNow().UtcDateTime;
         var work = new Work { Id = Ids.New(), WorkKey = request.WorkKey, CanonicalTitle = request.Title,
-            MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl,
+            MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl, Format = WorkFormats.FromMediaType(request.MediaType),
             Provider = request.Provider, ProviderId = request.ProviderId, CreatedAt = now, UpdatedAt = now };
         db.Works.Add(work);
         try { await db.SaveChangesAsync(ct); }

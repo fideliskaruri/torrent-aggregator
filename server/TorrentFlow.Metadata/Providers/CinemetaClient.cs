@@ -71,7 +71,7 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
             list.Add(new()
             {
                 Source = "cinemeta", ExternalId = id, Title = title, MediaType = Kind(type) == "series" ? "tv" : "movie",
-                PosterUrl = poster, Year = year,
+                PosterUrl = poster, Year = year, Names = [new(title, WorkNameKind.English)], Ids = new(Imdb: id),
                 AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { imdb = id }) }
             });
         }
@@ -143,7 +143,8 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
     /// <summary>IMDb's title becomes the name and Cinemeta's differing one stays as an alias, so either still identifies the work.</summary>
     private static MediaMetadata WithImdbTitle(MediaMetadata row, string? imdbTitle) =>
         imdbTitle is null || SameTitle(row.Title, imdbTitle) ? row
-            : row with { Title = imdbTitle, Aliases = [.. row.Aliases ?? [], row.Title] };
+            : row with { Title = imdbTitle, Aliases = [.. row.Aliases ?? [], row.Title],
+                Names = [.. WorkNames.Of([new WorkName(imdbTitle, WorkNameKind.English)]).Merge(WorkNames.Of(row)).All] };
 
     private static bool SameTitle(string? a, string b) =>
         a is not null && string.Equals(Fold(a), Fold(b), StringComparison.Ordinal);
@@ -191,7 +192,7 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
             Source = "cinemeta", ExternalId = id, Title = title, MediaType = Kind(type) == "series" ? "tv" : "movie",
             PosterUrl = Str(row, "poster"), BackdropUrl = Str(row, "background"), Synopsis = Str(row, "description"),
             Year = YearOf(release), ReleaseDate = Str(row, "released") is { Length: >= 10 } date ? date[..10] : null,
-            Rating = rating, Genres = StrArray(row, "genres"),
+            Rating = rating, Genres = StrArray(row, "genres"), Names = [new(title, WorkNameKind.English)], Ids = WorkIds.From("cinemeta", id),
             // "Japan" or "Japan, United States": the shared anime rule reads Animation made in Japan as anime.
             OriginCountry = Str(row, "country") is { Length: > 0 } country ? country.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : null,
             AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { imdb = id }) }

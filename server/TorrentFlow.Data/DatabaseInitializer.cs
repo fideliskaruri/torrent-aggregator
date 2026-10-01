@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data.Entities;
 
 namespace TorrentFlow.Data;
@@ -68,6 +70,8 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
                 await LogReleaseBlockBackfillAsync(conn, ct);
         }
 
+        await BackfillWorkNamesAsync(db, ct);
+
         if (!await db.Users.AnyAsync(u => u.Id == LocalUser.Id, ct))
         {
             var now = DateTime.UtcNow;
@@ -77,7 +81,36 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>
-    /// A consistent copy (WAL included) of the database file in <c>backups/</c> beside it, named after the newest pending
+    /// Labels the names and ids of works saved before <c>namesJson</c>/<c>idsJson</c> existed (and of works another path
+    /// created without them), from their title, legacy aliases and provider claim. <c>aliasesJson</c> is left as it was.
+    /// A work with no format gets one from its media type (movie, tv), or Series for an anime with an episode or season
+    /// grab; the rest stay null until their provider is asked. Original language is left to that provider refresh.
+    /// One pass per work: a labelled work always has both columns set, so later starts load nothing.
+    /// </summary>
+    private async Task BackfillWorkNamesAsync(TorrentFlowDbContext db, CancellationToken ct)
+    {
+        var rows = await db.Works.Where(w => w.NamesJson == null || w.IdsJson == null).ToListAsync(ct);
+        if (rows.Count == 0) return;
+        var episodic = rows.Where(w => w.Format == null).Select(w => w.Id).ToList();
+        episodic = await db.AcquisitionTargets.Where(t => t.WorkId != null && episodic.Contains(t.WorkId) && (t.Scope == "episode" || t.Scope == "season"))
+            .Select(t => t.WorkId!).Distinct().ToListAsync(ct);
+        var formatted = 0;
+        foreach (var work in rows)
+        {
+            work.NamesJson ??= work.ReadNames().ToJson() ?? "[]";
+            work.IdsJson ??= WorkIds.From(work.Provider, work.ProviderId).ToJson() ?? "{}";
+            if (work.Format == null && (WorkFormats.FromMediaType(work.MediaType) ?? (episodic.Contains(work.Id) ? WorkFormat.Series : null)) is { } format)
+            {
+                work.Format = format;
+                formatted++;
+            }
+        }
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Labelled the names and ids of {Count} works; set the format of {Formatted}, {Unknown} left unknown",
+            rows.Count, formatted, rows.Count(w => w.Format == null));
+    }
+
+    /// <summary> of the database file in <c>backups/</c> beside it, named after the newest pending
     /// migration. Null for a database that is not a file. Updating without a backup is refused: the error says why.
     /// </summary>
     private async Task<string?> BackupAsync(System.Data.Common.DbConnection conn, string migration, CancellationToken ct)

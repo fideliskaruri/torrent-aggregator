@@ -245,10 +245,11 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
             var key = WorkKeySlug.WorkKeyFor(item.Title);
             if (known != null)
             {
-                var aliases = JsonSerializer.Deserialize<string[]>(known.AliasesJson ?? "[]") ?? [];
+                var names = known.ReadNames();
+                var aliases = names.Others(known.CanonicalTitle);
                 if (aliases.Prepend(known.CanonicalTitle).Any(name => WorkKeySlug.Matches(key, name, known.Year)))
                     return new() { Source = "anilist", ExternalId = item.ExternalId, Title = known.CanonicalTitle,
-                        MediaType = "anime", Year = known.Year, Aliases = aliases };
+                        MediaType = "anime", Year = known.Year, Aliases = aliases, Names = names.All, Ids = known.ReadIds() };
             }
             var resolved = await metadata.GetByIdAsync("anilist", "tv", item.ExternalId, ct);
             if (resolved?.Source != "anilist" || resolved.ExternalId != item.ExternalId) return null;

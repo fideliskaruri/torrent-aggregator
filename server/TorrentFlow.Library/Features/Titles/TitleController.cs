@@ -16,7 +16,7 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, ReleasePicker picker, WantedQueue wanted, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes) : ControllerBase
+    IHostApplicationLifetime lifetime, ISeasonShapeLookup seasonShapes, WorkNamesRefresh names) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -34,7 +34,17 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             if (resolved != null && !TitleIdentity.Matches(workKey, resolved))
                 return BadRequest(new { error = "Provider identity does not match this title." });
         }
+        await RefreshNamesAsync(workKey, resolved, ct);
         return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external), FindIdentity: true), ct));
+    }
+
+    /// <summary>Opening a title saves its provider record's names, or looks a stale work's names up again (budgeted).</summary>
+    private async Task RefreshNamesAsync(string workKey, MediaMetadata? resolved, CancellationToken ct)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromMilliseconds(2500));
+        try { await names.RefreshAsync(workKey.Trim().ToLowerInvariant(), resolved, fetch: true, budget.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
     }
     [HttpGet("progress")]
     public async Task<IActionResult> Progress(string workKey, CancellationToken ct) => Ok(await titles.Progress(workKey, ct));
@@ -101,8 +111,11 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             provider = providerId = null;
         if (work == null)
         {
+            var workNames = verified != null ? WorkNames.Of(verified) : WorkNames.Legacy(title, detail["aliases"] as string[], provider);
             work = new() { Id = Ids.New(), WorkKey = workKey, CanonicalTitle = title, MediaType = type, Year = detail["year"] as int?,
-                PosterUrl = detail["posterUrl"] as string, AliasesJson = JsonSerializer.Serialize(detail["aliases"]),
+                PosterUrl = detail["posterUrl"] as string, NamesJson = workNames.ToJson(),
+                IdsJson = (verified?.Ids ?? new()).Merge(WorkIds.From(provider, providerId)).ToJson() ?? "{}",
+                Format = WorkFormats.Of(verified) ?? WorkFormats.FromMediaType(type), OriginalLanguage = WorkFormats.LanguageOf(verified),
                 Provider = provider, ProviderId = providerId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
             try { await db.SaveChangesAsync(ct); }
@@ -120,6 +133,8 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             work.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
+        // A verified provider record's names belong on the work, whether it was just created or already known.
+        if (verified != null) await names.RefreshAsync(workKey, verified, fetch: false, ct);
         if (watchId != null)
             await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);

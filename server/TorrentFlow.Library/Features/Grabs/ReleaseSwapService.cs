@@ -91,9 +91,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         tried.UnionWith(await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).Select(r => r.Hash).ToListAsync(ct));
         var floor = target?.PreferredResolution ?? ReleaseSelection.Resolution(releaseName);
         var mediaType = row.Work?.MediaType ?? (identity.IsSeries ? "tv" : "movie");
-        IReadOnlyList<string> aliases = [];
-        try { aliases = JsonSerializer.Deserialize<string[]>(row.Work?.AliasesJson ?? "[]") ?? []; }
-        catch (JsonException) { }
+        IReadOnlyList<string> aliases = row.Work?.ReadNames().Others(row.Work.CanonicalTitle) ?? [];
         if (cursor != null && searchIdentity != null)
             (mediaType, aliases) = await searchIdentity.ResolveAsync(title, row.Work?.Year, mediaType, aliases, ct,
                 row.Work?.Provider, row.Work?.ProviderId);

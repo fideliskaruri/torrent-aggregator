@@ -10,6 +10,10 @@ public sealed record MediaMetadata
     public required string ExternalId { get; init; }
     public required string Title { get; init; }
     public IReadOnlyList<string>? Aliases { get; init; }
+    /// <summary>The provider's labelled names (English, Romaji, Native...) when it labels them; read through <see cref="WorkNames.Of(MediaMetadata)"/>.</summary>
+    public IReadOnlyList<WorkName>? Names { get; init; }
+    /// <summary>The ids other providers know this title by, when the provider says.</summary>
+    public WorkIds? Ids { get; init; }
     public string? PosterUrl { get; init; }
     public string? BackdropUrl { get; init; }
     public string? Synopsis { get; init; }

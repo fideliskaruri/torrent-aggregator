@@ -1586,10 +1586,30 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnName("createdAt")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<string>("Format")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("format");
+
+                    b.Property<string>("IdsJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("idsJson");
+
                     b.Property<string>("MediaType")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("mediaType");
+
+                    b.Property<string>("NamesJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("namesJson");
+
+                    b.Property<string>("NamesRefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("namesRefreshedAt");
+
+                    b.Property<string>("OriginalLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("originalLanguage");
 
                     b.Property<string>("PosterUrl")
                         .HasColumnType("TEXT")
