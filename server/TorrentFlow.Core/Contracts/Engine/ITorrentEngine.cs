@@ -197,8 +197,12 @@ public sealed record EngineInspectResult(string? Hash, long PieceLength, IReadOn
 /// <param name="Offset">Byte offset of the file inside the torrent's concatenated payload.</param>
 public sealed record EngineInspectFile(int Index, string Path, long Length, long Offset);
 
+/// <param name="UseBlocked">
+/// The owner picked this release by hand with "Use it anyway" although it is blocked: the swap may take a release
+/// already tried for this download, and lifts its block in the same commit.
+/// </param>
 public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,
-    long? SizeBytes, string? Source = null);
+    long? SizeBytes, string? Source = null, bool UseBlocked = false);
 
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
 {
