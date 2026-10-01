@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
@@ -10,8 +11,10 @@ using TorrentFlow.Library.Features.Watchlist;
 namespace TorrentFlow.Library.Features.Grabs;
 
 /// <summary>One release the owner can choose. <c>Fits</c> is true when it names this title and the wanted episode (or an episode of the wanted season).</summary>
+/// <param name="Language">What its name and site category say about audio and subtitles, in plain words ("French audio").</param>
+/// <param name="LanguageFit">preferred | neutral | backup | clash under the owner's audio language setting (docs/release-language.md).</param>
 public sealed record ReleasePickOption(string Token, string Hash, string Title, int Seeders, int Peers, long? SizeBytes,
-    int? Quality, string Source, bool Fits, string Why);
+    int? Quality, string Source, bool Fits, string Why, string? Language = null, string? LanguageFit = null);
 public sealed record ReleasePickList(string Query, IReadOnlyList<ReleasePickOption> Releases);
 
 /// <summary>
@@ -26,10 +29,13 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
 {
     private sealed record Choice(string WorkKey, int? Season, int? Episode, string Query, TorrentResult Release);
 
-    public static string DefaultQuery(string title, int? season, int? episode) =>
-        season is { } s && episode is { } e ? new EpisodeCursor(s, e).Query(title)
-        : season is { } only ? $"{title.Trim()} S{only:00}"
-        : title.Trim();
+    public static string DefaultQuery(string title, int? season, int? episode)
+    {
+        title = Apostrophes.Normalize(title).Trim();
+        return season is { } s && episode is { } e ? new EpisodeCursor(s, e).Query(title)
+            : season is { } only ? $"{title} S{only:00}"
+            : title;
+    }
 
     public async Task<ReleasePickList> Search(string workKey, int? season, int? episode, string? query, CancellationToken ct)
     {
@@ -40,7 +46,7 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         IReadOnlyList<string> aliases = [];
         try { aliases = JsonSerializer.Deserialize<string[]>(work.AliasesJson ?? "[]") ?? []; }
         catch (JsonException) { }
-        var text = string.IsNullOrWhiteSpace(query) ? DefaultQuery(work.CanonicalTitle, season, episode) : query.Trim();
+        var text = string.IsNullOrWhiteSpace(query) ? DefaultQuery(work.CanonicalTitle, season, episode) : Apostrophes.Normalize(query).Trim();
         if (text.Length > 200) text = text[..200];
         var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usable = (await Find(text, work.MediaType, ct)).Where(r => !EpisodeRejections.IsPack(r)).ToList();
@@ -49,9 +55,13 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
             ReleaseSwapService.Select([r], workKey, work.CanonicalTitle, target, null, null, none, aliases).Count > 0).ToList();
         var others = usable.Where(r => !fits.Contains(r)).ToList();
         var releases = new List<ReleasePickOption>();
+        var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
+        var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct);
         foreach (var (group, fit) in new[] { (fits, true), (others, false) })
         {
-            foreach (var ranked in ReleaseSwapService.Rank(group, null, null))
+            // Language orders the list (preferred first, clashes last) and labels each row; it never hides one.
+            foreach (var (ranked, language) in ReleaseSwapService.Rank(group, null, null)
+                .Select(x => (x, ReleaseLanguage.Verdict(want, x.Result.Title, x.Result.Category))).OrderBy(x => x.Item2.Fit))
             {
                 if (releases.Count >= 30) break;
                 var r = ranked.Result;
@@ -60,7 +70,8 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
                 var token = Guid.NewGuid().ToString("N");
                 cache.Set($"release-pick:{token}", new Choice(workKey, season, episode, text, r), TimeSpan.FromMinutes(15));
                 releases.Add(new(token, hash, r.Title, r.Seeders, r.Leechers, r.SizeBytes, ReleaseSelection.Resolution(r.Title),
-                    r.Source, fit, fit ? "" : "The name doesn't match this exactly, so check it first"));
+                    r.Source, fit, fit ? "" : "The name doesn't match this exactly, so check it first", language.Label,
+                    language.Fit.ToString().ToLowerInvariant()));
             }
         }
         return new(text, releases);

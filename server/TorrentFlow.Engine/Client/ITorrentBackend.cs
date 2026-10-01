@@ -77,4 +77,14 @@ internal interface ITorrentBackend
     /// limits (the stricter wins) and restores the base when both are null.
     /// </summary>
     Task ApplyRateLimitsAsync(long? maxDownloadRate, long? maxUploadRate) => Task.CompletedTask;
+
+    /// <summary>
+    /// Reads the track list (audio and subtitle languages) from the container header of the given files, by torrent file
+    /// index, before the release is admitted: only the pieces holding each header are fetched, in a client of its own,
+    /// and everything the probe wrote is deleted before it returns, so a normal add of the same hash starts clean. A hash
+    /// that is already loaded comes back unchecked. Never throws: a budget hit, no peers, a cancelled token or a header
+    /// it can't read comes back unchecked with a reason.
+    /// </summary>
+    Task<HeaderProbeResult> ProbeHeadersAsync(byte[]? torrent, IReadOnlyList<int> fileIndices, HeaderProbeBudget? budget,
+        CancellationToken ct) => Task.FromResult(HeaderProbeResult.Skipped(null, HeaderProbeResult.NotSupported));
 }

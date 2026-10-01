@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -37,7 +38,8 @@ internal sealed partial class TorrentEngineService
                 if (await db.EngineTorrents.AnyAsync(r => r.Hash == nextHash, ct))
                     return new(false, "That release is already in your downloads.");
                 if (await db.ReleaseAttempts.AnyAsync(r => r.UserId == LocalUser.Id && r.WorkKey == request.WorkKey
-                    && r.Scope == request.Scope && r.Hash == nextHash, ct))
+                    && r.Scope == request.Scope && r.Hash == nextHash, ct)
+                    && !(request.UseBlocked && (await ReleaseBlocks.GetAsync(db, LocalUser.Id, [nextHash], ct)).Count > 0))
                     return new(false, "That release has already been tried.");
                 var config = await settings.GetConfigAsync(ct);
                 var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.SizeBytes,
@@ -68,12 +70,17 @@ internal sealed partial class TorrentEngineService
                     if (!await db.ReleaseAttempts.AnyAsync(r => r.UserId == old.UserId && r.WorkKey == request.WorkKey
                         && r.Scope == request.Scope && r.Hash == tried, ct))
                         db.ReleaseAttempts.Add(new() { UserId = old.UserId, WorkKey = request.WorkKey, Scope = request.Scope, Hash = tried, TriedAt = Now });
+                await BlockReplacedAsync(db, old, replacement, request, ct);
+                var lifted = request.UseBlocked ? await ReleaseBlocks.UnblockAsync(db, old.UserId, nextHash, ct) : null;
                 await CarrySwapLinks(db, old, replacement, request.Source, ct);
                 db.EngineTorrents.Remove(old);
                 await db.SaveChangesAsync(ct);
                 // Stop can fail: keep the transaction uncommitted so the old transfer stays recoverable.
                 if (backend.Contains(hash)) await backend.RemoveAsync(hash);
                 await tx.CommitAsync(CancellationToken.None);
+                if (lifted is not null)
+                    logger.LogInformation("[builtin-engine] Unblocked {Hash} ({Name}): chosen by hand with Use it anyway (was {Reason})",
+                        nextHash, request.Name, lifted.Reason);
                 _startedAt.TryRemove(hash, out _);
                 _health.Forget(hash);
                 // Deliberately never use recursive folder removal here: only this release's partial files.
@@ -126,6 +133,23 @@ internal sealed partial class TorrentEngineService
                 if (Directory.Exists(dir) && new DirectoryInfo(dir).Attributes.HasFlag(FileAttributes.ReparsePoint)) return false;
             return !File.Exists(file) || !File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint);
         }).ToList();
+    }
+
+    /// <summary>
+    /// The owner replaced <paramref name="old"/> with <paramref name="next"/>: blocks the old release for this work and
+    /// scope (<see cref="ReleaseBlocks.Replaced"/>), so no automatic pick takes it again. Its name and site come from how
+    /// it was grabbed, so this runs before <see cref="CarrySwapLinks"/> moves those records to the new hash. Tracks the
+    /// change; the swap's save commits it together with the replacement.
+    /// </summary>
+    private static async Task BlockReplacedAsync(TorrentFlowDbContext db, EngineTorrent old, EngineTorrent next, EngineReleaseSwap request, CancellationToken ct)
+    {
+        var grabbed = await ReleaseBlocks.GrabbedAsync(db, old.UserId, old.Hash, ct);
+        await ReleaseBlocks.BlockAsync(db, new ReleaseBlock
+        {
+            UserId = old.UserId, Hash = old.Hash, WorkKey = request.WorkKey, Scope = request.Scope, Reason = ReleaseBlocks.Replaced,
+            Title = grabbed?.Title ?? old.Name, Source = grabbed?.Source, ReplacedBy = next.Hash, Origin = ReleaseBlocks.FromSwap,
+            CreatedAt = next.UpdatedAt,
+        }, ct);
     }
 
     private static async Task CarrySwapLinks(TorrentFlowDbContext db, EngineTorrent old, EngineTorrent next, string? source, CancellationToken ct)

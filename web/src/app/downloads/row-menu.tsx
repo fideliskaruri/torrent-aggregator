@@ -15,8 +15,9 @@ import {
   pauseResumeAction,
   pauseResumeTargets,
   sourceChip,
+  canFindAnotherSourceFor,
 } from "./release-display";
-import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { FolderMenuItem } from "./folder-menu-item";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 
@@ -85,7 +86,7 @@ export function torrentRowMenuItems({
     t.category,
     t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
   ].filter(Boolean);
-  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
+  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherSourceFor(t) || pauseResume !== null;
   return (
     <>
       <div
@@ -120,10 +121,10 @@ export function torrentRowMenuItems({
           Download now
         </DropdownMenuItem>
       ) : null}
-      {canFindAnotherRelease(t) ? (
+      {canFindAnotherSourceFor(t) ? (
         <DropdownMenuItem onClick={() => handlers.onAction("swap", t)} data-find-release>
           <Search />
-          Find another release
+          {FIND_ANOTHER_SOURCE_LABEL}
         </DropdownMenuItem>
       ) : null}
       {pauseResume === "pause" ? (

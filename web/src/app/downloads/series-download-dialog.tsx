@@ -34,10 +34,10 @@ import {
   type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
-import { pauseResumeTargets, releaseDisplayFacts, rollupChip } from "./release-display";
+import { canFindAnotherSourceFor, pauseResumeTargets, releaseDisplayFacts, rollupChip } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
-import { canFindAnotherRelease } from "./release-swap-dialog";
+import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import type { OpenDownloadMode } from "@/lib/open-download";
 import { DownloadGroupSummary, DownloadTransferRow } from "./download-transfer-row";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
@@ -175,7 +175,7 @@ export function SeriesDownloadDialog({
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
     .flatMap((season) => season.entries)
-    .find((entry) => isError(entry.torrent.state) && canFindAnotherRelease(entry.torrent));
+    .find((entry) => isError(entry.torrent.state) && canFindAnotherSourceFor(entry.torrent));
   const firstFailedLabel = firstFailed
     ? (firstFailed.episodeLabel ?? releaseDisplayFacts(firstFailed.torrent).title)
     : null;
@@ -213,7 +213,7 @@ export function SeriesDownloadDialog({
                     data-group-find-release
                   >
                     <Search className="h-3.5 w-3.5" />
-                    Find another release for {firstFailedLabel}
+                    {FIND_ANOTHER_SOURCE_LABEL} for {firstFailedLabel}
                   </Button>
                 </div>
               ) : null}

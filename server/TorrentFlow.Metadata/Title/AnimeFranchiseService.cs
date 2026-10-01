@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Metadata.Artwork;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Catalog;
@@ -141,7 +142,7 @@ public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb
             return tmdb.HasKey ? await TmdbShowAsync(tmdbId, null, ct).ConfigureAwait(false) : null;
         if (q.Provider == "tvmaze" && int.TryParse(q.ProviderId, NumberStyles.None, CultureInfo.InvariantCulture, out var tvmazeId))
             return await TvmazeShowAsync(tvmazeId, ct).ConfigureAwait(false);
-        var names = (root.Aliases ?? []).Prepend(root.Title).Select(n => n.Replace('\u2019', '\'').Trim())
+        var names = (root.Aliases ?? []).Prepend(root.Title).Select(n => Apostrophes.Normalize(n).Trim())
             .Where(n => ArtworkMatching.NormalizeTitleForMatch(n).Length > 0)
             .DistinctBy(ArtworkMatching.NormalizeTitleForMatch).ToList();
         if (names.Count == 0) return null;

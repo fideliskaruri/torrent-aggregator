@@ -349,8 +349,45 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         row.VerifiedBitfield = null;
         row.ClearForced();
         row.UpdatedAt = now;
-        if (releaseTargets) await ReleaseTargetsAsync(db, row.Hash, message, now, ct);
+        if (releaseTargets)
+        {
+            await BlockFailedCheckAsync(db, row, now, ct);
+            await ReleaseTargetsAsync(db, row.Hash, message, now, ct);
+        }
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// A release that isn't a real video stays refused once its row is gone: blocks it for its user
+    /// (<see cref="ReleaseBlocks.FailedVideoCheck"/>), so no automatic pick takes it again. Only for a release the check
+    /// proved wrong, never for one it couldn't read. The work and scope come from the wanted items it was meant to fill,
+    /// else from the row, so call this before <see cref="ReleaseTargetsAsync"/> unlinks them. Tracks the change; the
+    /// caller saves.
+    /// </summary>
+    internal static async Task BlockFailedCheckAsync(TorrentFlowDbContext db, EngineTorrent row, DateTime now, CancellationToken ct)
+    {
+        var lower = row.Hash.ToLowerInvariant();
+        var upper = row.Hash.ToUpperInvariant();
+        var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.InfoHash == lower || t.InfoHash == upper)
+            .Select(t => new { t.WorkKey, t.Season, t.Episode, t.FileIndex }).ToListAsync(ct);
+        var workKey = targets.Select(t => t.WorkKey).FirstOrDefault(k => !string.IsNullOrEmpty(k))
+            ?? (row.WorkId is null ? null : await db.Works.AsNoTracking().Where(w => w.Id == row.WorkId).Select(w => w.WorkKey).FirstOrDefaultAsync(ct))
+            ?? await ReleaseBlocks.WorkKeyForAsync(db, row.UserId, row.Hash, ct)
+            ?? "";
+        // The swap's scope shapes: one episode's queue key, a season pack's "season:N", else "movie".
+        var episodes = targets.Where(t => t.Season is not null && t.Episode is not null)
+            .Select(t => TorrentFlow.Core.QueueKeys.For(t.Season!.Value, t.Episode!.Value)).Distinct().ToList();
+        var season = targets.Select(t => t.Season).FirstOrDefault(s => s is not null);
+        var scope = episodes.Count == 1 && targets.All(t => t.FileIndex is null) ? episodes[0]
+            : season is { } s ? $"season:{s}"
+            : TorrentFlow.Core.QueueKeys.Parse(row.QueueKey) is { } queued ? TorrentFlow.Core.QueueKeys.For(queued.Season, queued.Episode)
+            : "movie";
+        var grabbed = await ReleaseBlocks.GrabbedAsync(db, row.UserId, lower, ct);
+        await ReleaseBlocks.BlockAsync(db, new ReleaseBlock
+        {
+            UserId = row.UserId, Hash = lower, WorkKey = workKey, Scope = scope, Reason = ReleaseBlocks.FailedVideoCheck,
+            Title = grabbed?.Title ?? row.Name, Source = grabbed?.Source, Origin = ReleaseBlocks.FromVideoCheck, CreatedAt = now,
+        }, ct);
     }
 
     /// <summary>

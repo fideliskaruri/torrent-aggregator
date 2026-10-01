@@ -53,5 +53,8 @@ public partial class ClientSetting
 
     public bool? VerboseDiagnostics { get; set; }
 
+    /// <summary>Which audio language automatic grabs look for: auto, english or any (docs/release-language.md); null = auto.</summary>
+    public string? AudioLanguage { get; set; }
+
     public virtual User User { get; set; } = null!;
 }

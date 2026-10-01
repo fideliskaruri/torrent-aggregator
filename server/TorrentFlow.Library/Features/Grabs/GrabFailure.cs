@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
@@ -19,9 +20,10 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
 
     /// <summary>
     /// Failures that mean the search really happened and found nothing usable. Only these count toward the season pack
-    /// fallback; refused, busy, storage, setup and unknown failures never do.
+    /// fallback; refused, busy, storage, setup and unknown failures never do. A release held back or refused for its
+    /// language is never a real miss: the release exists (docs/release-language.md).
     /// </summary>
-    public static bool IsRealMiss(string? code) => code is "no_release" or "quality_floor" or "no_seeders" or "audio_preference";
+    public static bool IsRealMiss(string? code) => code is "no_release" or "quality_floor" or "no_seeders";
 
     public static readonly GrabFailure Sources = new("sources_unavailable",
         "We couldn't reach the search sites, so nothing was searched.",
@@ -35,6 +37,10 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static readonly GrabFailure BadRelease = new("bad_release",
         "The release we picked had a program file or no video in it.", PickYourself)
         { Brief = "had only unsafe or fake releases" };
+    /// <summary>The engine's file-list check found the wrong audio. It passes: the wanted queue keeps looking (docs/release-language.md).</summary>
+    public static readonly GrabFailure WrongLanguage = new("audio_language",
+        "The release we picked turned out to be in another language.",
+        "We'll keep looking. You can also pick a release yourself.") { Brief = "had releases only in another language" };
     public static readonly GrabFailure Unknown = new("download_failed",
         "The download could not be started.",
         "Try again. If it keeps failing, pick a release yourself.");
@@ -52,9 +58,6 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static GrabFailure NoSeeders(string subject) => new("no_seeders",
         $"We found {subject}, but nobody is sharing it right now.", "Try again later, or pick a release yourself.")
         { Brief = "had nobody sharing them" };
-    public static GrabFailure DubOnly(string subject) => new("audio_preference",
-        $"We only found dubbed releases of {subject}.", "Pick a release yourself, or change your anime audio setting.")
-        { Brief = "only had dubbed releases" };
 
     public static GrabFailure FromException(Exception error) => error switch
     {
@@ -97,10 +100,11 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
         "unknown_quality" => "with no quality in the name",
         "no_link" => "with no download link",
         "no_seeders" => "with no seeders",
-        "dub_not_preferred" => "dubbed only",
+        _ when ReleaseLanguage.IsReason(reason) => ReleaseLanguage.ReasonLabel(reason),
         "unsafe" => "unsafe files",
         "query_filter" => "filtered out by the search",
         "send_failed" => "that failed to start",
+        "blocked" => "blocked",
         _ => "not taken"
     };
 
@@ -113,7 +117,6 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
         if (relevant.Length > 0 && floor is { } quality && relevant.All(c => c.Reasons.Any(r => r is "below_floor" or "unknown_quality")))
             return BelowQuality(subject, quality);
         if (relevant.Any(c => c.Reasons.Contains("no_seeders"))) return NoSeeders(subject);
-        if (relevant.Length > 0 && relevant.All(c => c.Reasons.Contains("dub_not_preferred"))) return DubOnly(subject);
         return NotFound(subject, floor);
     }
 }

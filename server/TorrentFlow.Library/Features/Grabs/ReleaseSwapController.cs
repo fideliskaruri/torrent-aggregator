@@ -12,8 +12,11 @@ public sealed class ReleaseSwapController(ReleaseSwapService swaps) : Controller
         catch (InvalidOperationException error) { return Conflict(new { message = error.Message }); }
     }
 
-    /// <summary>Either a token from GET, or <c>best: true</c> (optionally with a source) to search and swap in one step.</summary>
-    public sealed record SwapInput(string? Token, bool? Best, string? Source);
+    /// <summary>
+    /// Either a token from GET, or <c>best: true</c> (optionally with a source) to search and swap in one step. A token for
+    /// a blocked release also needs <c>allowBlocked: true</c> ("Use it anyway"); best never picks a blocked release.
+    /// </summary>
+    public sealed record SwapInput(string? Token, bool? Best, string? Source, bool? AllowBlocked = null);
 
     [HttpPost]
     public async Task<IActionResult> Post(string hash, SwapInput input, CancellationToken ct)
@@ -29,7 +32,7 @@ public sealed class ReleaseSwapController(ReleaseSwapService swaps) : Controller
         }
         if (string.IsNullOrWhiteSpace(input.Token))
             return BadRequest(new { message = "Choose a release, or ask for the best one." });
-        var result = await swaps.Swap(hash, input.Token, ct);
+        var result = await swaps.Swap(hash, input.Token, input.AllowBlocked == true, ct);
         return result.Ok ? Ok(result) : Conflict(result);
     }
 }

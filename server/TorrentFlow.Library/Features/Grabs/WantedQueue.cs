@@ -69,7 +69,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     private static readonly TimeSpan[] Waits = [TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15),
         TimeSpan.FromHours(1), TimeSpan.FromHours(3), TimeSpan.FromHours(6)];
     /// <summary>Failures that clear up by themselves; the owner is never asked about these.</summary>
-    private static readonly HashSet<string> Passing = ["sources_unavailable", "search_busy", "download_failed", "metadata_unavailable"];
+    private static readonly HashSet<string> Passing = ["sources_unavailable", "search_busy", "download_failed", "metadata_unavailable",
+        "audio_language"];
     /// <summary>The search itself did not happen (a site refused or was unreachable): not a miss, so no try is spent.</summary>
     private static readonly HashSet<string> Unsearched = ["sources_unavailable", "search_busy"];
     private static readonly TimeSpan MaxUnsearchedWait = TimeSpan.FromMinutes(15);
