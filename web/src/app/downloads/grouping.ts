@@ -623,7 +623,7 @@ export function seriesEpisodeTally<T extends TransferRow>(
       if (entry.isSeasonPack || entry.season == null || entry.episode == null) continue;
       const key = `${entry.season}:${entry.episode}`;
       const t = entry.torrent;
-      if (isDownloaded(t.state) || t.progress >= 1) done.add(key);
+      if (isDownloaded(t.state)) done.add(key);
       else if (isDownloading(t.state)) active.add(key);
       else if (isQueued(t.state)) waiting.add(key);
     }
