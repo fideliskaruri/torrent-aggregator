@@ -515,7 +515,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         // An automation order's provider lookups are background; anything the owner pressed goes first (ProviderPriority).
         using var priority = plans.TryGetValue(unit, out var ordered) && ordered.Lane == TorrentLane.Automation ? ProviderPriority.Background() : null;
         // Rows saved under an anime show's old numbering move to its current seasons before anything is searched for them.
-        if (numbering != null)
+        // A film never has a numbering, and any other work returns at once: no run waits on an anime show's reconciling.
+        if (numbering != null && unit.Season != null)
         {
             try
             {

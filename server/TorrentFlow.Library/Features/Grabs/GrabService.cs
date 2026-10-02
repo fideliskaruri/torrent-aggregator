@@ -201,6 +201,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
             }
+            // A later entry files under its show's folder, named as the show's own downloads are.
+            if (input.EpisodeMapping is { ShowTitle: not null } shown)
+                input = input with { EpisodeMapping = await ShowFolders.ApplyAsync(db, shown, ct) };
             var saved = input.Aliases;
             if (input.EpisodeMapping is { } mapping)
             {
