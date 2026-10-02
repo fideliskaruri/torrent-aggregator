@@ -57,7 +57,10 @@ public partial class MediaRequest
     /// </summary>
     public string? FulfilledThrough { get; set; }
 
-    /// <summary>Fingerprint of the stopped transfers the requester and owner were last told about; null when none.</summary>
+    /// <summary>
+    /// The stopped transfers the requester and owner were told about: sorted, comma-separated hashes; null when none. A
+    /// hash not in it is news; a set that only shrank is stored without telling anyone again.
+    /// </summary>
     public string? StoppedKey { get; set; }
 
     public virtual User RequestedBy { get; set; } = null!;

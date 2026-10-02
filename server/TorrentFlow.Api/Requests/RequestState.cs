@@ -38,24 +38,21 @@ public static class RequestHealth
     /// <summary>The engine says the transfer stopped (error, missing files), as opposed to removed or still alive.</summary>
     public static bool IsStopped(string? status) => status?.ToLowerInvariant() is "error" or "missingfiles";
 
-    /// <summary>A short, order-free fingerprint of a set of hashes, so the same stopped set is only announced once.</summary>
-    public static string? Fingerprint(IEnumerable<string> hashes)
-    {
-        var sorted = hashes.Select(h => h.ToLowerInvariant()).Distinct().Order(StringComparer.Ordinal).ToList();
-        if (sorted.Count == 0) return null;
-        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join(',', sorted))))[..16];
-    }
+    /// <summary>A set of hashes as stored on a request: lowercased, sorted, comma-separated; null when empty.</summary>
+    public static string? Sorted(IEnumerable<string> hashes) =>
+        Join(hashes.Select(h => h.ToLowerInvariant()).Distinct().Order(StringComparer.Ordinal));
 
-    /// <summary>The engine rows (status, queue key) of <paramref name="hashes"/>, keyed by lowercased hash; removed rows are absent.</summary>
-    public static async Task<Dictionary<string, (string Status, string? QueueKey)>> StatesAsync(TorrentFlowDbContext db,
+    /// <summary>The engine rows (status, queue key, progress) of <paramref name="hashes"/>, keyed by lowercased hash; removed rows are absent.</summary>
+    public static async Task<Dictionary<string, (string Status, string? QueueKey, double Progress)>> StatesAsync(TorrentFlowDbContext db,
         IEnumerable<string> hashes, CancellationToken ct)
     {
         var wanted = hashes.Select(h => h.ToLowerInvariant()).Distinct().ToList();
         if (wanted.Count == 0) return new(StringComparer.Ordinal);
         var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && wanted.Contains(t.Hash.ToLower()))
-            .Select(t => new { t.Hash, t.Status, t.QueueKey }).ToListAsync(ct);
+            .Select(t => new { t.Hash, t.Status, t.QueueKey, t.Progress }).ToListAsync(ct);
         return rows.Where(t => !string.Equals(t.Status, "removed", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(t => t.Hash.ToLowerInvariant()).ToDictionary(g => g.Key, g => (g.First().Status, g.First().QueueKey), StringComparer.Ordinal);
+            .GroupBy(t => t.Hash.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => (g.First().Status, g.First().QueueKey, g.First().Progress), StringComparer.Ordinal);
     }
 
     /// <summary>The healthy ones among <paramref name="hashes"/>, lowercased.</summary>

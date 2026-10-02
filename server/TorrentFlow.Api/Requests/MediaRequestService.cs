@@ -244,7 +244,7 @@ public sealed class MediaRequestService(
             // Someone else already asked for the same title and scope: this ask joins theirs. Pending, it waits on the
             // same card; approved, it is approved now and shares what is already downloading. Nothing is grabbed again.
             // A failed ask, or one whose transfers have all died, is never joined: the new ask is pending again so the
-            // owner sees it. A joiner shares only the transfers that are still alive.
+            // owner sees it. A joiner shares the ask's transfers, its mark and the stops it was already told about.
             var askKey = RequestRules.SameAskKey(row);
             var others = await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == row.WorkKey && r.RequestedByUserId != userId &&
                 MediaRequestStatus.Open.Contains(r.Status)).OrderBy(r => r.CreatedAt).ToListAsync(ct);
@@ -257,8 +257,10 @@ public sealed class MediaRequestService(
                 row.Status = joined.Status;
                 row.DecisionReason = joined.DecisionReason;
                 row.DecidedAt = now;
-                row.GrabbedHashes = RequestHealth.Join(RequestHealth.Hashes(joined.GrabbedHashes).Where(healthy.Contains));
+                row.GrabbedHashes = joined.GrabbedHashes;
                 row.FulfilledThrough = joined.FulfilledThrough;
+                // The stops the ask was told about come along, so the newcomer shares them without being told again.
+                row.StoppedKey = joined.StoppedKey;
             }
             db.MediaRequests.Add(row);
             await db.SaveChangesAsync(ct);
