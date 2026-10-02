@@ -103,6 +103,12 @@ public static partial class HomeRelease
     /// </summary>
     public const int UncheckedCinemaDays = 21;
 
+    /// <summary>
+    /// A film first released longer ago than this is never in cinemas: a re-release or a country with no home release
+    /// on record left Se7en (1995) gated with no Download. Cinema runs end well inside this.
+    /// </summary>
+    public const int LongestCinemaRunDays = 180;
+
     public static TheatricalGate TheatricalGateFromSignal(string? mediaType, string? releaseDay, HomeReleaseSignal? signal, DateTimeOffset now)
     {
         if (!IsMovie(mediaType)) return TheatricalGate.Open;
@@ -113,6 +119,8 @@ public static partial class HomeRelease
             return string.CompareOrdinal(primary, Day(now.AddDays(-UncheckedCinemaDays))) >= 0 ? new(true, null) : TheatricalGate.Open;
         var theatrical = IsoDay(signal.TheatricalReleasedAt);
         if (theatrical is null || string.CompareOrdinal(theatrical, today) > 0) return TheatricalGate.Open;
+        var firstRelease = string.CompareOrdinal(primary, theatrical) < 0 ? primary : theatrical;
+        if (string.CompareOrdinal(firstRelease, Day(now.AddDays(-LongestCinemaRunDays))) < 0) return TheatricalGate.Open;
         var earliestHome = new[] { signal.ReleasedAt, signal.NextHomeReleaseAt }.Select(IsoDay).OfType<string>()
             .Order(StringComparer.Ordinal).FirstOrDefault();
         if (earliestHome is not null && string.CompareOrdinal(earliestHome, today) <= 0) return TheatricalGate.Open;

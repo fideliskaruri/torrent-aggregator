@@ -3,7 +3,10 @@ using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Providers;
 using TorrentFlow.Metadata.Text;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Sources;
+using TorrentFlow.Core.Text;
+using TorrentFlow.Data;
 
 namespace TorrentFlow.Metadata.Search;
 
@@ -33,6 +36,26 @@ public sealed record WorkSearchHit
     [JsonIgnore] internal bool Animated { get; init; }
     /// <summary>The provider says the work is not released yet.</summary>
     [JsonIgnore] internal bool Upcoming { get; init; }
+    /// <summary>The hit is a work the library already stores, under that work's key.</summary>
+    [JsonIgnore] internal bool Stored { get; init; }
+
+    /// <summary>This hit under another work key, its title link following.</summary>
+    internal WorkSearchHit WithWorkKey(string workKey)
+    {
+        if (workKey.Length == 0 || workKey == WorkKey) return this;
+        var query = Href.IndexOf('?', StringComparison.Ordinal);
+        return this with { WorkKey = workKey, Href = $"{WorkKeys.TitleHref}/{WorkKeys.EncodeKeySegment(workKey)}{(query >= 0 ? Href[query..] : "")}" };
+    }
+}
+
+/// <summary>A work the library stores, as search sees it: its key, era, kind and every id it is known by ("tmdb:1396").</summary>
+public sealed record StoredWork(string WorkKey, int? Year, bool IsSeries, IReadOnlySet<string> Ids)
+{
+    /// <summary>The ids of the work's own record and its canonical ids, without what its links add.</summary>
+    public IReadOnlySet<string>? Own { get; init; }
+
+    /// <summary>One id as "provider:id"; Cinemeta's ids are IMDb's.</summary>
+    public static string Id(string provider, string id) => WorkIdentities.Id(provider, id);
 }
 
 public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query, string DisplayQuery, IReadOnlyList<string> Attempted,
@@ -42,7 +65,7 @@ public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query
 public delegate Task<List<WorkSearchHit>> WorkSearchProvider(string query, int limit, CancellationToken ct);
 
 /// <summary>Port of src/lib/search/work-search.ts + work-search-fanout.ts.</summary>
-public sealed class WorkSearchService
+public sealed partial class WorkSearchService
 {
     public static readonly string[] Categories = ["movies", "series", "anime"];
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(5);
@@ -57,12 +80,19 @@ public sealed class WorkSearchService
     private readonly TmdbClient? _tmdb;
     private readonly SourceRegistry? _registry;
     private readonly CinemetaClient? _cinemeta;
+    private readonly IDbContextFactory<TorrentFlowDbContext>? _works;
     private readonly BoundedTtlCache<(WorkSearchOutcome Result, DateTimeOffset FreshUntil)> _cache;
+    /// <summary>How long the stored works' keys and canonical ids are reused before being read again (sooner when a work changes).</summary>
+    private static readonly TimeSpan StoredIndexTtl = TimeSpan.FromSeconds(30);
+    private StoredIndex? _storedIndex;
+
+    /// <summary>Every stored work's key, the name it gives (<see cref="WorkKeySlug.NameOf"/>) and its canonical ids, as read at <paramref name="Version"/>.</summary>
+    private sealed record StoredIndex(long Version, DateTimeOffset ReadAt, IReadOnlyList<(string Key, string Name, HashSet<string> Ids)> Works);
 
     public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time,
-        SourceRegistry? registry = null, CinemetaClient? cinemeta = null)
+        SourceRegistry? registry = null, CinemetaClient? cinemeta = null, IDbContextFactory<TorrentFlowDbContext>? works = null)
         : this(registry is not null && cinemeta is not null ? RegistryProviders(registry, tmdb, anilist, keyless, cinemeta) :
-            DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; _registry = registry; _cinemeta = cinemeta; }
+            DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; _registry = registry; _cinemeta = cinemeta; _works = works; }
 
     internal WorkSearchService(IReadOnlyDictionary<string, WorkSearchProvider> providers, TimeProvider time, bool cacheEnabled = false)
     {
@@ -200,40 +230,138 @@ public sealed class WorkSearchService
         };
     }
 
+    /// <summary>
+    /// Every enabled catalog of the category answers at once and ranking merges them. Stopping at the first catalog with a
+    /// matching name hid the work people meant: TVmaze's "Money Heist: Korea" hid La Casa de Papel, Cinemeta's "Se7en"
+    /// (2022) hid TMDB's 1995 film, and only one of several same-name shows came back. The category fails only when every
+    /// catalog failed, so a rate-limited AniList reports as failed instead of as "no results".
+    /// </summary>
     private static Dictionary<string, WorkSearchProvider> RegistryProviders(SourceRegistry registry, TmdbClient tmdb,
         AniListClient anilist, KeylessClients keyless, CinemetaClient cinemeta) => Categories.ToDictionary(category => category,
         category => (WorkSearchProvider)(async (query, limit, ct) =>
         {
-            var hits = new List<WorkSearchHit>();
-            foreach (var source in registry.Active("metadata", category))
-            {
-                try
-                {
-                    var found = await SourceExecution.RunAsync(source, async token =>
-                    {
-                        var type = category == "series" ? "tv" : "movie";
-                        if (source.Type == "anilist")
-                            return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromAniList(w, category)).OfType<WorkSearchHit>().ToList();
-                        if (source.Type == "tvmaze")
-                            return (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList();
-                        IEnumerable<MediaMetadata> rows = source.Type switch
-                        {
-                            "tmdb" => await tmdb.SearchByTypeAsync(type, query, limit, token),
-                            "cinemeta" => await cinemeta.SearchAsync(query, type, limit, token),
-                            "itunes" => (await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
-                            { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }),
-                            _ => []
-                        };
-                        return HitsInProviderOrder(rows, category);
-                    }, ct);
-                    hits.AddRange(found);
-                    if (HasRelevantHit(query, hits)) break;
-                }
-                catch (Exception) when (!ct.IsCancellationRequested) { }
-            }
-            return hits;
+            var sources = registry.Active("metadata", category).ToList();
+            var settled = await Task.WhenAll(sources.Select(source => Settle(SourceExecution.RunAsync(source,
+                token => SearchSourceAsync(source, category, query, limit, tmdb, anilist, keyless, cinemeta, token), ct)))).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (settled.Length > 0 && settled.All(s => s.Error != null)) throw settled[0].Error!;
+            return settled.SelectMany(s => s.Value ?? []).ToList();
         }));
 
+    private static async Task<List<WorkSearchHit>> SearchSourceAsync(SourceEntry source, string category, string query, int limit,
+        TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, CinemetaClient cinemeta, CancellationToken token)
+    {
+        var type = category == "series" ? "tv" : "movie";
+        switch (source.Type)
+        {
+            case "anilist":
+                return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromAniList(w, category)).OfType<WorkSearchHit>().ToList();
+            case "tvmaze":
+                return await WithAlternateTitle(query, (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token))
+                    .Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList(), hits => hits.FirstOrDefault(),
+                    hit => int.TryParse(hit.ProviderId, out var id) ? keyless.GetTvmazeAkasAsync(id, token) : Task.FromResult(new List<string>()),
+                    unmatchedOnly: true);
+            case "tmdb":
+                return await WithAlternateTitle(query, HitsInProviderOrder(await tmdb.SearchByTypeAsync(type, query, limit, token), category),
+                    hits => hits.FirstOrDefault(), hit => tmdb.AlternativeTitlesAsync(type, hit.ProviderId!, token));
+            case "cinemeta":
+                var rows = cinemeta.SearchAsync(query, type, limit, token);
+                var top = await cinemeta.ImdbTopAsync(query, type, token);
+                // IMDb's names for a top suggestion the query matches only loosely ("Seven" for "Se7en") are fetched while
+                // Cinemeta still answers, so the evidence adds no round trip; the hit is the same tt id under the same name.
+                var names = top is { ExternalId: { } topId } && Relevance.BestTier(query, new[] { top.Title }.Concat(top.Aliases ?? [])) >= 5
+                    ? cinemeta.ImdbNamesAsync(topId, token) : null;
+                return await WithAlternateTitle(query, HitsInProviderOrder(await rows, category),
+                    hits => hits.FirstOrDefault(h => top?.ExternalId is { } id && h.ProviderId == id),
+                    hit => names ?? cinemeta.ImdbNamesAsync(hit.ProviderId!, token));
+            case "itunes":
+                return HitsInProviderOrder((await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
+                    { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }), category);
+            default:
+                return [];
+        }
+    }
+
+    /// <summary>
+    /// Catalogs match a query against names they do not return: TMDB finds Parasite for "Gisaengchung", IMDb finds Crouching
+    /// Tiger, Hidden Dragon for "Wo hu cang long", TVmaze finds La Casa de Papel for "Money Heist". When the provider's
+    /// top hit has no name matching the query, its own other titles (TMDB alternative titles, IMDb's original title and
+    /// AKAs, TVmaze AKAs) are fetched once; a title the query matches joins its aliases, so ranking matches it like any
+    /// other name. With no such title the hit stays unmatched: "zzzzzz" never surfaces a popular unrelated film.
+    /// AniList returns romaji and synonyms with every hit, so it needs no lookup. TVmaze already scores a show by its AKAs,
+    /// so its top hit is looked up only when no name of it matches at all (La Casa de Papel for "Money Heist"), not for a
+    /// loose match ("Seven Up!" for "Se7en") whose lookup would only add a round trip.
+    /// </summary>
+    private static async Task<List<WorkSearchHit>> WithAlternateTitle(string query, List<WorkSearchHit> hits,
+        Func<List<WorkSearchHit>, WorkSearchHit?> pickTop, Func<WorkSearchHit, Task<List<string>>> titlesOf, bool unmatchedOnly = false)
+    {
+        // A fuzzy-only name ("Seven" for "se7en") still earns the lookup: the catalog's own title may match literally.
+        if (pickTop(hits) is not { ProviderId: { Length: > 0 } } top) return hits;
+        var tier = Relevance.BestTier(query, new[] { top.Title }.Concat(top.Aliases));
+        if (tier < (unmatchedOnly ? 6 : 5)) return hits;
+        List<string> titles;
+        try { titles = await titlesOf(top).ConfigureAwait(false); }
+        catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException) { return hits; }
+        var name = titles.Where(t => Relevance.BestTier(query, [t]) < tier).MinBy(t => Relevance.BestTier(query, [t]));
+        if (name is null) return hits;
+        var index = hits.IndexOf(top);
+        hits[index] = top with { Aliases = [.. top.Aliases, name] };
+        return hits;
+    }
+
+    /// <summary>
+    /// The stored works the hits might be: the same provider id, a stored id or verified link, the hit's own key, or any
+    /// key of the same name with a year (any year, either kind). Search links a hit to its stored work's key and keeps
+    /// other keys clear of stored ones (see <see cref="SearchRanking"/>), so a download, request or watchlist row never
+    /// ends up on a second key or on another work.
+    /// </summary>
+    private async Task<IReadOnlyList<StoredWork>> StoredWorksAsync(IReadOnlyList<WorkSearchHit> hits, CancellationToken ct)
+    {
+        if (_works is null || hits.Count == 0) return [];
+        var keys = hits.Select(h => h.WorkKey).ToHashSet(StringComparer.Ordinal);
+        var names = hits.Select(h => WorkKeys.WorkKeyFor(h.Title, null)).Where(k => k.Length > 0).ToHashSet(StringComparer.Ordinal);
+        var ids = hits.SelectMany(h => (h.ExternalIds?.Values ?? []).Append(h.ProviderId)).OfType<string>()
+            .Select(v => v.Trim()).Where(v => v.Length > 0).Distinct().ToList();
+        var identities = hits.SelectMany(h => (h.ExternalIds ?? new Dictionary<string, string>()).Select(p => (Provider: p.Key, Id: p.Value))
+                .Append((Provider: h.Provider, Id: h.ProviderId ?? "")))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id)).Select(x => StoredWork.Id(x.Provider, x.Id)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            await using var db = await _works.CreateDbContextAsync(ct).ConfigureAwait(false);
+            // A library holds hundreds of works, so its keys and canonical ids are matched in memory, from one reading shared
+            // by searches for a short while: "doctor-who-1963-tv" and "doctor-who-2005-tv-tmdb57243" are keys of
+            // "doctor-who", and a work stored under another name ("money-heist-2017") is still the record whose IMDb id it keeps.
+            foreach (var (key, name, known) in (await StoredIndexAsync(db, ct).ConfigureAwait(false)).Works)
+                if (names.Contains(name) || known.Overlaps(identities))
+                    keys.Add(key);
+            var linked = db.WorkLinks.Where(l => l.Verified && !l.Rejected && ids.Contains(l.ExternalId)).Select(l => l.WorkId);
+            var works = await db.Works.AsNoTracking().Include(w => w.Links.Where(l => l.Verified && !l.Rejected))
+                .Where(w => keys.Contains(w.WorkKey) || (w.ProviderId != null && ids.Contains(w.ProviderId)) || linked.Contains(w.Id))
+                .ToListAsync(ct).ConfigureAwait(false);
+            return works.Select(w => new StoredWork(w.WorkKey, w.Year, w.MediaType != "movie", WorkIdentities.Of(w))
+                { Own = WorkIdentities.Of(w.ReadIds(), w.Provider, w.ProviderId) }).ToList();
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested && e is DbUpdateException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// The stored works' keys, names and canonical ids, read again only when a work was added, removed, re-keyed or got
+    /// other ids since (<see cref="WorkIdentities.Version"/>) or after <see cref="StoredIndexTtl"/>, so one reading serves every
+    /// search and enrichment lookup in between. Each search still loads the works it matches afresh, ids and links included.
+    /// </summary>
+    private async Task<StoredIndex> StoredIndexAsync(TorrentFlowDbContext db, CancellationToken ct)
+    {
+        var version = WorkIdentities.Version;
+        var now = _time.GetUtcNow();
+        if (_storedIndex is { } index && index.Version == version && now - index.ReadAt < StoredIndexTtl) return index;
+        var rows = await db.Works.AsNoTracking().Select(w => new { w.WorkKey, w.IdsJson }).ToListAsync(ct).ConfigureAwait(false);
+        var read = new StoredIndex(version, now, rows.Select(r => (r.WorkKey, WorkKeySlug.NameOf(r.WorkKey), WorkIdentities.Of(WorkIds.FromJson(r.IdsJson)))).ToList());
+        _storedIndex = read;
+        return read;
+    }
     public async Task<WorkSearchOutcome> SearchAsync(string scope, string rawQuery, int limit, CancellationToken ct = default)
     {
         var query = QueryVariants.Canonicalize(rawQuery);
@@ -257,10 +385,12 @@ public sealed class WorkSearchService
         }
         var byCategory = settled.Select(s => (IReadOnlyList<WorkSearchHit>)(s.Value ?? [])).ToList();
         var merged = attempted.Count > 1 ? Relevance.InterleaveByProviderRank(byCategory, query) : [.. byCategory[0]];
-        var ranked = SearchRanking.Rank(merged, query, await AwaitImdbRanks(imdbRanks, ct).ConfigureAwait(false), _time.GetUtcNow());
+        var stored = await StoredWorksAsync(merged, ct).ConfigureAwait(false);
+        var ranked = SearchRanking.Rank(merged, query, await AwaitImdbRanks(imdbRanks, ct).ConfigureAwait(false), _time.GetUtcNow(), stored);
         var results = ranked.Take(limit).ToList();
         var outcome = new WorkSearchOutcome(results, query, display, attempted, failed, failed.Count > 0);
-        if (cacheKey != null) _cache.Set(cacheKey, (outcome, _time.GetUtcNow() + Fresh), StaleTtl);
+        // A result missing a failed catalog (AniList rate-limited) is kept only as the stale fallback, so the next search asks again.
+        if (cacheKey != null) _cache.Set(cacheKey, (outcome, failed.Count > 0 ? _time.GetUtcNow() : _time.GetUtcNow() + Fresh), StaleTtl);
         return outcome;
     }
 

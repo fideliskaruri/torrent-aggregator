@@ -117,6 +117,7 @@ public static class WorkLinks
         if (ids?.AniList is { } anilist) yield return new("anilist", S(anilist), null, null, source, confidence, verified);
         if (ids?.Mal is { } mal) yield return new("mal", S(mal), null, null, source, confidence, verified);
         if (ids?.Imdb is { Length: > 0 } imdb) yield return new("imdb", imdb, null, null, source, confidence, verified);
+        if (ids?.Tvdb is { } tvdb) yield return new("tvdb", S(tvdb), null, null, source, confidence, verified);
     }
 
     /// <summary>
@@ -187,7 +188,7 @@ public static class WorkLinks
         var own = WorkIds.From(work.Provider, work.ProviderId);
         static int? Number(WorkLink? link) => int.TryParse(link?.ExternalId, out var n) && n > 0 ? n : null;
         var ids = new WorkIds(own.Tmdb ?? Number(Primary(links, "tmdb")), own.AniList ?? Number(Primary(links, "anilist")),
-            own.Mal ?? Number(Primary(links, "mal")), own.Imdb ?? Primary(links, "imdb")?.ExternalId);
+            own.Mal ?? Number(Primary(links, "mal")), own.Imdb ?? Primary(links, "imdb")?.ExternalId, Number(Primary(links, "tvdb")));
         var names = work.ReadNames().WithoutLinked();
         foreach (var link in links.Where(l => GivesNames(links, l)))
             names = names.WithLinked(Key(link.Provider, link.ExternalId), WorkNames.TryRead(link.NamesJson)?.All ?? []);

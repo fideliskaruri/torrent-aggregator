@@ -114,6 +114,15 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         return output.OrderBy(e => e.Season).ThenBy(e => e.Episode).ToList();
     }
 
+    /// <summary>The show's names in other countries ("La Casa de Papel" is "Money Heist").</summary>
+    public async Task<List<string>> GetTvmazeAkasAsync(int id, CancellationToken ct = default)
+    {
+        if (id <= 0) return [];
+        var root = await GetAsync($"{TvmazeShows}/{id}/akas", 4000, ct).ConfigureAwait(false);
+        return root is not { ValueKind: JsonValueKind.Array } rows ? []
+            : rows.EnumerateArray().Select(r => Str(r, "name")).OfType<string>().Where(n => n.Trim().Length > 0).Distinct().ToList();
+    }
+
     public async Task<TvmazeCandidate?> GetTvmazeShowAsync(int id, CancellationToken ct = default)
     {
         var root = await GetAsync($"{TvmazeShows}/{id}", 5000, ct);
@@ -142,6 +151,8 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         Source = "tvmaze", MediaType = "tv", ExternalId = show.Id.ToString(CultureInfo.InvariantCulture), Title = show.Title,
         Year = show.Year, PosterUrl = show.PosterUrl, Synopsis = HtmlText.StripToText(show.Summary), Rating = show.Rating,
         ReleaseDate = show.Premiered, Genres = show.Genres,
+        // TVmaze's own record of its IMDb and TheTVDB ids, so a download from this record finds a work saved from TMDB or Cinemeta.
+        Ids = new(Imdb: string.IsNullOrWhiteSpace(show.ImdbId) ? null : show.ImdbId.Trim(), Tvdb: show.TvdbId is > 0 ? show.TvdbId : null),
         AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { tvmaze = show.Id, imdb = show.ImdbId, tvdb = show.TvdbId }) }
     };
 

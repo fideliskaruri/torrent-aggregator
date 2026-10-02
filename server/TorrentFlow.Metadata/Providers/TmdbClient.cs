@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Metadata.Providers;
@@ -96,6 +97,39 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
     /// <summary>search/{movie|tv} with discovery-variant rescue (10s deadline).</summary>
     public Task<List<MediaMetadata>> SearchByTypeAsync(string mediaType, string query, int limit = 12, CancellationToken ct = default) =>
         SearchWithVariantsAsync(mediaType, query, limit, ct);
+
+    private readonly BoundedTtlCache<List<string>> alternativeTitles = new(500, time);
+    private readonly SingleFlight<List<string>> alternativeTitlesFlight = new();
+
+    /// <summary>Every title TMDB lists for a film or show in other countries and scripts ("Gisaengchung" for Parasite).
+    /// Cached a day per key revision and title; an empty answer or failure only for a minute.</summary>
+    public async Task<List<string>> AlternativeTitlesAsync(string mediaType, string id, CancellationToken ct = default)
+    {
+        if (ApiKey is not { } credential) return [];
+        var type = mediaType == "tv" ? "tv" : "movie";
+        // The revision tracks saved keys; the hash covers a key a source run supplies itself.
+        var key = $"{CredentialRevision}:{credential.GetHashCode()}:{type}:{id}";
+        if (alternativeTitles.TryGet(key, out var cached)) return cached;
+        return await alternativeTitlesFlight.RunAsync(key, async () =>
+        {
+            List<string> found = [];
+            try
+            {
+                // The shared lookup is not tied to one caller's request; its own timeout bounds it.
+                using var doc = await GetJsonAsync($"/{type}/{Uri.EscapeDataString(id)}/alternative_titles", [],
+                    TimeSpan.FromSeconds(4), false, CancellationToken.None).ConfigureAwait(false);
+                // Films list them under "titles", shows under "results".
+                var root = doc?.RootElement ?? default;
+                var rows = root.ValueKind != JsonValueKind.Object ? default
+                    : root.TryGetProperty("titles", out var titles) ? titles : root.TryGetProperty("results", out var results) ? results : default;
+                if (rows.ValueKind == JsonValueKind.Array)
+                    found = rows.EnumerateArray().Select(r => Str(r, "title")).OfType<string>().Where(t => t.Trim().Length > 0).Distinct().ToList();
+            }
+            catch (Exception e) when (e is HttpRequestException or JsonException or OperationCanceledException) { }
+            alternativeTitles.Set(key, found, found.Count > 0 ? TimeSpan.FromDays(1) : TimeSpan.FromMinutes(1));
+            return found;
+        }, ct).ConfigureAwait(false);
+    }
 
     private async Task<List<MediaMetadata>> SearchWithVariantsAsync(string scope, string query, int limit, CancellationToken ct)
     {
@@ -308,8 +342,9 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
                         if (Str(row, "iso_3166_1") == "JP" && Str(row, "title") is { } romaji && WorkNames.IsLatin(romaji))
                             names.Add(new(romaji, WorkNameKind.Romaji));
         var imdb = (r.TryGetProperty("external_ids", out var ext) ? Str(ext, "imdb_id") : null) ?? Str(r, "imdb_id");
+        var tvdb = ext.ValueKind == JsonValueKind.Object && Int(ext, "tvdb_id") is > 0 and var tvdbId ? tvdbId : (int?)null;
         var tmdb = int.TryParse(m.ExternalId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id > 0 ? id : (int?)null;
-        return m with { Names = [.. WorkNames.Of(names).All], Ids = new(Tmdb: tmdb, Imdb: string.IsNullOrWhiteSpace(imdb) ? null : imdb) };
+        return m with { Names = [.. WorkNames.Of(names).All], Ids = new(Tmdb: tmdb, Imdb: string.IsNullOrWhiteSpace(imdb) ? null : imdb, Tvdb: tvdb) };
     }
 
     private static List<string> Distinct(params string?[] values) =>

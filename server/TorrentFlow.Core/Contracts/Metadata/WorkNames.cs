@@ -15,17 +15,17 @@ public enum WorkNameKind { English, Romaji, Synonym, Native, Original }
 /// </summary>
 public sealed record WorkName(string Text, WorkNameKind Kind, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Source = null);
 
-/// <summary>A work's ids at each provider that knows it.</summary>
-public sealed record WorkIds(int? Tmdb = null, int? AniList = null, int? Mal = null, string? Imdb = null)
+/// <summary>A work's ids at each provider that knows it (<paramref name="Tvdb"/>: TheTVDB, as TVmaze and TMDB report it).</summary>
+public sealed record WorkIds(int? Tmdb = null, int? AniList = null, int? Mal = null, string? Imdb = null, int? Tvdb = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     [JsonIgnore]
-    public bool IsEmpty => Tmdb == null && AniList == null && Mal == null && Imdb == null;
+    public bool IsEmpty => Tmdb == null && AniList == null && Mal == null && Imdb == null && Tvdb == null;
 
     /// <summary>These ids, with any gap filled from <paramref name="other"/>.</summary>
     public WorkIds Merge(WorkIds? other) => other == null ? this
-        : new(Tmdb ?? other.Tmdb, AniList ?? other.AniList, Mal ?? other.Mal, Imdb ?? other.Imdb);
+        : new(Tmdb ?? other.Tmdb, AniList ?? other.AniList, Mal ?? other.Mal, Imdb ?? other.Imdb, Tvdb ?? other.Tvdb);
 
     /// <summary>The id a work's single provider claim carries (a Cinemeta id is an IMDb id).</summary>
     public static WorkIds From(string? provider, string? providerId)
@@ -39,6 +39,7 @@ public sealed record WorkIds(int? Tmdb = null, int? AniList = null, int? Mal = n
             "anilist" => new(AniList: Number()),
             "mal" or "myanimelist" => new(Mal: Number()),
             "cinemeta" or "imdb" when id.StartsWith("tt", StringComparison.OrdinalIgnoreCase) => new(Imdb: id),
+            "tvdb" or "thetvdb" => new(Tvdb: Number()),
             _ => new()
         };
     }

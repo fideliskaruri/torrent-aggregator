@@ -56,10 +56,15 @@ public static class WorkPosters
         if (rest.Count == 0) return found;
         // Every row's name, newest first: a route key can name any charted work, not only recently refreshed ones.
         var names = await db.CatalogEntries.AsNoTracking().OrderByDescending(e => e.RefreshedAt)
-            .Select(e => new { e.Id, e.Title, e.Year }).ToListAsync(ct).ConfigureAwait(false);
+            .Select(e => new { e.Id, e.Title, e.Year, e.MediaType }).ToListAsync(ct).ConfigureAwait(false);
         var matched = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var key in rest)
-            if (names.FirstOrDefault(e => Core.Text.WorkKeySlug.Matches(key, e.Title, e.Year)) is { } hit) matched[key] = hit.Id;
+        {
+            // A kind-tagged key ("family-guy-film") exists because the other kind holds its name, so it never takes that row.
+            var kind = Core.Text.WorkKeySlug.KindOf(key);
+            if (names.FirstOrDefault(e => (kind is not { } series || Core.Scheduling.HuntCursor.IsSeries(e.MediaType) == series) &&
+                    Core.Text.WorkKeySlug.Matches(key, e.Title, e.Year)) is { } hit) matched[key] = hit.Id;
+        }
         if (matched.Count == 0) return found;
         var ids = matched.Values.Distinct().ToList();
         var rows = await db.CatalogEntries.AsNoTracking().Where(e => ids.Contains(e.Id)).ToDictionaryAsync(e => e.Id, ct).ConfigureAwait(false);

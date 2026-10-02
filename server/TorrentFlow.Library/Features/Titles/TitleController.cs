@@ -33,11 +33,20 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         {
             if (!IMetadataResolver.SupportsProvider(provider)) return BadRequest(new { error = "A supported title provider is required." });
             resolved = await metadata.GetByIdAsync(provider, type == "movie" ? "movie" : "tv", external, ct);
-            if (resolved != null && !TitleIdentity.Matches(workKey, resolved))
+            if (resolved != null && !TitleIdentity.Matches(workKey, resolved, await StoredIdsAsync(workKey, resolved, ct)))
                 return BadRequest(new { error = "Provider identity does not match this title." });
         }
         await RefreshNamesAsync(workKey, resolved, ct);
         return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved, TitleIdentity.From(provider, external), FindIdentity: true), ct));
+    }
+
+    /// <summary>The ids of the work stored at the key, when it is the record's kind (a record sharing one is that work).</summary>
+    private async Task<IReadOnlySet<string>?> StoredIdsAsync(string workKey, MediaMetadata record, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var key = workKey.Trim().ToLowerInvariant();
+        var work = await db.Works.AsNoTracking().Include(x => x.Links).FirstOrDefaultAsync(x => x.WorkKey == key, ct);
+        return work != null && TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(work.MediaType) == TitleIdentity.IsSeries(record) ? WorkIdentities.Of(work) : null;
     }
 
     /// <summary>
@@ -123,7 +132,7 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             if (claimedProvider == null || !IMetadataResolver.SupportsProvider(claimedProvider))
                 return BadRequest(new { ok = false, message = "A supported title provider is required." });
             verified = await metadata.GetByIdAsync(claimedProvider, sourceType == "movie" ? "movie" : "tv", externalId, ct);
-            if (verified == null || !TitleIdentity.Matches(workKey, verified))
+            if (verified == null || !TitleIdentity.Matches(workKey, verified, await StoredIdsAsync(workKey, verified, ct)))
                 return BadRequest(new { ok = false, message = "Provider identity does not match this title." });
         }
         var detail = await titles.Detail(new(workKey, f.String("title", nullable: true), (int?)f.Number("year", nullable: true), f.String("mediaType", nullable: true), Provider: verified), ct);
@@ -139,7 +148,64 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         var providerId = verified?.ExternalId ?? (provider == null ? null : detail.GetValueOrDefault("providerId") as string);
         if (providerId == null) provider = null;
         await using var db = await factory.CreateDbContextAsync(ct);
-        var work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        var isSeries = TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(type);
+        // Everything this click says the title is: the verified record's own id, canonical ids, or the page's identity.
+        var claim = verified != null ? WorkIdentities.Of(verified.Ids, verified.Source, verified.ExternalId) : WorkIdentities.Of(null, provider, providerId);
+        // The same test search keys cards by: a stored work is the claimed title when it shares an id with it (its provider
+        // id, canonical ids or verified links), and may take it when it is the same kind and no id of it contradicts it.
+        bool Is(Work w) => TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(w.MediaType) == isSeries &&
+            claim.Count > 0 && WorkIdentities.Compare(WorkIdentities.Of(w), claim) == IdentityMatch.Same;
+        bool Fits(Work w) => TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(w.MediaType) == isSeries &&
+            (claim.Count == 0 || WorkIdentities.Compare(WorkIdentities.Of(w), claim) != IdentityMatch.Different);
+        var work = await db.Works.Include(x => x.Links).FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        if (work == null || !Is(work))
+        {
+            // The claimed record may already be stored under another key (this key's namesake, a key from before search
+            // dated namesakes, or another catalog's record whose ids or verified links name it): the download belongs to
+            // that work, never to a second copy of it or to the key's other title.
+            Work? identified = null;
+            var external = claim.Select(WorkIdentities.Value).ToList();
+            if (external.Count > 0)
+            {
+                var matches = await db.Works.Include(x => x.Links)
+                    .Where(x => (x.ProviderId != null && external.Contains(x.ProviderId)) ||
+                        x.Links.Any(l => l.Verified && !l.Rejected && external.Contains(l.ExternalId)))
+                    .ToListAsync(ct);
+                // Canonical ids are matched as the exact text they take in IdsJson ("tmdb":21 never finds 210 or 2134).
+                foreach (var token in claim.SelectMany(WorkIdentities.JsonTokens))
+                    matches.AddRange(await db.Works.Include(x => x.Links).Where(x => x.IdsJson.Contains(token)).ToListAsync(ct));
+                // The claimed record's own work first, then one whose canonical ids share an id before one only a link names,
+                // then the nearest year (an anime and its sequel can both be linked to one IMDb id).
+                var year = verified?.Year ?? detail["year"] as int?;
+                identified = matches.Where(Is).DistinctBy(x => x.Id)
+                    .OrderByDescending(x => x.Provider == provider && x.ProviderId == providerId)
+                    .ThenByDescending(x => WorkIdentities.Of(x.ReadIds(), x.Provider, x.ProviderId).Overlaps(claim))
+                    .ThenBy(x => x.Year is { } a && year is { } b ? Math.Abs(a - b) : 99)
+                    .FirstOrDefault();
+            }
+            if (identified != null)
+            {
+                work = identified;
+                workKey = identified.WorkKey;
+            }
+            else if (work != null && !Fits(work))
+            {
+                // The key's work is another title (the other kind, or a record whose id contradicts the claim): the first
+                // key no other work holds, base or kind-tagged, as search assigns it ("the-flash-2023-tv", then
+                // "the-flash-2023-tv-tmdb200").
+                work = null;
+                var free = false;
+                foreach (var candidate in TorrentFlow.Core.Text.WorkKeySlug.KeyCandidates(workKey, isSeries, provider, providerId))
+                {
+                    var holder = await db.Works.Include(x => x.Links).FirstOrDefaultAsync(x => x.WorkKey == candidate, ct);
+                    if (holder != null && !Fits(holder)) continue;
+                    (work, workKey, free) = (holder, candidate, true);
+                    break;
+                }
+                if (!free)
+                    return Conflict(new { ok = false, message = "Another title already uses this page. Open it from search and try again." });
+            }
+        }
         // An identity is unique to one work; a page-derived identity already held by another work key is not copied here.
         if (verified == null && provider != null && await db.Works.AnyAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type && x.WorkKey != workKey, ct))
             provider = providerId = null;
@@ -157,7 +223,9 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             catch (DbUpdateException error) when (IsUniqueViolation(error))
             {
                 db.Entry(work).State = EntityState.Detached;
-                work = await db.Works.SingleAsync(x => x.WorkKey == workKey, ct);
+                work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct)
+                    ?? await db.Works.SingleAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type, ct);
+                workKey = work.WorkKey;
             }
         }
         else if (provider != null && work.ProviderId == null)
@@ -170,8 +238,12 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         }
         // A verified provider record's names belong on the work, whether it was just created or already known.
         if (verified != null) await names.RefreshAsync(workKey, verified, fetch: false, ct);
-        if (watchId != null)
-            await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
+        // A legacy unlinked row on the page joins this work only when it was saved from a page or with an id of this work or
+        // of the record the download claims (TitleService.SavedFor): a row saved from another record stays as it was.
+        if (watchId != null && await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == watchId && x.UserId == LocalUser.Id && x.WorkId == null, ct) is { } row
+            && (row.ExternalId.Contains(':') || TitleService.SavedFor(row, WorkIdentities.Of(work).Concat(claim).ToHashSet(StringComparer.OrdinalIgnoreCase), workKey)))
+            await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id && x.WorkId == null)
+                .ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
         if (scope == "season")
         {
@@ -186,18 +258,19 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         }
         // Every download is fire and forget: record what is wanted and return. The wanted queue runs the shared grab in
         // the background (the film grab, or the single-episode grab for each episode) and keeps retrying whatever is not
-        // found yet. A dead release costs the queue a metadata timeout, never the click.
+        // found yet. A dead release costs the queue a metadata timeout, never the click. The answer names the work the
+        // download went to, so a page that is another work's key ("doctor-who-2005" for "doctor-who-2005-tv") can follow it.
         if (scope == "season")
         {
             await wanted.EnqueueAsync(new(workKey, work.Id, season!.Value, episodes, resolution, cap, TorrentLane.Owner), CancellationToken.None);
-            return Accepted(LibraryJson.Object(("ok", true), ("queued", true), ("message", $"Season {season} queued."),
+            return Accepted(LibraryJson.Object(("ok", true), ("queued", true), ("message", $"Season {season} queued."), ("workKey", workKey),
                 ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = 0, strategy = "unknown", coverageConfirmed = false,
                     episodes = episodes.Select(e => new { episode = e, status = "not_measured" }),
                     planReason = "We'll get each episode and keep looking for any we can't find yet." })));
         }
         await wanted.EnqueueAsync(new(workKey, work.Id, season, episode is { } one ? [one] : [], resolution, cap, TorrentLane.Owner, Single: true),
             CancellationToken.None);
-        return Accepted(LibraryJson.Object(("ok", true), ("queued", true),
+        return Accepted(LibraryJson.Object(("ok", true), ("queued", true), ("workKey", workKey),
             ("message", episode is { } clicked ? $"Looking for episode {clicked}." : $"Looking for {title}.")));
     }
 

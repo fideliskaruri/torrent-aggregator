@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, Download, FolderOpen, Loader2, Search } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate, type NavigateFunction } from "react-router";
 import { toast } from "@/lib/toast";
 import { useFeatures } from "@/lib/features";
 import { openDownload, type OpenDownloadMode } from "@/lib/open-download";
@@ -94,6 +94,7 @@ import {
   postTitleAction,
   rethrowAcquisitionFetchError,
 } from "./title-action-request";
+import { encodeKeySegment } from "./work-key";
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { ReleaseSwapDialog, type ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
@@ -181,8 +182,42 @@ function ButtonBody({
   );
 }
 
+/**
+ * Where a download went, when that is not this page. The server files a
+ * download under the work it is, and a namesake's page can resolve to another
+ * key (`doctor-who-2005` to `doctor-who-2005-tv`), so the page follows it in
+ * place, with no new history entry, and the transfer shows on the page the
+ * user is looking at. True when it moved.
+ */
+function followResolvedWorkKey(
+  navigate: NavigateFunction,
+  pageKey: string,
+  resolved: string | null | undefined,
+): boolean {
+  const next = resolved?.trim();
+  if (!next || sameWorkKey(next, pageKey)) return false;
+  navigate(
+    { pathname: `/title/${encodeKeySegment(next)}`, search: window.location.search },
+    { replace: true },
+  );
+  return true;
+}
+
+/** One key however it is spelled: route params arrive decoded, stored keys may be percent-encoded. */
+function sameWorkKey(a: string, b: string): boolean {
+  const plain = (key: string) => {
+    try {
+      return decodeURIComponent(key).toLowerCase();
+    } catch {
+      return key.toLowerCase();
+    }
+  };
+  return plain(a) === plain(b);
+}
+
 export function TitleDetail(props: TitleDetailProps) {
   const caps = useCapabilities();
+  const navigate = useNavigate();
   const [season, setSeason] = useState<number | null>(() =>
     resolveInitialSeason({
       legacySeason: props.legacySeason,
@@ -390,13 +425,13 @@ export function TitleDetail(props: TitleDetailProps) {
   // every poll and reflashed every card. The volatile values it reads are
   // therefore kept in a ref refreshed each render and shadowed at the top of the
   // body, so the callback itself only depends on stable values.
-  const actionDeps = useRef({ props, statusFor, cap, data, refetch });
+  const actionDeps = useRef({ props, statusFor, cap, data, refetch, navigate });
   // Refresh the ref *after commit* (latest-ref pattern), not during render.
   // runAction only fires from user events, which always run post-commit, so it
   // sees committed values — and an interrupted/discarded concurrent render can
   // never leave the committed handler reading uncommitted props.
   useLayoutEffect(() => {
-    actionDeps.current = { props, statusFor, cap, data, refetch };
+    actionDeps.current = { props, statusFor, cap, data, refetch, navigate };
   });
 
   const runAction = useCallback(
@@ -406,7 +441,7 @@ export function TitleDetail(props: TitleDetailProps) {
       label: string,
       resolution?: number,
     ) => {
-      const { props, statusFor, cap, data, refetch } = actionDeps.current;
+      const { props, statusFor, cap, data, refetch, navigate } = actionDeps.current;
       if (!shouldRunTitleAction(statusFor(key))) return;
       if (spentRemoteActions.current.has(key)) return;
       spentRemoteActions.current.add(key);
@@ -443,6 +478,7 @@ export function TitleDetail(props: TitleDetailProps) {
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
         toast.success(body.message ?? `${label} sent to your client.`);
         refetch();
+        followResolvedWorkKey(navigate, props.workKey, body.workKey);
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
@@ -625,6 +661,7 @@ export function TitleDetail(props: TitleDetailProps) {
             description: report.planReason ?? undefined,
           });
           refetch();
+          followResolvedWorkKey(navigate, props.workKey, outcome.value.workKey);
           return;
         }
         // A partial start names why the rest did not start and offers a Retry
@@ -646,6 +683,7 @@ export function TitleDetail(props: TitleDetailProps) {
           pick: partialPick,
         });
         refetch();
+        followResolvedWorkKey(navigate, props.workKey, outcome.value.workKey);
       } catch (err) {
         spentSeasonGrabs.current.delete(key);
         setSeasonStatuses((prev) => ({
@@ -689,6 +727,7 @@ export function TitleDetail(props: TitleDetailProps) {
       refetch,
       seasonStatusFor,
       cap,
+      navigate,
     ],
   );
   runSeasonGrabRef.current = runSeasonGrab;

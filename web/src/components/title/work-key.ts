@@ -184,15 +184,26 @@ const LEGACY_SIZE_GROUP =
   /-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)/;
 
 /**
+ * The kind tag a key takes when a stored work of the other kind already holds
+ * its plain spelling (`the-flash-2023-tv`, `family-guy-film`; the server's
+ * `WorkKeySlug.KindKey`), or that tag plus the record's own catalog id when
+ * another work holds that too (`the-flash-2023-tv-tmdb200`). The name and year
+ * before it still name the work.
+ */
+const KIND_SUFFIX =
+  /((?:-(?:19|20)\d{2})?)-(?:tv|film)(?:-(?:tmdb|tvmaze|anilist|imdb|cinemeta|itunes|mal)[a-z0-9]+)?$/;
+
+/**
  * Every spelling of `key` a stored row may legitimately answer to.
  *
  * The key itself first, then the pre-cleanup spelling with its size/group run
- * removed. Never more than these two, and never a guess that drops a word.
+ * and any kind tag removed. Never more than these two, and never a guess that
+ * drops a word.
  */
 function workKeyAliases(key: string): string[] {
   const wanted = (key ?? "").trim().toLowerCase();
   if (!wanted) return [];
-  const legacy = wanted.replace(LEGACY_SIZE_GROUP, "");
+  const legacy = wanted.replace(LEGACY_SIZE_GROUP, "").replace(KIND_SUFFIX, "$1");
   return legacy === wanted ? [wanted] : [wanted, legacy];
 }
 

@@ -37,7 +37,14 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
                 && t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed).Where(EngineTorrent.Downloaded)
             .Select(t => new { WorkId = t.WorkId!, t.VerifiedFilesJson }).ToListAsync(ct))
             .Where(t => VerifiedFiles.StillOnDisk(t.VerifiedFilesJson) != false).Select(t => t.WorkId).ToHashSet();
-        return Ok(new { items = items.Select(x => { var row = LibraryJson.Row(x); row["ready"] = x.WorkId != null && ready.Contains(x.WorkId); return row; }) });
+        return Ok(new { items = items.Select(x => { var row = WithWorkKey(LibraryJson.Row(x), x.Work?.WorkKey); row["ready"] = x.WorkId != null && ready.Contains(x.WorkId); return row; }) });
+    }
+
+    /// <summary>A row with its linked work's key: the page it opens ("doctor-who-2005"), never one rebuilt from its title.</summary>
+    private static Dictionary<string, object?> WithWorkKey(Dictionary<string, object?> row, string? workKey)
+    {
+        row["workKey"] = workKey;
+        return row;
     }
 
     [HttpPost, HttpPatch]
@@ -199,7 +206,10 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         if (EpisodeCursor.AwaitingFirstNewEpisode(item))
             await NewEpisodes.PinAsync(db, airDates, item, TimeSpan.FromSeconds(5), ct);
         wake.Wake();
-        return Ok(new { item = LibraryJson.Row(item) });
+        // The row's linked work names the page it opens.
+        var linked = item.WorkId == null ? null : choice?.Work is { } chosen && chosen.Id == item.WorkId ? chosen.WorkKey
+            : await db.Works.Where(x => x.Id == item.WorkId).Select(x => x.WorkKey).FirstOrDefaultAsync(ct);
+        return Ok(new { item = WithWorkKey(LibraryJson.Row(item), linked) });
         }
     }
 

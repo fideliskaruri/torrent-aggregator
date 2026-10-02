@@ -17,10 +17,86 @@ providers and torrent indexers. Changes apply immediately; no restart is needed.
   supported; saving a key overrides them and removing it restores the fallback.
 - **EZTV:** obtains a show's IMDb ID from TVmaze, not TMDB.
 
-Metadata search walks enabled providers by priority within each category and falls
-back when a provider is unavailable or has no relevant result. Torrent sources fan
-out in registry order with per-source cancellation deadlines. Existing work keys
-are retained; shared external IDs and work keys deduplicate search results.
+Metadata search asks every enabled provider in a category at once and merges the
+answers (`WorkSearchService.RegistryProviders`, `SearchRanking.Rank`). A category
+fails only when every provider fails; a partial answer lists the failed categories in
+`failedProviders` and is never cached as fresh. Ranking rules:
+
+- A hit matches only when one of its own names matches the query. When a provider's
+  top hit matches only loosely or not at all, search fetches that one hit's other names
+  once (TMDB alternative titles, cached a day per credential and title with failures
+  kept a minute; IMDb original title and AKAs for Cinemeta, fetched while Cinemeta
+  answers; TVmaze AKAs, only when no name of the hit matches, since TVmaze already
+  searches AKAs; AniList returns romaji and synonyms already) and keeps the best one
+  that matches as an alias (`WithAlternateTitle`): "Money Heist" finds La Casa de
+  Papel, "Gisaengchung" finds Parasite, "Se7en" finds Seven (1995). Hits with no
+  matching name only merge into a card; they never add one, so "qwertyuiop" lists
+  nothing.
+- Work keys never move (`SearchRanking.AssignWorkKeys`). A record that is a stored work
+  by its own IDs (`WorkIdentities`: it shares the stored work's provider ID, a canonical
+  ID in `IdsJson` or a verified link) takes that work's key, and the other catalogs'
+  records of the same work take it too, so a stored The Flash keeps `the-flash`. Records
+  are grouped one name and kind at a time: records that share an ID are one work; in an
+  era (start years a year apart) that no catalog lists twice, each catalog's record is
+  the same work (Doctor Who 2005 at TVmaze and at TMDB); otherwise a record joins another
+  only when each is the other's one fit, the same year breaking a tie (The Traitors UK
+  2022 and US 2023, Hell's Kitchen UK 2004 and US 2005, in any order), and a record that
+  stays unsure gets a card of its own rather than another work's key. A work is keyed
+  by its name and the earliest year its records give within a year of the record its
+  card shows (series as well as films), so the key always opens that record: Doctor Who
+  1963, 2005 and 2023 and Hunter x Hunter 1999 and 2011 are separate cards, and TVmaze's
+  Survivor 2023, which shares its IMDb ID with a show IMDb dates 2001, is
+  `survivor-2023`. A series with no stored record takes a stored work of its name and era
+  only when no ID contradicts it and it is the one work in the results that fits: a
+  stored `tmdb:100` never lends its key to `tmdb:200`. When a stored work of the other
+  kind or another identity, or another work in the same results, already holds a key,
+  the work takes `-tv` or `-film` after it (`WorkKeySlug.KindKey`), then a record's own
+  catalog ID (`WorkKeySlug.KeyCandidates`): a stored film `battlestar-galactica-1978`
+  and the 1978 series `battlestar-galactica-1978-tv`, or `the-flash-2023-tv-tmdb200`. A
+  kind-tagged key still matches release names by its name and year, but never takes a
+  catalog row or watchlist row of the other kind.
+- A title page and its downloads check that the link's record is the key's title
+  (`TitleIdentity.Matches`): one of its names and its year give the key; for a series
+  the year beside it does too (catalogs date a start a year apart: TVmaze's Doctor Who
+  2023 is TMDB's 2024), while a film's key always carries its record's own year, so
+  remakes a year apart (Little Women 2018 and 2019) stay apart. A record that shares an
+  ID with the work stored at the key always passes.
+  `POST /api/title/{key}` decides with the same `WorkIdentities` test: the download goes
+  to the stored work that shares an ID with the claim, wherever it is keyed (the claimed
+  record's own work first, then one whose canonical IDs share it, then the nearest year);
+  a work at the key whose ID contradicts the claim keeps its key, and the claim gets the
+  first free kind-tagged key, as search names it. The answer carries the `workKey` the
+  download went to, and the title page follows it in place (no new history entry), so the
+  transfer shows on the page in front of the owner. TVmaze records carry the IMDb and
+  TheTVDB IDs TVmaze reports, and TMDB records their TheTVDB ID (`WorkIds.Tvdb`), so a
+  download from either finds a work saved from another catalog. TVmaze works saved before
+  that, known only by their TVmaze ID, are read again once per start in the background
+  (`WorkIdsBackfill`, background priority) and whenever their page opens
+  (`WorkNamesRefresh.Stale`), so a download from TMDB's card of a stored TVmaze show lands
+  in that work instead of a second one. Search reads every stored work's key and canonical
+  IDs once and reuses them for up to 30 seconds, sooner when a work is added, re-keyed or
+  gets other IDs (`WorkIdentities.Version`).
+- Rails, similar titles, requests and on-demand still name an unstored series by its
+  bare name; opening or downloading one reuses the stored work with the same provider
+  ID or verified link, whatever its key. Watchlist rows carry their linked work's key
+  (`workKey`) and open that page (`doctor-who-2005`, not `doctor-who`); a row with no
+  linked work still opens the page its title names. A title page counts a watchlist row
+  as its own when the row is linked to its work, or, unlinked, is of the page's kind,
+  named alike, and was saved from this page or with one of the page's IDs; a download
+  links only such a row. A legacy "Doctor Who" row saved from the 2023 show never counts
+  for the 2005 page, and a Fargo (1996) film row never for the series.
+- The same film from several providers is one card (`SameFilmSlot`: same era and
+  name, or the same year and a one-letter difference such as Se7en and Seven), unless
+  the card's own catalog also lists a film under the other year's key: TMDB's Little
+  Women 2018 and 2019 are two films, so Cinemeta's 2018 never joins the 2019 card. Its
+  identity prefers an AniList anime film, then TVmaze, TMDB, Cinemeta and iTunes;
+  the others add their IDs, aliases, poster and overview.
+- Cinemeta years come from IMDb's original year, not a later regional release
+  (Spirited Away 2001, not 2003).
+
+Torrent sources fan out in registry order with per-source cancellation deadlines.
+Existing work keys are retained; shared external IDs and work keys deduplicate search
+results.
 Recommendations remain optional and may be empty without a compatible provider.
 
 ## Files and merge rules
@@ -300,6 +376,8 @@ release dates (`HomeReleaseCache`, keyed by the card's TMDB id, or its work key 
 has none, so namesakes never share evidence; checked dates cached 6 h, misses kept in
 memory 15 min and dropped as soon as the key changes). With no dates (no key, or TMDB
 lists none) a film counts as in cinemas for 21 days after its release date
-(`HomeRelease.UncheckedCinemaDays`). Title pages use the same gate
+(`HomeRelease.UncheckedCinemaDays`). A film released more than 180 days ago is never
+in cinemas, even when TMDB lists no home release for it (`HomeRelease.LongestCinemaRunDays`;
+Se7en 1995 lists only theatrical dates). Title pages use the same gate
 (`HomeRelease.TheatricalGateFromSignal`) and evidence, so a card and its title page
 always agree.
