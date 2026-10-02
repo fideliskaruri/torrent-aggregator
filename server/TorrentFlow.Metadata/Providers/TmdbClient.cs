@@ -342,8 +342,9 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
                         if (Str(row, "iso_3166_1") == "JP" && Str(row, "title") is { } romaji && WorkNames.IsLatin(romaji))
                             names.Add(new(romaji, WorkNameKind.Romaji));
         var imdb = (r.TryGetProperty("external_ids", out var ext) ? Str(ext, "imdb_id") : null) ?? Str(r, "imdb_id");
+        var tvdb = ext.ValueKind == JsonValueKind.Object && Int(ext, "tvdb_id") is > 0 and var tvdbId ? tvdbId : (int?)null;
         var tmdb = int.TryParse(m.ExternalId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id > 0 ? id : (int?)null;
-        return m with { Names = [.. WorkNames.Of(names).All], Ids = new(Tmdb: tmdb, Imdb: string.IsNullOrWhiteSpace(imdb) ? null : imdb) };
+        return m with { Names = [.. WorkNames.Of(names).All], Ids = new(Tmdb: tmdb, Imdb: string.IsNullOrWhiteSpace(imdb) ? null : imdb, Tvdb: tvdb) };
     }
 
     private static List<string> Distinct(params string?[] values) =>

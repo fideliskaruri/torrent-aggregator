@@ -31,6 +31,7 @@ public static class WorkIdentities
         if (ids?.AniList is { } anilist) set.Add(Id("anilist", S(anilist)));
         if (ids?.Mal is { } mal) set.Add(Id("mal", S(mal)));
         if (ids?.Imdb is { Length: > 0 } imdb) set.Add(Id("imdb", imdb));
+        if (ids?.Tvdb is { } tvdb) set.Add(Id("tvdb", S(tvdb)));
         foreach (var link in links ?? [])
             if (link.Verified && !link.Rejected && !string.IsNullOrWhiteSpace(link.ExternalId)) set.Add(Id(link.Provider, link.ExternalId));
         return set;
@@ -38,6 +39,24 @@ public static class WorkIdentities
 
     /// <summary>A stored work's ids, its loaded links included.</summary>
     public static HashSet<string> Of(Work work) => Of(work.ReadIds(), work.Provider, work.ProviderId, work.Links);
+
+    /// <summary>A provider record's ids: its own id and the ids it reports for other catalogs.</summary>
+    public static HashSet<string> Of(MediaMetadata record) => Of(record.Ids, record.Source, record.ExternalId);
+
+    /// <summary>The id alone, without its catalog: "tvmaze:210" is "210", as a watchlist row stores it.</summary>
+    public static string Value(string id) => id[(id.IndexOf(':') + 1)..];
+
+    /// <summary>
+    /// The exact text an id takes in <see cref="Work.IdsJson"/>, so a lookup by "tmdb:21" never matches tmdb 210 or an IMDb
+    /// id containing 21: <c>"tmdb":21,</c> or <c>"tmdb":21}</c>. Empty for a catalog the ids never hold (TVmaze).
+    /// </summary>
+    public static IReadOnlyList<string> JsonTokens(string id)
+    {
+        var colon = id.IndexOf(':');
+        if (colon <= 0 || WorkIds.From(id[..colon], id[(colon + 1)..]).ToJson() is not { Length: > 2 } json) return [];
+        var pair = json[1..^1];
+        return [pair + ",", pair + "}"];
+    }
 
     /// <summary>
     /// Same when any id is shared; different when both carry an id from one catalog and none is shared (tmdb:100 is not

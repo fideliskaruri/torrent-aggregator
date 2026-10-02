@@ -151,6 +151,8 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         Source = "tvmaze", MediaType = "tv", ExternalId = show.Id.ToString(CultureInfo.InvariantCulture), Title = show.Title,
         Year = show.Year, PosterUrl = show.PosterUrl, Synopsis = HtmlText.StripToText(show.Summary), Rating = show.Rating,
         ReleaseDate = show.Premiered, Genres = show.Genres,
+        // TVmaze's own record of its IMDb and TheTVDB ids, so a download from this record finds a work saved from TMDB or Cinemeta.
+        Ids = new(Imdb: string.IsNullOrWhiteSpace(show.ImdbId) ? null : show.ImdbId.Trim(), Tvdb: show.TvdbId is > 0 ? show.TvdbId : null),
         AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { tvmaze = show.Id, imdb = show.ImdbId, tvdb = show.TvdbId }) }
     };
 

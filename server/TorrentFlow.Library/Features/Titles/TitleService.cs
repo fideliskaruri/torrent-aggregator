@@ -28,10 +28,22 @@ public sealed record TitleIdentity(string Provider, string ProviderId)
         provider?.Trim().ToLowerInvariant() is { Length: > 0 } p && IMetadataResolver.SupportsProvider(p) &&
         providerId?.Trim() is { Length: > 0 } id ? new(p, id) : null;
 
-    /// <summary>Whether a provider's own record is the title this work key names (by its title or an alias, and its year).</summary>
-    public static bool Matches(string workKey, MediaMetadata resolved) =>
-        (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title =>
-            ReleaseSelection.MatchesWork(workKey.Trim().ToLowerInvariant(), title, resolved.Year));
+    /// <summary>
+    /// Whether a provider's own record is the title this work key names: it shares an id with the work stored at the key
+    /// (<paramref name="stored"/>: that work's ids, when it is the record's kind), or one of its names and its year give
+    /// the key. A dated key may be a year off the record: catalogs date a show's start a year apart, and search keys a
+    /// series by the first year its records give (TVmaze's Doctor Who 2023 is TMDB's 2024).
+    /// </summary>
+    public static bool Matches(string workKey, MediaMetadata resolved, IReadOnlySet<string>? stored = null)
+    {
+        if (stored is { Count: > 0 } && WorkIdentities.Compare(stored, WorkIdentities.Of(resolved)) == IdentityMatch.Same) return true;
+        var key = workKey.Trim().ToLowerInvariant();
+        int?[] years = resolved.Year is { } year ? [year, year - 1, year + 1] : [null];
+        return (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title => years.Any(y => ReleaseSelection.MatchesWork(key, title, y)));
+    }
+
+    /// <summary>A record's kind as a work's: an AniList film is a film.</summary>
+    public static bool IsSeries(MediaMetadata record) => record.Format != "MOVIE" && TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(record.MediaType);
 }
 
 public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork, ITorrentEngine engine,
@@ -129,19 +141,38 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         await using var db = await factory.CreateDbContextAsync(ct);
         var cat = await catalog.FindByWorkKeyAsync(key, ct);
         // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
-        var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key)
-            .Select(x => new { x.Id, x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.AliasesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
+        var work = await db.Works.AsNoTracking().Include(x => x.Links).FirstOrDefaultAsync(x => x.WorkKey == key, ct);
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
-        var kind = TorrentFlow.Core.Text.WorkKeySlug.KindOf(key);
-        // The row linked to this work; else an unlinked row saved from this page's identity; else an unlinked row of the
-        // name. A yearless "Doctor Who" row names every era, so a row linked to another work is never this one.
-        var named = watches.Where(x => (x.WorkId == null || x.WorkId == work?.Id) &&
-            (kind is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) && ReleaseSelection.MatchesWork(key, x.Title)).ToList();
+        // What this page is: its kind, and every catalog id it is known by (the stored work's own, canonical and linked ids,
+        // the provider record's and the page's identity).
+        var pageType = (query.Provider is { } record ? (TitleIdentity.IsSeries(record) ? "tv" : "movie") : null) ?? work?.MediaType ?? cat?.MediaType ?? query.MediaType;
+        var pageSeries = TorrentFlow.Core.Text.WorkKeySlug.KindOf(key) ??
+            (pageType is { Length: > 0 } known ? known != "movie" && TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(known) : null);
+        var pageIds = (work != null ? WorkIdentities.Of(work) : []).Concat(query.Provider != null ? WorkIdentities.Of(query.Provider) : [])
+            .Concat(identity != null ? [WorkIdentities.Id(identity.Provider, identity.ProviderId)] : [])
+            .Select(WorkIdentities.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A row saved with a catalog id names that record, so it is this page's only when the id is one of the page's; a row
+        // saved from a page names that page ("work:doctor-who-2005"), and one from a bare name ("work:doctor-who") no era.
+        bool SavedHere(WatchListItem row)
+        {
+            var saved = row.ExternalId?.Trim() ?? "";
+            var colon = saved.IndexOf(':');
+            if (saved.Length == 0) return true;
+            if (colon < 0) return pageIds.Contains(saved);
+            var page = saved[(colon + 1)..].ToLowerInvariant();
+            return saved[..colon] is "work" or "local" &&
+                (TorrentFlow.Core.Text.WorkKeySlug.SameKey(page, key) || TorrentFlow.Core.Text.WorkKeySlug.NameOf(page) == page);
+        }
+        // The row linked to this work; else an unlinked row of this page's kind and name that was saved from this page or
+        // one of its ids. A row saved from another work stays unlinked: a yearless "Doctor Who" row of the 2023 show never
+        // counts for the 2005 page, and the 1996 Fargo film's row never for the series.
+        var named = watches.Where(x => x.WorkId == null && (pageSeries is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) &&
+            ReleaseSelection.MatchesWork(key, x.Title) && SavedHere(x)).ToList();
         var watch = (work != null ? watches.FirstOrDefault(x => x.WorkId == work.Id) : null)
             ?? named.FirstOrDefault(x => x.ExternalId == identity?.ProviderId || x.ExternalId == $"work:{key}")
-            ?? named.FirstOrDefault(x => x.WorkId == null);
+            ?? named.FirstOrDefault();
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var targets = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.WorkKey == key).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         // TS missingLinkedHashes: a linked torrent older than the scan window is still this work's torrent, not a lost one.

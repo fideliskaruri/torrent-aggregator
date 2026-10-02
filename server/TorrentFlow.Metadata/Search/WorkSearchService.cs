@@ -51,6 +51,9 @@ public sealed record WorkSearchHit
 /// <summary>A work the library stores, as search sees it: its key, era, kind and every id it is known by ("tmdb:1396").</summary>
 public sealed record StoredWork(string WorkKey, int? Year, bool IsSeries, IReadOnlySet<string> Ids)
 {
+    /// <summary>The ids of the work's own record and its canonical ids, without what its links add.</summary>
+    public IReadOnlySet<string>? Own { get; init; }
+
     /// <summary>One id as "provider:id"; Cinemeta's ids are IMDb's.</summary>
     public static string Id(string provider, string id) => WorkIdentities.Id(provider, id);
 }
@@ -329,7 +332,8 @@ public sealed partial class WorkSearchService
             var works = await db.Works.AsNoTracking().Include(w => w.Links.Where(l => l.Verified && !l.Rejected))
                 .Where(w => keys.Contains(w.WorkKey) || (w.ProviderId != null && ids.Contains(w.ProviderId)) || linked.Contains(w.Id))
                 .ToListAsync(ct).ConfigureAwait(false);
-            return works.Select(w => new StoredWork(w.WorkKey, w.Year, w.MediaType != "movie", WorkIdentities.Of(w))).ToList();
+            return works.Select(w => new StoredWork(w.WorkKey, w.Year, w.MediaType != "movie", WorkIdentities.Of(w))
+                { Own = WorkIdentities.Of(w.ReadIds(), w.Provider, w.ProviderId) }).ToList();
         }
         catch (Exception e) when (!ct.IsCancellationRequested && e is DbUpdateException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
         {
