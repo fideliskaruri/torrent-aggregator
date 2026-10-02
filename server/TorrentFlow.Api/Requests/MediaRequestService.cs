@@ -258,6 +258,7 @@ public sealed class MediaRequestService(
                 row.DecisionReason = joined.DecisionReason;
                 row.DecidedAt = now;
                 row.GrabbedHashes = RequestHealth.Join(RequestHealth.Hashes(joined.GrabbedHashes).Where(healthy.Contains));
+                row.FulfilledThrough = joined.FulfilledThrough;
             }
             db.MediaRequests.Add(row);
             await db.SaveChangesAsync(ct);

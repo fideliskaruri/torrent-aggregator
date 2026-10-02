@@ -24,7 +24,8 @@ public sealed record RequestProgress(string Phase, int Done, int Total, bool Air
 
 /// <summary>
 /// Whether the transfers a request tracks are still alive, by the one healthy-transfer predicate
-/// (<see cref="EngineTorrentStatus.IsHealthy"/>): a transfer that errored, lost its files or was removed is dead.
+/// (<see cref="EngineTorrentStatus.IsHealthy"/>). A transfer in error or with missing files has stopped and needs the
+/// owner; one the owner removed is gone on purpose and never counts as stopped.
 /// </summary>
 public static class RequestHealth
 {
@@ -34,15 +35,65 @@ public static class RequestHealth
 
     public static string? Join(IEnumerable<string> hashes) => hashes.Any() ? string.Join(',', hashes) : null;
 
-    /// <summary>The healthy ones among <paramref name="hashes"/>, lowercased.</summary>
-    public static async Task<HashSet<string>> HealthyAsync(TorrentFlowDbContext db, IEnumerable<string> hashes, CancellationToken ct)
+    /// <summary>The engine says the transfer stopped (error, missing files), as opposed to removed or still alive.</summary>
+    public static bool IsStopped(string? status) => status?.ToLowerInvariant() is "error" or "missingfiles";
+
+    /// <summary>A short, order-free fingerprint of a set of hashes, so the same stopped set is only announced once.</summary>
+    public static string? Fingerprint(IEnumerable<string> hashes)
+    {
+        var sorted = hashes.Select(h => h.ToLowerInvariant()).Distinct().Order(StringComparer.Ordinal).ToList();
+        if (sorted.Count == 0) return null;
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join(',', sorted))))[..16];
+    }
+
+    /// <summary>The engine rows (status, queue key) of <paramref name="hashes"/>, keyed by lowercased hash; removed rows are absent.</summary>
+    public static async Task<Dictionary<string, (string Status, string? QueueKey)>> StatesAsync(TorrentFlowDbContext db,
+        IEnumerable<string> hashes, CancellationToken ct)
     {
         var wanted = hashes.Select(h => h.ToLowerInvariant()).Distinct().ToList();
         if (wanted.Count == 0) return new(StringComparer.Ordinal);
-        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id)
-            .Select(t => new { t.Hash, t.Status }).ToListAsync(ct);
-        return rows.Where(t => EngineTorrentStatus.IsHealthy(t.Status)).Select(t => t.Hash.ToLowerInvariant())
-            .Where(wanted.Contains).ToHashSet(StringComparer.Ordinal);
+        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && wanted.Contains(t.Hash.ToLower()))
+            .Select(t => new { t.Hash, t.Status, t.QueueKey }).ToListAsync(ct);
+        return rows.Where(t => !string.Equals(t.Status, "removed", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(t => t.Hash.ToLowerInvariant()).ToDictionary(g => g.Key, g => (g.First().Status, g.First().QueueKey), StringComparer.Ordinal);
+    }
+
+    /// <summary>The healthy ones among <paramref name="hashes"/>, lowercased.</summary>
+    public static async Task<HashSet<string>> HealthyAsync(TorrentFlowDbContext db, IEnumerable<string> hashes, CancellationToken ct) =>
+        (await StatesAsync(db, hashes, ct)).Where(s => EngineTorrentStatus.IsHealthy(s.Value.Status)).Select(s => s.Key).ToHashSet(StringComparer.Ordinal);
+}
+
+/// <summary>
+/// A season request's high-water mark (<see cref="MediaRequest.FulfilledThrough"/>): per season, the last episode it
+/// covered when it was fulfilled. Reopened by a newly aired episode, the request only counts episodes above it, so an
+/// episode the owner deleted is never looked for again. A season it never covered (one that had not aired) is 0.
+/// </summary>
+public static class RequestMarks
+{
+    /// <summary>Null when the request was never fulfilled (or is a film).</summary>
+    public static IReadOnlyDictionary<int, int>? Parse(string? value)
+    {
+        if (value is null) return null;
+        var marks = new Dictionary<int, int>();
+        foreach (var part in value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            if (part.Split(':') is [var s, var e] && int.TryParse(s, out var season) && int.TryParse(e, out var episode))
+                marks[season] = Math.Max(episode, marks.GetValueOrDefault(season));
+        return marks;
+    }
+
+    public static string Format(IReadOnlyDictionary<int, int> marks) =>
+        string.Join(',', marks.OrderBy(m => m.Key).Select(m => $"{m.Key}:{m.Value}"));
+
+    /// <summary>Whether an episode still counts for the request: always without a mark, else only above it.</summary>
+    public static bool Counts(IReadOnlyDictionary<int, int>? marks, int season, int episode) =>
+        marks is null || episode > marks.GetValueOrDefault(season);
+
+    /// <summary>The mark after a fulfilment: the old one raised to every episode now covered.</summary>
+    public static string Advance(string? current, IEnumerable<(int Season, int Episode)> covered)
+    {
+        var marks = new Dictionary<int, int>(Parse(current) ?? new Dictionary<int, int>());
+        foreach (var (season, episode) in covered) marks[season] = Math.Max(episode, marks.GetValueOrDefault(season));
+        return Format(marks);
     }
 }
 
@@ -215,11 +266,15 @@ public sealed class LibraryOnDisk
             : (_wanted.GetValueOrDefault(row.WorkKey) ?? []).Select(w => w.Season).OfType<int>().Concat(onDisk.Select(e => e.Season))
                 .Where(s => s >= 1).Distinct().Order().ToList();
         var work = new Identity(row.WorkKey, row.Title, row.Year, row.MediaType, row.Provider, row.ProviderId);
+        // A request fulfilled earlier counts what it still owes (episodes above its mark) and what is still here; an
+        // episode the owner deleted since is neither, the same set fulfilment judges.
+        var marks = RequestMarks.Parse(row.FulfilledThrough);
         var total = 0;
         var done = 0;
         foreach (var season in seasons)
         {
-            var required = await RequiredAsync(work, row.WorkKey, season, ct);
+            var required = (await RequiredAsync(work, row.WorkKey, season, ct))
+                .Where(e => RequestMarks.Counts(marks, e.Season, e.Episode) || onDisk.Contains(e)).ToList();
             total += required.Count;
             done += required.Count(onDisk.Contains);
         }

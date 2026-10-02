@@ -51,5 +51,14 @@ public partial class MediaRequest
     /// <summary>Comma-separated info hashes the approval grabbed; the request is fulfilled once all complete.</summary>
     public string? GrabbedHashes { get; set; }
 
+    /// <summary>
+    /// Per-season high-water mark ("6:4,7:0") written when a season request is fulfilled: once reopened by a newly
+    /// aired episode, only episodes above it count, so an episode the owner deleted stays deleted. Null until fulfilled.
+    /// </summary>
+    public string? FulfilledThrough { get; set; }
+
+    /// <summary>Fingerprint of the stopped transfers the requester and owner were last told about; null when none.</summary>
+    public string? StoppedKey { get; set; }
+
     public virtual User RequestedBy { get; set; } = null!;
 }

@@ -160,7 +160,8 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   then grabs in the background through the owner's own grab path (`GrabService`) on the `request` queue lane:
   one release for a film; one exact release per aired episode of the chosen seasons (the whole series is
   every catalog season, at most 30). The hashes are stored; if nothing starts, the request becomes `failed`
-  with a generic reason (the indexer detail stays in the owner's log). Auto-approve reuses this same path
+  with a generic reason (the indexer detail stays in the owner's log); if the asked seasons have not aired yet it
+  stays `approved` with "Downloads when it airs.". Auto-approve reuses this same path
   with reason `"Auto-approved"`. Approval, decline and cancellation atomically claim the pending state:
   concurrent retries cannot start a second grab or overwrite a winning decision. Request grabs persist one
   canonical work identity before sending any releases; they do not add a monitored watch-list item.
@@ -181,23 +182,36 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   errored, was removed or lost its files does not count, so the episode can be grabbed again. Transfers
   from before episode keys are matched by their name's season and episode.
 - Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request becomes
-  `fulfilled` when nothing in its scope is still being looked for, no film or episode in scope lost its transfer
-  with nothing in its place, and its live transfers have all completed. Transfers that errored, lost their files
-  or were removed (the same `EngineTorrentStatus.IsHealthy` rule the grab guard uses) are otherwise ignored, so a
-  replaced release never holds a request open.
+  `fulfilled` when nothing in its scope is still being looked for, none of its tracked transfers has stopped, and
+  its live transfers have all completed. A season request then stores its high-water mark (`fulfilledThrough`:
+  per season, the last episode it covered). Replaced or removed transfers never hold a request open.
 - A season request is the whole season as it airs. Every 30 minutes (and at startup) open season requests queue
-  any aired episode the wanted queue has no target for. Fulfilled ones from the last year queue only episodes
-  that aired after the last one they had, so an episode the owner deleted stays deleted; a fulfilled one that
-  queues something is approved again and counts the new episode. While a requested season is still airing the
-  requester sees it as available once every aired episode is here, with the note "New episodes download as they
-  air".
-- Dead transfers: every minute (sooner when the engine reports a failure) an approved request that the queue is
-  not looking for anymore stops waiting when a transfer it tracked died with nothing in its place: `failed`
-  ("The download stopped. The owner can retry it or pick another release.") when every transfer died, `partial`
-  ("Part of the download stopped. ...") when some still live. The requester and the owner (once per ask) are
-  notified. Retry drops the dead hashes and reopens the targets they filled. A hand-picked release
-  (`POST /api/requests/{id}/pick`) fills the film's or episode's acquisition target, so it follows the same
-  path, and every row of the ask shares it. A new requester never joins an ask whose transfers all died.
+  any aired episode the wanted queue has no target for. Fulfilled ones from the last year queue only aired
+  episodes above their mark that have no target; a named season that had not aired when the request was fulfilled
+  has mark 0 and is queued whole once it starts. Every row of the ask is approved again together (so each
+  requester gets the new transfers) and then judged only above its mark, for health, partial and fulfilment
+  alike: an episode the owner deleted, or whose files went missing, is history, is never looked for again (Retry
+  included), and the request returns to `fulfilled` ("New episodes ready") once the new ones are here. The
+  requester's count is what the request still owes plus what is still on disk. While a requested season is still
+  airing the requester sees it as available once every aired episode is here, with the note "New episodes
+  download as they air".
+- A season that has not aired at all is not a failure: approval (or Retry) of a request whose seasons have no
+  aired episodes yet leaves it `approved` with "Downloads when it airs.", and the airing check queues it when the
+  first episode airs.
+- Stopped transfers: a transfer the request tracks is stopped when the engine reports it in error or with missing
+  files and nothing has replaced it on its film or episode. Every minute (sooner when the engine reports a
+  failure) an approved request the queue is not looking for anymore with a stopped transfer becomes `partial`
+  ("Part of the download stopped. ...") when others still live, else `failed` ("The download stopped. The owner
+  can retry it or pick another release."). The requester and the owner (once per ask) are notified once per
+  stopped set: the set's fingerprint is stored (`stoppedKey`), and a later find for another episode keeps the
+  request partial without announcing anything until Retry, a pick or the owner's removal clears it; then it is
+  approved again quietly. A transfer the owner removed is not a stop and notifies nobody. If removals leave a
+  request with nothing, a reopened one is quietly `fulfilled` again; any other becomes `failed` ("The download was
+  removed. ...") so Retry and Pick a release stay offered. Retry, for every row of the ask, forgets stopped,
+  replaced and removed hashes and reopens the targets of the stopped ones; while other transfers still run it
+  leaves episodes the owner deleted alone. A hand-picked release (`POST /api/requests/{id}/pick`) fills the
+  film's or episode's acquisition target, so it follows the same path, and every row of the ask shares it. A new
+  requester never joins an ask whose transfers all died.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).
