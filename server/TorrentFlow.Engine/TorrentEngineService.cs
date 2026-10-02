@@ -214,7 +214,8 @@ internal sealed partial class TorrentEngineService(
                         var snap = outcome.Snapshot;
                         if (snap is not null) await PersistSnapshotAsync(snap);
                         result = new EngineAddResult(true, "Added to the built-in engine.",
-                            new EngineAddDetails(EngineAddDetails.Started, Math.Round((snap?.Progress ?? 0) * 100, 1), snap?.Peers ?? 0), hash);
+                            new EngineAddDetails(EngineAddDetails.Started, Math.Round((snap?.Progress ?? 0) * 100, 1), snap?.Peers ?? 0), hash)
+                            { Fresh = admission.Fresh };
                     }
                 }
                 finally
@@ -230,7 +231,11 @@ internal sealed partial class TorrentEngineService(
         return languageClash != null && result.Ok ? result with { Language = languageClash } : result;
     }
 
-    private sealed record Admission(EngineAddResult? Result, EngineTorrent? StartRow, List<EngineTorrent> Claimed);
+    private sealed record Admission(EngineAddResult? Result, EngineTorrent? StartRow, List<EngineTorrent> Claimed)
+    {
+        /// <summary>The add wrote a new transfer (no row before, or one removed or failed), not one already kept.</summary>
+        public bool Fresh { get; init; }
+    }
 
     /// <summary>
     /// The one metadata path: the saved .torrent when we have it, else the swarm, behind the metadata gate and timeout.
@@ -398,7 +403,8 @@ internal sealed partial class TorrentEngineService(
             throw;
         }
         // Persisted: everything after this point ignores the request token.
-        if (!queued) return new Admission(null, row, []);
+        var fresh = existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error;
+        if (!queued) return new Admission(null, row, []) { Fresh = fresh };
         // Rows are already waiting, so the new one joins the line and the head of the queue takes any free slot.
         var claimed = await ClaimPromotionsAsync(db);
         var self = claimed.FirstOrDefault(r => r.Hash == hash);
@@ -406,10 +412,10 @@ internal sealed partial class TorrentEngineService(
         {
             claimed.Remove(self);
             _starting.TryAdd(hash, 0);
-            return new Admission(null, self, claimed);
+            return new Admission(null, self, claimed) { Fresh = fresh };
         }
         var position = await QueuePositionAsync(db, hash, CancellationToken.None);
-        return new Admission(QueuedResult(hash, position), null, claimed);
+        return new Admission(QueuedResult(hash, position) with { Fresh = fresh }, null, claimed);
     }
 
     private static string QueuedMessage(int? position) => position is { } p ? $"Queued, #{p} in line" : "Queued";
@@ -1296,8 +1302,32 @@ internal sealed partial class TorrentEngineService(
     /// is cleaned up together, so a season folder it shares only with itself is proven its own and removed whole
     /// (sidecars included). A hash whose delete is still being cleaned up counts as removed.
     /// </summary>
-    public async Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyAsync(
-        IReadOnlyCollection<string> infoHashes, bool deleteFiles, CancellationToken ct = default)
+    public Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyAsync(
+        IReadOnlyCollection<string> infoHashes, bool deleteFiles, CancellationToken ct = default) =>
+        RemoveManyCoreAsync(infoHashes, deleteFiles, null, ct);
+
+    /// <summary>
+    /// Removes a transfer with its files only while it is unfinished and <paramref name="owned"/> still says it is the
+    /// caller's to remove, both checked under the hash lock right before the delete. A finished, parked or downloaded
+    /// transfer is never removed here, so a cleanup can't race a completion.
+    /// </summary>
+    public async Task<EngineActionResult> RemoveUnfinishedAsync(string infoHash, Func<CancellationToken, Task<bool>> owned, CancellationToken ct = default)
+    {
+        string? refused = null;
+        var result = (await RemoveManyCoreAsync([infoHash], deleteFiles: true, async row =>
+        {
+            var live = backend.Get(row.Hash);
+            if (row.Status is EngineTorrentStatus.Parked or EngineTorrentStatus.Removed || row.Progress >= 0.9999 || IsDownloaded(row)
+                || live is not null && (live.State == "complete" || live.Progress >= 0.9999))
+                refused = "It finished, so it stays.";
+            else if (!await owned(ct)) refused = "Something else still wants it, so it stays.";
+            return refused is null;
+        }, ct))[0].Result;
+        return refused is null ? result : new EngineActionResult(false, refused);
+    }
+
+    private async Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyCoreAsync(
+        IReadOnlyCollection<string> infoHashes, bool deleteFiles, Func<EngineTorrent, Task<bool>>? removable, CancellationToken ct)
     {
         var hashes = infoHashes.Select(h => h.Trim().ToLowerInvariant()).ToList();
         var wanted = hashes.Where(h => h.Length > 0).Distinct().Order(StringComparer.Ordinal).ToList();
@@ -1311,6 +1341,13 @@ internal sealed partial class TorrentEngineService(
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && wanted.Contains(r.Hash)).ToListAsync(ct);
             var tombstones = await db.EngineDeletions.Where(d => d.UserId == LocalUser.Id && wanted.Contains(d.Hash)).ToListAsync(ct);
+            if (removable is not null)
+            {
+                var kept = new List<EngineTorrent>();
+                foreach (var row in rows) if (await removable(row)) kept.Add(row);
+                rows = kept;
+                tombstones = tombstones.Where(t => rows.Any(r => r.Hash == t.Hash)).ToList();
+            }
             foreach (var row in rows)
             {
                 var files = backend.Get(row.Hash)?.Files.Select(f => f.FullPath).ToList()

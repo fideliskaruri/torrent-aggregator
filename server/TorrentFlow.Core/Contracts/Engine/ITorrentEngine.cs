@@ -47,6 +47,20 @@ public interface ITorrentEngine
         return results;
     }
 
+    /// <summary>
+    /// Removes a transfer with its files only if it is unfinished and <paramref name="owned"/> still says it is the
+    /// caller's, checked right before the delete (under the hash lock in the built-in engine). A finished, parked or
+    /// downloaded transfer is never removed. Used by cleanups that undo what an automatic run started.
+    /// </summary>
+    async Task<EngineActionResult> RemoveUnfinishedAsync(string infoHash, Func<CancellationToken, Task<bool>> owned, CancellationToken ct = default)
+    {
+        if (await GetAsync(infoHash, ct) is not { } info) return new EngineActionResult(false, "Not found");
+        if (info.Progress >= 0.9999 || info.State == "downloaded")
+            return new EngineActionResult(false, "It finished, so it stays.");
+        if (!await owned(ct)) return new EngineActionResult(false, "Something else still wants it, so it stays.");
+        return await RemoveAsync(infoHash, true, ct);
+    }
+
     /// <summary>Starts a queued (or paused) kept download now, past the active-download cap.</summary>
     Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default);
 
@@ -219,6 +233,9 @@ public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? 
     public string? Unusable { get; init; }
     /// <summary>The language reason code with <c>Unusable = "audio_language"</c>: audio_fr, subs_zh (<see cref="ReleaseLanguage.ReasonLabel"/>).</summary>
     public string? Language { get; init; }
+    /// <summary>This add admitted a transfer that wasn't there (or had been removed or failed), rather than finding one already kept.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Fresh { get; init; }
 }
 
 /// <summary>Mirrors the TypeScript AddTorrentDetails "builtin-transfer" variant.</summary>

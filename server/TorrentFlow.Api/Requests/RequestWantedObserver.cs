@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Core.Contracts.Engine;
@@ -25,8 +26,17 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
 
     public async Task StartedAsync(string workKey, int? season, IReadOnlyCollection<string> hashes, CancellationToken ct)
     {
-        foreach (var id in await Covering(workKey, season, Live, ct))
-            await Decisions.AttachStartedAsync(id, hashes, ct);
+        // Every request for the title gets the hashes in one turn, so a Remove never sees the group half attached; once
+        // the turn is taken it finishes whole.
+        using var held = await HoldAsync(workKey, ct);
+        foreach (var id in await Covering(workKey, season, Live, CancellationToken.None))
+            await Decisions.AttachStartedAsync(id, hashes, CancellationToken.None);
+    }
+
+    public async Task ReplacedAsync(TorrentFlowDbContext db, string workKey, string oldHash, string newHash, CancellationToken ct)
+    {
+        using var held = await HoldAsync(workKey, ct);
+        await RequestDecisionService.ReplaceHashAsync(db, oldHash, newHash, keepLast: false, ct);
     }
 
     public async Task NeedsOwnerAsync(WantedHelp help, CancellationToken ct)
@@ -51,23 +61,47 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
             run.Summary.Action is { Length: > 0 } next ? next : null, run.Link, create, ct);
 
     /// <summary>
-    /// Stop looking for a whole film or season ends the requests for it that never started anything: they are cancelled,
-    /// so the restart sweep, which re-grabs an approved request with nothing started, never brings the wanted rows back.
-    /// A request that already started something keeps it; stopping one episode leaves its season's request alone.
+    /// Stop looking. Transfers the stopped search started and Remove undid (<paramref name="removed"/>) leave the
+    /// requests, so none waits on a transfer that is gone. Stopping a whole film or season ends the title's requests for
+    /// it together, and only when none of them started anything: they are cancelled, so the restart sweep, which
+    /// re-grabs an approved request with nothing started, never brings the wanted rows back. Stopping one episode leaves
+    /// its season's requests open (and keeps their last transfer, so the sweep doesn't grab the season again).
     /// </summary>
-    public async Task StoppedAsync(string workKey, int? season, int? episode, CancellationToken ct)
+    public async Task StoppedAsync(string workKey, int? season, int? episode, IReadOnlyCollection<string> removed, CancellationToken ct)
     {
-        if (episode != null) return;
+        using var held = await HoldAsync(workKey, ct);
         var ids = await Covering(workKey, season, Live, ct);
         if (ids.Count == 0) return;
         await using var db = await factory.CreateDbContextAsync(ct);
+        foreach (var hash in removed)
+            await RequestDecisionService.ReplaceHashAsync(db, hash, null, keepLast: episode != null, ct);
+        if (episode != null) return;
+        var started = await db.MediaRequests.AsNoTracking().Where(r => ids.Contains(r.Id) && Live.Contains(r.Status))
+            .AnyAsync(r => r.GrabbedHashes != null && r.GrabbedHashes != "", ct);
+        if (started) return;
         var now = DateTime.UtcNow;
-        await db.MediaRequests.Where(r => ids.Contains(r.Id) && Live.Contains(r.Status) && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
+        await db.MediaRequests.Where(r => ids.Contains(r.Id) && Live.Contains(r.Status))
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
                 .SetProperty(r => r.DecisionReason, StoppedReason).SetProperty(r => r.UpdatedAt, now), ct);
     }
 
     public const string StoppedReason = "The owner stopped looking for this.";
+
+    /// <summary>One turn per title: attaching what a search started and stopping it never interleave.</summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Titles = new(StringComparer.Ordinal);
+
+    private static async Task<IDisposable> HoldAsync(string workKey, CancellationToken ct)
+    {
+        var gate = Titles.GetOrAdd(workKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        return new Held(gate);
+    }
+
+    private sealed class Held(SemaphoreSlim gate) : IDisposable
+    {
+        private int done;
+        public void Dispose() { if (Interlocked.Exchange(ref done, 1) == 0) gate.Release(); }
+    }
 
     /// <summary>Requests in <paramref name="statuses"/> for this title whose scope includes the season (or the film).</summary>
     private async Task<IReadOnlyList<string>> Covering(string workKey, int? season, string[] statuses, CancellationToken ct)

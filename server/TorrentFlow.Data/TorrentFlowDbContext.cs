@@ -107,6 +107,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.RealMisses).HasDefaultValue(0).HasColumnName("realMisses");
             entity.Property(e => e.RunId).HasColumnName("runId");
             entity.Property(e => e.ClickedAt).HasColumnName("clickedAt");
+            entity.Property(e => e.RunHash).HasColumnName("runHash");
             entity.Property(e => e.PreferredResolution).HasColumnName("preferredResolution");
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.Scope).HasColumnName("scope");

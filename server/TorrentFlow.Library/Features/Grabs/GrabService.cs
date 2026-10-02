@@ -19,13 +19,14 @@ using System.Text.Json;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
+// Admitted is called with each hash the grab newly admitted to the engine, the moment the engine has it (a wanted run's claim).
 public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cursor = null,
     string? WatchListItemId = null, string? WorkId = null, int? PreferredResolution = null,
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
     SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false, bool Anime = false,
-    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null)
+    LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null, Action<string>? Admitted = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -548,6 +549,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         // A failure caused by shutdown is no verdict on the release: nothing is recorded and the attempt resumes after the restart.
         if (!result.Ok && Stopping) throw new ShuttingDownException(ct);
         var hash = LibraryJson.Hash(result.Hash) ?? LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);
+        // The sender learns at once what it newly admitted, before anything here can be cancelled (a wanted run's claim).
+        if (result.Ok && result.Fresh && hash != null) input.Admitted?.Invoke(hash);
         var queued = result.Details?.Action == EngineAddDetails.Queued;
         var logged = EngineAddMessages.Outcome(result);
         await using var tx = await db.Database.BeginTransactionAsync(ct);

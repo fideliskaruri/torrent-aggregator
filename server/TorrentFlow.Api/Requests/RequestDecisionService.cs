@@ -230,6 +230,27 @@ public sealed class RequestDecisionService(
             status == MediaRequestStatus.Partial ? "Request partly started" : "Request still searching", $"{row.Title}: {reason}", "/requests");
     }
 
+    /// <summary>
+    /// A transfer requests were waiting on was replaced (a picked release, <paramref name="replacement"/>) or undone
+    /// (Remove, null): every request row naming it, siblings included, names the replacement instead or drops it.
+    /// <paramref name="keepLast"/> keeps it where it is a row's only transfer. Saves on <paramref name="db"/>, so it
+    /// joins the caller's transaction.
+    /// </summary>
+    public static async Task ReplaceHashAsync(TorrentFlowDbContext db, string old, string? replacement, bool keepLast, CancellationToken ct)
+    {
+        var needle = old.ToLowerInvariant();
+        var next = replacement?.ToLowerInvariant();
+        var rows = await db.MediaRequests.Where(r => r.GrabbedHashes != null && r.GrabbedHashes.Contains(needle)).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            var hashes = row.GrabbedHashes!.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (!hashes.Contains(needle) || next == null && keepLast && hashes.Count == 1) continue;
+            row.GrabbedHashes = string.Join(',', hashes.Select(h => h == needle ? next : h).OfType<string>().Distinct());
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Called when a transfer completes: every approved request that grabbed it is re-checked.</summary>
     public async Task OnTorrentCompletedAsync(string hash, CancellationToken ct)
     {

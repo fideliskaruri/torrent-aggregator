@@ -41,6 +41,12 @@ public partial class AcquisitionTarget
     /// <summary>When the owner clicked this one episode on its own; it stays its own wanted unit (with click priority) until it settles, across restarts. Null for season orders.</summary>
     public DateTime? ClickedAt { get; set; }
 
+    /// <summary>
+    /// The transfer an automatic wanted run admitted for this target (its run claim). Cleanups that undo a run remove
+    /// only a hash claimed here, never a hand pick or a release the run reused. Null once the owner picks a release.
+    /// </summary>
+    public string? RunHash { get; set; }
+
     public string? Error { get; set; }
 
     public DateTime CreatedAt { get; set; }

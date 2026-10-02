@@ -67,6 +67,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("realMisses");
 
+                    b.Property<string>("RunHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("runHash");
+
                     b.Property<string>("RunId")
                         .HasColumnType("TEXT")
                         .HasColumnName("runId");
