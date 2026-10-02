@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261002140221_AddReleaseHints")]
+    [Migration("20261002202141_AddReleaseHints")]
     partial class AddReleaseHints
     {
         /// <inheritdoc />
@@ -734,6 +734,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnName("lastUsedAt")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<bool>("Legacy")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("legacy");
+
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")
                         .HasColumnName("magnet");
@@ -754,6 +758,19 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("REAL")
                         .HasColumnName("progress");
 
+                    b.Property<string>("Promotion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("promotion");
+
+                    b.Property<string>("PromotionReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("promotionReason");
+
+                    b.Property<string>("Provenance")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provenance");
+
                     b.Property<string>("QueueKey")
                         .HasColumnType("TEXT")
                         .HasColumnName("queueKey");
@@ -769,6 +786,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<long>("SizeBytes")
                         .HasColumnType("BIGINT")
                         .HasColumnName("sizeBytes");
+
+                    b.Property<string>("StagePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stagePath");
 
                     b.Property<string>("Status")
                         .IsRequired()
