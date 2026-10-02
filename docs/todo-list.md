@@ -8,7 +8,8 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 |---|---|---|
 | Full QA sweep of every film and series type (FEAT-33): films OPS-566, series OPS-567, anime OPS-568, real requester run | qa-films, qa-series, qa-anime (Opus 5.5) | Done; bugs OPS-569 to OPS-596 split into fix lanes below |
 | T3 AniList/TMDB crosswalk links with provenance, names from verified links, owner unlink (OPS-557) | t3-id-link (Opus 5.5) | Merged after two Luna reviews |
-| T6 English audio or subtitles rule, header probe, wait for an English release (OPS-555, OPS-582) | english-rule (Opus 5.5) | In Luna review |
+| T6 English audio or subtitles rule, header probe, wait for an English release (OPS-555, OPS-582) | english-rule (Opus 5.5) | Merged after two Luna reviews |
+| English check redesign: staged downloads, one gate on the finished files, hints only skip early (OPS-600, docs/english-gates-plan.md) | promotion, track-roles, lang-hints (Opus 5.5) | Starting |
 | T4a one owner for film or series and anime; WALL·E in Anime Movies (OPS-558, OPS-580) | kind-owner (Opus 5.5) | In Luna review |
 | Anime sequel seasons file under the root show (OPS-571, OPS-572) | anime-seasons (Opus 5.5) | Running |
 | Catalog search: same-name titles, alternate and romaji titles, years, Se7en gate (OPS-443, 569, 574, 581, 588) | catalog-search (Opus 5.5) | Running |
