@@ -6,16 +6,19 @@ namespace TorrentFlow.Library.Features.Grabs;
 
 /// <summary>
 /// The release labels' evidence for the one judge (<see cref="ReleaseLanguage.JudgeRelease"/>): the name and site
-/// category, the transfer's own files when it has them (each main video with only its own sidecars), and the header
-/// tracks the engine kept for the release (<see cref="TorrentFlow.Data.MediaProbeTracks"/>). The picker and the swap
-/// dialog label every release this way.
+/// category, the transfer's own files when it has them (each main video with only its own sidecars), the header tracks
+/// the engine kept for the release (<see cref="TorrentFlow.Data.MediaProbeTracks"/>) and, while no header was read, what an
+/// index told before download (<see cref="TorrentResult.LanguageHint"/>). The picker and the swap dialog label every
+/// release this way.
 /// </summary>
 internal static class KnownLanguage
 {
     /// <param name="files">The transfer's file list; null for a search result.</param>
     /// <param name="header">Torrent file path to the header tracks read from it; null when its header was never read.</param>
+    /// <param name="hint">The index's file list and tracks (<see cref="ReleaseLanguage.Verdict(LanguageWant, string?, string?, LanguageHint?)"/>);
+    /// the file's own header beats it.</param>
     public static LanguageVerdict Judge(LanguageWant want, string? name, string? category, IReadOnlyList<EngineFileInfo>? files,
-        IReadOnlyDictionary<string, IReadOnlyList<MediaTrack>>? header)
+        IReadOnlyDictionary<string, IReadOnlyList<MediaTrack>>? header, LanguageHint? hint = null)
     {
         IEnumerable<TrackFact>? Tracks(string path) =>
             header?.GetValueOrDefault(path)?.Select(t => TrackFact.From(t, TrackFact.Header));
@@ -25,7 +28,7 @@ internal static class KnownLanguage
             var selected = files.All(f => f.Selected) ? null : files.Where(f => f.Selected).Select(f => f.Index).ToHashSet();
             return ReleaseLanguage.JudgeRelease(want, name, category, list, selected, index => Tracks(list.First(f => f.Index == index).Path));
         }
-        if (header is not { Count: > 0 }) return ReleaseLanguage.Verdict(want, name, category);
+        if (header is not { Count: > 0 }) return ReleaseLanguage.Verdict(want, name, category, hint);
         // A search result has no file list: the files whose header was read stand for it.
         var probed = header.Keys.Select((path, i) => (Index: i, Path: path, Length: 0L)).ToList();
         return ReleaseLanguage.JudgeRelease(want, name, category, probed, probed.Select(f => f.Index).ToHashSet(), index => Tracks(probed[index].Path));
@@ -55,7 +58,9 @@ internal sealed record LanguageCall(LanguageFit Fit, string? Code, string Label,
     /// <summary>"English subtitles: Japanese audio, English subtitles (preferred, name)".</summary>
     public string Described => $"{English.Verdict.ToString().ToLowerInvariant()} ({English.Reason}): {Label} ({Fit.ToString().ToLowerInvariant()}, {Basis})";
 
-    public static LanguageCall From(LanguageVerdict verdict) => new(verdict.Fit, verdict.Code, verdict.Label, verdict.Basis, verdict.English);
+    /// <summary>The basis names the index when a hint from before the download decided it ("header, animetosho").</summary>
+    public static LanguageCall From(LanguageVerdict verdict) => new(verdict.Fit, verdict.Code, verdict.Label,
+        verdict.Hint == null ? verdict.Basis : $"{verdict.Basis}, {verdict.Hint}", verdict.English);
 
     /// <summary>The engine refused it: its file list showed no English (<see cref="TorrentFlow.Core.Contracts.Engine.EngineAddResult.Language"/>).</summary>
     public static LanguageCall Refused(string code)

@@ -69,7 +69,7 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
             // The English rule orders the list like the automatic picks (Pass, then unknown, then fail; within each, the
             // owner's audio preference) and labels each row; it never hides one. A hand pick always goes.
             var verdicts = group.Distinct().ToDictionary(r => r, r => KnownLanguage.Judge(want, r.Title, r.Category, null,
-                header.GetValueOrDefault(HashOf(r))));
+                header.GetValueOrDefault(HashOf(r)), r.LanguageHint));
             // Blocked releases go last, like the swap dialog: listed for a hand pick, never first.
             foreach (var (ranked, language) in ReleaseSwapService.Rank(group, null, null,
                     r => (blocks.ContainsKey(HashOf(r)) ? 1000 : 0) + ReleaseLanguage.Order(verdicts[r]))

@@ -85,7 +85,8 @@ public sealed class ApiBayAdapter(IndexerHttp http, IOptions<SearchModuleOptions
             var title = S(r, "name"); var hash = S(r, "info_hash").ToLowerInvariant();
             return new TorrentResult { Id = $"apibay-{(S(r, "id") is { Length: > 0 } id ? id : hash.Length > 0 ? hash : i.ToString())}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true),
                 SizeBytes = L(r, "size") is > 0 and var size ? size : null, Seeders = I(r, "seeders"), Leechers = I(r, "leechers"), Category = S(r, "category"),
-                Source = Id, SourceUrl = $"https://thepiratebay.org/description.php?id={S(r, "id")}", PublishedAt = Unix(L(r, "added")), Tags = ReleaseQuality.ExtractTags(title) };
+                Source = Id, SourceUrl = $"https://thepiratebay.org/description.php?id={S(r, "id")}", PublishedAt = Unix(L(r, "added")), Tags = ReleaseQuality.ExtractTags(title),
+                SiteId = S(r, "id") is { Length: > 0 } tpb && tpb != "0" ? tpb : null };
         }).ToArray();
     }
 }

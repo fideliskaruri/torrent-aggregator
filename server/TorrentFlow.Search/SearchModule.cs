@@ -25,6 +25,7 @@ public static class SearchModule
         services.AddSingleton<RegisteredTorrentSources>();
         services.TryAddSingleton<IIndexerBrowserFetcher, BrowserFetcher>();
         services.AddSingleton<SearchCacheStore>();
+        services.AddSingleton<LanguageHints>();
         services.TryAddSingleton<ITrackerScraper, TrackerScraper>();
         services.TryAddSingleton<ISearchResultEnricher, NoOpSearchResultEnricher>();
         services.AddSingleton<TorrentSearchService>();

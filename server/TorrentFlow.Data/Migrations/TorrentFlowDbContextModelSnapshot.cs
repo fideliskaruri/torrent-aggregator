@@ -1260,6 +1260,52 @@ namespace TorrentFlow.Data.Migrations
                     b.ToTable("ReleaseBlock", (string)null);
                 });
 
+            modelBuilder.Entity("TorrentFlow.Data.Entities.ReleaseHint", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("FetchedAt")
+                        .IsRequired()
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("fetchedAt");
+
+                    b.Property<string>("FilesJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("filesJson");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("key");
+
+                    b.Property<string>("RetryAt")
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("retryAt");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "Source", "Key" }, "ReleaseHint_source_key_key")
+                        .IsUnique();
+
+                    b.ToTable("ReleaseHint", (string)null);
+                });
+
             modelBuilder.Entity("TorrentFlow.Data.Entities.RequestAutoApproveRule", b =>
                 {
                     b.Property<string>("Id")

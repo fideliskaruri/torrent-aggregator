@@ -36,6 +36,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<MediaProbe> MediaProbes { get; set; }
 
+    public virtual DbSet<ReleaseHint> ReleaseHints { get; set; }
+
     public virtual DbSet<MediaRequest> MediaRequests { get; set; }
 
     public virtual DbSet<RequestAutoApproveRule> RequestAutoApproveRules { get; set; }
@@ -445,6 +447,22 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.UserId).HasColumnName("userId");
 
             entity.HasOne(d => d.User).WithMany(p => p.GrabJobs).HasForeignKey(d => d.UserId);
+        });
+
+        modelBuilder.Entity<ReleaseHint>(entity =>
+        {
+            entity.ToTable("ReleaseHint");
+
+            entity.HasIndex(e => new { e.Source, e.Key }, "ReleaseHint_source_key_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Source).HasColumnName("source");
+            entity.Property(e => e.Key).HasColumnName("key");
+            entity.Property(e => e.State).HasColumnName("state");
+            entity.Property(e => e.FilesJson).HasColumnName("filesJson");
+            entity.Property(e => e.Attempts).HasColumnName("attempts");
+            entity.Property(e => e.FetchedAt).HasColumnType("DATETIME").HasColumnName("fetchedAt");
+            entity.Property(e => e.RetryAt).HasColumnType("DATETIME").HasColumnName("retryAt");
         });
 
         modelBuilder.Entity<MediaProbe>(entity =>

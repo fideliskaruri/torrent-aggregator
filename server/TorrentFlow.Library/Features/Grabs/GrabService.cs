@@ -309,9 +309,18 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         // Every rung is exhausted with no working Pass send. Unknown releases go only when no healthy Pass release turned
         // up; a ladder cut short by a failed search keeps them for the retry, which may still find an English one.
         var languageHeld = hold.Failed > 0 || hold.Unknown > 0;
+        // A hint that arrived after a release was held (a later rung's search found it cached) still counts: no-English ones stay back.
+        var hinted = memo.Values.SelectMany(r => r.Results).Where(r => r.LanguageHint != null)
+            .GroupBy(EpisodeLadder.CandidateKey).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         if (searchFailure == null)
             foreach (var held in hold.Sendable())
             {
+                if (hinted.TryGetValue(EpisodeLadder.CandidateKey(held.Release), out var known) && Judge(input, known) is { Verdict: EnglishVerdict.Fail } late)
+                {
+                    hold.Refused(held.Release);
+                    decisions[EpisodeLadder.CandidateKey(held.Release)] = new(held.Release.Title, held.Release.Source, [late.ReasonCode ?? "no_english"]);
+                    continue;
+                }
                 if (input.Background && await BackgroundPolicy(db, settings, input, query, held.Release, ct) is { } waiting)
                     return waiting;
                 var result = await Send(db, settings, input, query, held.Release, beforeSend, held.Relaxed, ct,
@@ -397,15 +406,20 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
         if (floor != null)
             quality = PreferRequestedQuality(quality, floor.Value).ToList();
-        return quality.OrderBy(x => ReleaseLanguage.Order(ReleaseLanguage.Verdict(WantOf(input), x.Title, x.Category))).ToList();
+        return quality.OrderBy(x => ReleaseLanguage.Order(Verdict(input, x))).ToList();
     }
 
     /// <summary>
     /// The language call for one release under the owner's want: <see cref="ReleaseLanguage"/> over its name, the search
-    /// site's category and, when known, its files (docs/release-language.md).
+    /// site's category and its files when known, else what an index told about them before download (AnimeTosho tracks,
+    /// an apibay file list: <see cref="TorrentResult.LanguageHint"/>). A hint can hold a release back; it never passes one
+    /// at the files' own check (docs/release-language.md).
     /// </summary>
     private static LanguageCall Judge(GrabInput input, TorrentResult release, IEnumerable<string>? files = null) =>
-        LanguageCall.From(ReleaseLanguage.Verdict(WantOf(input), release.Title, release.Category, files));
+        LanguageCall.From(files != null ? ReleaseLanguage.Verdict(WantOf(input), release.Title, release.Category, files) : Verdict(input, release));
+
+    private static LanguageVerdict Verdict(GrabInput input, TorrentResult release) =>
+        ReleaseLanguage.Verdict(WantOf(input), release.Title, release.Category, release.LanguageHint);
 
     private static LanguageWant WantOf(GrabInput input) => input.Language ?? LanguageWant.For(null, input.MediaType, null);
 

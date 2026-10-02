@@ -97,6 +97,9 @@ public sealed record LanguageVerdict(LanguageFit Fit, string? Code, string Label
 {
     /// <summary>The owner's rule: English audio or English subtitles (<see cref="ReleaseLanguage.EnglishRule"/>).</summary>
     public EnglishCheck English { get; init; } = EnglishCheck.NotStated;
+    /// <summary>The index whose hint added facts before download (<see cref="LanguageHint.Source"/>); null when only the name and
+    /// site category spoke.</summary>
+    public string? Hint { get; init; }
 
     public IReadOnlyList<string> Audio => Facts.Audio.Select(c => c.Language).ToArray();
     public IReadOnlyList<string> Subtitles => Facts.Subtitles.Select(c => c.Language).ToArray();
@@ -135,6 +138,26 @@ public static partial class ReleaseLanguage
     public static LanguageVerdict Verdict(LanguageWant want, string? name, string? sourceCategory = null, IEnumerable<string>? files = null,
         IEnumerable<TrackFact>? tracks = null) =>
         Judge(want, WithTracks(Detect(name, sourceCategory, files), tracks));
+
+    /// <summary>
+    /// The verdict before download with what an index told (docs/release-language.md, "Hints before download"): the index's
+    /// file list through <see cref="JudgeRelease"/>, so each main video is judged with only its own sidecars
+    /// (<see cref="VideoSidecars.Of"/>) and the tracks the index listed for it, exactly as the engine's checks judge the
+    /// files once they are here; the worst one counts. No usable hint, or one that adds nothing to the name: the name's
+    /// verdict.
+    /// </summary>
+    public static LanguageVerdict Verdict(LanguageWant want, string? name, string? sourceCategory, LanguageHint? hint)
+    {
+        if (hint is not { Files.Count: > 0 }) return Verdict(want, name, sourceCategory);
+        var files = hint.Files.Select((f, i) => (Index: i, f.Path, Length: f.Size)).ToList();
+        var verdict = JudgeRelease(want, name, sourceCategory, files, tracks: hint.TracksOf);
+        return Told(verdict) ? verdict with { Hint = hint.Source } : Verdict(want, name, sourceCategory);
+    }
+
+    /// <summary>Facts an index added before download: its tracks, or language names in its file list.</summary>
+    private static bool Told(LanguageVerdict verdict) => verdict.Facts.Tracks.Any(t => t.Source == TrackFact.Indexer) ||
+        verdict.Facts.Audio.Concat(verdict.Facts.Subtitles).Any(c => c.Basis is "indexer" or "files") ||
+        verdict.Facts.DualAudio?.Basis == "files" || verdict.Facts.MultiAudio?.Basis == "files";
 
     /// <summary>Reads the release name, the provider's own category (nyaa "Anime - English-translated") and, when known, its file paths.</summary>
     public static LanguageFacts Detect(string? name, string? sourceCategory = null, IEnumerable<string>? files = null)
@@ -176,6 +199,16 @@ public static partial class ReleaseLanguage
 
     public static string LanguageName(string? code) => code == null ? "unknown" : code == "other" ? "non-English"
         : Names.TryGetValue(code, out var name) ? name : code;
+
+    /// <summary>A language as a code or an English name ("eng", "en-US", "Japanese", "English (US)") to its ISO 639-1 code; null when unknown.</summary>
+    public static string? LanguageCode(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var word = text.Trim();
+        var cut = word.IndexOfAny(['(', ',', '/']);
+        if (cut > 0) word = word[..cut].Trim();
+        return LanguageTag.Normalize(word) ?? Words.GetValueOrDefault(word.ToUpperInvariant());
+    }
 
     // ---------------------------------------------------------------- judging
 

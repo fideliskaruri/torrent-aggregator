@@ -87,6 +87,15 @@ public sealed record TorrentResult
     public string? ReleaseGroup { get; init; }
     public MediaMetadata? Metadata { get; init; }
     public DownloadRoute? Route { get; init; }
+    /// <summary>The release's id on its own site (a TPB id, an AnimeTosho id), for lookups that take it rather than the hash.</summary>
+    public string? SiteId { get; init; }
+    /// <summary>
+    /// What an index told about its files before download (AnimeTosho tracks, an apibay file list), for the language rule
+    /// only (<see cref="TorrentFlow.Core.ReleaseLanguage.Verdict(TorrentFlow.Core.LanguageWant, string?, string?, TorrentFlow.Core.LanguageHint?)"/>).
+    /// Kept out of the search API: the release dialogs show what it decided.
+    /// </summary>
+    [JsonIgnore]
+    public TorrentFlow.Core.LanguageHint? LanguageHint { get; init; }
 }
 
 public sealed record EpisodeInfo

@@ -22,7 +22,7 @@ public sealed class AnimeToshoAdapter(IndexerHttp http, IOptions<SearchModuleOpt
                 Magnet = S(r, "magnet_uri") is { Length: > 0 } magnet ? magnet : Magnet(hash, title, true), TorrentUrl = S(r, "torrent_url") is { Length: > 0 } url ? url : null,
                 SizeBytes = L(r, "total_size") is > 0 and var size ? size : null, Seeders = I(r, "seeders"), Leechers = I(r, "leechers"),
                 Completed = I(r, "torrent_downloaded_count"), Category = "anime", Source = Id, SourceUrl = S(r, "link"),
-                PublishedAt = Unix(L(r, "timestamp")), Tags = ReleaseQuality.ExtractTags(title) };
+                PublishedAt = Unix(L(r, "timestamp")), Tags = ReleaseQuality.ExtractTags(title), SiteId = S(r, "id") is { Length: > 0 } id ? id : null };
         }).Where(r => r.Title.Length > 0 && (r.InfoHash is not null || r.TorrentUrl is not null)).ToArray();
     }
 }

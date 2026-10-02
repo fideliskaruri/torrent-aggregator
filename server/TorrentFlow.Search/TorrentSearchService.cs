@@ -15,7 +15,8 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
     ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null,
     TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null,
-    TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null, IndexerHttp? indexers = null) : ITorrentSearchService
+    TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null, IndexerHttp? indexers = null,
+    LanguageHints? hints = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     /// <summary>Total attempts a single source gets when WaitForBudget is set; ordinary interactive searches keep one attempt.</summary>
@@ -125,9 +126,25 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var stageWatch = Stopwatch.StartNew();
         var outcomes = await Task.WhenAll(selected.Select(adapter => RunSourceAsync(adapter, options with { Limit = limit }, token)));
         var indexerMs = stageWatch.ElapsedMilliseconds;
-        var deduped = await WithLiveSwarmsAsync(ReleaseRanking.Dedupe(outcomes.SelectMany(o => o.Results)), options, target, token);
-        logger.LogInformation("Torrent search fan-out: indexers {IndexerMs}ms, tracker scrape {ScrapeMs}ms",
-            indexerMs, stageWatch.ElapsedMilliseconds - indexerMs);
+        var listings = outcomes.SelectMany(o => o.Results).ToArray();
+        var fanned = ReleaseRanking.Dedupe(listings);
+        // Language hints run beside the tracker scrape, for the candidates the current ranking puts on top.
+        using var hintWait = CancellationTokenSource.CreateLinkedTokenSource(token);
+        hintWait.CancelAfter(LanguageHints.Budget);
+        var hinting = hints == null || fanned.Count == 0 ? null
+            : hints.FindAsync(ReleaseRanking.Rank(fanned, options.Query, target, options.Category), listings, hintWait.Token, token);
+        var deduped = await WithLiveSwarmsAsync(fanned, options, target, token);
+        var scrapeMs = stageWatch.ElapsedMilliseconds - indexerMs;
+        if (hinting != null)
+        {
+            // An interactive search waits for TPB file lists only while the scrape runs; anime track lists and the
+            // automatic picks wait up to the budget.
+            if (!options.WaitForBudget && !options.Background && !listings.Any(LanguageHints.WaitsForHint)) hintWait.Cancel();
+            var found = await hinting;
+            if (found.Count > 0) deduped = deduped.Select(r => found.TryGetValue(r.Id, out var hint) ? r with { LanguageHint = hint } : r).ToArray();
+        }
+        logger.LogInformation("Torrent search fan-out: indexers {IndexerMs}ms, tracker scrape {ScrapeMs}ms, language hints {HintMs}ms",
+            indexerMs, scrapeMs, stageWatch.ElapsedMilliseconds - indexerMs - scrapeMs);
         var decisions = deduped.Select(r => new SearchRejectedResult(r, TorrentFilters.RejectReason(r, options.Filters ?? new()) ?? "")).ToArray();
         var filtered = decisions.Where(d => d.Reason.Length == 0).Select(d => d.Result);
         IReadOnlyList<TorrentResult> ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category)
