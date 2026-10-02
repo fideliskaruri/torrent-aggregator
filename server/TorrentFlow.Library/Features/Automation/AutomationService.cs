@@ -2,6 +2,7 @@ using TorrentFlow.Core;
 using TorrentFlow.Core.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
@@ -27,7 +28,7 @@ public sealed record RuleRunResult(string RuleId, bool Matched, string Message, 
 
 public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search,
     ITorrentEngine engine, GrabService grabs, IAirDateLookup airDates, IOptions<AutomationOptions> options, IMetadataResolver metadata,
-    AnimeNumberingReconciler? numbering = null)
+    AnimeNumberingReconciler? numbering = null, AnimeEpisodeMappings? episodeMappings = null, ILogger<AutomationService>? logger = null)
 {
     private async Task<string?> Lock(string scope, CancellationToken ct)
     {
@@ -180,6 +181,12 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                         cursor = EpisodeCursor.Resolve(item);
                         airDate = first.AirsAt;
                     }
+                    // A later AniList entry's cursor still in the entry's own numbers (a start chosen as "season 3" on Attack
+                    // on Titan Season 3 Part 2, an airing episode pinned before pins followed the show) is hunted, and saved,
+                    // as its show numbers it, never held as an episode the entry does not have.
+                    if (cursor is { } saved && work is { Provider: "anilist" } && episodeMappings != null &&
+                        await ShowCursorAsync(db, item, work, saved, ct) is { } shown)
+                        cursor = shown;
                     airDate ??= await AirDate(item, cursor, ct);
                     if (WaitReasonService.IsFuture(airDate, now))
                     {
@@ -283,6 +290,28 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                 ? resolved : null;
         }
         catch (Exception) when (!ct.IsCancellationRequested) { return null; }
+    }
+
+    /// <summary>
+    /// Saves a later AniList entry's cursor in its show's numbers (<see cref="AnimeEpisodeMappings.ShowCursorAsync"/>) and
+    /// returns it; null when it already is, or another writer moved the cursor meanwhile. The write is dated, so the anime
+    /// renumbering never reads it as the old numbering.
+    /// </summary>
+    private async Task<EpisodeCursor?> ShowCursorAsync(TorrentFlowDbContext db, WatchListItem item, Work work, EpisodeCursor stored, CancellationToken ct)
+    {
+        var shown = await episodeMappings!.ShowCursorAsync(work.WorkKey, work.CanonicalTitle, work.Year, work.MediaType, work.Provider,
+            work.ProviderId, stored, ct);
+        if (shown == stored) return null;
+        var now = DateTime.UtcNow;
+        var hint = shown.Query(item.Title);
+        var saved = await db.WatchListItems.Where(x => x.Id == item.Id && x.CursorSeason == item.CursorSeason && x.CursorEpisode == item.CursorEpisode)
+            .ExecuteUpdateAsync(x => x.SetProperty(w => w.CursorSeason, shown.Season).SetProperty(w => w.CursorEpisode, shown.Episode)
+                .SetProperty(w => w.NextEpisodeHint, hint).SetProperty(w => w.CursorMisses, 0).SetProperty(w => w.UpdatedAt, now), ct);
+        if (saved == 0) return null;
+        logger?.LogInformation("Library cursor of {Title} is {Shown} as its show numbers it (it was saved as {Stored}, the entry's own numbers)",
+            item.Title, shown.Label, stored.Label);
+        (item.CursorSeason, item.CursorEpisode, item.NextEpisodeHint, item.CursorMisses, item.UpdatedAt) = (shown.Season, shown.Episode, hint, 0, now);
+        return shown;
     }
 
     private async Task<DateTime?> AirDate(WatchListItem item, EpisodeCursor? cursor, CancellationToken ct)

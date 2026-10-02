@@ -179,6 +179,9 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             cursor = new(fromSeason.Value, fromEpisode ?? 1);
             item.FromSeason = cursor.Value.Season;
             item.FromEpisode = cursor.Value.Episode;
+            // A start on a later AniList entry ("season 3" on Attack on Titan Season 3 Part 2, or the beginning) is the entry's
+            // first episode there as its show numbers it (Season 3 episode 13), never an episode the entry does not have.
+            if (cursor.Value.Episode == 1) cursor = await ShowStartAsync(db, item, choice?.Work, cursor.Value, ct);
         }
         else if (patch && cursorSeason != null && cursorEpisode != null) cursor = new(cursorSeason.Value, cursorEpisode.Value);
         else if (patch && f.Has("lastEpisode"))
@@ -201,6 +204,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             item.CursorMisses = 0;
         }
         await db.SaveChangesAsync(ct);
+        // The row numbers its show as the page does: a work with nothing older is never read in the old numbering.
+        if (item.WorkId != null) await AnimeNumberingReconciler.StampFreshAsync(db, item.WorkId, ct);
         // The provider record read for a new or newly identified work: its names, ids and links go through the one writer.
         if (choice is { Work: { } saved, Record: { } record }) await names.RefreshAsync(saved.WorkKey, record, fetch: false, ct);
         if (EpisodeCursor.AwaitingFirstNewEpisode(item))
@@ -397,4 +402,23 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         episodeMappings?.NextAsync(work?.WorkKey, work?.CanonicalTitle ?? item.Title, work?.Year, work?.MediaType ?? item.MediaType,
             work?.Provider ?? (WatchlistWorks.AniListId(item) != null ? "anilist" : null), work?.ProviderId ?? WatchlistWorks.AniListId(item),
             episode, ct) ?? Task.FromResult(episode.Next());
+
+    /// <summary>
+    /// A start on an AniList row as its show numbers it (<see cref="AnimeEpisodeMappings.ShowCursorAsync"/>). Unchanged when
+    /// that is not known within a few seconds; the library hunter puts it in the show's numbers then.
+    /// </summary>
+    private async Task<EpisodeCursor> ShowStartAsync(TorrentFlowDbContext db, WatchListItem item, Work? work, EpisodeCursor start, CancellationToken ct)
+    {
+        if (episodeMappings == null) return start;
+        work ??= item.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == item.WorkId, ct);
+        if (work is not { Provider: "anilist" }) return start;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            return await episodeMappings.ShowCursorAsync(work.WorkKey, work.CanonicalTitle, work.Year, work.MediaType, work.Provider, work.ProviderId,
+                start, budget.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return start; }
+    }
 }

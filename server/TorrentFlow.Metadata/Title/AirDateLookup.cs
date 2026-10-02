@@ -4,14 +4,16 @@ using TorrentFlow.Metadata.Providers;
 
 namespace TorrentFlow.Metadata.Title;
 
-public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anilist) : IAirDateLookup
+public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anilist, AnimeFranchiseService franchises) : IAirDateLookup
 {
     public async Task<DateTime?> GetAirDateAsync(string title, string mediaType, string externalId, int season, int episode, CancellationToken ct)
     {
         var provider = Provider(mediaType, externalId);
-        // One AniList id is one season, so its airing schedule answers season 1 of that entry exactly.
-        if (provider == "anilist" && season == 1 && int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) &&
-            await anilist.GetEpisodeAiringAsync(id, episode, ct).ConfigureAwait(false) is { } airs)
+        // One AniList id is one entry, so its airing schedule answers the entry's own episodes exactly: the page's episode
+        // is asked by its number in the entry (a later cour's Season 1 episode 13 is its episode 1).
+        if (provider == "anilist" && int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) &&
+            await EntryEpisodeAsync(title, mediaType, externalId, season, episode, ct).ConfigureAwait(false) is { } own &&
+            await anilist.GetEpisodeAiringAsync(id, own, ct).ConfigureAwait(false) is { } airs)
             return airs;
         var payload = await Extras(title, mediaType, externalId, provider, season, ct).ConfigureAwait(false);
         return Parse(payload.Episodes.FirstOrDefault(x => x.Episode == episode)?.AirDate);
@@ -19,7 +21,8 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
 
     /// <summary>
     /// Walks seasons from the newest back until one has already started airing, so a show between seasons answers
-    /// with the next season premiere. An undated episode ahead of the aired ones makes the answer unknown.
+    /// with the next season premiere. An undated episode ahead of the aired ones makes the answer unknown. An AniList
+    /// entry answers from its airing schedule, as its page numbers the episode (<see cref="PageEpisodeAsync"/>).
     /// </summary>
     public async Task<NewEpisodeLookup> GetFirstEpisodeAfterAsync(string title, string mediaType, string externalId, DateTime after, CancellationToken ct)
     {
@@ -29,7 +32,9 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
         {
             var (answered, airing) = await anilist.GetFirstAiringAfterAsync(id, after, ct).ConfigureAwait(false);
             if (!answered) return NewEpisodeLookup.Unknown;
-            return airing is null ? NewEpisodeLookup.NoneAnnounced : NewEpisodeLookup.Found(1, airing.Episode, airing.AiringAt);
+            if (airing is null) return NewEpisodeLookup.NoneAnnounced;
+            return await PageEpisodeAsync(title, mediaType, externalId, airing.Episode, ct).ConfigureAwait(false) is { } shown
+                ? NewEpisodeLookup.Found(shown.Season, shown.Episode, airing.AiringAt) : NewEpisodeLookup.Unknown;
         }
         var overview = await Extras(title, mediaType, externalId, provider, null, ct).ConfigureAwait(false);
         if (overview.Seasons.Count == 0) return NewEpisodeLookup.Unknown;
@@ -92,6 +97,33 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
     // Numeric watchlist ids are TMDB for TV and AniList for anime; keyless titles use slugs.
     private static string? Provider(string mediaType, string externalId) =>
         externalId.Length > 0 && externalId.All(char.IsAsciiDigit) ? mediaType == "anime" ? "anilist" : "tmdb" : null;
+
+    /// <summary>
+    /// Where a later entry's page lists the entry's own episode <paramref name="own"/> (Bleach: Thousand-Year Blood War -
+    /// The Calamity's 9th is Season 1 episode 48 of its show); Season 1 episode <paramref name="own"/> for a first season or
+    /// an entry in no chain, as its page numbers it. Null while the franchise is not confirmed, or does not list it yet:
+    /// a cursor is never pinned to the entry's own number on a page that numbers its show.
+    /// </summary>
+    private async Task<(int Season, int Episode)?> PageEpisodeAsync(string title, string mediaType, string externalId, int own, CancellationToken ct)
+    {
+        var (view, failed) = await franchises.LookupAsync(new(title, null, mediaType, "anilist", externalId), ct).ConfigureAwait(false);
+        if (failed || view is { Provisional: true }) return null;
+        if (view is not { Chained: true, Show: not null }) return (1, own);
+        return view.Episodes.FirstOrDefault(e => e.AniListId == externalId && e.AniListEpisode == own) is { } listed ? (listed.Season, listed.Episode) : null;
+    }
+
+    /// <summary>
+    /// The entry's own number (its airing schedule's) of the page's <paramref name="season"/> and <paramref name="episode"/>:
+    /// the episode a later entry's page lists there, or the Season 1 episode of a first season or an entry in no chain.
+    /// Null while the franchise is not confirmed, or for an episode the entry does not have.
+    /// </summary>
+    private async Task<int?> EntryEpisodeAsync(string title, string mediaType, string externalId, int season, int episode, CancellationToken ct)
+    {
+        var (view, failed) = await franchises.LookupAsync(new(title, null, mediaType, "anilist", externalId), ct).ConfigureAwait(false);
+        if (failed || view is { Provisional: true }) return null;
+        if (view is not { Chained: true, Show: not null }) return season == 1 ? episode : null;
+        return view.Episodes.FirstOrDefault(e => e.Season == season && e.Episode == episode && e.AniListId == externalId)?.AniListEpisode;
+    }
 
     private Task<TitleExtrasPayload> Extras(string title, string mediaType, string externalId, string? provider, int? season, CancellationToken ct) =>
         extras.GetAsync(new(externalId, title, null, mediaType, season, provider, provider == null ? null : externalId, null, true), ct);

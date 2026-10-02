@@ -31,23 +31,27 @@ internal static class NewEpisodes
         if (found.Status != NewEpisodeStatus.Found) return found;
         var cursor = new EpisodeCursor(found.Season, found.Episode);
         var hint = cursor.Query(item.Title);
+        // A write in the show's numbers (IAirDateLookup), dated so the anime renumbering never reads it as the old numbering.
+        var now = DateTime.UtcNow;
         var pinned = await db.WatchListItems.Where(x => x.Id == item.Id && x.CursorSeason == null && x.CursorEpisode == null)
             .ExecuteUpdateAsync(x => x.SetProperty(w => w.CursorSeason, cursor.Season).SetProperty(w => w.CursorEpisode, cursor.Episode)
-                .SetProperty(w => w.NextEpisodeHint, hint).SetProperty(w => w.CursorMisses, 0), ct).ConfigureAwait(false);
+                .SetProperty(w => w.NextEpisodeHint, hint).SetProperty(w => w.CursorMisses, 0).SetProperty(w => w.UpdatedAt, now), ct).ConfigureAwait(false);
         if (pinned == 0)
         {
             var stored = await db.WatchListItems.AsNoTracking().Where(x => x.Id == item.Id)
-                .Select(x => new { x.CursorSeason, x.CursorEpisode, x.NextEpisodeHint }).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+                .Select(x => new { x.CursorSeason, x.CursorEpisode, x.NextEpisodeHint, x.UpdatedAt }).FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (stored?.CursorSeason is not > 0 || stored.CursorEpisode is not > 0) return NewEpisodeLookup.Unknown;
             item.CursorSeason = stored.CursorSeason;
             item.CursorEpisode = stored.CursorEpisode;
             item.NextEpisodeHint = stored.NextEpisodeHint;
+            item.UpdatedAt = stored.UpdatedAt;
             return NewEpisodeLookup.Found(stored.CursorSeason.Value, stored.CursorEpisode.Value, found.AirsAt!.Value);
         }
         item.CursorSeason = cursor.Season;
         item.CursorEpisode = cursor.Episode;
         item.NextEpisodeHint = hint;
         item.CursorMisses = 0;
+        item.UpdatedAt = now;
         return found;
     }
 

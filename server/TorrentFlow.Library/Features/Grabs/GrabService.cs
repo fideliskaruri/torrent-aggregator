@@ -200,6 +200,13 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                     return (input, settings, null, new(false, GrabFailure.SeasonListPending.Sentence) { Query = query, Skipped = true,
                         Failure = GrabFailure.SeasonListPending });
                 }
+                catch (EpisodeNotInEntryException outside) when (!ct.IsCancellationRequested)
+                {
+                    // The entry has no such episode: nothing to search, and the hunter backs off as for one not out yet.
+                    logger?.LogInformation("Not searching {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, outside.Message);
+                    var failure = GrabFailure.NotInTitle(GrabFailure.Subject(input.Title, input.Cursor?.Season, input.Cursor?.Episode));
+                    return (input, settings, null, new(false, failure.Sentence) { Query = query, Failure = failure, HuntMiss = input.Background });
+                }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
             }
             // A later entry files under its show's folder, named as the show's own downloads are.

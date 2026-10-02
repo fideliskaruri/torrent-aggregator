@@ -57,6 +57,12 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static readonly GrabFailure SeasonListPending = new("season_list_pending",
         WaitingForSeasonListMessage, "We'll try again in a minute.")
         { Brief = "are waiting for the show's season list", Detail = "Waiting for the show's season list" };
+    /// <summary>
+    /// An episode a later anime entry does not have, by its confirmed season list (<see cref="EpisodeNotInEntryException"/>):
+    /// nothing is searched. Not a real miss, but the library hunter backs off from it as from one.
+    /// </summary>
+    public static GrabFailure NotInTitle(string subject) => new("not_in_title", $"This title has no {subject}.",
+        "Choose one of the episodes its page lists.") { Brief = "are not episodes of this title" };
 
     /// <summary>"season 1, episode 5" for an episode; the title otherwise.</summary>
     public static string Subject(string? title, int? season, int? episode) =>

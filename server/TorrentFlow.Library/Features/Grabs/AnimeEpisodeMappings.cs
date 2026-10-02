@@ -17,6 +17,10 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
     /// the franchise walk short. Sending it now could file it under the wrong season. Anything AniList did answer is
     /// used as it is: an OVA, special or TV short has no sequel chain and searches with its plain numbering, as before.
     /// </exception>
+    /// <exception cref="EpisodeNotInEntryException">
+    /// A later entry's confirmed numbering has no such episode (one past its last). A library cursor still in the entry's
+    /// own numbers is put in the show's first (<see cref="ShowCursorAsync"/>).
+    /// </exception>
     public async Task<AnimeEpisodeMapping?> ForAsync(string? workKey, string title, int? year, string? mediaType, string? provider,
         string? providerId, EpisodeCursor cursor, CancellationToken ct)
     {
@@ -42,13 +46,13 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
                 return mapping with { TargetSeason = cursor.Season, EntryEpisodeOffset = cursor.Episode - local, ShowTitle = shape.ShowTitle,
                     ShowYear = shape.ShowYear, ShowId = shape.ShowId };
             }
-            // A sequel entry's page knows only its own episodes as the show numbers them; any other number is stale.
+            // A sequel entry's page knows only its own episodes as the show numbers them; any other number is not one of them.
             if (confident && shape!.ShowTitle != null)
-                throw new SeasonListPendingException($"Season {cursor.Season} episode {cursor.Episode} is not one of this entry's episodes.");
+                throw new EpisodeNotInEntryException($"Season {cursor.Season} episode {cursor.Episode} is not one of this entry's episodes.");
             return provider == "anilist" && providerId != null && cursor.Season == 1
                 ? await anime.GetEpisodeMappingAsync(providerId, ct) : null;
         }
-        catch (Exception e) when (e is not SeasonListPendingException && !ct.IsCancellationRequested)
+        catch (Exception e) when (e is not (SeasonListPendingException or EpisodeNotInEntryException) && !ct.IsCancellationRequested)
         {
             // AniList failing mid-walk is no answer: an AniList episode waits for it; anything else searches unmapped.
             if (confident) throw new SeasonListPendingException("AniList has not answered with the show's season list.", e);
@@ -77,5 +81,32 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
             return following is { Episodes.Count: > 0, Provisional: false } ? new(current.Season + 1, following.Episodes.Min(e => e.Episode)) : next;
         }
         catch (Exception) when (!ct.IsCancellationRequested) { return next; }
+    }
+
+    /// <summary>
+    /// A later AniList entry's library cursor as its show numbers the entry's episodes. Two things number the entry
+    /// itself: AniList's airing schedule (its episode n, once saved as Season 1 episode n) and a chosen start (a season's
+    /// first episode, or the beginning). The show numbers a later entry's episodes by its seasons: Attack on Titan Season 3
+    /// Part 2's are Season 3 episodes 13 to 22. A cursor before the entry's first episode that is none of its episodes
+    /// reads as the entry's own: Season 1 episode n as its episode n, else a season's first episode as the entry's first
+    /// episode in that season, or its very first. Any other cursor, a first season's (whose own numbers are its Season 1,
+    /// One Piece's S01E1123 whatever seasons its listing has), or one whose numbering is not confirmed, is returned as it is.
+    /// </summary>
+    public async Task<EpisodeCursor> ShowCursorAsync(string? workKey, string title, int? year, string? mediaType, string? provider,
+        string? providerId, EpisodeCursor cursor, CancellationToken ct)
+    {
+        if (provider != "anilist" || providerId is null || shapes is null or DefaultSeasonShapeLookup) return cursor;
+        try
+        {
+            var numbering = await shapes.GetNumberingAsync(new(workKey ?? $"anilist-{providerId}", title, year, mediaType, provider, providerId, 1), ct);
+            if (numbering is not { Provisional: false, Episodes.Count: > 0, ShowTitle: not null } ||
+                numbering.Episodes.Any(e => e.Season == cursor.Season && e.Episode == cursor.Episode)) return cursor;
+            var own = numbering.Episodes.Where(e => e.Entry == providerId).OrderBy(e => e.Absolute).ToList();
+            if (own.Count == 0 || (cursor.Season, cursor.Episode).CompareTo((own[0].Season, own[0].Episode)) >= 0) return cursor;
+            var shown = cursor.Season == 1 ? own.FirstOrDefault(e => e.EntryEpisode == cursor.Episode) : null;
+            shown ??= cursor.Episode == 1 ? own.FirstOrDefault(e => e.Season == cursor.Season) ?? own[0] : null;
+            return shown is null ? cursor : new(shown.Season, shown.Episode);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { return cursor; }
     }
 }

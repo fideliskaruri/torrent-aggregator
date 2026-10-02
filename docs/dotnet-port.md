@@ -876,7 +876,17 @@ engine (`FilesMissingAsync`, under the transfer's lock) before it unlinks an epi
 Downloads row does not say Files missing. The numbering pass runs at background provider priority, first 75 seconds
 after start (the AniList gate keeps the first minute for the owner's requests), then hourly, at most 12 shows a pass; a
 pass that could not confirm a show's numbering (AniList's background share spent, an outage) comes back after 5 minutes,
-backing off to hourly. An unconfirmed numbering renumbers and moves nothing.
+backing off to hourly. An unconfirmed numbering renumbers and moves nothing. Only what was saved before the database
+began following the sequel chain is read in the old numbering (`ChainNumbering`: the first start that ran
+`AddWorkNumbering`, kept in the SQLite header's `user_version`): a wanted row created before it, a library row created
+and last saved before it, a transfer's queue key or a tried or blocked release from before it. Anything written since
+already numbers the show's seasons, and a work whose first rows are written with nothing older is stamped fresh, so
+its first numbering is only recorded. A later entry's library cursor is kept in its show's numbers too: the
+new-episodes pin turns AniList's airing episode into the episode its page lists (The Calamity's 9th is Season 1
+episode 49), a chosen start becomes the entry's first episode in that season (Attack on Titan Season 3 Part 2 from
+season 3 is S03E13), and the hunter translates and saves an older cursor still in the entry's own numbers before it
+hunts. An episode past a later entry's last one is a miss the hunter backs off from, never held as a pending season
+list.
 
 The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is built by one function,
 `SmartSendTargets.BuildPath`. Every grab (film, episode, season pack, request, wanted queue, picked release) sends its

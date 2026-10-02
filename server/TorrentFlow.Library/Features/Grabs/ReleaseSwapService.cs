@@ -112,6 +112,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             {
                 throw new InvalidOperationException("Waiting for the show's season list. Try again in a minute.");
             }
+            // A transfer's own episode the entry's list no longer has: searched by its own numbers, as before seasons followed the chain.
+            catch (EpisodeNotInEntryException) { }
         }
         var query = cursor?.Query(title) ?? (scope.StartsWith("season:", StringComparison.Ordinal) ? $"{title} S{episode.Season:00}" : title);
         var rungs = cursor is { } targetEpisode ? EpisodeLadder.BuildEpisodeRungs(title, targetEpisode, mediaType, aliases, floor, mapping, preferRequestedQuality: true)
