@@ -64,6 +64,7 @@ public sealed class ClientTorrentsController(
             }
         }));
         var torrents = snapshots.SelectMany(s => s.Torrents).ToList();
+        AnnotateRefused(torrents);
         await AnnotateAcquisitionIntentAsync(torrents, ct);
         await AnnotatePostersAsync(torrents, ct);
         var issues = snapshots.Select(s => s.Issue).OfType<ClientIssue>().ToList();
@@ -185,18 +186,27 @@ public sealed class ClientTorrentsController(
     }
 
     /// <summary>
+    /// <c>refused</c> marks a release the engine refused (a program file, no video, or not a real video once finished):
+    /// retrying it would fetch the same thing, so Downloads never offers Retry. Any row, linked to a title or not.
+    /// </summary>
+    private static void AnnotateRefused(List<JsonObject> torrents)
+    {
+        foreach (var torrent in torrents)
+            if (torrent["state"] is JsonValue s && s.TryGetValue<string>(out var state) && state == "error"
+                && TorrentEngineService.IsRefusedRelease(torrent["error"] is JsonValue e && e.TryGetValue<string>(out var error) ? error : null))
+                torrent["refused"] = true;
+    }
+
+    /// <summary>
     /// A failed release the app already handed back is history, not something for the owner: <c>replaced</c> when the
     /// film or episode it was fetched for has moved on (another release, Ready, or looking again), so Downloads neither
-    /// lists it as needing attention nor offers Retry. <c>refused</c> marks a release refused for a program file or no
-    /// video: retrying it would fetch the same thing, so it is never offered.
+    /// lists it as needing attention nor offers Retry.
     /// </summary>
     private static async Task AnnotateReplacedAsync(TorrentFlowDbContext db, List<JsonObject> torrents, HashSet<string> linked, CancellationToken ct)
     {
         static string? Text(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
         static int? Number(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
         var failed = torrents.Where(t => Text(t, "state") == "error").ToList();
-        foreach (var torrent in failed)
-            if (Text(torrent, "error") is TorrentFlow.Core.MediaFileRules.DangerousMessage or TorrentFlow.Core.MediaFileRules.NoVideoMessage) torrent["refused"] = true;
         var orphaned = failed.Where(t => Text(t, "workKey") != null && Text(t, "hash") is { } h && !linked.Contains(h.Trim().ToLowerInvariant())).ToList();
         if (orphaned.Count == 0) return;
         var workKeys = orphaned.Select(t => Text(t, "workKey")!).Distinct().ToList();

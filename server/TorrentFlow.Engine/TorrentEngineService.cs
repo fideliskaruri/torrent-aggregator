@@ -430,6 +430,9 @@ internal sealed partial class TorrentEngineService(
         return null;
     }
 
+    /// <summary>True for an error row the engine refused (<see cref="RefusedRelease"/>, or its re-add refusal): Retry would fetch the same thing.</summary>
+    internal static bool IsRefusedRelease(string? error) => error == FakeReleaseMessage || RefusedRelease(error) is not null;
+
     /// <summary>The shared file rules over a transfer's files (<see cref="MediaFileRules"/>); null when they pass.</summary>
     internal static MediaFileProblem? FileListProblem(IEnumerable<(int Index, string Path)> files, IReadOnlyCollection<int>? selected)
     {
