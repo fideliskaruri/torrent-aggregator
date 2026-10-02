@@ -97,6 +97,19 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
     public Task<List<MediaMetadata>> SearchByTypeAsync(string mediaType, string query, int limit = 12, CancellationToken ct = default) =>
         SearchWithVariantsAsync(mediaType, query, limit, ct);
 
+    /// <summary>Every title TMDB lists for a film or show in other countries and scripts ("Gisaengchung" for Parasite).</summary>
+    public async Task<List<string>> AlternativeTitlesAsync(string mediaType, string id, CancellationToken ct = default)
+    {
+        using var doc = await GetJsonAsync($"/{(mediaType == "tv" ? "tv" : "movie")}/{Uri.EscapeDataString(id)}/alternative_titles", [],
+            TimeSpan.FromSeconds(4), false, ct).ConfigureAwait(false);
+        if (doc is null) return [];
+        // Films list them under "titles", shows under "results".
+        var root = doc.RootElement;
+        var rows = root.TryGetProperty("titles", out var titles) ? titles : root.TryGetProperty("results", out var results) ? results : default;
+        return rows.ValueKind != JsonValueKind.Array ? []
+            : rows.EnumerateArray().Select(r => Str(r, "title")).OfType<string>().Where(t => t.Trim().Length > 0).Distinct().ToList();
+    }
+
     private async Task<List<MediaMetadata>> SearchWithVariantsAsync(string scope, string query, int limit, CancellationToken ct)
     {
         var term = QueryVariants.Canonicalize(query);

@@ -22,14 +22,19 @@ answers (`WorkSearchService.RegistryProviders`, `SearchRanking.Rank`). A categor
 fails only when every provider fails; a partial answer lists the failed categories in
 `failedProviders` and is never cached as fresh. Ranking rules:
 
-- A provider's top hit for the query counts as a match even when its name differs,
-  because it was matched by an original, romanized or alternate title (TMDB
-  alternative titles, IMDb AKAs via Cinemeta, AniList romaji and synonyms, TVmaze
-  AKAs): "Money Heist" finds La Casa de Papel, "Gisaengchung" finds Parasite. Other
-  hits whose names don't match only merge into a card; they never add one.
-- Same-name series from different eras stay separate cards (`SplitSameNameSeries`):
-  the most popular keeps the plain work key, the others get `name-year` keys, so
-  Doctor Who 1963, 2005 and 2023 are all listed.
+- A hit matches only when one of its own names matches the query. When a provider's
+  top hit has no literal match, search fetches that one hit's other names once (TMDB
+  alternative titles, IMDb original title and AKAs for Cinemeta, TVmaze AKAs; AniList
+  returns romaji and synonyms already) and keeps the best one that matches as an alias
+  (`WithAlternateTitle`): "Money Heist" finds La Casa de Papel, "Gisaengchung" finds
+  Parasite, "Se7en" finds Seven (1995). Hits with no matching name only merge into
+  a card; they never add one, so "qwertyuiop" lists nothing.
+- Work keys never move (`SearchRanking.AssignWorkKeys`). A hit that is a stored work
+  (same provider ID, a stored ID or verified link, or its key) takes that work's key.
+  Same-name series from different eras (TVmaze, TMDB, Cinemeta and AniList alike)
+  stay separate cards: when a name has more than one era, an unstored era gets a
+  `name-year` key from the earliest year of its era, so Doctor Who 1963, 2005 and 2023 and Hunter x Hunter 1999 and 2011
+  are all listed, while a stored The Flash keeps `the-flash`.
 - The same film from several providers is one card (`SameFilmSlot`: same era and
   name, or the same year and a one-letter difference such as Se7en and Seven). Its
   identity prefers an AniList anime film, then TVmaze, TMDB, Cinemeta and iTunes;

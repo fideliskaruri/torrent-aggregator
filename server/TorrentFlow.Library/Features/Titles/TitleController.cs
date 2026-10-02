@@ -140,6 +140,14 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         if (providerId == null) provider = null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        // The verified record is already stored under another key (a link from before search dated namesakes): the
+        // download belongs to that work, never to a second copy of it.
+        if (work == null && verified != null &&
+            await db.Works.FirstOrDefaultAsync(x => x.Provider == verified.Source && x.ProviderId == verified.ExternalId && x.MediaType == type, ct) is { } stored)
+        {
+            work = stored;
+            workKey = stored.WorkKey;
+        }
         // An identity is unique to one work; a page-derived identity already held by another work key is not copied here.
         if (verified == null && provider != null && await db.Works.AnyAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type && x.WorkKey != workKey, ct))
             provider = providerId = null;
@@ -157,7 +165,9 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             catch (DbUpdateException error) when (IsUniqueViolation(error))
             {
                 db.Entry(work).State = EntityState.Detached;
-                work = await db.Works.SingleAsync(x => x.WorkKey == workKey, ct);
+                work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct)
+                    ?? await db.Works.SingleAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type, ct);
+                workKey = work.WorkKey;
             }
         }
         else if (provider != null && work.ProviderId == null)

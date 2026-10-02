@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net.Http.Json;
 using System.Text.Json;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Sources;
@@ -60,6 +61,47 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
     /// <summary>The IMDb id IMDb suggests first for the query among films (or series), whatever name matched.</summary>
     public async Task<string?> ImdbTopIdAsync(string query, string type, CancellationToken ct = default) =>
         (await SuggestAsync(query, type, ct)).FirstOrDefault()?.ExternalId;
+
+    public const string ImdbGraphql = "https://graphql.imdb.com/";
+    private readonly BoundedTtlCache<List<string>> namesCache = new(400, TimeProvider.System);
+
+    /// <summary>IMDb's names for a title: its original title and its AKAs ("Wo hu cang long", "Gisaengchung"). Empty when
+    /// IMDb does not answer.</summary>
+    public async Task<List<string>> ImdbNamesAsync(string id, CancellationToken ct = default)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^tt[0-9]+$")) return [];
+        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return [];
+        if (namesCache.TryGet(id, out var cached)) return cached;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(4));
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, ImdbGraphql)
+            {
+                Content = JsonContent.Create(new { query = $"{{ title(id: \"{id}\") {{ titleText {{ text }} originalTitleText {{ text }} akas(first: 100) {{ edges {{ node {{ text }} }} }} }} }}" }),
+            };
+            // IMDb's API answers only clients that name themselves.
+            request.Headers.TryAddWithoutValidation("x-imdb-client-name", "imdb-web-next");
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            using var client = http.CreateClient(HttpClientName);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode) return [];
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
+            if (!doc.RootElement.TryGetProperty("data", out var data) || !data.TryGetProperty("title", out var title) || title.ValueKind != JsonValueKind.Object)
+                return [];
+            var names = new List<string>();
+            foreach (var field in (string[])["titleText", "originalTitleText"])
+                if (title.TryGetProperty(field, out var text) && text.ValueKind == JsonValueKind.Object && Str(text, "text") is { } name) names.Add(name);
+            if (title.TryGetProperty("akas", out var akas) && akas.ValueKind == JsonValueKind.Object && akas.TryGetProperty("edges", out var edges) &&
+                edges.ValueKind == JsonValueKind.Array)
+                foreach (var edge in edges.EnumerateArray())
+                    if (edge.TryGetProperty("node", out var node) && node.ValueKind == JsonValueKind.Object && Str(node, "text") is { } aka) names.Add(aka);
+            names = names.Where(n => n.Trim().Length > 0).Distinct().ToList();
+            namesCache.Set(id, names, TimeSpan.FromHours(6));
+            return names;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return []; }
+    }
 
     private static readonly HashSet<string> MovieKinds = ["movie", "short", "tvMovie", "video"];
     private static readonly HashSet<string> SeriesKinds = ["tvSeries", "tvMiniSeries"];

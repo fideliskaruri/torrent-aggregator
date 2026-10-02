@@ -30,15 +30,11 @@ internal static class SearchRanking
     /// <summary>Cinemeta, TMDB and iTunes give no popularity figure but already list well-known works first.</summary>
     public static double PositionPrior(int index) => Math.Max(0.1, 0.45 - 0.03 * index);
 
-    /// <summary>A hit the provider found by a name it did not return (TMDB's or IMDb's top hit for "Gisaengchung" is
-    /// Parasite): it matches as well as a close alias would.</summary>
-    private const double AlternateTitleScore = 0.85;
-
     /// <summary>Scores and orders hits, one card per work; hits that do not match the query are dropped.</summary>
     public static List<WorkSearchHit> Rank(IReadOnlyList<WorkSearchHit> hits, string query, IReadOnlyDictionary<string, int> imdbRanks,
-        DateTimeOffset now)
+        DateTimeOffset now, IReadOnlyList<StoredWork>? stored = null)
     {
-        hits = SplitSameNameSeries(hits, imdbRanks);
+        hits = AssignWorkKeys(hits, stored ?? []);
         var names = hits.Select(h => (IReadOnlyList<string>)[h.Title, .. h.Aliases]).ToList();
         var tiers = names.Select(n => Relevance.BestTier(query, n)).ToList();
         var typoMode = tiers.All(t => t > 3);
@@ -49,11 +45,11 @@ internal static class SearchRanking
         {
             var hit = hits[i];
             // A hit no name of which matches can still be the same work as a card (TVmaze's "La Casa de Papel" carries the
-            // IMDb id of "Money Heist"), so it is kept to fold into that card, but never makes a card of its own.
-            var matches = tiers[i] < 6 || hit.AlternateTitleMatch;
-            var match = tiers[i] < 6 ? Relevance.MatchScore(query, names[i], typoMode) : 0;
-            // Trusted fully only when no name matches the typed text literally; otherwise the literal matches lead.
-            if (hit.AlternateTitleMatch) match = Math.Max(match, typoMode ? AlternateTitleScore : AlternateTitleScore - 0.35);
+            // IMDb id of "Money Heist"), so it is kept to fold into that card, but never makes a card of its own. A name
+            // the provider matched the query by (an original or alternative title) is among its aliases (see
+            // WorkSearchService.WithAlternateTitle), so it matches like any other name.
+            var matches = tiers[i] < 6;
+            var match = matches ? Relevance.MatchScore(query, names[i], typoMode) : 0;
             var score = match + Popularity(hit, imdbRanks);
             if (hit.Format == "MUSIC") score -= MusicVideoPenalty;
             if (IsUpcoming(hit, today)) score -= UpcomingPenalty;
@@ -83,7 +79,7 @@ internal static class SearchRanking
             // TVmaze lists anime as animated series, sometimes spelled differently ("Dandadan", "Spy×Family"). The AniList
             // entry of the same show carries its anime identity (label, seasons, episode numbering), so it takes the card
             // at the better of the two positions.
-            else if (hit.Provider == "anilist" && output[slot].Animated && SameEra(output[slot].Year, hit.Year))
+            else if (hit.Provider == "anilist" && output[slot].Animated && !output[slot].Stored && SameEra(output[slot].Year, hit.Year))
                 output[slot] = Absorb(hit, output[slot]);
             else if (PreferredIdentity(hit, output[slot]))
                 output[slot] = Absorb(hit, output[slot]);
@@ -104,6 +100,8 @@ internal static class SearchRanking
     /// </summary>
     private static bool PreferredIdentity(WorkSearchHit hit, WorkSearchHit card)
     {
+        // A stored work's own record keeps the card, so its title link stays the library's work key and provider.
+        if (hit.Stored != card.Stored) return hit.Stored;
         if (card.Provider == "anilist") return false;
         if (hit.Provider == "anilist") return !hit.IsSeries && !card.IsSeries;
         return IdentityRank(hit) < IdentityRank(card);
@@ -133,26 +131,63 @@ internal static class SearchRanking
     }
 
     /// <summary>
-    /// Series keys carry no year, so Doctor Who (1963), (2005) and (2023) share "doctor-who". The best known of them keeps
-    /// the plain key (the one its library and links already use); a namesake from another era gets its year in its key,
-    /// "doctor-who-1963", and its own card. Popularity, not the query, picks the plain key, so typing a year never moves it.
+    /// The work key each hit links to. A stored work always keeps its key: a hit that is that work by provider identity
+    /// (provider id, a stored id or a verified link), or a same-name series from the stored work's era, links to it, so
+    /// its downloads, requests and watchlist row stay attached. Series keys carry no year, so namesakes from other eras
+    /// (Doctor Who 1963 and 2023 next to a stored 2005, Hunter x Hunter 1999 and 2011) get their year in their key,
+    /// "doctor-who-1963". A series nobody stored keeps the plain key unless a namesake shows up; its year then comes from
+    /// its own era, never from which catalogs answered first or which is more popular.
     /// </summary>
-    private static IReadOnlyList<WorkSearchHit> SplitSameNameSeries(IReadOnlyList<WorkSearchHit> hits, IReadOnlyDictionary<string, int> imdbRanks)
+    private static IReadOnlyList<WorkSearchHit> AssignWorkKeys(IReadOnlyList<WorkSearchHit> hits, IReadOnlyList<StoredWork> stored)
     {
-        // Per key, the year of each era in popularity order; the first era keeps the plain key. TMDB may date a show a year
-        // off TVmaze (Doctor Who 2024 and 2023), so a hit joins the era within a year of it.
+        var resolved = hits.Select(hit => stored.FirstOrDefault(w => w.IsSeries == hit.IsSeries && w.Ids.Overlaps(IdentityOf(hit))) is { } work
+            ? hit.WithWorkKey(work.WorkKey) with { Stored = true } : hit).ToList();
+        // Every era of each plain series key: the years of the hits under it and of the stored works named alike.
         var eras = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        foreach (var hit in hits.Where(h => h.IsSeries && h.Year is not null && h.Provider != "anilist").OrderByDescending(h => Popularity(h, imdbRanks)))
+        foreach (var hit in hits.Where(h => h.IsSeries && h.Year is not null))
+            Era(eras, hit.WorkKey).Add(hit.Year!.Value);
+        foreach (var work in stored.Where(w => w.IsSeries && w.Year is not null))
+            Era(eras, PlainSeriesKey(work.WorkKey)).Add(work.Year!.Value);
+        return resolved.Select((hit, i) =>
         {
-            if (!eras.TryGetValue(hit.WorkKey, out var list)) eras[hit.WorkKey] = list = [];
-            if (!list.Any(y => SameEra(y, hit.Year))) list.Add(hit.Year!.Value);
-        }
-        return hits.Select(hit =>
-        {
-            if (!hit.IsSeries || hit.Year is not { } year || hit.Provider == "anilist" || !eras.TryGetValue(hit.WorkKey, out var list)) return hit;
-            var era = list.First(y => SameEra(y, year));
-            return era == list[0] ? hit : hit.WithWorkKey(WorkKeys.WorkKeyFor(hit.Title, era));
+            if (hit.Stored || !hit.IsSeries) return hit;
+            var plain = hits[i].WorkKey;
+            var namesakes = stored.Where(w => w.IsSeries && PlainSeriesKey(w.WorkKey) == plain).ToList();
+            var clusters = eras.TryGetValue(plain, out var years) ? Clusters(years) : [];
+            // A stored namesake with no year is this show only when no other era is in sight.
+            if (namesakes.FirstOrDefault(w => SameEra(w.Year, hit.Year) && (w.Year is not null || clusters.Count < 2)) is { } same)
+                return hit.WithWorkKey(same.WorkKey);
+            if (hit.Year is not { } year || (clusters.Count < 2 && namesakes.Count == 0)) return hit;
+            var era = clusters.First(c => c.Contains(year)).Min();
+            return plain.EndsWith($"-{era}", StringComparison.Ordinal) ? hit : hit.WithWorkKey(WorkKeys.WorkKeyFor(hit.Title, era));
         }).ToList();
+    }
+
+    private static List<int> Era(Dictionary<string, List<int>> eras, string key) =>
+        eras.TryGetValue(key, out var list) ? list : eras[key] = [];
+
+    /// <summary>Years a year apart are one era: catalogs date a show's start a year apart (Doctor Who 2023 and 2024).</summary>
+    private static List<List<int>> Clusters(IEnumerable<int> years)
+    {
+        var clusters = new List<List<int>>();
+        foreach (var year in years.Distinct().Order())
+            if (clusters.Count > 0 && year - clusters[^1][^1] <= 1) clusters[^1].Add(year);
+            else clusters.Add([year]);
+        return clusters;
+    }
+
+    /// <summary>"doctor-who-1963" → "doctor-who"; a key with no year suffix is already plain.</summary>
+    private static string PlainSeriesKey(string key) =>
+        key.Length > 5 && key[^5] == '-' && key[^4..].All(char.IsAsciiDigit) ? key[..^5] : key;
+
+    /// <summary>The ids a hit is known by, as "provider:id" (Cinemeta's ids are IMDb's).</summary>
+    private static HashSet<string> IdentityOf(WorkSearchHit hit)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (hit.ProviderId is { Length: > 0 } own) ids.Add(StoredWork.Id(hit.Provider, own));
+        foreach (var (provider, id) in hit.ExternalIds ?? new Dictionary<string, string>())
+            if (!string.IsNullOrWhiteSpace(id)) ids.Add(StoredWork.Id(provider, id));
+        return ids;
     }
 
     /// <summary>The card already showing this film from another catalog: the same name released the same year or the next,

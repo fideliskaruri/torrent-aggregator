@@ -114,6 +114,15 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         return output.OrderBy(e => e.Season).ThenBy(e => e.Episode).ToList();
     }
 
+    /// <summary>The show's names in other countries ("La Casa de Papel" is "Money Heist").</summary>
+    public async Task<List<string>> GetTvmazeAkasAsync(int id, CancellationToken ct = default)
+    {
+        if (id <= 0) return [];
+        var root = await GetAsync($"{TvmazeShows}/{id}/akas", 4000, ct).ConfigureAwait(false);
+        return root is not { ValueKind: JsonValueKind.Array } rows ? []
+            : rows.EnumerateArray().Select(r => Str(r, "name")).OfType<string>().Where(n => n.Trim().Length > 0).Distinct().ToList();
+    }
+
     public async Task<TvmazeCandidate?> GetTvmazeShowAsync(int id, CancellationToken ct = default)
     {
         var root = await GetAsync($"{TvmazeShows}/{id}", 5000, ct);
