@@ -24,6 +24,7 @@ import {
   Loader2,
   MoreHorizontal,
   RotateCcw,
+  RotateCw,
   Search,
   Tv,
   X,
@@ -56,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { useCapabilities } from "@/lib/capabilities";
 import { useFeatures } from "@/lib/features";
 import { openDownload } from "@/lib/open-download";
+import type { WantedAction } from "@/components/wanted/wanted-actions";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import {
   formatAirDate,
@@ -120,6 +122,11 @@ export interface EpisodeListProps {
    * for an English release. Must be stable across polls.
    */
   onPickRelease?: (season: number, episode: number) => void;
+  /**
+   * Owner only: Try now or Remove for an episode waiting for its show's season
+   * list (the wanted queue). Must be stable across polls.
+   */
+  onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
 }
 
 /** Stable per-row key for tracking one in-flight Download. */
@@ -150,6 +157,7 @@ export function EpisodeList({
   onAction,
   onFindAnotherSource,
   onPickRelease,
+  onWantedAction,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -412,6 +420,7 @@ export function EpisodeList({
                   onAction={handleCardAction}
                   onFindAnotherSource={onFindAnotherSource}
                   onPickRelease={onPickRelease}
+                  onWantedAction={onWantedAction}
                 />
               ))}
             </ul>
@@ -580,6 +589,7 @@ function EpisodeCardImpl({
   onAction,
   onFindAnotherSource,
   onPickRelease,
+  onWantedAction,
 }: {
   episode: EpisodeRowModel;
   /** The whole work is future-dated — see `EpisodeListProps.gated`. */
@@ -588,6 +598,7 @@ function EpisodeCardImpl({
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
   onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
   onPickRelease?: (season: number, episode: number) => void;
+  onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
 }) {
   const { canDownload, canSeePaths } = useCapabilities();
   const { openFolder } = useFeatures();
@@ -618,6 +629,8 @@ function EpisodeCardImpl({
             : downloadAction.label;
   // No release with English audio or subtitles yet: the pill picks one by hand.
   const waitingForEnglish = transfer?.state === "waiting_english" && onPickRelease != null;
+  // Held until the show's season list is known: the More menu tries now or removes it.
+  const waitingForSeasonList = transfer?.state === "waiting_season_list";
   const downloadCanRun =
     !held &&
     transfer?.status !== "queued" &&
@@ -759,7 +772,7 @@ function EpisodeCardImpl({
       >
         {unaired
           ? airDate ? `Airs ${airDate}` : "Not aired yet"
-          : waitingForEnglish ? downloadDisplayLabel : desktopFacts}
+          : waitingForEnglish || waitingForSeasonList ? downloadDisplayLabel : desktopFacts}
       </span>
     </span>
   );
@@ -861,6 +874,42 @@ function EpisodeCardImpl({
     </DropdownMenu>
   ) : null;
 
+  // The same More menu while the episode waits for its show's season list:
+  // search again now, or stop looking (the actions Downloads offers too).
+  const wantedMenu = canDownload && waitingForSeasonList && onWantedAction != null ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-lg"
+          aria-label={`More actions for ${episode.label}`}
+          data-episode-more
+          onClick={(event) => event.stopPropagation()}
+          className={cn(CARD_ACTION_PILL, "w-11")}
+        >
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => onWantedAction(episode.season, episode.episode, "try-now")}
+          data-episode-try-now
+        >
+          <RotateCw />
+          Try now
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onWantedAction(episode.season, episode.episode, "remove")}
+          data-episode-remove
+        >
+          <X />
+          Remove
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
   return (
     <li
       data-episode-row
@@ -923,7 +972,7 @@ function EpisodeCardImpl({
             </span>
           ) : canDownload ? (
           <span className={CARD_ACTION_SLOT}>
-            {findSourceMenu}
+            {findSourceMenu ?? wantedMenu}
             <Button
               type="button"
               variant="outline"
@@ -992,6 +1041,7 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   if (a.onAction !== b.onAction) return false;
   if (a.onFindAnotherSource !== b.onFindAnotherSource) return false;
   if (a.onPickRelease !== b.onPickRelease) return false;
+  if (a.onWantedAction !== b.onWantedAction) return false;
 
   const pe = a.episode;
   const ne = b.episode;
@@ -1087,8 +1137,9 @@ function DownloadGlyph({
       </span>
     );
   }
-  // No release found yet can last days, so it is a still magnifier, not a spinner.
-  if (transferState === "looking") {
+  // No release found yet can last days, so it is a still magnifier, not a
+  // spinner; so can a wait for the show's season list.
+  if (transferState === "looking" || transferState === "waiting_season_list") {
     return <Search className="h-4 w-4" aria-hidden />;
   }
   // Found and waiting for a download slot: its place in line.

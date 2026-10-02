@@ -32,11 +32,33 @@ export interface WantedTarget {
   episode: number | null;
 }
 
+/** The two ways out of a wanted row that need no picker: search again now, or stop looking. */
+export type WantedAction = "try-now" | "remove";
+
 function targetQuery(t: WantedTarget): string {
   const params = new URLSearchParams({ workKey: t.workKey });
   if (t.season != null) params.set("season", String(t.season));
   if (t.episode != null) params.set("episode", String(t.episode));
   return params.toString();
+}
+
+/** Try now: search for the target at once instead of after its wait. False when the server refused. */
+export async function tryWantedNow(target: WantedTarget): Promise<boolean> {
+  const res = await fetch(`/api/wanted/try?${targetQuery(target)}`, { method: "POST" });
+  return res.ok;
+}
+
+/** Remove: stop looking for the target, also after a restart. False when the server refused. */
+export async function stopWanted(target: WantedTarget): Promise<boolean> {
+  const res = await fetch(`/api/wanted?${targetQuery(target)}`, { method: "DELETE" });
+  return res.ok;
+}
+
+/** What the Remove confirmation says for a target. */
+export function wantedRemoveDescription(target: WantedTarget): string {
+  return target.season != null && target.episode == null
+    ? "TorrentFlow stops looking for these episodes, also after a restart. If a search for them is running or just finished, the episodes it started that are still downloading are removed too. Finished episodes stay."
+    : "TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page.";
 }
 
 /** The owner's wanted rows, polled while the page is visible. */
@@ -107,8 +129,7 @@ export function WantedActions({
   const tryNow = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/wanted/try?${targetQuery(target)}`, { method: "POST" });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!(await tryWantedNow(target))) throw new Error("refused");
       toast.success(`Looking for ${name} now.`);
       await onChanged?.();
     } catch {
@@ -121,8 +142,7 @@ export function WantedActions({
   const remove = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/wanted?${targetQuery(target)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!(await stopWanted(target))) throw new Error("refused");
       onRemoved?.();
       toast.success(`Removed ${name}. TorrentFlow stopped looking for it.`);
       setConfirming(false);
@@ -191,11 +211,7 @@ export function WantedActions({
         contentData={{ "data-looking-remove-dialog": true }}
         confirmData={{ "data-looking-remove-confirm": true }}
         title={`Remove ${name}?`}
-        description={
-          target.season != null && target.episode == null
-            ? "TorrentFlow stops looking for these episodes, also after a restart. If a search for them is running or just finished, the episodes it started that are still downloading are removed too. Finished episodes stay."
-            : "TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page."
-        }
+        description={wantedRemoveDescription(target)}
         variant="destructive"
         busy={confirming && busy}
         icon={<Trash2 className="h-3.5 w-3.5" />}

@@ -23,11 +23,12 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, Download, FolderOpen, Loader2, Search } from "lucide-react";
+import { CheckCircle2, Download, FolderOpen, Loader2, Search, Trash2 } from "lucide-react";
 import { Link, useNavigate, type NavigateFunction } from "react-router";
 import { toast } from "@/lib/toast";
 import { useFeatures } from "@/lib/features";
 import { openDownload, type OpenDownloadMode } from "@/lib/open-download";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { PosterImage } from "@/components/browse/poster-image";
 import { posterTint } from "@/components/browse/poster";
 import { cleanDisplayTitle } from "@/components/browse/availability";
@@ -58,7 +59,14 @@ import { SeasonProgressMeter } from "./season-progress-meter";
 import { MoreLikeThis } from "./more-like-this";
 import { LinkedRecords } from "./linked-records";
 import { RequestAction } from "@/components/requests/request-action";
-import { WantedActions, useWantedRows } from "@/components/wanted/wanted-actions";
+import {
+  WantedActions,
+  stopWanted,
+  tryWantedNow,
+  useWantedRows,
+  wantedRemoveDescription,
+  type WantedAction,
+} from "@/components/wanted/wanted-actions";
 import { useCapabilities } from "@/lib/capabilities";
 import { parseRequestState, type RequesterTitle } from "@/lib/requests";
 import type { CatalogIdentity } from "@/lib/browse/types";
@@ -926,6 +934,46 @@ function TitleContent({
       openReleasePicker({ workKey, title, season, episode, onPicked: onLibraryChanged }),
     [workKey, title, onLibraryChanged],
   );
+  // Waiting for the show's season list: Try now or Remove, the same requests and confirmation as Downloads.
+  const [removingEpisode, setRemovingEpisode] = useState<{ season: number; episode: number } | null>(null);
+  const [removingBusy, setRemovingBusy] = useState(false);
+  const episodeName = useCallback(
+    (season: number, episode: number) =>
+      `${title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`,
+    [title],
+  );
+  const handleWantedAction = useCallback(
+    async (season: number, episode: number, action: WantedAction) => {
+      if (action === "remove") {
+        setRemovingEpisode({ season, episode });
+        return;
+      }
+      const name = episodeName(season, episode);
+      try {
+        if (!(await tryWantedNow({ workKey, season, episode }))) throw new Error("refused");
+        toast.success(`Looking for ${name} now.`);
+      } catch {
+        toast.error(`Couldn't start a search for ${name}. Check that TorrentFlow is running, then try again.`);
+      }
+      onLibraryChanged();
+    },
+    [workKey, episodeName, onLibraryChanged],
+  );
+  const confirmRemoveEpisode = async () => {
+    if (!removingEpisode) return;
+    const name = episodeName(removingEpisode.season, removingEpisode.episode);
+    setRemovingBusy(true);
+    try {
+      if (!(await stopWanted({ workKey, ...removingEpisode }))) throw new Error("refused");
+      toast.success(`Removed ${name}. TorrentFlow stopped looking for it.`);
+      setRemovingEpisode(null);
+      onLibraryChanged();
+    } catch {
+      toast.error(`Couldn't remove ${name}. Check that TorrentFlow is running, then try again.`);
+    } finally {
+      setRemovingBusy(false);
+    }
+  };
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -1585,8 +1633,27 @@ function TitleContent({
             onAction={handleEpisodeListAction}
             onFindAnotherSource={caps.canDownload ? handleFindEpisodeSource : undefined}
             onPickRelease={caps.canDownload ? handlePickEpisodeRelease : undefined}
+            onWantedAction={caps.canDownload ? handleWantedAction : undefined}
           />
 
+        ) : null}
+
+        {removingEpisode ? (
+          <ConfirmDialog
+            open
+            onOpenChange={(open) => {
+              if (!open) setRemovingEpisode(null);
+            }}
+            contentData={{ "data-looking-remove-dialog": true }}
+            confirmData={{ "data-looking-remove-confirm": true }}
+            title={`Remove ${episodeName(removingEpisode.season, removingEpisode.episode)}?`}
+            description={wantedRemoveDescription({ workKey, ...removingEpisode })}
+            variant="destructive"
+            busy={removingBusy}
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            confirmLabel="Remove"
+            onConfirm={() => void confirmRemoveEpisode()}
+          />
         ) : null}
 
         {/* Somewhere to go next. On a film this is the whole reason the space

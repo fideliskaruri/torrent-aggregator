@@ -51,11 +51,12 @@ export interface TitleEpisode {
 }
 
 /**
- * `queued` split in three: `looking` (no release found yet), `waiting_english`
- * (releases were found but none has English audio or subtitles) and `queued`
- * (a release waits for a download slot).
+ * `queued` split in four: `looking` (no release found yet), `waiting_english`
+ * (releases were found but none has English audio or subtitles),
+ * `waiting_season_list` (an anime episode whose show season is not known yet,
+ * nothing is searched) and `queued` (a release waits for a download slot).
  */
-export type TitleTransferState = "looking" | "waiting_english" | "queued" | "downloading" | "downloaded" | "failed";
+export type TitleTransferState = "looking" | "waiting_english" | "waiting_season_list" | "queued" | "downloading" | "downloaded" | "failed";
 
 
 export interface TitleEpisodeTransfer {
