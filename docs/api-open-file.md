@@ -43,7 +43,7 @@ Body: `{ "ok": false, "reason": "<code>", "error": "<what happened>", "message":
 | 409 | `container` | TorrentFlow runs in a container (Docker). Also `openFolderDisabled: true`. |
 | 409 | `other-client` | The transfer belongs to qBittorrent or Transmission. |
 | 404 | `not-found` | No built-in download with that id. |
-| 409 | `not-finished` | The download is not finished and checked yet (downloading, queued, paused or failed). For a failed row, `message` is the row's own error, which already says what to do. |
+| 409 | `not-finished` | The download is not finished and checked yet (downloading, queued, paused or failed), or its files are not in the library yet (Moving to library, Waiting for you; docs/english-gates-plan.md section 1). For a failed row, `message` is the row's own error, which already says what to do. |
 | 409 | `no-video` | The download has no video file. |
 | 410 | `files-missing` | The video file is no longer on disk. |
 | 403 | `outside-folders` | The file is not inside the download folders from Settings. |

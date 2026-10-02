@@ -369,8 +369,9 @@ subtitles only, so the Russian audio sorts as Preferred.
 - **A fail** (file list or header) on a transfer still downloading: the row turns to an error (`No English audio or
   subtitles (<reason>). TorrentFlow stopped it and will look for another release.`), the release is blocked
   (`ReleaseBlock`, reason `no_english`, origin `language_check`), its wanted items are released, and the transfer is
-  detached. The finder picks again and skips the blocked release. The stopped release's files stay in the downloads
-  folder until the row is removed, like any failed download. A fail that lands on a transfer already parked or in
+  detached. The finder picks again and skips the blocked release. The stopped release's files stay in its stage folder
+  (`.staging\<hash>`, never the library; a row from before staging keeps them in the downloads folder) until the row is
+  removed, like any failed download. A fail that lands on a transfer already parked or in
   the library (which the tick does not allow while probing) keeps its files and only blocks the release.
 - **Unconfirmed**: kept; `EngineTorrentInfo.LanguageNote` is `English not confirmed` and the Downloads row shows it.
 - **Hand picks** (`AcceptClash`) are stored as `hand_pick` and never checked, stopped or blocked.

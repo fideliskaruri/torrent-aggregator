@@ -801,13 +801,18 @@ being an atomic snapshot of Engine's admission decision.
 
 ## Content layout (Engine)
 
-`server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. Like the Next.js engine (depth-0 wrapper always
-dropped), a kept download writes without its release folder: once metadata is known, the stopped manager points
+`server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. A kept download writes into its own stage folder,
+`<download root>\.staging\<hash>` (hidden, with a `.ignore` file, on the same volume as the save path;
+`Storage/StagePaths.cs`), in the torrent's own layout, so nothing reaches the library folder before it is checked
+(docs/english-gates-plan.md, section 1). Rows from before staging (`legacy`) keep the old behaviour, like the Next.js
+engine (depth-0 wrapper always dropped): once metadata is known, the stopped manager points
 each file at `<save>/<torrent path>` (`BackendAddSpec.FlattenWrapper`, `MonoTorrentBackend.DropWrapperAsync`), and
 the paths are recorded (`CompletedLayoutManifestStore.Place`) so a restart resumes them. A file stays in
 `<save>/<release name>/` only when its flat path is taken (on disk, or written by another loaded torrent), so
 releases never overwrite each other mid-download. Magnets resumed without a metadata wait keep the release folder
-until completion. After completion, once the torrent is detached, `CompletedLayoutFinalizer`:
+until completion. After completion the row is saved as `completed` (not yet downloaded), the torrent is detached, the
+promotion gate decides (`TorrentEngineService.Promotion.cs`), and on promote `CompletedLayoutFinalizer` reads the
+files from the stage folder and:
 
 1. Checks the files with the built-in `CompletedMediaValidator` (no ffprobe or other process; the rules are in
    [api-open-file.md](api-open-file.md), "Checking downloads"). A fake release becomes an error row, its matching
@@ -840,6 +845,9 @@ until completion. After completion, once the torrent is detached, `CompletedLayo
    `TorrentManager.MoveFileAsync` while stopped). The files are re-checked where they are, not downloaded
    again, and a neighbour's file at the flat path is never touched. This needs the saved `.torrent`; a
    magnet-only re-add of a laid-out torrent downloads into its release folder again and is laid out afterwards.
+5. Moves whatever kept files the layout left in place into the save path as they are, then deletes the stage folder
+   (with any unselected pack files in it) and marks the row `promoted`. Only then is it downloaded (Open, Ready,
+   notifications, request status) and `TorrentCompleted` raised.
 
 **Tidy folders.** Downloads that finished before this layout existed, or before a restart, can still be
 nested. The Downloads page button **Tidy folders** calls `POST /api/client/torrents/tidy`

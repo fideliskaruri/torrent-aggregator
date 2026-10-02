@@ -47,17 +47,31 @@ Facts behind the design (code on feat/english-rule, MonoTorrent 3.0.2, live chec
 ## The design: hints first, one gate that decides, files promoted only after it
 
 ### 1. Promotion: downloads are staged, the library only gets checked files
+Status: built (P1, OPS-602, branch feat/promotion). The gate is `IPromotionGate` (`Core/Contracts/Engine/EnginePromotion.cs`);
+the default `PromoteEverythingGate` promotes everything until P2 plugs the English check in. One done-ness predicate,
+`EngineTorrent.IsDownloaded` (query form `EngineTorrent.Downloaded`); one path resolver, `StagePaths`. Engine side:
+`TorrentEngineService.Promotion.cs`. Where the build differs from the bullets below: a final path on another volume
+than the download root is not refused; its stage is a `.staging` folder on that volume next to the library root, so
+promotion is still a rename.
+
 - Every transfer has a final path (what the owner sees, today's SavePath) and a stage path:
   `<download root>\.staging\<hash>`, on the same drive, outside every Jellyfin library. Payload is written to the
-  stage path.
+  stage path. The `.staging` folder is hidden and holds a `.ignore` file.
 - States after the payload is complete: Completed, Checking, Promoted (or Held, or Rejected). Open, "downloaded",
-  notifications, request Available and Library ready all wait for Promoted.
+  notifications, request Available and Library ready all wait for Promoted. Completed and Checking are saved, so a
+  restart runs the gate again, once. The Downloads row reads "Moving to library" until it is promoted, and "Waiting for
+  you" with Keep and Find another while held (`POST /api/downloads/{id}/keep`, `/find-another`). Keep promotes; Find
+  another and a gate reject delete the staged files, block the release (`rejected`, origin `promotion`) and hand its
+  wanted items back so the finder picks again.
 - Promotion moves the kept files (the video plus its own sidecars) into the final path with Jellyfin names, and leaves
-  junk behind (OPS-578, OPS-587, OPS-597 land here).
-- Storage accounting includes the staging folder. Stage and final must be on the same volume (a rename); otherwise
-  the setting is refused with a plain message.
+  junk behind (OPS-578, OPS-587, OPS-597 land here). P1 uses today's layout (`CompletedLayoutFinalizer`, reading from
+  the stage folder); the stage folder is deleted afterwards, with any unselected pack files in it.
+- Storage accounting includes the staging folder. Stage and final must be on the same volume (a rename).
 - Upgrade: rows already downloading keep writing where they are and go through the check before they are counted as
-  done; rows already done are left alone.
+  done; rows already done are left alone. Every row from before the upgrade is marked `legacy`.
+- Provenance (`automatic` or `hand`) is kept on every engine row: the finder, requests, season downloads and Find the
+  best one are automatic; the release picker, manual sends and a release chosen in Find another source are hand. Rows
+  from before the upgrade are hand when their English check was `hand_pick`, else automatic.
 
 ### 2. The gate: the finished files decide (every automatic pick)
 - On completion, read the real tracks from the staged files (local, no network, no race) plus their own sidecars.
