@@ -93,6 +93,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         // The pick-it-yourself link searches with this text too, so it carries plain apostrophes like every rung.
         var plain = Apostrophes.Normalize(input.Title);
         var query = input.Cursor?.Query(plain) ?? plain;
+        // An anime work's stored numbers never move under a grab in flight (AnimeNumberingReconciler).
+        using var hold = input.WorkId is { } held ? await WorkGrabGate.EnterAsync(held, ct) : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         if (Dedupes(input) && input.Cursor is { } requested &&
             (input.WorkId ?? await db.Works.AsNoTracking().Where(w => w.WorkKey == input.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct)) is { } workId)
@@ -190,15 +192,33 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                         work?.WorkKey ?? input.WorkKey, work?.CanonicalTitle ?? input.Title, input.Year ?? work?.Year, input.MediaType,
                         provider, providerId, input.Cursor.Value, ct) };
                 }
+                catch (SeasonListPendingException pending) when (!ct.IsCancellationRequested)
+                {
+                    // Sent now, the episode would land in the entry's own folder under the wrong season; it waits instead.
+                    logger?.LogInformation("Holding {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, pending.Message);
+                    if (pending.InnerException is { } cause) logger?.LogDebug(cause, "Why {Title} {Episode} is held", input.Title, input.Cursor?.Label);
+                    return (input, settings, null, new(false, GrabFailure.SeasonListPending.Sentence) { Query = query, Skipped = true,
+                        Failure = GrabFailure.SeasonListPending });
+                }
+                catch (EpisodeNotInEntryException outside) when (!ct.IsCancellationRequested)
+                {
+                    // The entry has no such episode: nothing to search, and the hunter backs off as for one not out yet.
+                    logger?.LogInformation("Not searching {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, outside.Message);
+                    var failure = GrabFailure.NotInTitle(GrabFailure.Subject(input.Title, input.Cursor?.Season, input.Cursor?.Episode));
+                    return (input, settings, null, new(false, failure.Sentence) { Query = query, Failure = failure, HuntMiss = input.Background });
+                }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
             }
+            // A later entry files under its show's folder, named as the show's own downloads are.
+            if (input.EpisodeMapping is { ShowTitle: not null } shown)
+                input = input with { EpisodeMapping = await ShowFolders.ApplyAsync(db, shown, ct) };
             var saved = input.Aliases;
             if (input.EpisodeMapping is { } mapping)
             {
                 input = input with { Aliases = (input.Aliases ?? []).Concat(mapping.EntryTitles).Concat(mapping.FranchiseTitles)
                     .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
                 // A later cour's names search its own episodes only; the work keeps the names of its own entry.
-                if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 }) saved = input.Aliases;
+                if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 } || mapping.ShowTitle != null) saved = input.Aliases;
             }
             if (work != null && saved is { Count: > 0 })
             {
@@ -562,7 +582,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 if (watch.LatestReleaseMagnet == candidate.Magnet && candidate.Magnet != null ||
                     await db.EngineTorrents.AnyAsync(x => x.UserId == LocalUser.Id && x.Hash == identity && x.Status != "removed" && x.Status != "error", ct))
                 {
-                    if (input.Cursor != null) await Advance(db, watch.Id, input.Cursor.Value, candidate.Title, ct);
+                    if (input.Cursor != null) await Advance(db, watch.Id, input.Cursor.Value, await NextAsync(db, input, input.Cursor.Value, ct), candidate.Title, ct);
                     await LogSkip(db, input, query, "Already sent this release", ct);
                     return new(false, "Already sent this release") { Query = query, Skipped = true };
                 }
@@ -586,6 +606,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// <summary>A release the owner chose by hand (<see cref="ReleasePicker"/>), sent like any automatic pick.</summary>
     public async Task<GrabResult> SendPicked(GrabInput input, TorrentResult release, string query, CancellationToken ct)
     {
+        using var hold = input.WorkId is { } held ? await WorkGrabGate.EnterAsync(held, ct) : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var (prepared, settings, _, refusal) = await Prepare(db, input, query, ct);
         if (refusal != null) return refusal;
@@ -623,6 +644,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (result.Ok && result.Fresh && hash != null) input.Admitted?.Invoke(hash);
         var queued = result.Details?.Action == EngineAddDetails.Queued;
         var logged = EngineAddMessages.Outcome(result);
+        // The episode after this one, as the show numbers it (Frieren S01E28 is followed by S02E01).
+        var next = result.Ok && input.Cursor is { } sent ? await NextAsync(db, input, sent, ct) : (EpisodeCursor?)null;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var now = DateTime.UtcNow;
         db.GrabJobs.Add(new GrabJob { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Query = query,
@@ -635,7 +658,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;
         if (result.Ok && input.WatchListItemId != null && input.Cursor != null)
-            advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, candidate.Title, ct);
+            advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, next!.Value, candidate.Title, ct);
         if (result.Ok && input.Background && input.WatchListItemId != null)
             await db.WatchListItems.Where(x => x.Id == input.WatchListItemId).ExecuteUpdateAsync(x =>
                 x.SetProperty(w => w.LatestReleaseMagnet, candidate.Magnet).SetProperty(w => w.CursorMisses, 0)
@@ -666,7 +689,6 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var notes = new List<string>();
         if (advanced && !input.Background) notes.Add($"advanced past {input.Cursor?.Label}");
         if (relaxed) notes.Add("low-seed release");
-        var next = input.Cursor?.Next();
         // The engine picks the smart target on add; report where the transfer actually lives.
         var savePath = hash == null ? null : (await engine.GetAsync(hash, ct))?.SavePath;
         return new(true, notes.Count == 0 ? result.Message : $"{result.Message} · {string.Join(" · ", notes)}") { Query = query, Title = candidate.Title,
@@ -678,17 +700,19 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
 
     /// <summary>
     /// Where the work lands: its catalog title and the catalog season (the episode's, or the pack's), so every episode
-    /// of a show shares one folder whatever its release is called.
+    /// of a show shares one folder whatever its release is called. An anime sequel entry lands in its show's folder
+    /// (the season shape names it), whichever entry's page started the download.
     /// </summary>
     private static WorkPlacement? Placement(GrabInput input, TorrentResult release, PackSelection? pack)
     {
-        var title = (input.Title ?? "").Trim();
+        var show = input.EpisodeMapping?.ShowTitle;
+        var title = (show ?? input.Title ?? "").Trim();
         if (title.Length == 0) return null;
         var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
         var film = pack == null && input.Cursor == null;
         // Anime is the work's own (Prepare); a release's site category decides only while that is unknown (WorkKinds).
         var anime = input.Anime ?? AnimeIdentity.IsAnimeSiteCategory(release.Category);
-        return new(title, input.Year, anime, film, film ? null : season);
+        return new(title, show != null ? input.EpisodeMapping!.ShowYear : input.Year, anime, film, film ? null : season);
     }
 
     private static async Task LogSkip(TorrentFlowDbContext db, GrabInput input, string query, string message, CancellationToken ct)
@@ -707,11 +731,20 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             .ThenBy(r => r.SizeBytes is > 0 ? r.SizeBytes : long.MaxValue)
             .ThenByDescending(r => r.Seeders);
 
-    internal static async Task<bool> Advance(TorrentFlowDbContext db, string id, EpisodeCursor grabbed, string title, CancellationToken ct)
+    /// <summary>The episode after <paramref name="grabbed"/> as the work's season shape numbers it (<see cref="AnimeEpisodeMappings.NextAsync"/>).</summary>
+    private async Task<EpisodeCursor> NextAsync(TorrentFlowDbContext db, GrabInput input, EpisodeCursor grabbed, CancellationToken ct)
+    {
+        if (episodeMappings == null) return grabbed.Next();
+        var work = input.WorkId == null ? null : await db.Works.AsNoTracking().Where(w => w.Id == input.WorkId)
+            .Select(w => new { w.WorkKey, w.CanonicalTitle, w.Year, w.Provider, w.ProviderId }).FirstOrDefaultAsync(ct);
+        return await episodeMappings.NextAsync(work?.WorkKey ?? input.WorkKey, work?.CanonicalTitle ?? input.Title, input.Year ?? work?.Year,
+            input.MediaType, input.Provider ?? work?.Provider, input.ProviderId ?? work?.ProviderId, grabbed, ct);
+    }
+
+    internal static async Task<bool> Advance(TorrentFlowDbContext db, string id, EpisodeCursor grabbed, EpisodeCursor next, string title, CancellationToken ct)
     {
         var item = await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.UserId == LocalUser.Id, ct);
         if (item == null || EpisodeCursor.Resolve(item) != grabbed) return false;
-        var next = grabbed.Next();
         var now = DateTime.UtcNow;
         var moved = await db.WatchListItems.Where(x => x.Id == id && x.CursorSeason == item.CursorSeason && x.CursorEpisode == item.CursorEpisode)
             .ExecuteUpdateAsync(x => x.SetProperty(w => w.CursorSeason, next.Season).SetProperty(w => w.CursorEpisode, next.Episode)

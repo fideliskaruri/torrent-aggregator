@@ -397,6 +397,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.PromotionReason).HasColumnName("promotionReason");
             entity.Property(e => e.Provenance).HasColumnName("provenance");
             entity.Property(e => e.Legacy).HasColumnName("legacy");
+            entity.Property(e => e.RelocationJson).HasColumnName("relocationJson");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.SizeBytes)
                 .HasColumnType("BIGINT")
@@ -769,6 +770,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.AnimeCheckedAt).HasColumnName("animeCheckedAt");
             entity.Property(e => e.NamesRefreshedAt).HasColumnName("namesRefreshedAt");
             entity.Property(e => e.LinksVersion).HasColumnName("linksVersion");
+            entity.Property(e => e.NumberingJson).HasColumnName("numberingJson");
             entity.Property(e => e.CanonicalTitle).HasColumnName("canonicalTitle");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")

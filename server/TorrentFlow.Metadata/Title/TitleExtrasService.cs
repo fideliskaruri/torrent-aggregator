@@ -38,6 +38,8 @@ public sealed record TitleExtrasPayload
     public IReadOnlyDictionary<int, int> AiredEpisodes { get; init; } = new Dictionary<int, int>();
     public IReadOnlyList<TitleEpisodeMeta> Episodes { get; init; } = [];
     public IReadOnlyList<TitleSimilar> MoreLikeThis { get; init; } = [];
+    /// <summary>An anime sequel entry's show (its first season's page), whose season numbers this page uses; omitted otherwise.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public TitleSimilar? PartOf { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Overview { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public double? Rating { get; init; }
     public string? RatingSource { get; init; }
@@ -114,11 +116,13 @@ public sealed class TitleExtrasService(
             var view = await viewTask.ConfigureAwait(false);
             var rail = await railTask.ConfigureAwait(false);
             var m = work?.Metadata;
-            // The franchise view numbers the page: a first season shows the matched show's seasons, names and stills; a
-            // sequel entry, or a show with no confident match, keeps the entry's own Season 1 with the banner as art.
+            // The franchise view numbers the page: a first season shows the show's seasons, names and stills; a sequel entry
+            // shows its own episodes numbered as the show does and links to it; with no confident chain an entry keeps its
+            // own Season 1 with the banner as art.
             var series = work?.IsSeries == true;
             var seasons = series ? view?.Seasons ?? [] : [];
-            int? animeSeason = series ? (q.Season is >= 1 ? q.Season : seasons.Cast<int?>().FirstOrDefault() ?? 1) : null;
+            int? animeSeason = series ? (q.Season is >= 1 && (seasons.Count == 0 || seasons.Contains(q.Season.Value)) ? q.Season
+                : seasons.Cast<int?>().FirstOrDefault() ?? 1) : null;
             var animeEpisodes = series && view is not null && animeSeason is { } shown
                 ? view.EpisodesOf(shown).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, e.Overview, e.AirDate, e.RuntimeMin, e.StillUrl,
                     e.AirStamp, HasAired: e.Aired)).ToList()
@@ -134,7 +138,10 @@ public sealed class TitleExtrasService(
                 AiredEpisodes = series && view is not null
                     ? view.Episodes.GroupBy(e => e.Season).ToDictionary(g => g.Key, g => g.Count(e => e.Aired)) : new Dictionary<int, int>(),
                 Episodes = animeEpisodes,
-                Resolved = m is not null && (!series || animeEpisodes.Count > 0),
+                PartOf = view?.Show is { } show ? ToSimilarLink(new("anilist", "anime", "anime", "anime", show.AniListId, show.Title,
+                    null, show.Year, null, show.Format, true)) : null,
+                // A provisional numbering (AniList cut the walk short) is asked again soon, not kept for hours.
+                Resolved = m is not null && (!series || animeEpisodes.Count > 0 && view?.Provisional != true),
             };
         }
 

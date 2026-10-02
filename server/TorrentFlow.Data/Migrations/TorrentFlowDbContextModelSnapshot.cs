@@ -780,6 +780,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("queueKey");
 
+                    b.Property<string>("RelocationJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("relocationJson");
+
                     b.Property<string>("SavePath")
                         .HasColumnType("TEXT")
                         .HasColumnName("savePath");
@@ -1718,6 +1722,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("NamesRefreshedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("namesRefreshedAt");
+
+                    b.Property<string>("NumberingJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("numberingJson");
 
                     b.Property<string>("OriginalLanguage")
                         .HasColumnType("TEXT")

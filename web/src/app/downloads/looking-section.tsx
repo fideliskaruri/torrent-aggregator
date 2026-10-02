@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
-import { WAITING_FOR_ENGLISH_LABEL } from "@/components/title/title-actions";
+import { WAITING_FOR_ENGLISH_LABEL, WAITING_FOR_SEASON_LIST_LABEL } from "@/components/title/title-actions";
 import {
   WantedActions,
   useWantedRows,
@@ -23,6 +23,8 @@ interface LookingGroup {
   looking: boolean;
   /** Releases were found but none has English audio or subtitles. */
   waitingForEnglish: boolean;
+  /** An anime episode whose show season is not known yet: nothing is searched until it is. */
+  waitingForSeasonList: boolean;
   why: string | null;
   nextAttemptAt: string | null;
   /** The catalog title alone, for the release picker. */
@@ -61,6 +63,7 @@ function groupRows(rows: WantedRow[]): LookingGroup[] {
       episode: single,
       looking: items.some((i) => i.looking),
       waitingForEnglish: items.some((i) => i.error?.startsWith(WAITING_FOR_ENGLISH_LABEL) ?? false),
+      waitingForSeasonList: items.some((i) => i.error?.startsWith(WAITING_FOR_SEASON_LIST_LABEL) ?? false),
       why: items.find((i) => i.why)?.why ?? items.find((i) => i.error)?.error ?? null,
       nextAttemptAt: next ?? null,
       name,
@@ -121,14 +124,21 @@ export function LookingSection() {
                   {g.title}
                   {g.label ? <span className="text-subtle-foreground font-normal"> · {g.label}</span> : null}
                 </Link>
-                <p className="text-[12px] text-subtle-foreground" data-looking-state={g.waitingForEnglish ? "waiting_english" : undefined}>
-                  {g.waitingForEnglish
+                <p
+                  className="text-[12px] text-subtle-foreground"
+                  data-looking-state={
+                    g.waitingForEnglish ? "waiting_english" : g.waitingForSeasonList ? "waiting_season_list" : undefined
+                  }
+                >
+                  {g.waitingForSeasonList
+                    ? `${WAITING_FOR_SEASON_LIST_LABEL}. ${g.looking ? "Checking again now" : nextTry(g.nextAttemptAt)}.`
+                    : g.waitingForEnglish
                     ? `${WAITING_FOR_ENGLISH_LABEL}. ${g.looking ? "Looking again now" : nextTry(g.nextAttemptAt)}.`
                     : g.looking
                       ? "Looking for a release"
                       : `Not found yet. ${nextTry(g.nextAttemptAt)}.`}
                 </p>
-                {!g.looking && !g.waitingForEnglish && g.why ? (
+                {!g.looking && !g.waitingForEnglish && !g.waitingForSeasonList && g.why ? (
                   <p className="text-[12px] text-subtle-foreground line-clamp-2">{g.why}</p>
                 ) : null}
               </div>

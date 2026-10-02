@@ -55,8 +55,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
 
     /// <summary>
     /// The one transfer shape of a title payload. <c>status</c> is the acquisition row's own status; <c>state</c> splits its
-    /// "queued" in three: "looking" (no release found yet), "waiting_english" (releases were found but none has English
-    /// audio or subtitles, docs/release-language.md) and "queued" (a release waits for a download slot, with the engine's
+    /// "queued" in four: "looking" (no release found yet), "waiting_english" (releases were found but none has English
+    /// audio or subtitles, docs/release-language.md), "waiting_season_list" (an anime episode whose show season is not
+    /// known yet, nothing is searched) and "queued" (a release waits for a download slot, with the engine's
     /// <c>queuePosition</c> and <c>waitReason</c>). Requesters get only <c>state</c> (RequesterCatalogProjectionMiddleware).
     /// </summary>
     internal static Dictionary<string, object?> Transfer(AcquisitionTarget target, IReadOnlyDictionary<string, EngineTorrentInfo> queue) =>
@@ -64,7 +65,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             target.InfoHash, target.FilePath, target.Error, target.InfoHash is { } hash ? queue.GetValueOrDefault(hash) : null);
 
     private static string TransferState(AcquisitionTarget target) => target.Status == "queued" && target.InfoHash == null
-        ? GrabFailure.IsWaitingForEnglish(target.Error) ? "waiting_english" : "looking"
+        ? GrabFailure.IsWaitingForEnglish(target.Error) ? "waiting_english"
+        : GrabFailure.IsWaitingForSeasonList(target.Error) ? "waiting_season_list" : "looking"
         : target.Status;
 
     private static Dictionary<string, object?> Transfer(string status, string state, double progress,
@@ -83,19 +85,38 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         return slots;
     }
 
-    internal static bool FilesAbsent(EngineTorrent row)
+    internal static bool FilesAbsent(EngineTorrent row) => VerifiedFiles.AllMissing(row.VerifiedFilesJson);
+
+    /// <summary>
+    /// Reconciles every wanted item with its engine row (<see cref="Reconcile"/>). A row this snapshot reads as having no
+    /// files left is asked again of the engine, once per transfer and under its lock: a move of its files to another
+    /// folder renames them between this read and now, and must never unlink the item.
+    /// </summary>
+    private async Task ReconcileAsync(IReadOnlyCollection<AcquisitionTarget> targets, IReadOnlyCollection<EngineTorrent> rows, CancellationToken ct)
     {
-        var located = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(f => f.Path).OfType<string>().ToList();
-        return located.Count > 0 && located.All(VerifiedFiles.ConfirmedMissing);
+        var linked = targets.Select(t => (Target: t, Row: t.InfoHash == null ? null
+            : rows.FirstOrDefault(x => x.Hash.Equals(t.InfoHash, StringComparison.OrdinalIgnoreCase)))).ToList();
+        var missing = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, row) in linked)
+            if (row != null && !missing.ContainsKey(row.Hash))
+                missing[row.Hash] = FilesAbsent(row) && await engine.FilesMissingAsync(row.Hash, ct);
+        foreach (var (target, row) in linked) Reconcile(target, row, row != null && missing[row.Hash]);
     }
+
     /// <summary>What a target says when its transfer was removed or its file is gone from disk.</summary>
     public const string FileGoneError = "The requested file is no longer available.";
 
-    internal static void Reconcile(AcquisitionTarget target, EngineTorrent? row)
+    /// <summary>
+    /// Settles a wanted item against its engine row: unlinked when the row is gone, its files are gone or it is not a real
+    /// video; handed back when the row failed; otherwise it takes the row's progress.
+    /// </summary>
+    /// <param name="filesMissing">The engine's confirmed answer that every file of <paramref name="row"/> is gone
+    /// (<see cref="ReconcileAsync"/>), never this snapshot's own reading.</param>
+    internal static void Reconcile(AcquisitionTarget target, EngineTorrent? row, bool filesMissing)
     {
         target.Progress = Math.Clamp(target.Progress, 0, 1);
         if (target.InfoHash == null) return;
-        if (row == null || FilesAbsent(row) || InvalidMedia(row))
+        if (row == null || filesMissing || InvalidMedia(row))
         {
             // A season pack that failed as a whole hands its episodes back to the wanted queue.
             target.Status = target.FileIndex != null ? "queued" : "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
@@ -126,8 +147,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var episodes = new Dictionary<string, object?>();
         var seasons = new Dictionary<string, object?>();
         object? transfer = null;
-        foreach (var target in targets)
-            Reconcile(target, engines.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
+        await ReconcileAsync(targets, engines, ct);
         var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null), ct);
         foreach (var target in targets)
         {
@@ -174,7 +194,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             engineRows.AddRange(await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed" &&
                 (missingLinked.Contains(x.Hash) || missingLinked.Contains(x.Hash.ToLower()))).ToListAsync(ct));
         var local = engineRows.Where(x => ReleaseSelection.MatchesWork(key, ReleaseSelection.CleanTitle(x.Name), ReleaseYear(x.Name))).ToList();
-        foreach (var target in targets) Reconcile(target, engineRows.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
+        await ReconcileAsync(targets, engineRows, ct);
         await db.SaveChangesAsync(ct);
         var queue = await QueueAsync(targets.Any(x => x.Status == "queued" && x.InfoHash != null) || local.Any(x => x.Status == EngineTorrentStatus.Queued), ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??

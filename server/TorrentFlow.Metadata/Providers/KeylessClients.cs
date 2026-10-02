@@ -35,7 +35,9 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
     [GeneratedRegex(@"/\d+x\d+bb\.(jpg|png)$", RegexOptions.IgnoreCase)] private static partial Regex ItunesArt();
     [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}")] private static partial Regex IsoPrefix();
 
-    private async Task<JsonElement?> GetAsync(string url, int timeoutMs, CancellationToken ct)
+    /// <param name="strict">Throw when TVmaze did not answer (a timeout, a refused connection, a rate limit or a server error)
+    /// instead of reading it as "nothing found"; any other refusal (a 404) is still nothing found.</param>
+    private async Task<JsonElement?> GetAsync(string url, int timeoutMs, CancellationToken ct, bool strict = false)
     {
         var cacheKey = $"{registry?.Revision}:{SourceExecution.Current?.Id}:{url}";
         if (cache.TryGet(cacheKey, out var cached)) return cached;
@@ -56,7 +58,12 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
                 finally { tvmazeGate.Release(); }
             }
             using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                if (strict && (int)response.StatusCode is 408 or 429 or >= 500)
+                    throw new HttpRequestException($"{new Uri(url).Host} answered {(int)response.StatusCode}", null, response.StatusCode);
+                return null;
+            }
             using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
             var result = doc.RootElement.Clone();
             cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
@@ -64,15 +71,17 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
+            if (strict) throw e as HttpRequestException ?? new HttpRequestException($"{new Uri(url).Host} did not answer", e);
             return null;
         }
     }
 
-    public async Task<List<TvmazeCandidate>> SearchTvmazeAsync(string query, int limit = 8, int timeoutMs = 5000, CancellationToken ct = default)
+    public async Task<List<TvmazeCandidate>> SearchTvmazeAsync(string query, int limit = 8, int timeoutMs = 5000, CancellationToken ct = default,
+        bool strict = false)
     {
         var term = query.Trim();
         if (term.Length == 0) return [];
-        var root = await GetAsync($"{TvmazeSearch}?{TextUtil.BuildQuery([("q", term)])}", timeoutMs, ct).ConfigureAwait(false);
+        var root = await GetAsync($"{TvmazeSearch}?{TextUtil.BuildQuery([("q", term)])}", timeoutMs, ct, strict).ConfigureAwait(false);
         if (root is not { ValueKind: JsonValueKind.Array } rows) return [];
         var output = new List<TvmazeCandidate>();
         foreach (var row in rows.EnumerateArray().Take(limit))
@@ -95,10 +104,10 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         return output;
     }
 
-    public async Task<List<TvmazeEpisode>> GetTvmazeEpisodesAsync(int showId, int timeoutMs = 5000, CancellationToken ct = default)
+    public async Task<List<TvmazeEpisode>> GetTvmazeEpisodesAsync(int showId, int timeoutMs = 5000, CancellationToken ct = default, bool strict = false)
     {
         if (showId <= 0) return [];
-        var root = await GetAsync($"{TvmazeShows}/{showId}/episodes", timeoutMs, ct).ConfigureAwait(false);
+        var root = await GetAsync($"{TvmazeShows}/{showId}/episodes", timeoutMs, ct, strict).ConfigureAwait(false);
         if (root is not { ValueKind: JsonValueKind.Array } rows) return [];
         var output = new List<TvmazeEpisode>();
         foreach (var row in rows.EnumerateArray().Take(5000))

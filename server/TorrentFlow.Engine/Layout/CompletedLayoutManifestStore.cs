@@ -92,15 +92,16 @@ internal sealed class CompletedLayoutManifestStore
 
     /// <summary>
     /// The recorded per-file paths of a laid-out torrent when every recorded file is still on disk, else null. A re-add
-    /// points the client at these so it re-checks the files where they are instead of downloading them again.
+    /// points the client at these so it re-checks the files where they are instead of downloading them again. After a
+    /// move of its files, <paramref name="moved"/> says where each recorded file is now, and that is where it must be.
     /// </summary>
-    public string?[]? IndexedPaths(string hash, string? savePath)
+    public string?[]? IndexedPaths(string hash, string? savePath, Func<string, string?>? moved = null)
     {
         if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return null;
         lock (_gate)
         {
             if (!_entries.TryGetValue(Key(hash, savePath), out var entry) || entry.Indexed is not { Length: > 0 } indexed) return null;
-            return indexed.All(p => p is null || File.Exists(p)) ? indexed.ToArray() : null;
+            return indexed.All(p => p is null || File.Exists(moved is null ? p : moved(p))) ? indexed.ToArray() : null;
         }
     }
 

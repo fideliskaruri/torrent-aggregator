@@ -116,6 +116,9 @@ export interface TitleTransferControl {
 /** What a row waiting for an English release says (docs/release-language.md). */
 export const WAITING_FOR_ENGLISH_LABEL = "Waiting for an English release";
 
+/** What an anime episode whose show season is not known yet says: nothing is searched or sent until it is. */
+export const WAITING_FOR_SEASON_LIST_LABEL = "Waiting for the show's season list";
+
 /**
  * Plain words for a waiting or moving transfer. "Looking" is a download still
  * searching for a release (Download is fire and forget). Only owners have a
@@ -127,6 +130,7 @@ export function transferStateLabel(
 ): string | null {
   if (state === "looking") return "Looking";
   if (state === "waiting_english") return WAITING_FOR_ENGLISH_LABEL;
+  if (state === "waiting_season_list") return WAITING_FOR_SEASON_LIST_LABEL;
   if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
   if (state === "downloading") return "Downloading";
   return null;
@@ -149,7 +153,9 @@ export function resolveTitleTransferControl(
       label,
       canRun: false,
       // Still looking for a release: Downloads has no row for it yet.
-      opensDownloads: options.canSeeTransfers && transfer.state !== "looking" && transfer.state !== "waiting_english",
+      opensDownloads: options.canSeeTransfers && transfer.state !== "looking" &&
+        transfer.state !== "waiting_english" &&
+        transfer.state !== "waiting_season_list",
 
       error: null,
     };

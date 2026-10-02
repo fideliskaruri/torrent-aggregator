@@ -252,7 +252,7 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
                 verified?.ExternalId ?? work.ProviderId, season!.Value), ct);
             episodes = shape?.AiredEpisodes.Take(500).ToArray() ?? [];
             if (episodes.Length == 0)
-                return Conflict(new { ok = false, message = shape is null
+                return Conflict(new { ok = false, message = shape is null or { Provisional: true, Episodes.Count: 0 }
                     ? "We couldn't load this season's episode list right now. Try again in a minute."
                     : $"No episodes of season {season} have aired yet." });
         }
