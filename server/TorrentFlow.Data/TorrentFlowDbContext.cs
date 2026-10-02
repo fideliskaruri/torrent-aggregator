@@ -680,7 +680,7 @@ public partial class TorrentFlowDbContext : DbContext
 
             entity.HasIndex(e => e.UserId, "WatchListItem_userId_idx");
 
-            entity.HasIndex(e => new { e.UserId, e.MediaType, e.ExternalId }, "WatchListItem_userId_mediaType_externalId_key").IsUnique();
+            entity.HasIndex(e => new { e.UserId, e.MediaType, e.ExternalId, e.Provider }, "WatchListItem_userId_mediaType_externalId_provider_key").IsUnique();
 
             entity.HasIndex(e => e.WorkId, "WatchListItem_workId_idx");
 
@@ -696,6 +696,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.FromEpisode)
                 .HasDefaultValue(1)
                 .HasColumnName("fromEpisode");
+            entity.Property(e => e.Provider).HasColumnName("provider");
             entity.Property(e => e.FromSeason).HasColumnName("fromSeason");
             entity.Property(e => e.LastChecked)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
@@ -761,6 +762,8 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.IdsJson).HasColumnName("idsJson");
             entity.Property(e => e.Format).HasColumnName("format").HasConversion<string>();
             entity.Property(e => e.OriginalLanguage).HasColumnName("originalLanguage");
+            entity.Property(e => e.Anime).HasColumnName("anime");
+            entity.Property(e => e.AnimeCheckedAt).HasColumnName("animeCheckedAt");
             entity.Property(e => e.NamesRefreshedAt).HasColumnName("namesRefreshedAt");
             entity.Property(e => e.LinksVersion).HasColumnName("linksVersion");
             entity.Property(e => e.CanonicalTitle).HasColumnName("canonicalTitle");

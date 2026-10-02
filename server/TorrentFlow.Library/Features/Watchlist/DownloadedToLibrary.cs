@@ -112,7 +112,7 @@ public sealed class DownloadedToLibrary(ITorrentEngine engine, IDbContextFactory
         var workIds = rows.Select(WorkOf).OfType<string>().Distinct().ToList();
         var works = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, ct);
         var items = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id)
-            .Select(x => new Held(x.WorkId, x.Title, x.MediaType, x.ExternalId)).ToListAsync(ct);
+            .Select(x => new Held(x.WorkId, x.Title, x.MediaType, x.ExternalId, x.Provider)).ToListAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
         int added = 0, already = 0, gone = 0;
         foreach (var row in rows)
@@ -121,20 +121,22 @@ public sealed class DownloadedToLibrary(ITorrentEngine engine, IDbContextFactory
             if (WorkOf(row) is not { } workId || !works.TryGetValue(workId, out var work) || work.MediaType is not ("movie" or "tv" or "anime")) continue;
             if (!OnDisk(row)) { gone++; continue; }
             var externalId = work.ProviderId ?? $"work:{work.WorkKey}";
-            if (items.Any(x => x.WorkId == work.Id || x.MediaType == work.MediaType && x.ExternalId == externalId ||
+            // The catalog the id belongs to, as the watchlist records it (an id alone can clash across catalogs).
+            var provider = work.ProviderId != null ? work.Provider ?? "" : "";
+            if (items.Any(x => x.WorkId == work.Id || x.MediaType == work.MediaType && x.ExternalId == externalId && (x.Provider == provider || x.Provider == "") ||
                     ReleaseSelection.MatchesWork(work.WorkKey, x.Title))) { already++; continue; }
             db.WatchListItems.Add(new WatchListItem { Id = Ids.New(), UserId = LocalUser.Id, WorkId = work.Id, Title = work.CanonicalTitle,
-                MediaType = work.MediaType, ExternalId = externalId, PosterUrl = work.PosterUrl, Status = work.MediaType == "movie" ? "completed" : "watching",
+                MediaType = work.MediaType, ExternalId = externalId, Provider = provider, PosterUrl = work.PosterUrl, Status = work.MediaType == "movie" ? "completed" : "watching",
                 Monitored = false, MonitorMode = HuntCursor.OngoingMode, LatestReleaseMagnet = $"magnet:?xt=urn:btih:{row.Hash.ToLowerInvariant()}",
                 LatestReleaseAt = now, LastChecked = now, CreatedAt = now, UpdatedAt = now });
-            items.Add(new Held(work.Id, work.CanonicalTitle, work.MediaType, externalId));
+            items.Add(new Held(work.Id, work.CanonicalTitle, work.MediaType, externalId, provider));
             added++;
         }
         await db.SaveChangesAsync(ct);
         return new Outcome(rows.Count, added, already, gone);
     }
 
-    private sealed record Held(string? WorkId, string Title, string MediaType, string ExternalId);
+    private sealed record Held(string? WorkId, string Title, string MediaType, string ExternalId, string Provider);
 
     // The engine's record of where each file landed decides (a release's folder is not always kept); a row that
     // records none falls back to its name under its save folder.

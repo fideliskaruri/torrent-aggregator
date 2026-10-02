@@ -198,6 +198,23 @@ public sealed partial class MetadataResolver : IMetadataResolver
         return null;
     }
 
+    public async Task<(ProviderLookup Outcome, MediaMetadata? Metadata)> LookupByIdAsync(string provider, string mediaType, string id,
+        CancellationToken cancellationToken = default)
+    {
+        if (provider == "tmdb")
+            return mediaType is "movie" or "tv" ? await _tmdb.LookupByIdAsync(mediaType, id, cancellationToken) : (ProviderLookup.NotFound, null);
+        if (provider != "anilist")
+            return await GetByIdAsync(provider, mediaType, id, cancellationToken) is { } found ? (ProviderLookup.Found, found) : (ProviderLookup.NotFound, null);
+        var (outcome, work) = await _anilist.LookupWorkAsync(id, cancellationToken);
+        return outcome switch
+        {
+            AniListLookup.Found when work != null => (ProviderLookup.Found, work.Metadata),
+            AniListLookup.RateLimited => (ProviderLookup.RateLimited, null),
+            AniListLookup.Failed => (ProviderLookup.Failed, null),
+            _ => (ProviderLookup.NotFound, null),
+        };
+    }
+
     public async Task<MediaMetadata?> ResolveMetadataAsync(string rawTitle, string? category, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

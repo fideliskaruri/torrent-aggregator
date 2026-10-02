@@ -44,6 +44,11 @@ public static class MediaFolders
     public static string LibraryName(string? category, string kind, bool film) =>
         kind == "anime" ? film ? AnimeMovies : AnimeSeries : (category ?? "").Trim().Trim('/', '\\');
 
+    /// <summary>Whether a save or file path lies in an anime library: one of its folders is "Anime Series" or "Anime Movies".</summary>
+    public static bool InAnimeLibrary(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && path.Split('/', '\\').Any(part =>
+            part.Equals(AnimeSeries, StringComparison.OrdinalIgnoreCase) || part.Equals(AnimeMovies, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>A title's folder inside its library: &lt;Title (Year)&gt; for films, &lt;Show&gt;/Season NN for series.</summary>
     public static string Item(string library, bool film, string? show, int? year, string? season)
     {

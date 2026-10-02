@@ -36,6 +36,7 @@ public static class MetadataModule
         services.AddSingleton<ITmdbCredentialProvider>(sp => sp.GetRequiredService<Settings.TmdbSettingsStore>());
         services.AddSingleton<TmdbClient>();
         services.AddSingleton<AniListClient>();
+        services.AddSingleton<IProviderPacing>(sp => sp.GetRequiredService<AniListClient>());
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup, LibraryAnimeLookup>());
         services.AddSingleton<KeylessClients>();
         services.AddSingleton<IKeylessSeriesLookup>(sp => sp.GetRequiredService<KeylessClients>());

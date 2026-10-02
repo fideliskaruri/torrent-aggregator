@@ -130,6 +130,11 @@ export interface TitleLibraryState {
     posterUrl: string | null;
     synopsis: string | null;
     rating: number | null;
+    workKey?: string;
+    provider?: string | null;
+    providerId?: string | null;
+    /** The work's stored format (Movie, Series, Special), when known. */
+    format?: string | null;
   };
 }
 

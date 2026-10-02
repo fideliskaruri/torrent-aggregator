@@ -1595,6 +1595,11 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("preferredResolution");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
                     b.Property<double?>("Rating")
                         .HasColumnType("REAL")
                         .HasColumnName("rating");
@@ -1637,7 +1642,7 @@ namespace TorrentFlow.Data.Migrations
 
                     b.HasIndex(new[] { "UserId" }, "WatchListItem_userId_idx");
 
-                    b.HasIndex(new[] { "UserId", "MediaType", "ExternalId" }, "WatchListItem_userId_mediaType_externalId_key")
+                    b.HasIndex(new[] { "UserId", "MediaType", "ExternalId", "Provider" }, "WatchListItem_userId_mediaType_externalId_provider_key")
                         .IsUnique();
 
                     b.HasIndex(new[] { "UserId", "NextCheckAt" }, "WatchListItem_userId_nextCheckAt_idx");
@@ -1656,6 +1661,14 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("AliasesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("aliasesJson");
+
+                    b.Property<bool?>("Anime")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("anime");
+
+                    b.Property<string>("AnimeCheckedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("animeCheckedAt");
 
                     b.Property<string>("CanonicalTitle")
                         .IsRequired()

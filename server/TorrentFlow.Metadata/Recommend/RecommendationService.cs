@@ -33,6 +33,7 @@ public sealed record RecommendationRail(string SeedTitle, IReadOnlyList<Recommen
 public sealed partial class RecommendationService(
     IHttpClientFactory httpFactory,
     TmdbClient tmdb,
+    AniListClient anilist,
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     TimeProvider time,
     ILogger<RecommendationService> logger)
@@ -69,27 +70,27 @@ public sealed partial class RecommendationService(
 
     public void ResetCache() => _tmdbCache.Clear();
 
-    /// <summary>`mediaType:externalId`, the key a rail excludes on.</summary>
-    public static string LibraryKey(string mediaType, string externalId) => $"{MediaTypes.Normalize(mediaType) ?? mediaType}:{externalId}";
+    /// <summary>`provider:externalId`, the key a rail excludes and dedupes on: an AniList film and a TMDB film with the same number are different titles.</summary>
+    public static string LibraryKey(string provider, string externalId) => $"{provider}:{externalId}";
 
     /// <summary>GET /api/recommendations body: seed is the most recent "watching" row.</summary>
     public async Task<RecommendationRail?> ForUserAsync(string userId, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var items = await db.WatchListItems.AsNoTracking().Where(w => w.UserId == userId)
+        var items = (await db.WatchListItems.AsNoTracking().Where(w => w.UserId == userId)
             .OrderByDescending(w => w.UpdatedAt)
-            .Select(w => new { w.Title, w.MediaType, w.ExternalId, w.Status })
-            .ToListAsync(ct).ConfigureAwait(false);
+            .Select(w => new { w.Title, w.MediaType, w.ExternalId, w.Status, Provider = w.Work != null ? w.Work.Provider : null, ProviderId = w.Work != null ? w.Work.ProviderId : null })
+            .ToListAsync(ct).ConfigureAwait(false))
+            // A row's catalog identity is its work's; a row with no work is what its type has always meant (anime: AniList).
+            .Select(i => new { i.Title, i.MediaType, i.Status,
+                Provider = i.Provider is "anilist" or "tmdb" && i.ProviderId != null ? i.Provider : MediaTypes.Normalize(i.MediaType) == "anime" ? "anilist" : "tmdb",
+                Id = i.Provider is "anilist" or "tmdb" && i.ProviderId != null ? i.ProviderId : i.ExternalId })
+            .ToList();
         var seed = items.FirstOrDefault(i => i.Status == "watching");
         if (seed is null) return null;
-        return await RecommendationsForAsync(seed.Title, seed.MediaType, seed.ExternalId,
-            items.Select(i => LibraryKey(i.MediaType, i.ExternalId)).ToHashSet(), 6, ct).ConfigureAwait(false);
-    }
-
-    public Task<RecommendationRail?> RecommendationsForAsync(string title, string mediaType, string externalId, IReadOnlySet<string> exclude, int limit = 6, CancellationToken ct = default)
-    {
-        var normalized = MediaTypes.Normalize(mediaType);
-        return RecommendationsForProviderAsync(normalized == "anime" ? "anilist" : "tmdb", title, normalized ?? mediaType, externalId, exclude, limit, ct);
+        var type = seed.Provider == "anilist" ? "anime" : MediaTypes.Normalize(seed.MediaType) ?? seed.MediaType;
+        return await RecommendationsForProviderAsync(seed.Provider, seed.Title, type, seed.Id,
+            items.Select(i => LibraryKey(i.Provider, i.Id)).ToHashSet(), 6, ct).ConfigureAwait(false);
     }
 
     public async Task<RecommendationRail?> RecommendationsForProviderAsync(string provider, string title, string mediaType, string externalId,
@@ -112,7 +113,7 @@ public sealed partial class RecommendationService(
 
         var seen = new HashSet<string>();
         var items = found.Where(r => !string.IsNullOrEmpty(r.PosterUrl))
-            .Where(r => { var k = LibraryKey(r.MediaType, r.ExternalId); return !exclude.Contains(k) && seen.Add(k); })
+            .Where(r => { var k = LibraryKey(r.Provider, r.ExternalId); return !exclude.Contains(k) && seen.Add(k); })
             .Take(limit).ToList();
         if (items.Count == 0) return null;
         // The same poster the title page and browse show for each work, not the provider's rail art.
@@ -125,11 +126,9 @@ public sealed partial class RecommendationService(
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
-        var body = JsonSerializer.Serialize(new { query = AniListQuery, variables = new { id = long.Parse(id, CultureInfo.InvariantCulture) } });
-        using var req = new HttpRequestMessage(HttpMethod.Post, AniListRecommendationsUrl) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-        req.Headers.Accept.ParseAdd("application/json");
-        using var client = httpFactory.CreateClient(TmdbClient.HttpClientName);
-        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
+        // Through AniList's one pace, like every other AniList request.
+        using var res = await anilist.PostAsync(AniListQuery, new System.Text.Json.Nodes.JsonObject { ["id"] = long.Parse(id, CultureInfo.InvariantCulture) },
+            cts.Token, AniListRecommendationsUrl).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) return [];
         var json = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
         return ParseAniList(json);

@@ -63,7 +63,9 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
                 claims.AddRange(suggested);
             }
         }
-        claims = await WithNamesAsync(claims, ct);
+        // A name lookup AniList refused or failed to answer is no answer: the work is linked later, its names as they are.
+        if (await WithNamesAsync(work.WorkKey, claims, ct) is not { } named) return;
+        claims = named;
 
         // The rows are read again under the work's write lock: an unlink saved while the lookups ran stands, and a map
         // version change retires the anime-lists rows its entries no longer claim (a rejected row stays as the owner's).
@@ -101,7 +103,8 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     /// </summary>
     private async Task<bool?> AnimeAsync(Work work, string type, CancellationToken ct)
     {
-        if (AnimeIdentity.IsAnime(work.Provider, work.MediaType, work.ProviderId)) return true;
+        // The stored verdict (anime source, or the refresh owner's reading of the work's own record) is reused, not asked again.
+        if (work.IsAnime() is { } known) return known;
         if (work.Provider == null || work.ProviderId == null || !IMetadataResolver.SupportsProvider(work.Provider)) return false;
         try
         {
@@ -149,21 +152,36 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
         }
     }
 
-    /// <summary>The AniList records' names, fetched for each linked AniList record (per-season names stay on their link).</summary>
-    private async Task<List<LinkClaim>> WithNamesAsync(List<LinkClaim> claims, CancellationToken ct)
+    /// <summary>
+    /// The AniList records' names, fetched for each linked AniList record (per-season names stay on their link). Null when
+    /// any lookup was refused (rate-limited) or failed: linking then waits for a later pass rather than saving links
+    /// without names and marking the work linked.
+    /// </summary>
+    private async Task<List<LinkClaim>?> WithNamesAsync(string workKey, List<LinkClaim> claims, CancellationToken ct)
     {
         var ids = claims.Where(c => c.Provider == "anilist" && c.Names == null).Select(c => c.ExternalId).Distinct().Take(MaxNameLookups).ToList();
         if (ids.Count == 0) return claims;
         var fetched = await Task.WhenAll(ids.Select(async id =>
         {
-            try { return (id, record: await metadata.GetAniListByIdAsync(id, ct)); }
+            try
+            {
+                var (outcome, record) = await metadata.LookupByIdAsync("anilist", "tv", id, ct);
+                return (Id: id, Outcome: outcome, Record: record);
+            }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
                 logger.LogInformation("Could not read the names of AniList {Id}: {Error}", id, error.Message);
-                return (id, record: (MediaMetadata?)null);
+                return (Id: id, Outcome: ProviderLookup.Failed, Record: (MediaMetadata?)null);
             }
         }));
-        var names = fetched.Where(f => f.record?.ExternalId == f.id).ToDictionary(f => f.id, f => WorkNames.Of(f.record!));
+        var unanswered = fetched.Where(f => f.Outcome is ProviderLookup.RateLimited or ProviderLookup.Failed).ToList();
+        if (unanswered.Count > 0)
+        {
+            logger.LogInformation("AniList did not answer about {Ids} ({Why}); {WorkKey} is linked on a later pass and keeps its names as they are",
+                string.Join(", ", unanswered.Select(f => f.Id)), unanswered.Any(f => f.Outcome == ProviderLookup.RateLimited) ? "rate limit" : "no answer", workKey);
+            return null;
+        }
+        var names = fetched.Where(f => f.Record?.ExternalId == f.Id).ToDictionary(f => f.Id, f => WorkNames.Of(f.Record!));
         return claims.Select(c => c.Provider == "anilist" && c.Names == null && names.TryGetValue(c.ExternalId, out var n) ? c with { Names = n } : c).ToList();
     }
 
@@ -294,14 +312,23 @@ public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> fac
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Linking is background work: its AniList requests spend only the gate's background share.
+        using var priority = ProviderPriority.Background();
         try
         {
             await map.Loaded.WaitAsync(stoppingToken);
             await Task.Delay(TimeSpan.FromSeconds(10), time, stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
-                await PassAsync(stoppingToken);
-                await Task.Delay(TimeSpan.FromHours(1), time, stoppingToken);
+                var wait = TimeSpan.FromHours(1);
+                try { await PassAsync(stoppingToken); }
+                catch (Exception error) when (!stoppingToken.IsCancellationRequested)
+                {
+                    // A failed pass (a busy database, say) never ends the service, let alone the server: it tries again sooner.
+                    wait = TimeSpan.FromMinutes(5);
+                    logger.LogWarning(error, "The link backfill pass failed; it tries again in 5 min");
+                }
+                await Task.Delay(wait, time, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }

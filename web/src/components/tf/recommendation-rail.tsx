@@ -61,15 +61,21 @@ export function RecommendationRailSection({
 
   const add = useCallback(
     async (item: RecommendationRail["items"][number]) => {
-      const key = `${item.mediaType}:${item.externalId}`;
+      const key = `${item.provider}:${item.externalId}`;
       setBusy(key);
       try {
         const res = await fetch("/api/watchlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            mediaType: item.mediaType,
+            // A film is a film (an AniList film included): the hunter grabs it once.
+            mediaType: item.titleMediaType ?? item.mediaType,
             externalId: item.externalId,
+            format: item.format,
+            // The catalog work it is, so its hunts know its provider (and whether it is anime).
+            workKey: workKeyFor(item.title, item.isSeries ? null : item.year),
+            provider: item.provider,
+            providerId: item.externalId,
             title: item.title,
             posterUrl: item.posterUrl,
             // A suggestion has not earned disk: it goes in as something to
@@ -94,7 +100,7 @@ export function RecommendationRailSection({
   );
 
   const visible = useMemo(
-    () => rail?.items.filter((i) => !added.has(`${i.mediaType}:${i.externalId}`)) ?? [],
+    () => rail?.items.filter((i) => !added.has(`${i.provider}:${i.externalId}`)) ?? [],
     [rail, added],
   );
   const artSources = useMemo(() => visible.map(artSource), [visible]);
@@ -114,7 +120,7 @@ export function RecommendationRailSection({
       }
     >
       {visible.map((item) => {
-        const key = `${item.mediaType}:${item.externalId}`;
+        const key = `${item.provider}:${item.externalId}`;
         const workKey = workKeyFor(item.title, item.isSeries ? null : item.year);
         const titleHref = workKey
           ? titlePath(workKey, {

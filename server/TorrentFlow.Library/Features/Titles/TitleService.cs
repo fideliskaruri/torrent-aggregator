@@ -152,7 +152,10 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         // An AniList film is a film, the same as its catalog row; the AniList source still makes it anime.
         var type = (query.Provider is { Format: "MOVIE" } ? "movie" : query.Provider?.MediaType) ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
-        var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
+        // Film or series is the work's stored format (WorkKinds); only a title with no format yet reads its type and files.
+        var format = work?.Format ?? WorkFormats.Of(query.Provider);
+        var isSeries = format != null ? WorkKinds.IsSeries(format, type)
+            : type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
         if (identity == null && query.FindIdentity && type != "anime") identity = await FindIdentityAsync(key, title, year, isSeries, ct);
         var cached = (await db.CachedMetadata.AsNoTracking().OrderByDescending(x => x.UpdatedAt).Take(200).ToListAsync(ct))
             .FirstOrDefault(x => ReleaseSelection.Normalize(x.Title) == ReleaseSelection.Normalize(title) && (type == null || x.MediaType == type) &&
@@ -263,13 +266,14 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var library = LibraryJson.Object(("inLibrary", watch != null), ("watchListItemId", watch?.Id), ("monitored", watch?.Monitored ?? false),
             ("status", watch?.Status), ("cursorSeason", watch?.CursorSeason), ("cursorEpisode", watch?.CursorEpisode),
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
-                ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
+                ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating),
+                // The work this row belongs to: the watchlist links it so hunts and on-demand grabs carry its catalog identity.
+                ("workKey", key), ("provider", identity?.Provider), ("providerId", identity?.ProviderId), ("format", format?.ToString()))));
         // The names and ids a grab of this title searches with: the saved work's, else the provider record's.
         var names = work != null ? WorkNames.Read(work.NamesJson, work.CanonicalTitle, work.AliasesJson, work.Provider)
             : query.Provider != null ? WorkNames.Of(query.Provider) : WorkNames.Legacy(title, null);
         var ids = (work != null ? WorkIds.FromJson(work.IdsJson) ?? new() : query.Provider?.Ids ?? new())
             .Merge(WorkIds.From(identity?.Provider, identity?.ProviderId));
-        var format = work?.Format ?? WorkFormats.Of(query.Provider);
         var language = work?.OriginalLanguage ?? WorkFormats.LanguageOf(query.Provider);
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
             ("names", names.All.Select(n => new { text = n.Text, kind = n.Kind.ToString().ToLowerInvariant() }).ToArray()),

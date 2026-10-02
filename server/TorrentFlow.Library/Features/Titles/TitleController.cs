@@ -150,6 +150,7 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
                 PosterUrl = detail["posterUrl"] as string, NamesJson = workNames.ToJson(),
                 IdsJson = (verified?.Ids ?? new()).Merge(WorkIds.From(provider, providerId)).ToJson() ?? "{}",
                 Format = WorkFormats.Of(verified) ?? WorkFormats.FromMediaType(type), OriginalLanguage = WorkFormats.LanguageOf(verified),
+                Anime = verified != null ? AnimeIdentity.IsAnime(verified) : null,
                 Provider = provider, ProviderId = providerId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
             try { await db.SaveChangesAsync(ct); }

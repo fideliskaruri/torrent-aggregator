@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using TorrentFlow.Core.Contracts.Metadata;
 
@@ -25,13 +25,22 @@ public partial class Work
     /// <summary>Ids at every provider; read them through <see cref="ReadIds"/>.</summary>
     public string? IdsJson { get; set; }
 
-    /// <summary>Movie, Series or Special as the provider tells it; null when unknown. Stored only, decided by nothing yet.</summary>
+    /// <summary>Movie, Series or Special as the provider tells it; null when unknown. Read through <see cref="IsSeries"/>.</summary>
     public WorkFormat? Format { get; set; }
 
     /// <summary>ISO 639-1 original language from the provider; null when unknown. Stored only.</summary>
     public string? OriginalLanguage { get; set; }
 
-    /// <summary>When names, ids, format and language were last taken from the work's own provider; null when never.</summary>
+    /// <summary>
+    /// Whether the work's own provider record classes it as anime (<see cref="AnimeIdentity.IsAnime(MediaMetadata?)"/>),
+    /// stored at ingest and refresh; null until known. Read through <see cref="IsAnime"/>.
+    /// </summary>
+    public bool? Anime { get; set; }
+
+    /// <summary>When the work's provider was last asked for its anime verdict and gave none (not found, no record); null when never. Backs off the backfill.</summary>
+    public DateTime? AnimeCheckedAt { get; set; }
+
+    /// <summary>When names, ids, format, language and anime were last taken from the work's own provider; null when never.</summary>
     public DateTime? NamesRefreshedAt { get; set; }
 
     /// <summary>The anime-lists map version this work was last linked against ("none" without a map); null when never linked.</summary>
@@ -46,6 +55,15 @@ public partial class Work
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Film or series: <see cref="WorkKinds.IsSeries"/>.</summary>
+    public bool IsSeries() => WorkKinds.IsSeries(Format, MediaType);
+
+    /// <summary>Film or series only when the work says so, null while unknown: <see cref="WorkKinds.KnownSeries"/>.</summary>
+    public bool? KnownSeries() => WorkKinds.KnownSeries(Format, MediaType);
+
+    /// <summary>Anime (the folder only), null while unknown: <see cref="WorkKinds.IsAnime"/>.</summary>
+    public bool? IsAnime() => WorkKinds.IsAnime(Provider, ProviderId, Anime, MediaType);
 
     public virtual ICollection<AcquisitionTarget> AcquisitionTargets { get; set; } = new List<AcquisitionTarget>();
 

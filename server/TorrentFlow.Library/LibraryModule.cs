@@ -32,6 +32,7 @@ public static class LibraryModule
         services.TryAddSingleton<TorrentFlow.Core.Contracts.Metadata.IAirDateLookup, TorrentFlow.Core.Contracts.Metadata.UnknownAirDateLookup>();
         services.AddSingleton<TitleService>();
         services.AddSingleton<WorkNamesRefresh>();
+        services.AddHostedService<WorkAnimeBackfill>();
         services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
 
@@ -14,6 +15,9 @@ public sealed class AutomationScheduler(IDbContextFactory<TorrentFlowDbContext> 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (configuration.GetValue<bool>("TorrentFlow:Library:DisableScheduler")) return;
+        // The scheduled hunt is background: its AniList requests spend only the gate's background share. Only the
+        // request itself ever waits, so TMDB-only items are never held up.
+        using var priority = ProviderPriority.Background();
         logger.LogInformation("[scheduler] automation scheduler armed");
         var delay = TimeSpan.FromSeconds(30);
         var nextRules = DateTime.MinValue;
