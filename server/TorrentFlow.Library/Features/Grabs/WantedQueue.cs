@@ -67,7 +67,7 @@ public interface IWantedObserver
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
     TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine,
-    WorkNamesRefresh? names = null, IWorkLinker? linker = null) : BackgroundService
+    WorkNamesRefresh? names = null, IWorkLinker? linker = null, AnimeNumberingReconciler? numbering = null) : BackgroundService
 {
     /// <summary>
     /// A run waits on searches and on the engine admitting each find (a magnet is admitted before its file list
@@ -82,9 +82,12 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         TimeSpan.FromHours(1), TimeSpan.FromHours(3), TimeSpan.FromHours(6)];
     /// <summary>Failures that clear up by themselves; the owner is never asked about these.</summary>
     private static readonly HashSet<string> Passing = ["sources_unavailable", "search_busy", "download_failed", "metadata_unavailable",
-        "audio_language"];
-    /// <summary>The search itself did not happen (a site refused or was unreachable): not a miss, so no try is spent.</summary>
-    private static readonly HashSet<string> Unsearched = ["sources_unavailable", "search_busy"];
+        "audio_language", "season_list_pending"];
+    /// <summary>
+    /// The search itself did not happen (a site refused or was unreachable, or an anime show's season list is not known
+    /// yet): not a miss, so no try is spent.
+    /// </summary>
+    private static readonly HashSet<string> Unsearched = ["sources_unavailable", "search_busy", "season_list_pending"];
     private static readonly TimeSpan MaxUnsearchedWait = TimeSpan.FromMinutes(15);
 
     /// <summary>What one run covers: a film, a season's queued episodes, or (<see cref="Episode"/>) one episode clicked on its own.</summary>
@@ -495,6 +498,20 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     {
         // An automation order's provider lookups are background; anything the owner pressed goes first (ProviderPriority).
         using var priority = plans.TryGetValue(unit, out var ordered) && ordered.Lane == TorrentLane.Automation ? ProviderPriority.Background() : null;
+        // Rows saved under an anime show's old numbering move to its current seasons before anything is searched for them.
+        if (numbering != null)
+        {
+            try
+            {
+                // Moved rows belong to other units (Season 2 rather than Season 1); the next scan takes them at once.
+                if (await numbering.ReconcileAsync(unit.WorkKey, ct))
+                {
+                    Interlocked.Exchange(ref released, 1);
+                    wake.Release();
+                }
+            }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation("Numbering of {WorkKey} before its grab stopped: {Error}", unit.WorkKey, error.Message); }
+        }
         await using var db = await factory.CreateDbContextAsync(ct);
         var scope = unit.Season == null ? "title" : "episode";
         // A clicked episode's run takes only that episode; a season's run leaves alone the episodes clicked on their own.

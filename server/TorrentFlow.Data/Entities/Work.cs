@@ -46,6 +46,12 @@ public partial class Work
     /// <summary>The anime-lists map version this work was last linked against ("none" without a map); null when never linked.</summary>
     public string? LinksVersion { get; set; }
 
+    /// <summary>
+    /// An anime work's episode numbering its wanted rows and cursor were last brought to (absolute start, season, first
+    /// episode per season); null when never. A changed numbering renumbers them once (AnimeNumberingReconciler).
+    /// </summary>
+    public string? NumberingJson { get; set; }
+
     public string? Provider { get; set; }
 
     public string? ProviderId { get; set; }

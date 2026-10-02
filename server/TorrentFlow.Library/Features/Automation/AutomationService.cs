@@ -26,7 +26,8 @@ public sealed record RuleRunResult(string RuleId, bool Matched, string Message, 
 }
 
 public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search,
-    ITorrentEngine engine, GrabService grabs, IAirDateLookup airDates, IOptions<AutomationOptions> options, IMetadataResolver metadata)
+    ITorrentEngine engine, GrabService grabs, IAirDateLookup airDates, IOptions<AutomationOptions> options, IMetadataResolver metadata,
+    AnimeNumberingReconciler? numbering = null)
 {
     private async Task<string?> Lock(string scope, CancellationToken ct)
     {
@@ -142,6 +143,14 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
         {
             IReadOnlyList<RuleRunResult> rules = includeRules ? await Rules(ct) : [];
             await using var db = await factory.CreateDbContextAsync(ct);
+            // A cursor saved under an anime show's old numbering moves to its current seasons before it is hunted.
+            if (numbering != null)
+            {
+                var hunted = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Monitored == true && x.WorkId != null &&
+                    (x.Status == "watching" || x.Status == "planned") && (itemIds == null || itemIds.Contains(x.Id))).Select(x => x.WorkId!).ToListAsync(ct);
+                try { await numbering.ReconcileAllAsync(hunted, ct); }
+                catch (Exception) when (!ct.IsCancellationRequested) { }
+            }
             var query = db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Monitored == true &&
                 (x.Status == "watching" || x.Status == "planned"));
             if (itemIds != null) query = query.Where(x => itemIds.Contains(x.Id));

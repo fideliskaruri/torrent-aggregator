@@ -40,6 +40,8 @@ public static class LibraryModule
         services.TryAddSingleton<ISeasonShapeLookup, DefaultSeasonShapeLookup>();
         services.AddSingleton<EpisodeSearchIdentity>();
         services.AddSingleton<AnimeEpisodeMappings>();
+        services.AddSingleton<AnimeNumberingReconciler>();
+        services.AddHostedService(sp => sp.GetRequiredService<AnimeNumberingReconciler>());
         services.AddHostedService<AutomationScheduler>();
         services.AddHostedService<Features.Watchlist.DownloadedToLibrary>();
         return services;

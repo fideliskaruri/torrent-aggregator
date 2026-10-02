@@ -769,6 +769,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.AnimeCheckedAt).HasColumnName("animeCheckedAt");
             entity.Property(e => e.NamesRefreshedAt).HasColumnName("namesRefreshedAt");
             entity.Property(e => e.LinksVersion).HasColumnName("linksVersion");
+            entity.Property(e => e.NumberingJson).HasColumnName("numberingJson");
             entity.Property(e => e.CanonicalTitle).HasColumnName("canonicalTitle");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
