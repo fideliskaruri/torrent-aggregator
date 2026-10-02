@@ -56,9 +56,11 @@ fails only when every provider fails; a partial answer lists the failed categori
   kind-tagged key still matches release names by its name and year, but never takes a
   catalog row or watchlist row of the other kind.
 - A title page and its downloads check that the link's record is the key's title
-  (`TitleIdentity.Matches`): one of its names and its year, or the year beside it
-  (catalogs date a start a year apart: TVmaze's Doctor Who 2023 is TMDB's 2024), give the
-  key; a record that shares an ID with the work stored at the key always passes.
+  (`TitleIdentity.Matches`): one of its names and its year give the key; for a series
+  the year beside it does too (catalogs date a start a year apart: TVmaze's Doctor Who
+  2023 is TMDB's 2024), while a film's key always carries its record's own year, so
+  remakes a year apart (Little Women 2018 and 2019) stay apart. A record that shares an
+  ID with the work stored at the key always passes.
   `POST /api/title/{key}` decides with the same `WorkIdentities` test: the download goes
   to the stored work that shares an ID with the claim, wherever it is keyed (the claimed
   record's own work first, then one whose canonical IDs share it, then the nearest year);
@@ -67,7 +69,13 @@ fails only when every provider fails; a partial answer lists the failed categori
   download went to, and the title page follows it in place (no new history entry), so the
   transfer shows on the page in front of the owner. TVmaze records carry the IMDb and
   TheTVDB IDs TVmaze reports, and TMDB records their TheTVDB ID (`WorkIds.Tvdb`), so a
-  download from either finds a work saved from another catalog.
+  download from either finds a work saved from another catalog. TVmaze works saved before
+  that, known only by their TVmaze ID, are read again once per start in the background
+  (`WorkIdsBackfill`, background priority) and whenever their page opens
+  (`WorkNamesRefresh.Stale`), so a download from TMDB's card of a stored TVmaze show lands
+  in that work instead of a second one. Search reads every stored work's key and canonical
+  IDs once and reuses them for up to 30 seconds, sooner when a work is added, re-keyed or
+  gets other IDs (`WorkIdentities.Version`).
 - Rails, similar titles, requests and on-demand still name an unstored series by its
   bare name; opening or downloading one reuses the stored work with the same provider
   ID or verified link, whatever its key. Watchlist rows carry their linked work's key
@@ -78,7 +86,9 @@ fails only when every provider fails; a partial answer lists the failed categori
   links only such a row. A legacy "Doctor Who" row saved from the 2023 show never counts
   for the 2005 page, and a Fargo (1996) film row never for the series.
 - The same film from several providers is one card (`SameFilmSlot`: same era and
-  name, or the same year and a one-letter difference such as Se7en and Seven). Its
+  name, or the same year and a one-letter difference such as Se7en and Seven), unless
+  the card's own catalog also lists a film under the other year's key: TMDB's Little
+  Women 2018 and 2019 are two films, so Cinemeta's 2018 never joins the 2019 card. Its
   identity prefers an AniList anime film, then TVmaze, TMDB, Cinemeta and iTunes;
   the others add their IDs, aliases, poster and overview.
 - Cinemeta years come from IMDb's original year, not a later regional release
