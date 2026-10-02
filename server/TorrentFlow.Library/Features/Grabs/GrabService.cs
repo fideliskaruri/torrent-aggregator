@@ -70,7 +70,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (!Dedupes(input)) return await GrabCore(input, ct, beforeSend);
         // One episode is grabbed once, whichever path (a request, the hunter, a season, a click) gets there first:
         // every caller for the same episode joins the attempt in flight, whatever quality it asked for.
-        var key = $"{input.WorkId}:{input.Cursor!.Value.QueueKey}";
+        var key = $"{input.WorkId ?? input.WorkKey}:{input.Cursor!.Value.QueueKey}";
         Task<GrabResult> work;
         lock (episodeGate)
         {
@@ -94,15 +94,13 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var plain = Apostrophes.Normalize(input.Title);
         var query = input.Cursor?.Query(plain) ?? plain;
         await using var db = await factory.CreateDbContextAsync(ct);
-        if (Dedupes(input) && input.Cursor is { } requested)
+        if (Dedupes(input) && input.Cursor is { } requested &&
+            (input.WorkId ?? await db.Works.AsNoTracking().Where(w => w.WorkKey == input.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct)) is { } workId)
         {
-            var existing = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id &&
-                t.WorkId == input.WorkId && t.QueueKey == requested.QueueKey && t.Origin == TorrentOrigin.User &&
-                t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed, ct);
-            if (existing != null)
+            if (await EpisodeOwner(db, workId, requested, ct) is { } existing)
                 return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
                     Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
-            if (await PackOwner(db, input.WorkId!, requested, ct) is { } pack)
+            if (await PackOwner(db, workId, requested, ct) is { } pack)
                 return new(true, "This episode is already downloading as part of a season pack.") { InfoHash = pack.Hash, Title = pack.Name,
                     Queued = pack.Status == EngineTorrentStatus.Queued, Query = query };
         }
@@ -117,16 +115,32 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// Episode grabs for a known work always reuse what is already on its way. The hunter and the on-demand click used
     /// to skip this, so they could grab a second release for an episode a request or season run had already started.
     /// </summary>
-    private static bool Dedupes(GrabInput input) => input.Cursor != null && input.WorkId != null;
+    private static bool Dedupes(GrabInput input) => input.Cursor != null && (input.WorkId != null || input.WorkKey != null);
 
-    /// <summary>The healthy season pack transfer that owns this episode, if any.</summary>
+    /// <summary>
+    /// The healthy single-episode transfer for this episode of the work (<see cref="EngineTorrentStatus.IsHealthy"/>).
+    /// Older rows carry no queue key, so a work's unkeyed transfer counts when its name parses to the same episode.
+    /// </summary>
+    private static async Task<EngineTorrent?> EpisodeOwner(TorrentFlowDbContext db, string workId, EpisodeCursor cursor, CancellationToken ct)
+    {
+        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == workId &&
+            t.Origin == TorrentOrigin.User && (t.QueueKey == cursor.QueueKey || t.QueueKey == null)).ToListAsync(ct);
+        return rows.Where(t => EngineTorrentStatus.IsHealthy(t.Status)).FirstOrDefault(t => t.QueueKey == cursor.QueueKey ||
+            ReleaseEpisodeParser.Parse(t.Name) is { Season: { } s, Episode: { } e, IsBatch: false } && s == cursor.Season && e == cursor.Episode);
+    }
+
+    /// <summary>
+    /// The healthy transfer an acquisition target says owns this episode (a season pack's file, or an older single
+    /// transfer recorded only on its target), if any.
+    /// </summary>
     private static async Task<EngineTorrent?> PackOwner(TorrentFlowDbContext db, string workId, EpisodeCursor cursor, CancellationToken ct)
     {
-        var hash = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == workId && t.Scope == "episode" &&
-            t.Season == cursor.Season && t.Episode == cursor.Episode && t.FileIndex != null && t.InfoHash != null && t.Status != "failed")
-            .Select(t => t.InfoHash).FirstOrDefaultAsync(ct);
-        return hash == null ? null : await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.Hash == hash &&
-            t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed, ct);
+        var hashes = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == workId && t.Scope == "episode" &&
+            t.Season == cursor.Season && t.Episode == cursor.Episode && t.InfoHash != null && t.Status != "failed")
+            .Select(t => t.InfoHash!).ToListAsync(ct);
+        if (hashes.Count == 0) return null;
+        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && hashes.Contains(t.Hash)).ToListAsync(ct);
+        return rows.FirstOrDefault(t => EngineTorrentStatus.IsHealthy(t.Status));
     }
 
     /// <summary>
