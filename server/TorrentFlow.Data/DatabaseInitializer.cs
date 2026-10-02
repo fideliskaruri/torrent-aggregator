@@ -22,6 +22,8 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        // Before anything this start runs can write a row (ChainNumbering).
+        var started = DateTime.UtcNow;
         await using var db = await factory.CreateDbContextAsync(ct);
         var conn = db.Database.GetDbConnection();
         await conn.OpenAsync(ct);
@@ -56,6 +58,11 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
         }
 
         await db.Database.MigrateAsync(ct);
+
+        var (chainSince, chainRecorded) = await ChainNumbering.EnsureAsync(conn, started, ct);
+        if (chainRecorded)
+            logger.LogInformation("Anime seasons follow the AniList sequel chain from this start: rows saved before {Since:u} are read in the old numbering, once",
+                chainSince);
 
         if (before.Count > 0)
         {

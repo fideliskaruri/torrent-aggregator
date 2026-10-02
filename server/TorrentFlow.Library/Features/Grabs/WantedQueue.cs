@@ -215,6 +215,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             target.Status = "queued"; target.Progress = 0; target.InfoHash = null; target.FilePath = null; target.Error = null;
         }
         await db.SaveChangesAsync(ct);
+        // These rows number the show as its page does: a work with nothing older is never read in the old numbering.
+        await AnimeNumberingReconciler.StampFreshAsync(db, workId, ct);
         return tracked;
     }
 

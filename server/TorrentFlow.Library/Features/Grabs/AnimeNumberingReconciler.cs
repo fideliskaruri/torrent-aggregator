@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -20,16 +21,20 @@ namespace TorrentFlow.Library.Features.Grabs;
 /// the AniList sequel chain, a first season's page used the show listing's numbers (TMDB's Frieren S1E29-38) and a
 /// sequel entry's page its own Season 1; rows saved then (wanted targets, the library cursor, transfer queue keys,
 /// tried and blocked releases) would stay on numbers no page shows, never be found, and collide with the same episodes
-/// under their new numbers. Each coordinate is mapped through the episode it names (its AniList entry and that entry's
-/// episode, or its absolute number) and merged into the new key, all in one transaction with the numbering applied
-/// (<see cref="Work.NumberingJson"/>: the listing it was laid over and its segments), so it runs again only when the
-/// shape changes. Never on a guess: a numbering AniList or the show listing did not fully answer is never applied, a
-/// listing that came, went or changed leaves the applied numbering as it is, and nothing is mapped where AniList and the
-/// listing disagree on which entry an episode belongs to. The numbering is read with no lock held; the per-work gate
-/// (<see cref="WorkGrabGate"/>) is taken only for the transaction and the file moves, and is never taken while a grab of
-/// the work is in flight. Finished episodes filed under the old numbers (a sequel entry's own folder, the wrong season),
-/// the library hunter's included, are then moved to the show's season folder once the client has let go of them, at most
-/// <see cref="MovesPerPass"/> files a pass.
+/// under their new numbers. Only what was saved before this database began following the chain
+/// (<see cref="ChainNumbering"/>) is read in that old numbering: a row written since (SPY x FAMILY Cour 2's Season 1
+/// episode 13 clicked on its page) already numbers the show's seasons and is never translated again. Each coordinate is
+/// mapped through the episode it names (its AniList entry and that entry's episode, or its absolute number) and merged
+/// into the new key, all in one transaction with the numbering applied (<see cref="Work.NumberingJson"/>: the listing it
+/// was laid over and its segments), so it runs again only when the shape changes. A work whose first rows are written
+/// with nothing older is stamped as numbered that way from the start (<see cref="StampFreshAsync"/>). Never on a guess: a
+/// numbering AniList or the show listing did not fully answer is never applied, a listing that came, went or changed
+/// leaves the applied numbering as it is, and nothing is mapped where AniList and the listing disagree on which entry an
+/// episode belongs to. The numbering is read with no lock held; the per-work gate (<see cref="WorkGrabGate"/>) is taken
+/// only for the transaction and the file moves, and is never taken while a grab of the work is in flight. Finished
+/// episodes filed under the old numbers (a sequel entry's own folder, the wrong season), the library hunter's included,
+/// are then moved to the show's season folder once the client has let go of them, at most <see cref="MovesPerPass"/>
+/// files a pass.
 /// </summary>
 public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbContext> factory, ISeasonShapeLookup shapes,
     TimeProvider time, ILogger<AnimeNumberingReconciler> logger, ITorrentEngine? engine = null) : BackgroundService
@@ -69,9 +74,14 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     private sealed record Segment(int Start, int Season, int Episode, int Count, string? Entry = null, int? EntryEpisode = null);
 
     /// <summary>What <see cref="Work.NumberingJson"/> holds: the listing the numbering was laid over and its segments.</summary>
-    private sealed record Applied(int Version, string Listing, List<Segment> Segments)
+    /// <param name="Fresh">Stamped when the work's first rows were written with nothing older (<see cref="StampFreshAsync"/>):
+    /// every row already numbers the show's seasons, so its first numbering is recorded without mapping any of them.</param>
+    private sealed record Applied(int Version, string Listing, List<Segment> Segments,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Fresh = false)
     {
         private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+        public static string FreshJson { get; } = new Applied(Format, "", [], Fresh: true).ToJson();
 
         public string ToJson() => JsonSerializer.Serialize(this, Json);
 
@@ -213,7 +223,7 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
             var work = await db.Works.FirstOrDefaultAsync(w => w.Id == found.Id, ct);
             if (work == null) return default;
             var stored = Applied.Read(work.NumberingJson);
-            if (stored is not null && stored.Listing != applied.Listing)
+            if (stored is { Fresh: false } && stored.Listing != applied.Listing)
             {
                 // The listing came, went or changed: the rows keep the numbering they were brought to, and nothing moves.
                 waiting.TryRemove(workKey, out _);
@@ -224,6 +234,13 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
                 return default;
             }
             var renumber = work.NumberingJson != json;
+            if (renumber && stored is { Fresh: true })
+            {
+                // Nothing older to translate: the numbering is only recorded, and never waits for a grab in flight.
+                work.NumberingJson = json;
+                await db.SaveChangesAsync(ct);
+                renumber = false;
+            }
             if (!renumber) waiting.TryRemove(workKey, out _);
             if (!renumber && numbering.ShowId == null && !filesPending.ContainsKey(workKey)) return default;
             using var hold = WorkGrabGate.TryRenumber(work.Id);
@@ -253,12 +270,13 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
         CancellationToken ct)
     {
         var map = Mapping(work, numbering, stored);
+        var old = await OldAsync(db, stored, ct);
         var keys = new Dictionary<string, string>(StringComparer.Ordinal);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var moved = await MoveTargetsAsync(db, work, map, keys, ct);
-        moved += await MoveCursorsAsync(db, work, map, ct);
-        moved += await MoveQueueKeysAsync(db, work, map, ct);
-        moved += await MoveReleasesAsync(db, work, map, ct);
+        var moved = await MoveTargetsAsync(db, work, map, old, keys, ct);
+        moved += await MoveCursorsAsync(db, work, map, old, ct);
+        moved += await MoveQueueKeysAsync(db, work, map, old, ct);
+        moved += await MoveReleasesAsync(db, work, map, old, ct);
         work.NumberingJson = applied;
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -267,17 +285,57 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
         return moved;
     }
 
+    /// <summary>
+    /// Whether something written at a given moment is in the numbering <see cref="Mapping"/> reads from: everything, once a
+    /// numbering was applied (rows written since were brought to it); nothing for a work stamped fresh; and before any
+    /// numbering was applied, only what was written before this database began following the chain
+    /// (<see cref="ChainNumbering"/>), which is the old numbering. Anything written since already numbers the show's seasons.
+    /// </summary>
+    private static async Task<Func<DateTime, bool>> OldAsync(TorrentFlowDbContext db, Applied? stored, CancellationToken ct)
+    {
+        if (stored is not null) return stored.Fresh ? _ => false : _ => true;
+        return await ChainNumbering.SinceAsync(db, ct) is { } since ? written => written < since : _ => false;
+    }
+
+    /// <summary>A library row's cursor was written in the old numbering when the row was created and last saved before the chain numbering.</summary>
+    private static bool OldCursor(WatchListItem item, Func<DateTime, bool> old) => old(item.CreatedAt) && old(item.UpdatedAt);
+
+    /// <summary>
+    /// Marks an AniList work that has nothing saved from before the chain numbering (<see cref="ChainNumbering"/>) as numbered
+    /// that way from the start, when its first rows are written: its first renumbering then reads none of them as old. A
+    /// work already numbered, or with anything older (a wanted row, a library row, a transfer's queue key, a tried or
+    /// blocked release), is left alone; the renumbering then translates only those older rows.
+    /// </summary>
+    public static async Task StampFreshAsync(TorrentFlowDbContext db, string workId, CancellationToken ct)
+    {
+        var work = await db.Works.AsNoTracking().Where(w => w.Id == workId && w.Provider == "anilist" && w.NumberingJson == null)
+            .Select(w => new { w.Id, w.WorkKey }).FirstOrDefaultAsync(ct);
+        if (work is null || await ChainNumbering.SinceAsync(db, ct) is not { } since) return;
+        bool Older(DateTime written) => written < since;
+        // Read and compared here, not in SQL: the stored text of a moment has more than one form.
+        var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && (t.WorkKey == work.WorkKey || t.WorkId == work.Id))
+            .Select(t => t.CreatedAt).ToListAsync(ct);
+        var rows = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.WorkId == work.Id)
+            .Select(x => new { x.CreatedAt, x.UpdatedAt }).ToListAsync(ct);
+        var transfers = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == work.Id && t.QueueKey != null)
+            .Select(t => t.CreatedAt).ToListAsync(ct);
+        var tried = await db.ReleaseAttempts.AsNoTracking().Where(a => a.UserId == LocalUser.Id && a.WorkKey == work.WorkKey).Select(a => a.TriedAt).ToListAsync(ct);
+        var blocked = await db.ReleaseBlocks.AsNoTracking().Where(b => b.UserId == LocalUser.Id && b.WorkKey == work.WorkKey).Select(b => b.CreatedAt).ToListAsync(ct);
+        if (targets.Concat(transfers).Concat(tried).Concat(blocked).Any(Older) || rows.Any(r => Older(r.CreatedAt) && Older(r.UpdatedAt))) return;
+        await db.Works.Where(w => w.Id == work.Id && w.NumberingJson == null).ExecuteUpdateAsync(s => s.SetProperty(w => w.NumberingJson, Applied.FreshJson), ct);
+    }
+
     /// <summary>Which episode a coordinate names: its AniList entry and that entry's episode when one numbers it, else its absolute number.</summary>
     private static string Identity(string? entry, int? entryEpisode, int absolute) =>
         entry is not null && entryEpisode is { } episode ? $"{entry}:{episode.ToString(CultureInfo.InvariantCulture)}" : $"#{absolute.ToString(CultureInfo.InvariantCulture)}";
 
     /// <summary>
     /// The new coordinate of a coordinate rows were saved under, or null when it stays. Rows were saved under the
-    /// numbering last applied, or (never applied) the pre-chain page's numbers; either names an episode, which keeps its
-    /// identity under the new numbering. A row saved as season 1 and an absolute number ("- 29", TMDB's lumped season)
-    /// names that absolute episode only when it lies in a later entry past a season boundary the chain decided, never in
-    /// the work's own entry. Nothing maps from or to an episode whose entry is uncertain, nor (for the absolute guess)
-    /// past one.
+    /// numbering last applied, or (never applied) the pre-chain page's numbers, which only rows older than the chain
+    /// numbering carry (<see cref="OldAsync"/>); either names an episode, which keeps its identity under the new numbering.
+    /// A row saved as season 1 and an absolute number ("- 29", TMDB's lumped season) names that absolute episode only when
+    /// it lies in a later entry past a season boundary the chain decided, never in the work's own entry. Nothing maps from
+    /// or to an episode whose entry is uncertain, nor (for the absolute guess) past one.
     /// </summary>
     private static Func<int, int, (int Season, int Episode)?> Mapping(Work work, AnimeNumbering numbering, Applied? stored)
     {
@@ -327,14 +385,16 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     /// <summary>
     /// Moves each target to its episode's new key. Two rows landing on one key merge: the one furthest along keeps the
     /// key; a row with no transfer of its own folds into it (its run, click and misses kept); a row with a different
-    /// transfer keeps that transfer linked under a key of its own, every field as it was.
+    /// transfer keeps that transfer linked under a key of its own, every field as it was. A row's season and episode
+    /// change only here, so when it was created says which numbering they are in (<paramref name="old"/>); a retry or a
+    /// hold that touched it since says nothing about them.
     /// </summary>
     private static async Task<int> MoveTargetsAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map,
-        Dictionary<string, string> keys, CancellationToken ct)
+        Func<DateTime, bool> old, Dictionary<string, string> keys, CancellationToken ct)
     {
         var rows = await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.Scope == "episode" && t.Season != null &&
             t.Episode != null && (t.WorkKey == work.WorkKey || t.WorkId == work.Id)).ToListAsync(ct);
-        var final = rows.ToDictionary(t => t, t => map(t.Season!.Value, t.Episode!.Value));
+        var final = rows.ToDictionary(t => t, t => old(t.CreatedAt) ? map(t.Season!.Value, t.Episode!.Value) : null);
         if (final.Values.All(v => v is null)) return 0;
         var moved = 0;
         var settled = new Dictionary<AcquisitionTarget, string>();
@@ -384,11 +444,12 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
         return moved;
     }
 
-    private static async Task<int> MoveCursorsAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map, CancellationToken ct)
+    private static async Task<int> MoveCursorsAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map,
+        Func<DateTime, bool> old, CancellationToken ct)
     {
         var items = await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && x.WorkId == work.Id).ToListAsync(ct);
         var moved = 0;
-        foreach (var item in items)
+        foreach (var item in items.Where(item => OldCursor(item, old)))
         {
             var changed = false;
             if (item is { CursorSeason: { } cs, CursorEpisode: { } ce } && map(cs, ce) is { } cursor)
@@ -417,11 +478,12 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
         return moved;
     }
 
-    private static async Task<int> MoveQueueKeysAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map, CancellationToken ct)
+    private static async Task<int> MoveQueueKeysAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map,
+        Func<DateTime, bool> old, CancellationToken ct)
     {
         var torrents = await db.EngineTorrents.Where(t => t.UserId == LocalUser.Id && t.WorkId == work.Id && t.QueueKey != null).ToListAsync(ct);
         var moved = 0;
-        foreach (var torrent in torrents)
+        foreach (var torrent in torrents.Where(t => old(t.CreatedAt)))
             if (QueueKeys.Parse(torrent.QueueKey) is { } key && map(key.Season, key.Episode) is { } to)
             {
                 torrent.QueueKey = QueueKeys.For(to.Season, to.Episode);
@@ -447,14 +509,16 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     }
 
     /// <summary>Releases tried or blocked for one episode or season keep naming it; two records of one release merge.</summary>
-    private static async Task<int> MoveReleasesAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map, CancellationToken ct)
+    private static async Task<int> MoveReleasesAsync(TorrentFlowDbContext db, Work work, Func<int, int, (int Season, int Episode)?> map,
+        Func<DateTime, bool> old, CancellationToken ct)
     {
         var moved = 0;
         var attempts = await db.ReleaseAttempts.Where(r => r.UserId == LocalUser.Id && r.WorkKey == work.WorkKey).ToListAsync(ct);
-        var kept = attempts.Where(r => Rescope(r.Scope, map) is null).ToDictionary(r => (r.Scope, r.Hash));
+        string? Moves(ReleaseAttempt attempt) => old(attempt.TriedAt) ? Rescope(attempt.Scope, map) : null;
+        var kept = attempts.Where(r => Moves(r) is null).ToDictionary(r => (r.Scope, r.Hash));
         foreach (var attempt in attempts)
         {
-            if (Rescope(attempt.Scope, map) is not { } scope) continue;
+            if (Moves(attempt) is not { } scope) continue;
             db.ReleaseAttempts.Remove(attempt);
             if (kept.TryGetValue((scope, attempt.Hash), out var existing))
             {
@@ -470,7 +534,7 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
         }
         // A block is keyed by its release alone, so it only takes its new scope.
         var blocks = await db.ReleaseBlocks.Where(b => b.UserId == LocalUser.Id && b.WorkKey == work.WorkKey).ToListAsync(ct);
-        foreach (var block in blocks)
+        foreach (var block in blocks.Where(b => old(b.CreatedAt)))
             if (Rescope(block.Scope, map) is { } scope)
             {
                 block.Scope = scope;
