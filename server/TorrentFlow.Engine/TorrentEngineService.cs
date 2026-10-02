@@ -36,7 +36,8 @@ internal sealed partial class TorrentEngineService(
     CompletedLayoutManifestStore? layoutManifest = null,
     ISmartCategorizer? categorizer = null,
     DownloadLimits? limits = null,
-    IPromotionGate? gate = null) : ITorrentEngine, ILayoutTidy
+    IPromotionGate? gate = null,
+    IPromotionTestHooks? hooks = null) : ITorrentEngine, ILayoutTidy
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -138,9 +139,11 @@ internal sealed partial class TorrentEngineService(
         var target = ResolveTarget(config, request);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
         // The payload goes to the stage folder; the save path is only written when the files are promoted (section 1 of
-        // docs/english-gates-plan.md), so nothing reaches the library folder before the gate.
+        // docs/english-gates-plan.md), so nothing reaches the library folder before the gate. Only the shared .staging
+        // folder is made (and checked writable) here; the transfer's own folder is made when it starts, so a refused add
+        // leaves nothing behind.
         var stagePath = StagePaths.For(savePath, config, hash);
-        if (StagePaths.Prepare(stagePath) is { } pathError)
+        if (StagePaths.PrepareRoot(Path.GetDirectoryName(stagePath)!) is { } pathError)
             return new EngineAddResult(false, pathError) { InvalidField = "savePath" };
         if (bytes is not null) SaveTorrentFile(hash, bytes);
 
@@ -879,7 +882,6 @@ internal sealed partial class TorrentEngineService(
         logger.LogInformation("Engine rehydrate: starting {Count} of the kept downloads (cap {Cap})", start.Count, Cap);
         // One failure (or shutdown mid-way) must not strand the rest as downloading.
         await StartClaimedAsync(start);
-        await ResumePromotionsAsync(ct);
     }
 
     /// <summary>Port of builtin-engine-lifecycle shouldRehydrateTorrent, restricted to kept downloads.</summary>
@@ -1353,15 +1355,28 @@ internal sealed partial class TorrentEngineService(
         var hashes = infoHashes.Select(h => h.Trim().ToLowerInvariant()).ToList();
         var wanted = hashes.Where(h => h.Length > 0).Distinct().Order(StringComparer.Ordinal).ToList();
         var removed = new HashSet<string>(StringComparer.Ordinal);
+        var refused = new Dictionary<string, string>(StringComparer.Ordinal);
         var detached = 0;
         var held = new List<IDisposable>();
         await _removeGate.WaitAsync(ct);
         try
         {
             foreach (var hash in wanted) held.Add(await LockHashAsync(hash, ct));
+            if (!deleteFiles)
+            {
+                // "Remove, keep files" on a finished download still in its stage folder (Completed, Checking or Held): its
+                // files are moved into the library as they are first, so keeping them never loses them. Only an unfinished
+                // transfer drops its stage folder. One that can't be moved is not removed.
+                await using var keepDb = await dbFactory.CreateDbContextAsync(ct);
+                var finished = await keepDb.EngineTorrents.Where(r => r.UserId == LocalUser.Id && wanted.Contains(r.Hash)
+                    && r.Status == EngineTorrentStatus.Parked && r.VerifiedAt != null && r.StagePath != null).ToListAsync(ct);
+                foreach (var row in finished.Where(r => StagedRoot(r) is not null && PayloadVerified(r)))
+                    if (await KeepFilesLockedAsync(keepDb, row) is { } why) refused[row.Hash] = why;
+            }
+            var keep = refused.Keys.ToList();
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && wanted.Contains(r.Hash)).ToListAsync(ct);
-            var tombstones = await db.EngineDeletions.Where(d => d.UserId == LocalUser.Id && wanted.Contains(d.Hash)).ToListAsync(ct);
+            var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && wanted.Contains(r.Hash) && !keep.Contains(r.Hash)).ToListAsync(ct);
+            var tombstones = await db.EngineDeletions.Where(d => d.UserId == LocalUser.Id && wanted.Contains(d.Hash) && !keep.Contains(d.Hash)).ToListAsync(ct);
             foreach (var row in rows)
             {
                 // Files are wherever the payload is now: the stage folder until promoted, else the save path.
@@ -1406,7 +1421,8 @@ internal sealed partial class TorrentEngineService(
         }
         if (removed.Count > 0) SignalCleanup();
         if (detached > 0) PromoteInBackground();
-        return hashes.Select(h => (h, removed.Contains(h) ? new EngineActionResult(true, "Removed") : new EngineActionResult(false, NotFound))).ToList();
+        return hashes.Select(h => (h, refused.TryGetValue(h, out var why) ? new EngineActionResult(false, why)
+            : removed.Contains(h) ? new EngineActionResult(true, "Removed") : new EngineActionResult(false, NotFound))).ToList();
     }
 
     public async Task<EngineActionResult> SelectFilesAsync(string infoHash, IReadOnlyCollection<int> fileIndices, CancellationToken ct = default)
@@ -1517,6 +1533,8 @@ internal sealed partial class TorrentEngineService(
     internal async Task TickAsync(CancellationToken ct = default)
     {
         await ApplyRateLimitsAsync();
+        // Finished downloads short of the library (a restart, a failed attempt) are retried even while nothing downloads.
+        await RetryPromotionsAsync();
         var liveHashes = backend.LiveHashes().ToList();
         var generation = Volatile.Read(ref _wakes);
         if (liveHashes.Count == 0 && Volatile.Read(ref _idleAtWake) == generation) return;
@@ -1674,11 +1692,12 @@ internal sealed partial class TorrentEngineService(
             _startedAt.TryRemove(hash, out _);
         }
         DeleteFragments();
-        // Released by the client, so the files can go through the gate and be promoted into the library.
+        // Released by the client, so the files can go through the gate and be promoted into the library. One that fails is
+        // retried later (TryFinishAsync) and never stops the rest of the tick.
         foreach (var hash in finalize)
         {
             if (lostHashes.Contains(hash)) continue;
-            await FinishAsync(hash);
+            await TryFinishAsync(hash);
         }
         foreach (var hash in stranded)
         {

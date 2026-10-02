@@ -32,6 +32,7 @@ public sealed partial class DownloadPromotionController(ITorrentEngine engine) :
         var result = keep ? await engine.KeepAsync(hash, ct) : await engine.FindAnotherAsync(hash, CancellationToken.None);
         if (result.Ok) return Ok(new { ok = true, message = result.Message });
         var status = result.Message == TorrentEngineService.NotFound ? 404 : 409;
-        return StatusCode(status, new { ok = false, reason = status == 404 ? "not-found" : "not-held", error = result.Message, message = result.Message });
+        var reason = status == 404 ? "not-found" : result.Message == TorrentEngineService.NotHeldMessage ? "not-held" : "not-moved";
+        return StatusCode(status, new { ok = false, reason, error = result.Message, message = result.Message });
     }
 }

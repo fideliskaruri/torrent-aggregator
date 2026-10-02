@@ -57,9 +57,10 @@ internal sealed partial class TorrentEngineService
                     ?? VerifiedFiles(r).Select(f => f.FullPath).OfType<string>())
                     .Concat(LoadTorrentFile(r.Hash) is { } otherMeta ? FilesFromMetadata(otherMeta, PayloadRoot(r)) : [])).ToList();
                 files = PartialFilesToRemove(files, oldRoot, protectedFiles).ToList();
-                // The new release gets a stage folder of its own; nothing it writes lands in the library before the gate.
+                // The new release gets a stage folder of its own (made when it starts); nothing it writes lands in the library
+                // before the gate.
                 var nextStage = old.SavePath is { } finalPath ? StagePaths.For(finalPath, config, nextHash) : null;
-                if (nextStage is not null && StagePaths.Prepare(nextStage) is { } stageError) return new(false, stageError);
+                if (nextStage is not null && StagePaths.PrepareRoot(Path.GetDirectoryName(nextStage)!) is { } stageError) return new(false, stageError);
                 replacement = new EngineTorrent
                 {
                     Id = Ids.New(), UserId = old.UserId, Hash = nextHash, Name = request.Name,
@@ -99,9 +100,9 @@ internal sealed partial class TorrentEngineService
                     if (!files.Any(File.Exists)) break;
                     await Task.Delay(250);
                 }
-                // A staged release owns its whole stage folder (finished files and fragments included): it goes.
-                if (oldStage is not null && !await StagePaths.DeleteAsync(oldStage))
-                    logger.LogWarning("[builtin-engine] could not remove the stage folder {Stage} of the replaced {Hash} yet", oldStage, hash);
+                // A staged release owns its whole stage folder (finished files and fragments included): it goes, now or, if a
+                // file is still held, through the cleanup's sweep (the old row is gone, so nothing owns the folder any more).
+                if (oldStage is not null) await DeleteStageAsync(oldStage, hash);
                 TryDelete(TorrentFilePath(hash));
                 _layoutManifest.Forget(hash, oldRoot);
             }

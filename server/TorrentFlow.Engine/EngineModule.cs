@@ -62,11 +62,14 @@ public static class EngineModule
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());
         services.AddContentLayout();
         // The promotion gate (docs/english-gates-plan.md section 1). P1 promotes everything. A Development-only test gate
-        // (TorrentFlow:Engine:TestGateFile) reads its decision from a file per call, so verification can hold, reject or delay.
+        // (TorrentFlow:Engine:TestGateFile, off by default) reads its decision from a file per call, so verification can hold,
+        // reject or delay, and pause or fail a promotion at a checkpoint (IPromotionTestHooks).
         services.AddSingleton<IPromotionGate>(sp =>
             sp.GetRequiredService<IHostEnvironment>().IsDevelopment() && configuration["TorrentFlow:Engine:TestGateFile"] is { Length: > 0 } file
                 ? new DevelopmentTestGate(file, sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DevelopmentTestGate>>())
                 : PromoteEverythingGate.Instance);
+        services.AddSingleton<IPromotionTestHooks>(sp =>
+            sp.GetRequiredService<IPromotionGate>() as IPromotionTestHooks ?? NoPromotionTestHooks.Instance);
         services.AddSingleton<TorrentEngineService>();
         services.AddSingleton<DownloadRecoveryService>();
         services.AddOptions<ExternalDownloadScanOptions>()
