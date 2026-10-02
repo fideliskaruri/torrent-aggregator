@@ -458,27 +458,10 @@ internal sealed partial class TorrentEngineService(
             ? FileListLanguage(files, check.Want, request.Name, request.SourceCategory, request.SelectedFiles is { Count: > 0 } chosen ? chosen.ToHashSet() : null)
             : null;
 
-    /// <summary>The worst verdict over the main videos, each read with its own subtitle and audio files.</summary>
+    /// <summary>The worst verdict over the main videos, each read with only its own sidecars (<see cref="ReleaseLanguage.JudgeRelease"/>).</summary>
     internal static LanguageVerdict FileListLanguage(IEnumerable<(int Index, string Path, long Length)> files, LanguageWant want,
-        string? name, string? sourceCategory, IReadOnlySet<int>? selected)
-    {
-        var list = files.ToList();
-        var main = MainVideos(list, selected);
-        if (main.Count == 0) return ReleaseLanguage.Verdict(want, name, sourceCategory);
-        var paths = list.Select(f => f.Path).ToList();
-        return main.Select(f => ReleaseLanguage.Verdict(want, name, sourceCategory,
-            ReleaseLanguage.WithSidecars(f.Path, paths, main.Count == 1))).MaxBy(v => (v.English.Verdict, v.Fit, v.Refusable))!;
-    }
-
-    /// <summary>A release's main videos: the selected ones, or the largest and any at least half its size.</summary>
-    internal static List<(int Index, string Path, long Length)> MainVideos(IReadOnlyList<(int Index, string Path, long Length)> list,
-        IReadOnlySet<int>? selected)
-    {
-        var videos = list.Where(f => MediaFileRules.IsVideo(f.Path) && (selected == null || selected.Contains(f.Index))).ToList();
-        if (videos.Count == 0) return videos;
-        var largest = videos.Max(f => f.Length);
-        return selected != null ? videos : videos.Where(f => f.Length * 2 >= largest).ToList();
-    }
+        string? name, string? sourceCategory, IReadOnlySet<int>? selected) =>
+        ReleaseLanguage.JudgeRelease(want, name, sourceCategory, files.ToList(), selected);
 
 
     private LanguageVerdict? FileListLanguage(byte[] torrent, EngineAddRequest request)

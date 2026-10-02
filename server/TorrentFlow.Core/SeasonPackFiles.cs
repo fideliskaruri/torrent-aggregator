@@ -32,6 +32,34 @@ public static class SeasonPackFiles
     private static readonly Regex NxMM = new(@"(?<![a-z0-9])(\d{1,2})x(\d{2,3})(?![0-9])(?![ ._-]?(?:-|x)[ ._-]?\d{2,3}(?![0-9p]))",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex AnyEpisodeMark = new(@"(?<![a-z0-9])(?:s\d{1,2}[ ._-]?e\d{1,3}|\d{1,2}x\d{2,3})(?![0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // An absolute number: "Show - 05" (not a range "01-12"), "[05]", "E05", "EP05", "Episode 05", or a name that is only "05".
+    private static readonly Regex Absolute = new(
+        @"\s-\s(\d{1,4})(?:v\d)?(?![\p{L}\p{N}]|\s*[-~]\s*\d)|\[(\d{1,3})(?:v\d)?\]|(?<![\p{L}\p{N}])(?:e|ep|episode)[ ._-]?(\d{1,4})(?:v\d)?(?![\p{L}\p{N}])|^\s*(\d{1,4})\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The one episode a file or folder name gives, to tell which video a sidecar or a per-episode folder belongs to
+    /// (<see cref="VideoSidecars"/>): "s1e5" for S01E05 or 1x05, "e5" for an absolute number ("Show - 05", "[05]", "E05",
+    /// "Episode 05", a folder named "05"). Null when it gives none, or more than one.
+    /// </summary>
+    public static string? EpisodeKey(string name)
+    {
+        var marks = AnyEpisodeMark.Count(name);
+        if (marks > 0)
+        {
+            var match = SxxEyy.Match(name) is { Success: true } s ? s : NxMM.Match(name);
+            return marks == 1 && match.Success
+                ? $"s{int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture)}e{int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture)}"
+                : null;
+        }
+        var numbers = Absolute.Matches(name).Select(m => m.Groups.Values.Skip(1).First(g => g.Success).Value)
+            .Select(n => int.Parse(n, CultureInfo.InvariantCulture)).Distinct().ToList();
+        return numbers.Count == 1 ? $"e{numbers[0]}" : null;
+    }
+
+    /// <summary>Two <see cref="EpisodeKey"/>s name the same episode: equal, or one has no season and the numbers agree.</summary>
+    public static bool SameEpisode(string a, string b) => a == b ||
+        (a.StartsWith('e') || b.StartsWith('e')) && a[(a.IndexOf('e') + 1)..] == b[(b.IndexOf('e') + 1)..];
 
     public static PackFileMapping Map(IReadOnlyList<PackFile> files, int season, IReadOnlyCollection<int> missing)
     {

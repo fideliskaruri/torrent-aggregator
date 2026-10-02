@@ -139,7 +139,7 @@ internal sealed partial class TorrentEngineService
             return;
         }
         var list = live.Files.Select(f => (f.Index, f.Path, f.Length)).ToList();
-        var main = MainVideos(list, selection).OrderByDescending(f => f.Length).Take(ProbeFiles).ToList();
+        var main = VideoSidecars.MainVideos(list, selection).OrderByDescending(f => f.Length).Take(ProbeFiles).ToList();
         if (main.Count == 0)
         {
             await SettleLanguageAsync(hash, state with { State = EngineLanguageState.Unconfirmed, Reason = "no video to check" });
@@ -164,12 +164,16 @@ internal sealed partial class TorrentEngineService
             return;
         }
 
-        var paths = list.Select(f => f.Path).ToList();
-        var verdict = read.Select(f => ReleaseLanguage.Judge(state.Want, ReleaseLanguage.WithHeader(
-                ReleaseLanguage.Detect(name, state.SourceCategory, ReleaseLanguage.WithSidecars(f.Path, paths, main.Count == 1)), f.Scan.Tracks)))
-            .MaxBy(v => (v.English.Verdict, v.Fit));
-        logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}): {Verdict} ({Reason}) from {Files} file(s)",
-            hash, name, verdict?.English.Verdict.ToString() ?? "unread", verdict?.English.Reason ?? result.Unchecked, read.Count);
+        // The read videos only, each with its own sidecars and its own header tracks: the one judge, as the file-list check.
+        var tracks = read.ToDictionary(f => f.Index, f => f.Scan.Tracks.Select(t => TrackFact.From(t, TrackFact.Header)).ToList());
+        var verdict = read.Count == 0 ? null : ReleaseLanguage.JudgeRelease(state.Want, name, state.SourceCategory, list,
+            tracks.Keys.ToHashSet(), index => tracks.GetValueOrDefault(index));
+        // The deciding video's tracks with their settled roles (a lone forced English track reads as full, ForcedHint).
+        logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}): {Verdict} ({Reason}, {Evidence}) from {Files} file(s): {Tracks}",
+            hash, name, verdict?.English.Verdict.ToString() ?? "unread", verdict?.English.Reason ?? result.Unchecked,
+            verdict?.English.Evidence.ToString() ?? "none", read.Count,
+            string.Join("; ", (verdict?.Facts.Tracks ?? []).Where(t => t.Kind != MediaTrackKind.Video)
+                .Select(t => $"{t.Kind} {t.Language ?? "und"} {t.Name ?? "-"} {t.Role}{(t.Forced ? " forced" : "")}{(t.ForcedHint ? " hint" : "")}")));
         await SettleLanguageAsync(hash, verdict?.English.Verdict switch
         {
             EnglishVerdict.Fail => state with { State = EngineLanguageState.Failed, Reason = verdict.English.Reason },

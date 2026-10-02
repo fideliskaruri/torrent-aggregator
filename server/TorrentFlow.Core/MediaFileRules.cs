@@ -36,6 +36,19 @@ public static class MediaFileRules
     /// <summary>A file name the app treats as video.</summary>
     public static bool IsVideo(string path) => VideoName.IsMatch(path.Replace('\\', '/'));
 
+    private static readonly Regex SampleName = new(@"(?:^|[^a-z0-9])sample(?:[^a-z0-9]|$)", Options);
+    private static readonly Regex SampleFolder = new(@"(?:^|/)samples?/", Options);
+
+    /// <summary>A sample clip: a file whose name says sample (<c>sample.mkv</c>, <c>Movie-sample.mkv</c>) or that sits in a
+    /// <c>Sample</c> folder. The content layout moves it aside, and it never counts as another video beside the main one.</summary>
+    public static bool IsSample(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        var name = normalized[(normalized.LastIndexOf('/') + 1)..];
+        var dot = name.LastIndexOf('.');
+        return SampleName.IsMatch(dot > 0 ? name[..dot] : name) || SampleFolder.IsMatch(normalized);
+    }
+
     /// <summary>
     /// A program or script. Trailing dots and spaces are ignored because Windows drops them when it writes the file,
     /// so <c>setup.exe.</c> lands on disk as <c>setup.exe</c>.

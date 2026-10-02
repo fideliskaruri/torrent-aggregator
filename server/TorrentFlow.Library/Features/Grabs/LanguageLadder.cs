@@ -1,7 +1,36 @@
 using TorrentFlow.Core;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Library.Features.Grabs;
+
+/// <summary>
+/// The release labels' evidence for the one judge (<see cref="ReleaseLanguage.JudgeRelease"/>): the name and site
+/// category, the transfer's own files when it has them (each main video with only its own sidecars), and the header
+/// tracks the engine kept for the release (<see cref="TorrentFlow.Data.MediaProbeTracks"/>). The picker and the swap
+/// dialog label every release this way.
+/// </summary>
+internal static class KnownLanguage
+{
+    /// <param name="files">The transfer's file list; null for a search result.</param>
+    /// <param name="header">Torrent file path to the header tracks read from it; null when its header was never read.</param>
+    public static LanguageVerdict Judge(LanguageWant want, string? name, string? category, IReadOnlyList<EngineFileInfo>? files,
+        IReadOnlyDictionary<string, IReadOnlyList<MediaTrack>>? header)
+    {
+        IEnumerable<TrackFact>? Tracks(string path) =>
+            header?.GetValueOrDefault(path)?.Select(t => TrackFact.From(t, TrackFact.Header));
+        if (files is { Count: > 0 })
+        {
+            var list = files.Select(f => (f.Index, f.Path, f.Length)).ToList();
+            var selected = files.All(f => f.Selected) ? null : files.Where(f => f.Selected).Select(f => f.Index).ToHashSet();
+            return ReleaseLanguage.JudgeRelease(want, name, category, list, selected, index => Tracks(list.First(f => f.Index == index).Path));
+        }
+        if (header is not { Count: > 0 }) return ReleaseLanguage.Verdict(want, name, category);
+        // A search result has no file list: the files whose header was read stand for it.
+        var probed = header.Keys.Select((path, i) => (Index: i, Path: path, Length: 0L)).ToList();
+        return ReleaseLanguage.JudgeRelease(want, name, category, probed, probed.Select(f => f.Index).ToHashSet(), index => Tracks(probed[index].Path));
+    }
+}
 
 /// <summary>
 /// Where one release's language puts it in the ladder: the owner's English rule (<see cref="EnglishCheck"/>), then the

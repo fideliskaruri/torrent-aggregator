@@ -65,11 +65,14 @@ public sealed partial class GrabService
             // The caller's single-release size limit applies to each chosen file, never to the whole pack.
             if (map.Ok && input.Constraints?.MaxSizeBytes is { } max)
                 map = map with { Episodes = map.Episodes.Where(e => files[e.Value].Length <= max).ToDictionary() };
-            // A pack stands in for every missing episode, so each mapped file is judged with its own subtitle and audio
-            // files, and the worst one is the pack's call (docs/release-language.md).
-            var paths = files.Select(f => f.Path).ToList();
-            var call = map.Episodes.Values.Select(index => Judge(input, candidate, ReleaseLanguage.WithSidecars(files[index].Path, paths,
-                map.Episodes.Count == 1))).Prepend(Judge(input, candidate)).MaxBy(c => (c.Verdict, c.Fit))!;
+            // A pack stands in for every missing episode, so each mapped file is judged with only its own subtitle and audio
+            // files, and the worst one is the pack's call (docs/release-language.md). The name alone decides only when no file
+            // maps: once the episodes' files are known, they speak for the pack (a VOSTFR-named pack whose episodes carry
+            // English sidecars passes).
+            var list = files.Select(f => (f.Index, f.Path, f.Length)).ToList();
+            var call = map.Episodes.Count == 0 ? Judge(input, candidate)
+                : map.Episodes.Values.Select(index => Judge(input, candidate, VideoSidecars.Paths(list.First(f => f.Index == index), list)))
+                    .MaxBy(c => (c.Verdict, c.Fit))!;
             logger?.LogInformation("Season pack {Title} ({Hash}): {Mapped} of {Missing} missing episodes map; {Language}; {Rejection} {Notes}",
                 candidate.Title, inspected.Hash, map.Episodes.Count, targets.Count, call.Label, map.Rejection ?? "", string.Join("; ", map.Notes.Take(8)));
             if (!map.Ok || map.Episodes.Count == 0) { notes.Add($"{candidate.Title}: {map.Rejection ?? "no_episodes"}"); continue; }
@@ -94,9 +97,12 @@ public sealed partial class GrabService
         var inspectedFiles = chosen.Files.Files.Select(f => new PackFile(f.Index, f.Path, f.Length, f.Offset)).ToList();
         var claimed = await ClaimAsync(db, hash, chosen.Map.Episodes, targets, inspectedFiles, ct);
         if (claimed.Count == 0) return new(null, claimed, "every episode the pack covers was taken meanwhile");
-        // The selection and reservation come from what was really claimed, not from what the pack could cover.
-        var selection = new PackSelection(claimed.Values.Order().ToArray(),
-            SeasonPackFiles.PieceSpanBytes(inspectedFiles, chosen.Files.PieceLength, claimed.Values),
+        // The selection and reservation come from what was really claimed, not from what the pack could cover. Each claimed
+        // episode downloads with its own subtitle and audio files (VideoSidecars), so they are kept with it.
+        var listed = inspectedFiles.Select(f => (f.Index, f.Path, f.Length)).ToList();
+        var kept = claimed.Values.SelectMany(index => VideoSidecars.Of(listed.First(f => f.Index == index), listed).Select(f => f.Index).Prepend(index))
+            .Distinct().Order().ToArray();
+        var selection = new PackSelection(kept, SeasonPackFiles.PieceSpanBytes(inspectedFiles, chosen.Files.PieceLength, kept),
             new EpisodeCursor(season, claimed.Keys.Min()).QueueKey);
         var sent = await Send(db, settings!, input, query, chosen.Release with { InfoHash = hash }, null, relaxed: false, ct, selection,
             new(SendContext.RungLabel(chosen.Rung), chosen.Call));
