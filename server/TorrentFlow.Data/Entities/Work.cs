@@ -59,6 +59,9 @@ public partial class Work
     /// <summary>Film or series: <see cref="WorkKinds.IsSeries"/>.</summary>
     public bool IsSeries() => WorkKinds.IsSeries(Format, MediaType);
 
+    /// <summary>Film or series only when the work says so, null while unknown: <see cref="WorkKinds.KnownSeries"/>.</summary>
+    public bool? KnownSeries() => WorkKinds.KnownSeries(Format, MediaType);
+
     /// <summary>Anime (the folder only), null while unknown: <see cref="WorkKinds.IsAnime"/>.</summary>
     public bool? IsAnime() => WorkKinds.IsAnime(Provider, ProviderId, Anime, MediaType);
 

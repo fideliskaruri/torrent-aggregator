@@ -50,7 +50,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
     /// <summary>
     /// Saves <paramref name="fresh"/> when it is this work's own provider record; with <paramref name="fetch"/>, looks a
     /// stale work up first. However many callers ask at once (every episode of a season grab), one lookup goes out per
-    /// work and the rest wait for it. It is throttled to once a day per work; <paramref name="unthrottled"/> (a grab that
+    /// work and priority and the rest wait for it. It is throttled to once a day per work and priority; <paramref name="unthrottled"/> (a grab that
     /// cannot place its download without the verdict) may also start one once every ten minutes. Never throws for a
     /// provider failure: the stored names stay as they were.
     /// </summary>
@@ -64,33 +64,61 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         if (own != null) return await SaveAsync(workKey, own, ct);
         if (!fetch || !Stale(work) || !IMetadataResolver.SupportsProvider(work.Provider)) return NamesRefresh.Skipped;
 
+        // One flight per work and priority: a foreground caller (a grab, a title open) never waits on a background
+        // flight (a backfill), whose provider requests spend only the background share and may be held.
+        var background = ProviderPriority.IsBackground;
+        var flight = $"{work.Id}:{(background ? "background" : "foreground")}";
         Task<NamesRefresh> lookup;
         lock (_lookupsLock)
         {
-            if (!_lookups.TryGetValue(work.Id, out lookup!))
+            if (!_lookups.TryGetValue(flight, out lookup!))
             {
                 var now = time.GetUtcNow();
                 if (pacing?.BlockedUntil(work.Provider) != null) return NamesRefresh.RateLimited;
-                if (!Claim(_tried, Interval, work.Id, now) && !(unthrottled && Claim(_urgent, UrgentInterval, work.Id, now))) return NamesRefresh.Skipped;
+                // The daily and urgent slots are per flight too, so a backfill's ask never uses up a grab's.
+                var claims = Claim(_tried, Interval, flight, now) ? _tried : unthrottled && Claim(_urgent, UrgentInterval, flight, now) ? _urgent : null;
+                if (claims == null) return NamesRefresh.Skipped;
                 var started = work;
-                lookup = Task.Run(() => LookupAsync(started));
-                _lookups[work.Id] = lookup;
-                _ = lookup.ContinueWith(_ => { lock (_lookupsLock) _lookups.Remove(started.Id); }, TaskScheduler.Default);
+                // The flight runs on its own context with the priority named here, never one captured from whoever started it.
+                using (ExecutionContext.SuppressFlow())
+                    lookup = Task.Run(async () =>
+                    {
+                        var outcome = await LookupAsync(started, background);
+                        // A rate-limited ask was no ask: its slot is given back so the next caller may try once the provider has room.
+                        if (outcome == NamesRefresh.RateLimited) claims.TryRemove(flight, out _);
+                        return outcome;
+                    });
+                _lookups[flight] = lookup;
+                _ = lookup.ContinueWith(_ => { lock (_lookupsLock) _lookups.Remove(flight); }, TaskScheduler.Default);
             }
         }
         return await lookup.WaitAsync(ct);
     }
 
-    /// <summary>The one lookup of a stale work, shared by every caller waiting on it, on its own budget.</summary>
-    private async Task<NamesRefresh> LookupAsync(Work work)
+    /// <summary>The one lookup of a stale work at one priority, shared by every caller waiting on it, on its own budget.</summary>
+    private async Task<NamesRefresh> LookupAsync(Work work, bool background)
     {
+        using var priority = background ? ProviderPriority.Background() : null;
         using var budget = new CancellationTokenSource(LookupBudget);
         MediaMetadata? own;
-        logger?.LogInformation("Asking {Provider} about {WorkKey} (names, format, anime)", work.Provider, work.WorkKey);
+        logger?.LogInformation("Asking {Provider} about {WorkKey} (names, format, anime) as a {Priority} request", work.Provider, work.WorkKey,
+            background ? "background" : "foreground");
         try
         {
             var kind = work.IsSeries() ? "tv" : "movie";
-            own = await metadata.GetByIdAsync(work.Provider!, kind, work.ProviderId!, budget.Token);
+            var (outcome, found) = await metadata.LookupByIdAsync(work.Provider!, kind, work.ProviderId!, budget.Token);
+            // Only a real answer is noted: a refused (rate-limited) or failed request is asked again soon, never stamped as checked.
+            if (outcome == ProviderLookup.RateLimited)
+            {
+                logger?.LogInformation("{Provider} is rate-limiting; {WorkKey} stays unknown and is asked again later", work.Provider, work.WorkKey);
+                return NamesRefresh.RateLimited;
+            }
+            if (outcome == ProviderLookup.Failed)
+            {
+                logger?.LogInformation("{Provider} could not answer about {WorkKey}; it is asked again later", work.Provider, work.WorkKey);
+                return NamesRefresh.Failed;
+            }
+            own = found;
         }
         catch (OperationCanceledException)
         {
@@ -101,7 +129,6 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         {
             if (Limited(work.Provider!)) return NamesRefresh.RateLimited;
             logger?.LogInformation("Could not refresh the names of {WorkKey} from {Provider}: {Error}", work.WorkKey, work.Provider, error.Message);
-            await CheckedAsync(work.WorkKey, budget.Token);
             return NamesRefresh.Failed;
         }
         if (own == null || own.Source != work.Provider || own.ExternalId != work.ProviderId)
@@ -116,7 +143,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
 
     private bool Limited(string provider) => pacing?.BlockedUntil(provider) != null;
 
-    /// <summary>Notes that the provider was asked and gave no verdict, so the backfill waits a day before asking again.</summary>
+    /// <summary>Notes that the provider answered without a verdict (not found), so the backfill waits a day before asking again.</summary>
     private async Task CheckedAsync(string workKey, CancellationToken ct)
     {
         try

@@ -84,10 +84,18 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         }
         // The row's type is the work's kind: an AniList film is a film the hunter grabs once, not a series.
         var rowType = choice?.RowType ?? type;
+        // A row is its catalog's: TMDB movie 123 and AniList film 123 are two rows. An existing row is reused only when
+        // it is this work's, has the same catalog and id, or is an unlinked row of no known catalog (saved before rows
+        // named one); it never keeps a different work.
+        var rowProvider = choice?.Provider ?? "";
+        var chosenId = choice?.Work?.Id;
         var item = patch
             ? await db.WatchListItems.FirstOrDefaultAsync(x => x.Id == id && x.UserId == LocalUser.Id, ct)
-            : (choice?.Work is { } chosen ? await db.WatchListItems.FirstOrDefaultAsync(x => x.WorkId == chosen.Id && x.UserId == LocalUser.Id, ct) : null)
-              ?? await db.WatchListItems.FirstOrDefaultAsync(x => x.MediaType == rowType && x.ExternalId == externalId && x.UserId == LocalUser.Id, ct);
+            : (chosenId != null ? await db.WatchListItems.FirstOrDefaultAsync(x => x.WorkId == chosenId && x.UserId == LocalUser.Id, ct) : null)
+              ?? await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && x.MediaType == rowType && x.ExternalId == externalId &&
+                      (x.Provider == rowProvider || x.Provider == "" && x.WorkId == null))
+                  .OrderByDescending(x => x.Provider == rowProvider).FirstOrDefaultAsync(ct);
+        if (!patch && item is { Provider: "" } && item.MediaType == rowType && item.ExternalId == externalId) item.Provider = rowProvider;
         if (patch && item == null) return NotFound(new { error = "Not found" });
         if (!patch && string.IsNullOrEmpty(poster))
         {
@@ -106,7 +114,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         if (item == null)
         {
             item = new WatchListItem { Id = Ids.New(), UserId = LocalUser.Id, Title = title!, MediaType = rowType!,
-                ExternalId = externalId!, Status = status ?? "watching", Monitored = monitored ?? true,
+                ExternalId = externalId!, Provider = rowProvider, Status = status ?? "watching", Monitored = monitored ?? true,
                 MonitorMode = HuntCursor.OngoingMode, CreatedAt = now, LastChecked = now };
             // A series added without a start season is "New episodes only": the absence is the answer.
             mode ??= EpisodeCursor.IsSeries(rowType) && fromSeason == null ? HuntCursor.NewEpisodesMode : null;
@@ -118,7 +126,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             if (!string.IsNullOrEmpty(poster)) item.PosterUrl = poster;
             if (!string.IsNullOrEmpty(synopsis)) item.Synopsis = synopsis;
             if (rating != null) item.Rating = rating;
-            item.WorkId ??= choice?.Work?.Id;
+            // The row follows the work its catalog id belongs to; a different work is never kept.
+            if (chosenId != null) item.WorkId = chosenId;
             if (choice?.Work is { } w && w.PosterUrl == null && !string.IsNullOrEmpty(item.PosterUrl)) w.PosterUrl = item.PosterUrl;
         }
         if (status != null) item.Status = status;
@@ -176,7 +185,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>The work a new row links to, the row's type, the provider record read for it, or why the add is refused.</summary>
-    private sealed record WorkChoice(Work? Work, string RowType, MediaMetadata? Record = null, string? Conflict = null);
+    /// <param name="Provider">The catalog the row's external id belongs to ("" when none), part of the row's identity.</param>
+    private sealed record WorkChoice(Work? Work, string RowType, MediaMetadata? Record = null, string? Conflict = null, string Provider = "");
 
     /// <summary>
     /// The work a new row belongs to, so the hunter and on-demand grabs carry its catalog identity: the title page's
@@ -195,14 +205,16 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             : externalId.StartsWith("work:", StringComparison.Ordinal) ? externalId[5..] : null;
         var keyed = key == null ? null : await db.Works.FirstOrDefaultAsync(w => w.WorkKey == key, ct);
         if (identity == null) return new(keyed, keyed != null ? RowType(type, keyed.Format, keyed.Provider) : type);
+        // The row's external id is this catalog's id only when it is the supplied one (a "work:" key is no catalog's).
+        var rowProvider = identity.ProviderId == externalId ? identity.Provider : "";
         var holder = await db.Works.FirstOrDefaultAsync(w => w.Provider == identity.Provider && w.ProviderId == identity.ProviderId &&
             (w.MediaType == type || identity.Provider == "anilist" || type == "anime"), ct);
-        if (keyed != null && (keyed.Id == holder?.Id || Same(keyed, identity))) return new(keyed, RowType(type, keyed.Format, keyed.Provider));
+        if (keyed != null && (keyed.Id == holder?.Id || Same(keyed, identity))) return new(keyed, RowType(type, keyed.Format, keyed.Provider), Provider: rowProvider);
         if (holder != null)
         {
             if (keyed != null) logger?.LogInformation("Watchlist add for {WorkKey} carries {Provider}:{ProviderId}, which {Holder} holds; linked to {Holder}",
                 keyed.WorkKey, identity.Provider, identity.ProviderId, holder.WorkKey, holder.WorkKey);
-            return new(holder, RowType(type, holder.Format, holder.Provider));
+            return new(holder, RowType(type, holder.Format, holder.Provider), Provider: rowProvider);
         }
         if (keyed?.Provider != null)
             return new(null, type, Conflict: "This title is already in your library under a different catalog entry.");
@@ -220,9 +232,16 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             keyed.Anime ??= anime;
             keyed.OriginalLanguage ??= WorkFormats.LanguageOf(record);
             keyed.UpdatedAt = DateTime.UtcNow;
-            return new(keyed, RowType(type, keyed.Format, keyed.Provider), record);
+            return new(keyed, RowType(type, keyed.Format, keyed.Provider), record, Provider: rowProvider);
         }
         key ??= WorkKeySlug.WorkKeyFor(record?.Title ?? title, record?.Year);
+        // A key another work already holds names this work only when that work is this identity (crosswalked to it);
+        // otherwise the new work takes a key of its own catalog id, so the add never fails on the key.
+        if (await db.Works.FirstOrDefaultAsync(w => w.WorkKey == key, ct) is { } taken)
+        {
+            if (Same(taken, identity)) return new(taken, RowType(type, taken.Format, taken.Provider), Provider: rowProvider);
+            key = $"{key}-{identity.Provider}-{identity.ProviderId}".ToLowerInvariant();
+        }
         var now = DateTime.UtcNow;
         var created = new Work { Id = Ids.New(), WorkKey = key, CanonicalTitle = record?.Title ?? title, MediaType = mediaType, Year = record?.Year,
             NamesJson = (record != null ? WorkNames.Of(record) : WorkNames.Legacy(title, null, identity.Provider)).ToJson(),
@@ -230,7 +249,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             Format = format, Anime = anime, OriginalLanguage = WorkFormats.LanguageOf(record),
             Provider = identity.Provider, ProviderId = identity.ProviderId, PosterUrl = poster ?? record?.PosterUrl, CreatedAt = now, UpdatedAt = now };
         db.Works.Add(created);
-        return new(created, RowType(type, format, identity.Provider), record);
+        return new(created, RowType(type, format, identity.Provider), record, Provider: rowProvider);
     }
 
     /// <summary>Whether the keyed work already is, or is crosswalked to, the supplied identity.</summary>

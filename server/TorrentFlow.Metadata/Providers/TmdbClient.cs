@@ -80,7 +80,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            if (throwOnHttpError) throw new HttpRequestException($"TMDB HTTP {(int)response.StatusCode}");
+            if (throwOnHttpError) throw new HttpRequestException($"TMDB HTTP {(int)response.StatusCode}", null, response.StatusCode);
             return null;
         }
         return await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
@@ -137,17 +137,23 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         items.Select((item, index) => (item, index, tier: Relevance.BestTier(query, new[] { item.Title }.Concat(item.Aliases ?? []))))
             .OrderBy(x => x.tier).ThenBy(x => x.index).Select(x => x.item);
 
-    public async Task<MediaMetadata?> GetByIdAsync(string mediaType, string id, CancellationToken ct = default)
+    public async Task<MediaMetadata?> GetByIdAsync(string mediaType, string id, CancellationToken ct = default) =>
+        (await LookupByIdAsync(mediaType, id, ct).ConfigureAwait(false)).Metadata;
+
+    /// <summary>The TMDB record with this id and how the lookup went: only a record or a 404 is TMDB's answer.</summary>
+    public async Task<(ProviderLookup Outcome, MediaMetadata? Metadata)> LookupByIdAsync(string mediaType, string id, CancellationToken ct = default)
     {
         try
         {
             using var doc = await GetJsonAsync($"/{mediaType}/{Uri.EscapeDataString(id)}",
-                [("language", "en-US"), ("append_to_response", "alternative_titles,external_ids")], TimeSpan.FromSeconds(10), false, ct).ConfigureAwait(false);
-            return doc == null ? null : MapDetail(doc.RootElement, mediaType);
+                [("language", "en-US"), ("append_to_response", "alternative_titles,external_ids")], TimeSpan.FromSeconds(10), true, ct).ConfigureAwait(false);
+            return doc == null ? (ProviderLookup.Failed, null) : (ProviderLookup.Found, MapDetail(doc.RootElement, mediaType));
         }
+        catch (HttpRequestException e) when (e.StatusCode is System.Net.HttpStatusCode.NotFound) { return (ProviderLookup.NotFound, null); }
+        catch (HttpRequestException e) when (e.StatusCode is System.Net.HttpStatusCode.TooManyRequests) { return (ProviderLookup.RateLimited, null); }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
-            return null;
+            return (ProviderLookup.Failed, null);
         }
     }
 

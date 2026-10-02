@@ -74,8 +74,21 @@ public static class WorkFormats
 public static class WorkKinds
 {
     public static bool IsSeries(WorkFormat? format, string? mediaType) =>
+        KnownSeries(format, mediaType) ?? string.Equals(mediaType?.Trim(), "anime", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Film or series only when the work says so: its format, else a media type that names one. Null while unknown,
+    /// including the legacy "anime" type, which says nothing about films or series; a grab then goes by its own request
+    /// (no season and episode is a film grab), never "anime means series".
+    /// </summary>
+    public static bool? KnownSeries(WorkFormat? format, string? mediaType) =>
         format is { } known ? known != WorkFormat.Movie
-        : mediaType?.Trim().ToLowerInvariant() is "tv" or "series" or "show" or "tvshow" or "anime";
+        : mediaType?.Trim().ToLowerInvariant() switch
+        {
+            "tv" or "series" or "show" or "tvshow" => true,
+            "movie" or "film" => false,
+            _ => null,
+        };
 
     /// <summary>True or false when known; null while unknown (never "not anime").</summary>
     public static bool? IsAnime(string? provider, string? providerId, bool? anime, string? mediaType) =>

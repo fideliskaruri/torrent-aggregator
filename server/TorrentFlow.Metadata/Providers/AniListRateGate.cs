@@ -5,33 +5,35 @@ namespace TorrentFlow.Metadata.Providers;
 
 /// <summary>
 /// The one pace for every AniList request this process makes (search, by-id, browse, airing, franchise walks,
-/// backfills, links): AniList allows <c>X-RateLimit-Limit</c> requests a minute (90, or 30 while degraded) per client.
-/// While more than half the minute's allowance remains, requests go straight out; below that they are spaced evenly
-/// over what is left of the minute. A 429 or an exhausted allowance blocks every caller until <c>Retry-After</c> (or
-/// <c>X-RateLimit-Reset</c>) passes. A caller that would wait longer than it allows gets a synthetic 429 instead of a
-/// request, so a rate limit is reported as one and never as "not found".
-/// Two priorities share it (<see cref="TorrentFlow.Core.Contracts.Metadata.ProviderPriority"/>): foreground requests
-/// (title pages, search, a grab's lookup) always go first. Background requests (backfills, links, the hunter) wait
-/// <see cref="StartupGrace"/> after start, go only while no foreground request is waiting, and never spend the last
-/// <see cref="Reserve"/> requests of the minute, so a restart's catch-up work never empties a title page.
+/// backfills, links). AniList allows <c>X-RateLimit-Limit</c> requests a minute (90, or 30 while degraded) per client;
+/// the gate counts what this process sent in the last minute and splits that allowance into fixed shares:
+/// <list type="bullet">
+/// <item>foreground requests (title pages, search, a grab's lookup) may use the whole allowance and never wait behind
+/// a background one;</item>
+/// <item>background requests (<see cref="TorrentFlow.Core.Contracts.Metadata.ProviderPriority"/>: backfills, links,
+/// the hunter) may use at most a third of it, never the last <see cref="Reserve"/> requests of the minute, and none in
+/// the first <see cref="StartupGrace"/> after start. Within that share they always progress.</item>
+/// </list>
+/// A 429 or an exhausted allowance blocks every caller until <c>Retry-After</c> (or <c>X-RateLimit-Reset</c>) passes.
+/// Only the HTTP request itself waits here. One that would wait longer than it allows gets a synthetic 429
+/// (<see cref="Refused"/>) instead, so a rate limit is reported as one and never as "not found".
 /// </summary>
 public sealed class AniListRateGate(TimeProvider time)
 {
     private const int DefaultLimit = 90;
-    /// <summary>Requests of each minute's allowance only foreground calls may spend.</summary>
+    /// <summary>Requests of each minute's allowance only foreground requests may spend.</summary>
     public const int Reserve = 5;
     /// <summary>How long after start background requests wait before their first one.</summary>
     public static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(250);
-    private readonly DateTimeOffset _started = time.GetUtcNow();
-    private int _foregroundWaiting;
-    private DateTimeOffset _remainingAt;
     private static readonly TimeSpan DefaultBlock = TimeSpan.FromSeconds(60);
-    private readonly SemaphoreSlim _turn = new(1, 1);
+    private readonly DateTimeOffset _started = time.GetUtcNow();
     private readonly Lock _sync = new();
-    private DateTimeOffset _next;
+    private readonly Queue<DateTimeOffset> _sent = new();
+    private readonly Queue<DateTimeOffset> _sentBackground = new();
     private DateTimeOffset _blockedUntil;
+    private DateTimeOffset _remainingAt;
     private int _limit = DefaultLimit;
     private int? _remaining;
 
@@ -44,77 +46,72 @@ public sealed class AniListRateGate(TimeProvider time)
         }
     }
 
-    /// <summary>Why a background request must wait right now, and for about how long; null when it may go.</summary>
-    public (string Reason, TimeSpan Wait)? BackgroundHold()
+    /// <summary>The most background requests a minute may hold: a third of the allowance, and never into the reserve.</summary>
+    public int BackgroundShare
     {
-        var now = time.GetUtcNow();
-        lock (_sync)
+        get
         {
-            if (now < _started + StartupGrace) return ("the first minute after start is kept for foreground requests", _started + StartupGrace - now);
-            if (_blockedUntil > now) return ("AniList is rate-limiting", _blockedUntil - now);
-            if (Volatile.Read(ref _foregroundWaiting) > 0) return ("a foreground request is waiting", Poll);
-            if (_remaining is { } left && left <= Reserve && now - _remainingAt < Window)
-                return ($"only {left} requests are left this minute, kept for foreground requests", _remainingAt + Window - now);
-            return null;
+            lock (_sync) return Share(_limit);
         }
     }
 
-    /// <summary>Waits until a background request may go; false when that is further off than <paramref name="deadline"/>.</summary>
-    public async Task<bool> WaitBackgroundAsync(DateTimeOffset? deadline, CancellationToken ct)
-    {
-        while (BackgroundHold() is { } hold)
-        {
-            var now = time.GetUtcNow();
-            var step = hold.Wait > Poll ? hold.Wait : Poll;
-            if (deadline is { } end)
-            {
-                // A hold that outlasts the caller's patience refuses at once; a waiting foreground request is polled.
-                if (now >= end || hold.Wait > Poll && now + hold.Wait > end) return false;
-                if (now + step > end) step = end - now;
-            }
-            await Task.Delay(step, time, ct).ConfigureAwait(false);
-        }
-        return true;
-    }
+    private static int Share(int limit) => Math.Max(1, Math.Min(limit / 3, limit - Reserve));
 
     /// <summary>
-    /// Waits for this caller's turn; false (and nothing sent) when that is further off than <paramref name="maxWait"/>.
-    /// A background caller also waits for <see cref="BackgroundHold"/> to clear.
+    /// Waits for this request's slot and takes it. False (and nothing may be sent) when the slot is further off than
+    /// <paramref name="maxWait"/>. <c>Waited</c> says why it waited, if it did: a foreground request waits only for AniList's
+    /// own block or the minute's whole allowance, never for a background request's turn or share.
     /// </summary>
-    public async Task<bool> WaitTurnAsync(TimeSpan maxWait, CancellationToken ct, bool background = false)
+    /// <returns><c>Used</c> and <c>Sent</c>: the background and all requests of the last minute, this one included when granted.</returns>
+    public async Task<(bool Granted, string? Waited, int Used, int Sent)> WaitTurnAsync(TimeSpan maxWait, CancellationToken ct, bool background = false)
     {
         var deadline = time.GetUtcNow() + maxWait;
-        if (!background) Interlocked.Increment(ref _foregroundWaiting);
-        try
+        string? waited = null;
+        while (true)
         {
-            while (true)
-            {
-                if (background && !await WaitBackgroundAsync(deadline, ct).ConfigureAwait(false)) return false;
-                var left = deadline - time.GetUtcNow();
-                if (left < TimeSpan.Zero || !await _turn.WaitAsync(left, ct).ConfigureAwait(false)) return false;
-                // A foreground request that arrived while this background one waited for the turn goes first.
-                if (background && BackgroundHold() != null) { _turn.Release(); continue; }
-                try { return await TakeTurnAsync(deadline, ct).ConfigureAwait(false); }
-                finally { _turn.Release(); }
-            }
+            var (wait, reason, used, sent) = TryTake(background);
+            if (wait == null) return (true, waited, used, sent);
+            waited = reason;
+            var now = time.GetUtcNow();
+            if (now + wait.Value > deadline) return (false, reason, used, sent);
+            // Foreground waits only for the minute's allowance or a block, so it re-checks often; background sleeps its hold out.
+            var step = background ? wait.Value : wait.Value < Poll ? wait.Value : Poll;
+            await Task.Delay(step > TimeSpan.Zero ? step : TimeSpan.FromMilliseconds(10), time, ct).ConfigureAwait(false);
         }
-        finally { if (!background) Interlocked.Decrement(ref _foregroundWaiting); }
     }
 
-    private async Task<bool> TakeTurnAsync(DateTimeOffset deadline, CancellationToken ct)
+    /// <summary>Takes a slot now (null wait), or says how long until one may free and why.</summary>
+    private (TimeSpan? Wait, string? Reason, int Used, int Sent) TryTake(bool background)
     {
-        DateTimeOffset at;
-        TimeSpan spacing;
+        var now = time.GetUtcNow();
         lock (_sync)
         {
-            at = _next > _blockedUntil ? _next : _blockedUntil;
-            spacing = _remaining is { } left && left * 2 < _limit ? TimeSpan.FromSeconds(60.0 / Math.Max(_limit, 1)) : TimeSpan.Zero;
+            Trim(_sent, now);
+            Trim(_sentBackground, now);
+            var (used, sent) = (_sentBackground.Count, _sent.Count);
+            if (_blockedUntil > now) return (_blockedUntil - now, "AniList is rate-limiting", used, sent);
+            if (sent >= _limit) return (_sent.Peek() + Window - now, $"this minute's {_limit} requests are spent ({used} by background requests)", used, sent);
+            if (background)
+            {
+                if (now < _started + StartupGrace)
+                    return (_started + StartupGrace - now, "the first minute after start is kept for foreground requests", used, sent);
+                var share = Share(_limit);
+                if (used >= share)
+                    return (_sentBackground.Peek() + Window - now, $"the background share ({share} a minute) is spent", used, sent);
+                if (sent >= _limit - Reserve)
+                    return (_sent.Peek() + Window - now, $"the last {Reserve} requests of the minute are kept for foreground requests", used, sent);
+                if (_remaining is { } left && left <= Reserve && now - _remainingAt < Window)
+                    return (_remainingAt + Window - now, $"AniList reports {left} requests left this minute, kept for foreground requests", used, sent);
+                _sentBackground.Enqueue(now);
+            }
+            _sent.Enqueue(now);
+            return (null, null, _sentBackground.Count, _sent.Count);
         }
-        var now = time.GetUtcNow();
-        if (at > deadline) return false;
-        if (at > now) await Task.Delay(at - now, time, ct).ConfigureAwait(false);
-        lock (_sync) _next = time.GetUtcNow() + spacing;
-        return true;
+    }
+
+    private static void Trim(Queue<DateTimeOffset> sent, DateTimeOffset now)
+    {
+        while (sent.Count > 0 && now - sent.Peek() >= Window) sent.Dequeue();
     }
 
     /// <summary>Reads AniList's rate headers off a response; a 429 or a spent allowance blocks every caller until it resets.</summary>

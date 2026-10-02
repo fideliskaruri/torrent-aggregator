@@ -40,11 +40,6 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     public DateTimeOffset? BlockedUntil(string provider) => provider == "anilist" ? Gate.BlockedUntil : null;
 
-    public string? BackgroundHold(string provider) => provider == "anilist" ? Gate.BackgroundHold()?.Reason : null;
-
-    public Task BackgroundTurnAsync(string provider, CancellationToken ct) =>
-        provider == "anilist" ? Gate.WaitBackgroundAsync(null, ct) : Task.CompletedTask;
-
     private const string MediaFields = """
       id
       idMal
@@ -192,19 +187,24 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     /// <summary>Every AniList request goes out here, in its turn at <see cref="Gate"/>; one refused a turn is a synthetic 429.</summary>
     internal async Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct, string? url = null)
     {
-        // Background flows (ProviderPriority.Background) go only when foreground requests leave room.
+        // Background flows (ProviderPriority.Background) spend only the gate's background share; foreground never waits behind them.
         var background = ProviderPriority.IsBackground;
-        if (background && Gate.BackgroundHold() is { } hold)
-            logger?.LogInformation("Background AniList request waits: {Reason}", hold.Reason);
-        if (!await Gate.WaitTurnAsync(MaxTurnWait, ct, background).ConfigureAwait(false))
+        var priority = background ? "Background" : "Foreground";
+        var started = time.GetUtcNow();
+        var (granted, waited, used, sent) = await Gate.WaitTurnAsync(MaxTurnWait, ct, background).ConfigureAwait(false);
+        if (!granted)
         {
-            if (Gate.BlockedUntil is { } blocked)
-                logger?.LogInformation("AniList request not sent: AniList is rate-limiting until {Until:HH:mm:ss}", blocked);
-            else
-                logger?.LogInformation("{Priority} AniList request not sent: its turn did not come within {Seconds} s",
-                    background ? "Background" : "Foreground", MaxTurnWait.TotalSeconds);
+            logger?.LogInformation("{Priority} AniList request not sent: {Reason}; it is reported as rate-limited", priority, waited);
             return Gate.Refused();
         }
+        if (waited != null)
+            logger?.LogInformation("{Priority} AniList request waited {Ms:0} ms: {Reason}", priority, (time.GetUtcNow() - started).TotalMilliseconds, waited);
+        if (background)
+            logger?.LogInformation("Background AniList request sent ({Used} of its {Share} a minute; {Sent} AniList requests in the last minute)",
+                used, Gate.BackgroundShare, sent);
+        else
+            logger?.LogDebug("Foreground AniList request sent after {Ms:0} ms ({Sent} AniList requests in the last minute, {Used} of them background)",
+                (time.GetUtcNow() - started).TotalMilliseconds, sent, used);
         using var request = new HttpRequestMessage(HttpMethod.Post, url ?? Url)
         {
             Content = JsonContent.Create(new JsonObject { ["query"] = query, ["variables"] = variables }),

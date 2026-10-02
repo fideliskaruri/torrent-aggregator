@@ -10,12 +10,13 @@ using TorrentFlow.Library.Features.Common;
 namespace TorrentFlow.Library.Features.Automation;
 
 public sealed class AutomationScheduler(IDbContextFactory<TorrentFlowDbContext> factory, AutomationService automation,
-    IConfiguration configuration, ILogger<AutomationScheduler> logger, AutomationWake wake, IProviderPacing? pacing = null) : BackgroundService
+    IConfiguration configuration, ILogger<AutomationScheduler> logger, AutomationWake wake) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (configuration.GetValue<bool>("TorrentFlow:Library:DisableScheduler")) return;
-        // The scheduled hunt is background: its catalog lookups go only when foreground requests leave room.
+        // The scheduled hunt is background: its AniList requests spend only the gate's background share. Only the
+        // request itself ever waits, so TMDB-only items are never held up.
         using var priority = ProviderPriority.Background();
         logger.LogInformation("[scheduler] automation scheduler armed");
         var delay = TimeSpan.FromSeconds(30);
@@ -34,11 +35,6 @@ public sealed class AutomationScheduler(IDbContextFactory<TorrentFlowDbContext> 
                     (x.Status == "watching" || x.Status == "planned") && (x.NextCheckAt == null || x.NextCheckAt <= now))
                     .OrderBy(x => x.NextCheckAt).ThenBy(x => x.LastChecked).Select(x => x.Id).Take(50).ToListAsync(stoppingToken);
                 var runRules = now >= nextRules;
-                if (pacing?.BackgroundHold("anilist") is { } hold)
-                {
-                    logger.LogInformation("[scheduler] waiting for AniList before the hunt: {Reason}", hold);
-                    await pacing.BackgroundTurnAsync("anilist", stoppingToken);
-                }
                 var result = await automation.Run(due, stoppingToken, runRules);
                 if (runRules) nextRules = now.AddMinutes(Math.Max(15, minutes.Value));
                 var earliest = await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && x.Monitored == true &&

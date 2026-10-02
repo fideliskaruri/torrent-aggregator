@@ -137,8 +137,12 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             work = await HydrateAnimeAsync(db, work, ct);
         // Every grab of a catalog work files under the work's own year (`Title (Year)`), whichever caller started it.
         input = input with { Year = work?.Year ?? input.Year };
-        // A film has no episodes: an episode request for one (an on-demand send) grabs the film (WorkKinds).
-        if (work != null && input.Cursor != null && !work.IsSeries()) input = input with { Cursor = null };
+        // Film or series is the work's own (WorkKinds): a film has no episodes, so an episode request for one (an
+        // on-demand send) grabs the film. While the work's format is still unknown after the bounded lookup, the request
+        // itself decides: its own film or series type, else whether it names an episode (none is a film grab). A legacy
+        // "anime" type says neither and never makes it a series.
+        if (work != null && input.Cursor != null && (work.KnownSeries() ?? WorkKinds.KnownSeries(null, input.MediaType)) == false)
+            input = input with { Cursor = null };
         // Anime is the work's own (WorkKinds), never a title search in the anime catalog. A grab without a catalog work
         // keeps only a positive call from its caller or its own anime source; null (unknown) lets the release's site
         // category decide in Placement, and never reads as "not anime".

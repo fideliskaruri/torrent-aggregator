@@ -13,6 +13,12 @@ public partial class WatchListItem
 
     public string ExternalId { get; set; } = null!;
 
+    /// <summary>
+    /// The catalog that <see cref="ExternalId"/> belongs to ("tmdb", "anilist", ...), "" when none. Part of the row's
+    /// identity, so TMDB movie 123 and AniList film 123 are two rows.
+    /// </summary>
+    public string Provider { get; set; } = "";
+
     public string Title { get; set; } = null!;
 
     public string? PosterUrl { get; set; }

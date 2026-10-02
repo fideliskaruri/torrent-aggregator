@@ -288,14 +288,14 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
 /// work only when the map version changes. A restart with everything linked does nothing.
 /// </summary>
 public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> factory, AnimeListsMap map, IWorkLinker linker, TimeProvider time,
-    ILogger<WorkLinkBackfill> logger, AniListClient? anilist = null) : BackgroundService
+    ILogger<WorkLinkBackfill> logger) : BackgroundService
 {
     private static readonly TimeSpan Pause = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan PerWork = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Linking is background work: its AniList requests go only when foreground requests leave room.
+        // Linking is background work: its AniList requests spend only the gate's background share.
         using var priority = ProviderPriority.Background();
         try
         {
@@ -325,12 +325,6 @@ public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> fac
         logger.LogInformation("Linking {Count} works against map {Version}", keys.Count, version);
         foreach (var key in keys)
         {
-            // AniList's pace is shared with every other lane: linking waits for its background turn rather than adding to the 429s.
-            if (anilist?.Gate.BackgroundHold() is { } hold)
-            {
-                logger.LogInformation("Linking {WorkKey} waits for AniList: {Reason}", key, hold.Reason);
-                await anilist.Gate.WaitBackgroundAsync(null, ct);
-            }
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(PerWork);
             try { await linker.LinkAsync(key, budget.Token); }

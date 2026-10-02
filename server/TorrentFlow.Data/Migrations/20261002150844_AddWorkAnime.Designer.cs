@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261002134507_AddWorkAnime")]
+    [Migration("20261002150844_AddWorkAnime")]
     partial class AddWorkAnime
     {
         /// <inheritdoc />
@@ -1519,6 +1519,11 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("preferredResolution");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
                     b.Property<double?>("Rating")
                         .HasColumnType("REAL")
                         .HasColumnName("rating");
@@ -1561,7 +1566,7 @@ namespace TorrentFlow.Data.Migrations
 
                     b.HasIndex(new[] { "UserId" }, "WatchListItem_userId_idx");
 
-                    b.HasIndex(new[] { "UserId", "MediaType", "ExternalId" }, "WatchListItem_userId_mediaType_externalId_key")
+                    b.HasIndex(new[] { "UserId", "MediaType", "ExternalId", "Provider" }, "WatchListItem_userId_mediaType_externalId_provider_key")
                         .IsUnique();
 
                     b.HasIndex(new[] { "UserId", "NextCheckAt" }, "WatchListItem_userId_nextCheckAt_idx");

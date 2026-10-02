@@ -41,18 +41,13 @@ public interface IProviderPacing
 {
     /// <summary>When <paramref name="provider"/> takes requests again; null when it takes them now.</summary>
     DateTimeOffset? BlockedUntil(string provider);
-
-    /// <summary>Why a background request to <paramref name="provider"/> must wait right now; null when it may go.</summary>
-    string? BackgroundHold(string provider);
-
-    /// <summary>Waits until a background request to <paramref name="provider"/> may go (<see cref="ProviderPriority"/>).</summary>
-    Task BackgroundTurnAsync(string provider, CancellationToken ct);
 }
 
 /// <summary>
 /// Whose turn a provider request is. Requests are foreground (a title page, a search, a grab) unless the code that
 /// makes them runs inside <see cref="Background"/>: backfills, link jobs, the hunter and other reconciliation. A rate
-/// gate sends foreground requests first and lets background ones use only what foreground calls leave over.
+/// gate lets background requests spend only a fixed share of the provider's allowance, so foreground requests never
+/// wait behind them and background ones still progress.
 /// </summary>
 public static class ProviderPriority
 {
@@ -107,7 +102,18 @@ public interface IMetadataResolver
             "tmdb" => GetTmdbByIdAsync(mediaType, id, cancellationToken),
             _ => Task.FromResult<MediaMetadata?>(null)
         };
+
+    /// <summary>
+    /// <see cref="GetByIdAsync"/> with how it went, so a provider that refused or failed to answer is never read as
+    /// "not found". Only <see cref="ProviderLookup.Found"/> and <see cref="ProviderLookup.NotFound"/> are real answers.
+    /// </summary>
+    async Task<(ProviderLookup Outcome, MediaMetadata? Metadata)> LookupByIdAsync(string provider, string mediaType, string id,
+        CancellationToken cancellationToken = default) =>
+        await GetByIdAsync(provider, mediaType, id, cancellationToken) is { } found ? (ProviderLookup.Found, found) : (ProviderLookup.NotFound, null);
 }
+
+/// <summary>How a by-id provider lookup went: <see cref="RateLimited"/> and <see cref="Failed"/> are not answers.</summary>
+public enum ProviderLookup { Found, NotFound, RateLimited, Failed }
 
 /// <summary>
 /// A catalog row as used by the title page and browse rails. <paramref name="RatingSource"/> names who supplied <paramref name="Rating"/>,
