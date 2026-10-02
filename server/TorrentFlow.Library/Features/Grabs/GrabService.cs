@@ -541,7 +541,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 SourceCategory = candidate.Category,
                 Language = new EngineLanguageCheck(WantOf(input), context?.Language?.Fit, context?.Language?.Label, context?.AcceptClash ?? false),
                 QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
-                OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
+                OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files,
+                Provenance = EngineProvenance.Of(context?.Picked == true) }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
         catch (Exception error) when (!ct.IsCancellationRequested && !Stopping) { result = new(false, error.Message); }

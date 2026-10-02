@@ -67,14 +67,16 @@ public static class LocalFiles
     public static Func<string, LocalFilePresence> Lookup(IEnumerable<Data.Entities.EngineTorrent> rows, Func<string, StatVerdict>? stat = null)
     {
         var byHash = new Dictionary<string, LocalFilePresence>(StringComparer.Ordinal);
-        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Classify(Collect(row.SavePath, row.VerifiedFilesJson, stat));
+        // A transfer's files are in its stage folder until promoted (EngineTorrent.PayloadRoot), so the library folder is not
+        // there yet while it downloads.
+        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Classify(Collect(Data.Entities.EngineTorrent.PayloadRoot(row), row.VerifiedFilesJson, stat));
         return hash => byHash.GetValueOrDefault(hash.Trim().ToLowerInvariant(), LocalFilePresence.Unknown);
     }
-    /// <summary>builtin-engine-lifecycle.ts persistedTorrentIsDownloaded.</summary>
-    public static bool PersistedTorrentIsDownloaded(double progress, string? verifiedBitfield, string? verifiedFilesJson)
+    /// <summary>builtin-engine-lifecycle.ts persistedTorrentIsDownloaded: promoted (<see cref="Data.Entities.EngineTorrent.IsDownloaded"/>), with a video recorded.</summary>
+    public static bool PersistedTorrentIsDownloaded(Data.Entities.EngineTorrent row)
     {
-        var paths = RecordedFilePaths(verifiedFilesJson, trim: false);
-        return progress >= 0.9999 && !string.IsNullOrWhiteSpace(verifiedBitfield) && paths.Count > 0
+        var paths = RecordedFilePaths(row.VerifiedFilesJson, trim: false);
+        return Data.Entities.EngineTorrent.IsDownloaded(row) && !string.IsNullOrWhiteSpace(row.VerifiedBitfield) && paths.Count > 0
             && paths.Any(MediaFileRules.IsVideo);
     }
 }
@@ -111,7 +113,7 @@ public sealed class LocalFilePresenceCache(TimeProvider time)
     public Func<string, LocalFilePresence> Lookup(IEnumerable<Data.Entities.EngineTorrent> rows)
     {
         var byHash = new Dictionary<string, LocalFilePresence>(StringComparer.Ordinal);
-        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Presence(row.Hash, row.SavePath, row.VerifiedFilesJson);
+        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Presence(row.Hash, Data.Entities.EngineTorrent.PayloadRoot(row), row.VerifiedFilesJson);
         return hash => byHash.GetValueOrDefault(hash.Trim().ToLowerInvariant(), LocalFilePresence.Unknown);
     }
 

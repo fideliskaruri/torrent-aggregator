@@ -96,7 +96,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         {
             target.Progress = Math.Clamp(row.Progress, 0, 1);
             // An engine row waiting in the built-in download queue is admitted but not moving (TS 446bff0).
-            target.Status = row.Progress >= 1 || row.Status.Equals("seeding", StringComparison.OrdinalIgnoreCase) ? "downloaded" : target.Status == "failed" ? "failed" :
+            target.Status = EngineTorrent.IsDownloaded(row) ? "downloaded" : target.Status == "failed" ? "failed" :
                 row.Status.Equals("queued", StringComparison.OrdinalIgnoreCase) ? "queued" : "downloading";
             if (target.Status == "downloaded") target.Progress = 1;
         }
@@ -194,7 +194,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var releases = cachedSearch?.Results.Where(x => ReleaseSelection.SameWork(x, title, query.Provider?.Aliases ?? [])).ToArray() ?? [];
         var onDisk = local.Where(x => x.Status is not ("error" or "missingfiles") && !FilesAbsent(x) && !InvalidMedia(x)).OrderByDescending(x => x.Progress).ToList();
         var best = onDisk.FirstOrDefault(x => x.Progress > 0);
-        string? State(EngineTorrent? row) => row == null ? null : row.Progress >= 1 ? "ready" : row.Progress > 0 ? "warm" : null;
+        string? State(EngineTorrent? row) => row == null ? null : EngineTorrent.IsDownloaded(row) ? "ready" : row.Progress > 0 ? "warm" : null;
         double? Fraction(EngineTorrent? row) => row != null && row.Progress > 0 && row.Progress < 1 ? row.Progress : null;
         var availability = State(best) ?? (releases.Any(x => ReleaseSeeders.IsViable(x.Seeders)) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
         var knownCoordinates = local.Select(x => EpisodeCursor.Parse(x.Name)).Concat(releases.Select(x => EpisodeCursor.Parse(x.Title)))
@@ -210,10 +210,10 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             var pack = onDisk.FirstOrDefault(x => PackSeason(x.Name) == s && x.Progress > 0);
             // Same evidence the episode rows use: an exact finished target, a finished episode file, or a verified pack file.
             var downloaded = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status == "downloaded").Select(t => t.Episode!.Value)
-                .Concat(onDisk.Where(x => x.Progress >= 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Concat(onDisk.Where(x => EngineTorrent.IsDownloaded(x) && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
                 .Concat(PackCoverage(onDisk, s).Keys).Where(e => e >= 1).ToHashSet();
             var downloading = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status is "queued" or "downloading").Select(t => t.Episode!.Value)
-                .Concat(onDisk.Where(x => x.Progress < 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Concat(onDisk.Where(x => !EngineTorrent.IsDownloaded(x) && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
                 .Where(e => e >= 1 && !downloaded.Contains(e)).Distinct().Count();
             return LibraryJson.Object(("season", s), ("knownEpisodes", knownCoordinates.Where(c => c.Season == s).Select(c => c.Episode).Distinct().Count()),
                 ("downloadedEpisodes", downloaded.Count), ("downloadingEpisodes", downloading),
@@ -320,7 +320,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         foreach (var row in rows.Where(x => PackSeason(x.Name) == season || MultiSeason(x.Name))
             .OrderBy(x => MultiSeason(x.Name)).ThenByDescending(x => x.Progress))
         {
-            if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) continue;
+            if (!EngineTorrent.IsDownloaded(row) || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) continue;
             var best = new Dictionary<int, (string Path, long Size)>();
             foreach (var file in VerifiedFiles.Read(row.VerifiedFilesJson) ?? [])
             {

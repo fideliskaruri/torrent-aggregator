@@ -169,14 +169,14 @@ public sealed class AvailabilityResolver(
         filePresence ??= _ => LocalFilePresence.Unknown;
         var matching = torrents.Where(t => TorrentMatchesQuery(t.Name, query) && filePresence(t.Hash) != LocalFilePresence.Absent).ToList();
         var sawAny = false;
-        foreach (var ready in matching.Where(t => LocalFiles.PersistedTorrentIsDownloaded(t.Progress, t.VerifiedBitfield, t.VerifiedFilesJson) && t.Status != "removed"))
+        foreach (var ready in matching.Where(t => LocalFiles.PersistedTorrentIsDownloaded(t) && t.Status != "removed"))
         {
             if (filePresence(ready.Hash) == LocalFilePresence.Present) return new("ready", ready.Hash);
             var live = readyPresence(ready.Hash);
             if (live == TorrentPresence.Present) return new("ready", ready.Hash);
             sawAny = true;
         }
-        foreach (var warm in matching.Where(t => t.Progress > 0 && t.Progress < 1 && t.Status != "removed" && t.Status != "error"))
+        foreach (var warm in matching.Where(t => t.Progress > 0 && !EngineTorrent.IsDownloaded(t) && t.Status != "removed" && t.Status != "error"))
         {
             if (readyPresence(warm.Hash) == TorrentPresence.Present) return new("warm", warm.Hash, warm.Progress);
             sawAny = true;
