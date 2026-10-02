@@ -61,12 +61,15 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         var want = await grabs.LanguageWantAsync(settings?.AudioLanguage, work.MediaType, work.Provider, work.ProviderId, ct, work.OriginalLanguage);
         static string HashOf(TorrentResult r) => LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet)!;
         var blocks = await ReleaseBlocks.GetAsync(db, LocalUser.Id, usable.Select(HashOf), ct);
+        // A release whose header the engine read is labelled on its own tracks, the same judge as the engine's check.
+        var header = await MediaProbeTracks.ForAsync(db, usable.Select(HashOf), ct);
 
         foreach (var (group, fit) in new[] { (fits, true), (others, false) })
         {
             // The English rule orders the list like the automatic picks (Pass, then unknown, then fail; within each, the
             // owner's audio preference) and labels each row; it never hides one. A hand pick always goes.
-            var verdicts = group.Distinct().ToDictionary(r => r, r => ReleaseLanguage.Verdict(want, r.Title, r.Category));
+            var verdicts = group.Distinct().ToDictionary(r => r, r => KnownLanguage.Judge(want, r.Title, r.Category, null,
+                header.GetValueOrDefault(HashOf(r))));
             // Blocked releases go last, like the swap dialog: listed for a hand pick, never first.
             foreach (var (ranked, language) in ReleaseSwapService.Rank(group, null, null,
                     r => (blocks.ContainsKey(HashOf(r)) ? 1000 : 0) + ReleaseLanguage.Order(verdicts[r]))

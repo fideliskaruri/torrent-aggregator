@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core;
 using TorrentFlow.Data;
@@ -45,28 +43,17 @@ internal sealed record HeaderProbeResult(string? Hash, IReadOnlyList<HeaderProbe
 }
 
 /// <summary>
-/// Header probe results kept in the MediaProbe table (unique per hash and torrent file path), so a release whose
-/// header was read once is never fetched for it again. Only checked scans are kept: an unchecked one may work next time.
+/// Header probe results kept in the MediaProbe table (unique per hash and torrent file path, shape in
+/// <see cref="MediaProbeTracks"/>), so a release whose header was read is never fetched for it again. Only checked
+/// scans are kept: an unchecked one may work next time.
 /// </summary>
 internal static class HeaderProbeCache
 {
-    /// <summary>The row shape this probe writes; rows of another version are not read back as header tracks.</summary>
-    public const int Version = 1;
-    private const string Source = "header";
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
-
     public static async Task<MediaTrackScan?> FindAsync(TorrentFlowDbContext db, string hash, string path, CancellationToken ct)
     {
         var row = await db.MediaProbes.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.InfoHash == hash && p.FilePath == path && p.ProbeVersion == Version, ct);
-        if (row?.StreamsJson is not { Length: > 0 } json) return null;
-        try
-        {
-            return JsonSerializer.Deserialize<Stored>(json, Json) is { Source: Source, Tracks: { } tracks }
-                ? new MediaTrackScan(row.Container ?? "unknown", tracks, null, 0, 0)
-                : null;
-        }
-        catch (JsonException) { return null; }
+            .FirstOrDefaultAsync(p => p.InfoHash == hash && p.FilePath == path && p.ProbeVersion == MediaProbeTracks.Version, ct);
+        return MediaProbeTracks.Read(row) is { } tracks ? new MediaTrackScan(row!.Container ?? "unknown", tracks, null, 0, 0) : null;
     }
 
     public static async Task SaveAsync(TorrentFlowDbContext db, string hash, HeaderProbeFile file, DateTime now, CancellationToken ct)
@@ -75,12 +62,10 @@ internal static class HeaderProbeCache
         var row = await db.MediaProbes.FirstOrDefaultAsync(p => p.InfoHash == hash && p.FilePath == file.Path, ct);
         if (row is null) db.MediaProbes.Add(row = new MediaProbe { Id = Ids.New(), InfoHash = hash, FilePath = file.Path });
         row.Container = file.Scan.Container;
-        row.StreamsJson = JsonSerializer.Serialize(new Stored(Source, file.Scan.Tracks), Json);
-        row.ProbeVersion = Version;
+        row.StreamsJson = MediaProbeTracks.Write(file.Scan.Tracks);
+        row.ProbeVersion = MediaProbeTracks.Version;
         row.ProbedAt = now;
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
     }
-
-    private sealed record Stored(string Source, IReadOnlyList<MediaTrack> Tracks);
 }
