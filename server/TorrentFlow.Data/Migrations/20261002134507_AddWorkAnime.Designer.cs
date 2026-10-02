@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261002003855_AddWorkAnime")]
+    [Migration("20261002134507_AddWorkAnime")]
     partial class AddWorkAnime
     {
         /// <inheritdoc />
@@ -722,6 +722,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<int>("Lane")
                         .HasColumnType("INTEGER")
                         .HasColumnName("lane");
+
+                    b.Property<string>("LanguageCheckJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("languageCheckJson");
 
                     b.Property<string>("LastUsedAt")
                         .IsRequired()

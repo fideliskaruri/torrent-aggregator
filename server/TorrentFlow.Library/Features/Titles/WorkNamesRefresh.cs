@@ -33,7 +33,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
     /// </summary>
     public static bool Stale(Work work) =>
         work.NamesRefreshedAt == null && work.Provider is "anilist" or "tmdb"
-        || (work.Anime == null || work.Format == null) && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider);
+        || (work.Anime == null || work.Format == null || work.Year == null) && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider);
 
     /// <summary>Claims this work's once-a-day lookup; only one caller wins a slot, however many race for it.</summary>
     private static bool Claim(ConcurrentDictionary<string, DateTimeOffset> tried, TimeSpan interval, string workId, DateTimeOffset now)
@@ -155,12 +155,14 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
                 var format = WorkFormats.Of(record) ?? current.Format;
                 var language = WorkFormats.LanguageOf(record) ?? current.OriginalLanguage;
                 var anime = AnimeIdentity.IsAnime(record);
+                var year = current.Year ?? record.Year;
                 changed = current.NamesJson != priorNames || current.IdsJson != priorIds || format != current.Format || language != current.OriginalLanguage
-                    || anime != current.Anime;
+                    || anime != current.Anime || year != current.Year;
                 if (!changed && current.NamesRefreshedAt != null) return false;
                 current.Format = format;
                 current.OriginalLanguage = language;
                 current.Anime = anime;
+                current.Year = year;
                 current.NamesRefreshedAt = time.GetUtcNow().UtcDateTime;
                 return true;
             }, ct);
