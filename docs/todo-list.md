@@ -31,6 +31,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Next
 
+- Release finder (T5, FEAT-32), now including the owner's 2026-10-03 season pack rule (docs/rules.md "Season packs"): a finished season pools season packs with single episodes and the healthiest release wins; partial seasons take the pack with only the missing files; airing seasons stay per episode. Motivating case: Little Fires Everywhere. Plan and critic first, then implement after fix/requests-state and fix/anime-seasons merge.
 - BUG-J/J2 leftovers (`fix/no-stream`): the D1 docs rewrite (AGENTS.md §5/§6, the AGENT-GUIDE player section, README, design-system, shadcn-migration, `canStream` in requests.md); a finished download whose file is itself a symlink never parks, because `BuildManifest` reads the link's 0-byte length (also on main); decide whether `ReleaseQuality.DirectPlayable` should still rank releases now that nothing plays in the browser; `release-windows.yml` lists a `TorrentFlow.Library.Tests` project that doesn't exist; the grab ladder moving on after a `bad_release` refusal still needs a live proof with indexer fixtures.
 - Season pipeline leftovers (season-finish):
   - TMDB-opened works typed "tv" don't get the anime episode mapping.
