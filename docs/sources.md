@@ -103,6 +103,24 @@ Each adapter lives in `server/TorrentFlow.Search/Adapters/` and reuses the share
 EZTV now reports `season`/`episode` as `0`, so the adapter reads them from the release
 title and walks up to five pages (newest first) until it passes the wanted season.
 
+### Language hints from AnimeTosho and apibay
+
+Two sites also answer what is inside a release before it downloads (docs/release-language.md, "Hints before download"):
+
+- AnimeTosho: `https://feed.animetosho.org/json?show=torrent&btih=<info hash>` (or `id=<AnimeTosho id>`) returns the
+  torrent with `status` (`complete`, `processing`, `skipped`) and `files[]`. Each file's `attachments[]` with
+  `type: "subtitle"` carry `info: {codec, lang, name, default, enabled, forced, trackid, tracknum}`; some files carry
+  `info.mediainfo` text with the audio tracks. An unknown hash answers 404 `{"error":"Requested torrent not found"}`.
+  AnimeTosho mirrors nyaa's English-translated anime, so only those (and its own listings) are asked. It stopped
+  processing new items in May 2026 and says the feed will shut down soon; its unfiltered latest feed is already off.
+- apibay: `https://apibay.org/f.php?id=<TPB id>` returns `[{"name":["Subs/English.srt"],"size":[72229]}]`, or one
+  `{"name":{"0":"Filelist not found"}}` entry. The apibay adapter keeps the TPB id on each result (`SiteId`). apibay's
+  search answers nothing for some one-word queries (`Dune`, `Sintel`) while `Dune 2021` works.
+
+Both lookups use the adapter's user agent through `IndexerHttp` (cool-down on a real 429 or 503 with Retry-After) and
+their own line per site: AnimeTosho starts at least 1 s apart, up to 3 open; apibay 2 s apart, one at a time. Answers
+are cached in the `ReleaseHint` table.
+
 SubsPlease lists only its own releases and reports no swarm counts; the tracker scrape
 fills them in. It numbers each season from 01, so `Sousou no Frieren S2 - 01` finds the
 episode and `Frieren 29` finds nothing there (Nyaa and AnimeTosho still match it).

@@ -247,7 +247,7 @@ Each claim has a confidence, strongest first:
 
 | Confidence | Comes from | Example |
 | --- | --- | --- |
-| HeaderFact | the file's own audio and subtitle tracks (the header probe after add) | `jpn`, `eng` tracks |
+| HeaderFact | the file's own audio and subtitle tracks (the header probe after add), or the same tracks as an index read them before download (AnimeTosho, "Hints before download") | `jpn`, `eng` tracks |
 | ExplicitAudio | an audio marker in the name or file names | `TRUEFRENCH`, `VF`, `German DL`, `[English Dub]`, `国语`, `JPN AAC2.0`, `Greek Audio`, `MVO` |
 | ExplicitSubs | a subtitle marker | `VOSTFR`, `SUBFRENCH`, `CHS`, `CHT`, `BIG5`, `简繁`, `内封`, `Baha`, `Multi-Subs`, `MSubs`, `ESub`, `nlsubs`, `Subs.Ita.Eng`, `.en.srt` |
 | ProviderCategory | the site's category | nyaa `Anime - English-translated` (1_2), `Non-English-translated` (1_3), `Raw` (1_4) |
@@ -337,6 +337,53 @@ EMBER and Judas (Japanese audio, English subtitles) are Backup, and the Tsundere
 Known misses, ordering only: a lowercase language word in an all-lowercase name (`Stuart little german 1999 dvdrip
 xvid`) reads as not stated, and a mixed-case code (`Dragon Ball Z [TV] [01-210] Rus (rus, eng. sub.)`) reads as English
 subtitles only, so the Russian audio sorts as Preferred.
+
+## Hints before download
+
+What an index says about a release's files, before anything downloads (`docs/english-gates-plan.md`, section 3). A hint
+feeds the same rule through `ReleaseLanguage.Verdict(want, name, category, hint)`: each main video is read like the
+header probe reads a file, its own tracks through the shared `WithHeader` and `Judge`, plus, in a torrent with one main
+video, its subtitle and audio files through `WithSidecars`; the worst one counts. A hint only orders releases and lets an
+automatic pick skip one that clearly has no English. It never passes a release at the files' own check: the engine's
+file-list and header checks (and the coming gate on the finished files) run as before.
+
+- A hint Fail is a language hold like a name Fail (`subs_tr` for Turkish-only subtitles, `no_subs`, ...): never sent
+  automatically, counted for "Waiting for an English release". A hint Pass moves an Unknown name up to Pass, so it is
+  sent before Unknown releases. No hint: the name verdict, as before.
+- Held Unknown releases are judged again before the ladder sends them: a hint that arrived meanwhile (a later rung's
+  search found it cached) keeps a no-English one back.
+- The grab ladder, the release picker, Find another source (`ReleaseSwapService`) and the search page order all read it.
+  The activity log's language column names the index: `pass (English subtitles): English subtitles (preferred, header, animetosho)`.
+- The release picker and Find another source show the language label plus "from AnimeTosho" or "from file list"
+  (`ReleaseLanguageInfo.Hint`). Requesters never see release rows.
+
+| Source | Lookup | Evidence | Applies to |
+| --- | --- | --- | --- |
+| AnimeTosho | `feed.animetosho.org/json?show=torrent&btih=<hash>` | each file's subtitle tracks (language, name, default, forced), and audio tracks from `info.mediainfo` when present, as `MediaTrack` with `Source = "indexer"`; judged like header facts | releases AnimeTosho or nyaa (English-translated, 1_2) listed; a cached answer counts for any site that lists the same hash |
+| apibay | `apibay.org/f.php?id=<TPB id>` | file names: `.en.srt`, `Subs/English.srt`, `2_English.srt` | releases TPB listed (the adapter keeps the TPB id as `SiteId`, even when another site's listing of the same hash was kept); only torrents with one main video |
+
+Track names and forced flags are kept on the tracks (`MediaTrack.Name`, `Forced`), so the track-roles rule (a "Signs"
+or "Forced" English track is not full English subtitles) applies to hints as soon as the shared judge has it.
+
+Fetching (`LanguageHints`, `server/TorrentFlow.Search/LanguageHints.cs`):
+
+- Runs beside the tracker scrape, for the top 8 candidates per source by the current ranking. A search waits at most
+  3 seconds for them; an interactive search with no anime candidates waits only while the scrape runs, so film searches
+  don't get slower. A missing or slow hint is no hint; lookups still running finish in the background and fill the cache
+  for the next search (the ladder's next rung, the wanted queue's retry, the picker).
+- One cache, the `ReleaseHint` table (source, key, state, files, attempts, retryAt). `complete` answers are kept for
+  good: a hash's files never change. An item AnimeTosho is still processing, or a lookup that failed after it was sent,
+  is `pending` and asked again after 2 minutes; one it doesn't have (404), one it skipped (it never processes those) or
+  apibay's "Filelist not found" is `missing` and asked again after 10 minutes; each answer in a row doubles the wait, up
+  to a day. A lookup still waiting in the site's line when its time ran out records nothing.
+- Polite: one line per site for hint lookups, starts at least 1 s apart for AnimeTosho (up to 3 open, it answers in
+  about 2 s) and 2 s for apibay (one at a time). With the sites' own search pacing (1 s and 2 s) that stays at about
+  2 requests a second to AnimeTosho. Requests go through `IndexerHttp` with the adapters' user agent, so a 429 or a 503
+  with Retry-After cools the site for searches and hints alike; a lookup during a cool-down is simply no hint.
+- At most 16 lookups wait in one site's line; past that a candidate gets no hint this time. A source turned off in
+  Settings is not asked.
+- AnimeTosho stopped processing new items in May 2026 and says its feed will shut down. Episodes released after that
+  come back `missing` and are asked again with backoff; older episodes keep working from the cache.
 
 ## The engine's check after add
 
