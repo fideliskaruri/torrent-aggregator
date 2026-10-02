@@ -364,6 +364,12 @@ export interface TitleExtrasPayload {
 export interface TitleGrabResponse {
   ok: boolean;
   message: string;
+  /**
+   * The work the download went to. It differs from the page's key when the page
+   * is another work's (`doctor-who-2005` for `doctor-who-2005-tv`); the page
+   * then follows it in place.
+   */
+  workKey?: string | null;
   retryAfterSeconds?: number;
   /** Set when no release could be chosen: the search we used, for "Pick a release yourself". */
   noReleaseFound?: { reason?: string | null; manualSearchQuery?: string | null } | null;
@@ -409,6 +415,8 @@ interface TitleSeasonEpisodeTransfer {
 export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
+  /** The work the season went to (see `TitleGrabResponse.workKey`). */
+  workKey?: string | null;
   /** Download season is fire and forget: the server queued it and searches in the background. */
   queued?: boolean;
   retryAfterSeconds?: number;
