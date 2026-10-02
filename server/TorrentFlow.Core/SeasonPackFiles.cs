@@ -49,12 +49,20 @@ public static class SeasonPackFiles
         {
             var match = SxxEyy.Match(name) is { Success: true } s ? s : NxMM.Match(name);
             return marks == 1 && match.Success
-                ? $"s{int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture)}e{int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture)}"
+                ? $"s{Number(match.Groups[1].Value)}e{Number(match.Groups[2].Value)}"
                 : null;
         }
         var numbers = Absolute.Matches(name).Select(m => m.Groups.Values.Skip(1).First(g => g.Success).Value)
-            .Select(n => int.Parse(n, CultureInfo.InvariantCulture)).Distinct().ToList();
+            .Select(Number).Distinct().ToList();
         return numbers.Count == 1 ? $"e{numbers[0]}" : null;
+    }
+
+    // \d also matches non-ASCII decimal digits (full-width "０５"), which int.Parse rejects; read each digit's value instead.
+    private static int Number(string digits)
+    {
+        var value = 0;
+        foreach (var c in digits) value = value * 10 + CharUnicodeInfo.GetDecimalDigitValue(c);
+        return value;
     }
 
     /// <summary>Two <see cref="EpisodeKey"/>s name the same episode: equal, or one has no season and the numbers agree.</summary>
@@ -82,8 +90,8 @@ public static class SeasonPackFiles
                 notes.Add(marks > 1 || match.Success ? $"double episode {name}" : $"no SxxEyy in {name}");
                 continue;
             }
-            var fileSeason = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            var episode = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            var fileSeason = Number(match.Groups[1].Value);
+            var episode = Number(match.Groups[2].Value);
             if (fileSeason != season) return Reject("multi_season", notes);
             if (episode < 1) continue;
             if (!found.TryGetValue(episode, out var list)) found[episode] = list = [];
