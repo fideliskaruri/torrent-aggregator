@@ -92,6 +92,17 @@ public static class RequestMarks
         foreach (var (season, episode) in covered) marks[season] = Math.Max(episode, marks.GetValueOrDefault(season));
         return Format(marks);
     }
+
+    /// <summary>A mark as (season, episode) pairs, to raise another mark to it.</summary>
+    public static IEnumerable<(int Season, int Episode)> Entries(string? value) =>
+        (Parse(value) ?? new Dictionary<int, int>()).Select(m => (m.Key, m.Value));
+
+    /// <summary>
+    /// A season request decided before covered marks existed (<see cref="MediaRequest.CoveredThrough"/> null) is waiting
+    /// for its one-time backfill: until then nothing reconciles or re-grabs it, or it would bring back what the owner stopped.
+    /// </summary>
+    public static bool AwaitsCover(MediaRequest row) =>
+        row.Scope != MediaRequestScope.Movie && row.DecidedAt != null && row.CoveredThrough is null;
 }
 
 /// <summary>
@@ -108,6 +119,8 @@ public sealed class LibraryOnDisk
     private readonly Dictionary<string, HashSet<(int Season, int Episode)>> _episodes = new(StringComparer.Ordinal);
     private readonly List<ReleaseIdentity> _unmatched = [];
     private readonly Dictionary<string, List<(int? Season, int? Episode, bool Ready)>> _wanted = new(StringComparer.Ordinal);
+    /// <summary>Every episode with a wanted row, failed ones included: one without is an episode the owner removed or stopped.</summary>
+    private readonly Dictionary<string, HashSet<(int Season, int Episode)>> _rows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Work> _works = new(StringComparer.Ordinal);
     private readonly Dictionary<(string, int), IReadOnlyList<(int Season, int Episode)>?> _shapes = [];
     private readonly HashSet<(string, int)> _airing = [];
@@ -124,8 +137,15 @@ public sealed class LibraryOnDisk
         var library = new LibraryOnDisk(shapes);
         var ready = await browse.ReadyTorrentsAsync(LocalUser.Id, 5000, ct);
         var hashes = ready.Select(t => t.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
-        var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Status != "failed")
-            .Select(t => new { t.WorkKey, t.Scope, t.Season, t.Episode, t.InfoHash }).ToListAsync(ct);
+        var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id)
+            .Select(t => new { t.WorkKey, t.Scope, t.Season, t.Episode, t.InfoHash, t.Status }).ToListAsync(ct);
+        foreach (var t in targets)
+            if (t.Scope == "episode" && t.Season is { } rs && t.Episode is { } re)
+            {
+                if (!library._rows.TryGetValue(t.WorkKey, out var set)) library._rows[t.WorkKey] = set = [];
+                set.Add((rs, re));
+            }
+        targets = targets.Where(t => t.Status != "failed").ToList();
         // Transfers still on their way: a request whose grabs were all removed or failed is not downloading.
         library._live = (await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id)
                 .Select(t => new { t.Hash, t.Status }).ToListAsync(ct))
@@ -264,14 +284,19 @@ public sealed class LibraryOnDisk
                 .Where(s => s >= 1).Distinct().Order().ToList();
         var work = new Identity(row.WorkKey, row.Title, row.Year, row.MediaType, row.Provider, row.ProviderId);
         // A request fulfilled earlier counts what it still owes (episodes above its mark) and what is still here; an
-        // episode the owner deleted since is neither, the same set fulfilment judges.
+        // episode the owner deleted since is neither, the same set fulfilment judges. One the owner removed or stopped
+        // looking for (covered, but its wanted row is gone) is not owed at all, the same rule the grabber keeps.
         var marks = RequestMarks.Parse(row.FulfilledThrough);
+        var covered = RequestMarks.Parse(row.CoveredThrough);
+        var rows = _rows.GetValueOrDefault(row.WorkKey) ?? [];
+        bool Stopped((int Season, int Episode) e) =>
+            covered != null && e.Episode <= covered.GetValueOrDefault(e.Season) && !rows.Contains(e) && !onDisk.Contains(e);
         var total = 0;
         var done = 0;
         foreach (var season in seasons)
         {
             var required = (await RequiredAsync(work, row.WorkKey, season, ct))
-                .Where(e => RequestMarks.Counts(marks, e.Season, e.Episode) || onDisk.Contains(e)).ToList();
+                .Where(e => (RequestMarks.Counts(marks, e.Season, e.Episode) || onDisk.Contains(e)) && !Stopped(e)).ToList();
             total += required.Count;
             done += required.Count(onDisk.Contains);
         }

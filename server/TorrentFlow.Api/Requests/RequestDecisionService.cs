@@ -400,13 +400,75 @@ public sealed class RequestDecisionService(
         await db.MediaRequests.Where(r => r.Status == MediaRequestStatus.Failed && r.GrabbedHashes != null && r.GrabbedHashes != "")
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Partial), ct);
         var rows = await db.MediaRequests.AsNoTracking()
-            .Where(r => r.Status == MediaRequestStatus.Approved).Select(r => new { r.Id, r.GrabbedHashes, r.DecisionReason }).ToListAsync(ct);
+            .Where(r => r.Status == MediaRequestStatus.Approved).ToListAsync(ct);
         foreach (var row in rows)
         {
-            // Grabbing a request the owner stopped part of would bring back the episodes he removed.
-            if (string.IsNullOrEmpty(row.GrabbedHashes)) { if (!RequestWantedObserver.OwnerStopped(row.DecisionReason)) await GrabAsync(row.Id, ct); }
+            // Grabbing a request the owner stopped part of, or one not yet given its covered mark, would bring back the
+            // episodes he removed.
+            if (string.IsNullOrEmpty(row.GrabbedHashes))
+            {
+                if (!RequestWantedObserver.OwnerStopped(row.DecisionReason) && !RequestMarks.AwaitsCover(row)) await GrabAsync(row.Id, ct);
+            }
             else await CheckFulfilledAsync(row.Id, ct);
         }
+    }
+
+    /// <summary>
+    /// The one-time upgrade backfill, and its retry for rows a lookup could not settle: a season request decided before
+    /// covered marks existed takes, per season, the last episode that had aired when it was decided. A wanted row missing
+    /// at or below it since then is one the owner removed or stopped, so nothing brings it back.
+    /// </summary>
+    public async Task BackfillCoveredAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = await db.MediaRequests.AsNoTracking().Where(r => r.Scope != MediaRequestScope.Movie && r.DecidedAt != null &&
+            r.CoveredThrough == null && r.Status != MediaRequestStatus.Cancelled && r.Status != MediaRequestStatus.Declined).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            string? covered;
+            try { covered = await grabber.AiredByAsync(row, row.DecidedAt!.Value, null, ct); }
+            catch (Exception error) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(error, "Could not backfill the covered mark of request {Id}", row.Id);
+                continue;
+            }
+            if (covered is null) continue;
+            if (await db.MediaRequests.Where(r => r.Id == row.Id && r.CoveredThrough == null)
+                    .ExecuteUpdateAsync(u => u.SetProperty(r => r.CoveredThrough, covered), ct) > 0)
+                logger.LogInformation("Request {Id}: covered mark backfilled to {Covered}", row.Id, covered);
+        }
+    }
+
+    /// <summary>
+    /// The owner stopped looking for an episode, or a whole season (Remove on a looking row). Every decided request
+    /// covering it, of any ask, remembers it as covered before anything is rechecked, so no reconcile, re-grab or Retry
+    /// brings it back. A season counts as stopped through its last aired episode. A pending ask has queued nothing (a
+    /// mark would hold back episodes it never wanted); approving it later is the owner's call.
+    /// </summary>
+    public async Task CoverStoppedAsync(string workKey, int? season, int? episode, CancellationToken ct)
+    {
+        if (season is not { } stopped) return;
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = (await db.MediaRequests.Where(r => r.WorkKey == workKey && r.Scope != MediaRequestScope.Movie && r.DecidedAt != null &&
+                r.Status != MediaRequestStatus.Cancelled && r.Status != MediaRequestStatus.Declined).ToListAsync(ct))
+            .Where(r => r.Scope == MediaRequestScope.Series || RequestRules.ParseSeasons(r.Seasons) is var asked && (asked.Count == 0 || asked.Contains(stopped)))
+            .ToList();
+        if (rows.Count == 0) return;
+        var now = time.GetUtcNow().UtcDateTime;
+        var through = episode ?? RequestMarks.Parse(await grabber.AiredByAsync(rows[0], now, [stopped], ct))?.GetValueOrDefault(stopped) ?? 0;
+        var kept = 0;
+        foreach (var row in rows)
+        {
+            // A row still waiting for its upgrade backfill takes it now, so the stop does not stand in for the rest of it.
+            // If that lookup fails it keeps waiting (nothing reconciles or re-grabs it) rather than holding the stop alone.
+            var start = row.CoveredThrough ?? await grabber.AiredByAsync(row, row.DecidedAt!.Value, null, ct);
+            if (start is null) continue;
+            row.CoveredThrough = RequestMarks.Advance(start, through > 0 ? [(stopped, through)] : []);
+            kept++;
+        }
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("{WorkKey} season {Season} episode {Episode} stopped: {Rows} requests remember it", workKey, stopped,
+            episode?.ToString() ?? "all", kept);
     }
 
     /// <summary>The acquisition targets in this request's scope: the film, or the episodes of the asked seasons.</summary>
@@ -464,17 +526,23 @@ public sealed class RequestDecisionService(
         var pending = false;
         var here = live.Count > 0;
         var missing = 0;
-        foreach (var t in targets.Where(t => !stoppedOn.Contains(t.TargetKey)))
+        foreach (var t in targets)
         {
+            // A stopped transfer is Retry's: its film or episode is never counted missing. If the engine already handed
+            // its wanted row back (a dead magnet, a refused file list or English check), the queue is replacing it: open.
+            var stoppedHere = stoppedOn.Contains(t.TargetKey);
             var named = t.InfoHash?.ToLowerInvariant();
             if (named is null)
             {
                 // Handed back as failed: removed, its file went, or nothing was found by hand.
                 if (t.Status == "queued") open = true;
-                else missing++;
+                else if (!stoppedHere) missing++;
             }
-            else if (!Alive(named)) missing++;
-            else
+            else if (!Alive(named))
+            {
+                if (!stoppedHere) missing++;
+            }
+            else if (!stoppedHere)
             {
                 here = true;
                 if (!mine.Contains(named) && t.Status != "downloaded" && states[named].Progress < 1) pending = true;
@@ -572,9 +640,9 @@ public sealed class RequestDecisionService(
                 continue;
             }
             await DropReplacedAsync(db, row, health, ct);
-            // The owner stopped part of it himself (Remove on a looking row): his marker stands, and the rest is judged.
-            if (health.Missing > 0 && row.FulfilledThrough is null && !RequestWantedObserver.OwnerStopped(row.DecisionReason))
-                await MarkRemovedAsync(db, row, health, ct);
+            // The owner's stop marker only keeps the restart sweep from re-grabbing a request with no transfers; one with
+            // transfers that lost some is judged like any other (its covered mark keeps what he stopped from coming back).
+            if (health.Missing > 0 && row.FulfilledThrough is null) await MarkRemovedAsync(db, row, health, ct);
             else if (health.Gone.Count > 0 || health.Replaced.Count > 0 || row.FulfilledThrough != null) await CheckFulfilledAsync(row.Id, ct);
         }
     }
@@ -658,6 +726,8 @@ public sealed class RequestDecisionService(
         foreach (var ask in rows.GroupBy(RequestRules.SameAskKey).Select(g => g.ToList()))
         {
             var lead = ask[0];
+            // Not backfilled yet (an upgrade whose lookup failed): it would bring back what the owner stopped before it.
+            if (RequestMarks.AwaitsCover(lead)) continue;
             if (lead.Status == MediaRequestStatus.Fulfilled && lead.FulfilledThrough is null) lead.FulfilledThrough = await BackfillMarkAsync(db, ask, ct);
             var ids = ask.Select(r => r.Id).ToList();
             int queued;
@@ -672,10 +742,10 @@ public sealed class RequestDecisionService(
         }
     }
 
-    /// <summary>A request fulfilled before marks existed takes the episodes its scope covers as its mark.</summary>
+    /// <summary>A request fulfilled before marks existed takes the episodes its scope covers as its mark, and at least its covered mark.</summary>
     private async Task<string> BackfillMarkAsync(TorrentFlowDbContext db, IReadOnlyList<MediaRequest> ask, CancellationToken ct)
     {
-        var mark = RequestMarks.Advance(null, await CoveredAsync(db, ask[0], ct));
+        var mark = RequestMarks.Advance(ask[0].CoveredThrough, await CoveredAsync(db, ask[0], ct));
         var ids = ask.Where(r => r.Status == MediaRequestStatus.Fulfilled && r.FulfilledThrough == null).Select(r => r.Id).ToList();
         await db.MediaRequests.Where(r => ids.Contains(r.Id) && r.FulfilledThrough == null)
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.FulfilledThrough, mark), ct);
@@ -729,10 +799,14 @@ public sealed class RequestDecisionService(
         if (ids.Count > 0) await ReopenAsync(db, ids, ct);
     }
 
-    /// <summary>Fulfilled, with the mark raised to every episode now covered; a reopened request says new episodes are here.</summary>
+    /// <summary>
+    /// Fulfilled, with the mark raised to every episode now covered and to at least the covered mark (an episode the owner
+    /// stopped is behind it, never owed again); a reopened request says new episodes are here.
+    /// </summary>
     private async Task FulfilAsync(TorrentFlowDbContext db, MediaRequest row, bool announce, CancellationToken ct)
     {
-        var mark = row.Scope == MediaRequestScope.Movie ? null : RequestMarks.Advance(row.FulfilledThrough, await CoveredAsync(db, row, ct));
+        var mark = row.Scope == MediaRequestScope.Movie ? null
+            : RequestMarks.Advance(row.FulfilledThrough, RequestMarks.Entries(row.CoveredThrough).Concat(await CoveredAsync(db, row, ct)));
         var now = time.GetUtcNow().UtcDateTime;
         var changed = await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Approved)
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Fulfilled).SetProperty(r => r.FulfilledThrough, mark)
@@ -768,6 +842,9 @@ public sealed class RequestFulfillmentWatcher(ITorrentEngine engine, RequestDeci
         engine.TorrentFailed += OnFailed;
         try
         {
+            // Before anything reconciles or re-grabs: requests from before covered marks get theirs first.
+            try { await decisions.BackfillCoveredAsync(stoppingToken); }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(ex, "Covered mark backfill failed"); }
             try { await decisions.SweepAsync(stoppingToken); }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(ex, "Request fulfillment sweep failed"); }
             var nextAiring = DateTime.MinValue;
@@ -778,6 +855,8 @@ public sealed class RequestFulfillmentWatcher(ITorrentEngine engine, RequestDeci
                     await decisions.SettleDeadAsync(stoppingToken);
                     if (DateTime.UtcNow >= nextAiring)
                     {
+                        // A row whose backfill lookup failed is tried again before the airing check.
+                        await decisions.BackfillCoveredAsync(stoppingToken);
                         await decisions.ReconcileAiringAsync(stoppingToken);
                         nextAiring = DateTime.UtcNow + AiringCheck;
                     }

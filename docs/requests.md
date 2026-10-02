@@ -224,12 +224,26 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   hand-picked release (`POST /api/requests/{id}/pick`) fills the film's or episode's acquisition target, so it
   follows the same path, and every row of the ask shares it. A new requester never joins an ask whose transfers
   all died.
-- Covered mark: every row of an ask records, per season, the last episode it has ever wanted (`coveredThrough`),
-  whenever approval or the airing check queues episodes. An episode at or below it whose wanted row is gone was
-  removed by the owner or stopped (Remove on a looking row, see Downloads), so neither the airing check, nor a
-  restart re-grab, nor Retry brings it back; only episodes above it are new. The owner's own stop marker on a
-  request ("The owner stopped looking for some episodes.") is kept through later finds, and such a request is
-  never put into the quiet removal path above: what is left of it is judged for fulfilment as usual.
+- Covered mark: every row of an ask records, per season, the last episode it has ever wanted (`coveredThrough`):
+  what approval queues, and on every airing check each aired episode in scope that already has a wanted row,
+  whoever made the row (another ask, the owner's own season download). An episode at or below it whose wanted row
+  is gone was removed by the owner or stopped (Remove on a looking row, see Downloads), so neither the airing check,
+  nor a recheck, nor a restart re-grab, nor Retry brings it back; only episodes above it are new. When the owner
+  stops an episode or a season, every decided request covering it, of any ask, raises its mark to that episode (a
+  season: through its last aired episode) before any of them is rechecked. A pending ask has queued nothing, so it
+  takes no mark; approving it later is the owner's call. Such episodes are not owed: they never count as
+  removed, the requester's count leaves them out (a fulfilled season whose last episodes the owner stopped reads
+  available), and the fulfilled mark is raised to at least the covered mark. The owner's stop marker on a request
+  ("The owner stopped looking for some episodes.") only keeps the restart sweep from re-grabbing a request with no
+  transfers; it is kept through later finds, and a request with transfers that later loses some is judged like
+  any other (partial or fulfilled, never left approved).
+- Upgrade: season requests decided before covered marks existed get one at startup, before the restart sweep:
+  per season, the last episode that had aired when the request was decided. Until a row has it (its lookup failed;
+  it is tried again before every airing check), nothing reconciles or re-grabs it. A request fulfilled before the
+  upgrade takes at least its covered mark as its fulfilled mark.
+- A transfer the engine hands back to the queue itself (a dead magnet that never gave its file list, a refused
+  file list or English check, a refused promotion) leaves its wanted row `queued` with no hash: the queue is
+  replacing it, so the request is still looking. Nobody is told it stopped, and the replacement joins quietly.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).
