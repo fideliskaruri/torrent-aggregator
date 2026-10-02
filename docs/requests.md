@@ -150,6 +150,12 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).
   An **Auto-approve** section on the same page lists known requester emails, lets the owner set each to
   Off / Movies only / Everything, and add emails that have not requested yet.
+- Remove on a "Looking for a release" row (`DELETE /api/wanted`, a film, a season or one episode) settles every
+  request covering it, each on its own. Transfers the Remove undid leave every request that named them. A request
+  with no transfer left and nothing left in its scope (no wanted row, no download) becomes `cancelled` ("The owner
+  stopped looking for this."). Any other stays open and is checked for fulfilment at once; an approved one with no
+  transfer yet keeps the reason "The owner stopped looking for some episodes.", and the startup sweep never grabs
+  such a request again, so a removed episode stays removed after a restart.
 
 ## Configuration
 

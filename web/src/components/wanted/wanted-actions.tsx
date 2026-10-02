@@ -191,7 +191,11 @@ export function WantedActions({
         contentData={{ "data-looking-remove-dialog": true }}
         confirmData={{ "data-looking-remove-confirm": true }}
         title={`Remove ${name}?`}
-        description="TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page."
+        description={
+          target.season != null && target.episode == null
+            ? "TorrentFlow stops looking for these episodes, also after a restart. If a search for them is running or just finished, the episodes it started that are still downloading are removed too. Finished episodes stay."
+            : "TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page."
+        }
         variant="destructive"
         busy={confirming && busy}
         icon={<Trash2 className="h-3.5 w-3.5" />}
