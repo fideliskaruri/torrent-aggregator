@@ -39,12 +39,21 @@ public sealed class StorageBudget(TimeProvider time)
 
     public void ResetDirectorySizeCache() => _sizes.Clear();
 
-    public StorageCheck Check(string? root, long? maxStorageBytes, long? incomingBytes, long reservedQueuedBytes, bool overrideCap = false)
+    /// <param name="stagingOutsideRoot">Stage folders on other volumes (StagePaths.OutsideRoot): counted once on top of the
+    /// download root, which already holds its own <c>.staging</c> folder.</param>
+    public StorageCheck Check(string? root, long? maxStorageBytes, long? incomingBytes, long reservedQueuedBytes, bool overrideCap = false,
+        IReadOnlyList<string>? stagingOutsideRoot = null)
     {
         if (string.IsNullOrWhiteSpace(root) || maxStorageBytes is not > 0)
             return new StorageCheck { Ok = false, Limit = "setup", Message = SetupRequiredMessage, MaxStorageBytes = maxStorageBytes };
 
         var (used, complete) = DirectorySize(root);
+        foreach (var staging in stagingOutsideRoot ?? [])
+        {
+            var (bytes, read) = DirectorySize(staging);
+            used += bytes;
+            complete &= read;
+        }
         if (!complete)
             return new StorageCheck
             {
@@ -87,7 +96,7 @@ public sealed class StorageBudget(TimeProvider time)
 
     public static string FormatBytes(long n) => StorageEstimate.FormatBytes(n);
 
-    /// <summary>Recursive byte count under the download root, cached for 30 seconds.</summary>
+    /// <summary>Recursive byte count under the download root (its hidden <c>.staging</c> folder included), cached for 30 seconds.</summary>
     public (long Bytes, bool Complete) DirectorySize(string root)
     {
         var now = time.GetUtcNow();

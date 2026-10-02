@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Data;
+using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
 
@@ -165,16 +166,19 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
         var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id && r.Status != "removed").ToListAsync(ct);
         foreach (var row in rows)
         {
-            if (!string.IsNullOrWhiteSpace(row.SavePath) && !string.IsNullOrWhiteSpace(row.Name))
+            // A transfer's files are wherever it writes now: its stage folder until promoted (under the internal
+            // .staging folder, refused above), else its save path.
+            var payload = EngineTorrent.PayloadRoot(row);
+            if (!string.IsNullOrWhiteSpace(payload) && !string.IsNullOrWhiteSpace(row.Name))
             {
-                var claim = Path.GetFullPath(Path.Combine(row.SavePath, row.Name));
+                var claim = Path.GetFullPath(Path.Combine(payload, row.Name));
                 if (IsWithin(full, claim)) return Refuse(409, "tracked", "That file belongs to a download.");
                 if (isDir && IsWithin(claim, full)) return Refuse(409, "contains-tracked", "That folder contains a download's files.");
             }
             var files = TorrentEngineService.VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => Path.GetFullPath(p!)).ToList();
             if (files.Any(f => f.Equals(full, StringComparison.OrdinalIgnoreCase))) return Refuse(409, "tracked", "That file belongs to a download.");
             if (isDir && files.Any(f => IsWithin(f, full))) return Refuse(409, "contains-tracked", "That folder contains a download's files.");
-            if (row.Status is not "parked" && !string.IsNullOrEmpty(row.SavePath) && isDir && IsWithin(Path.GetFullPath(row.SavePath), full))
+            if (row.Status is not "parked" && !string.IsNullOrEmpty(payload) && isDir && IsWithin(Path.GetFullPath(payload), full))
                 return Refuse(409, "incomplete", "A transfer is still writing into that folder.");
         }
 

@@ -126,6 +126,8 @@ public sealed class TorrentSendController(
             OverrideStorageCap = overrideCap,
             // A manual send is the owner's own pick unless the caller names another lane (requests).
             Lane = body.Str("lane") ?? TorrentLane.Owner,
+            // The owner chose this release himself: it always goes.
+            Provenance = EngineProvenance.Hand,
         }, ct);
 
         var smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence };

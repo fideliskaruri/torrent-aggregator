@@ -35,7 +35,8 @@ internal sealed partial class TorrentEngineService(
     CompletedLayoutFinalizer? layout = null,
     CompletedLayoutManifestStore? layoutManifest = null,
     ISmartCategorizer? categorizer = null,
-    DownloadLimits? limits = null) : ITorrentEngine, ILayoutTidy
+    DownloadLimits? limits = null,
+    IPromotionGate? gate = null) : ITorrentEngine, ILayoutTidy
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -136,7 +137,10 @@ internal sealed partial class TorrentEngineService(
         var config = await settings.GetConfigAsync(ct);
         var target = ResolveTarget(config, request);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
-        if (DownloadDirectory.Prepare(savePath) is { } pathError)
+        // The payload goes to the stage folder; the save path is only written when the files are promoted (section 1 of
+        // docs/english-gates-plan.md), so nothing reaches the library folder before the gate.
+        var stagePath = StagePaths.For(savePath, config, hash);
+        if (StagePaths.Prepare(stagePath) is { } pathError)
             return new EngineAddResult(false, pathError) { InvalidField = "savePath" };
         if (bytes is not null) SaveTorrentFile(hash, bytes);
 
@@ -189,7 +193,7 @@ internal sealed partial class TorrentEngineService(
                 }
             }
             await _queueGate.WaitAsync(ct);
-            try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, languageState, ct); }
+            try { admission = await AdmitAsync(request, hash, magnet, config, target, savePath, stagePath, languageState, ct); }
             finally { _queueGate.Release(); }
 
             if (admission.StartRow is not { } row)
@@ -310,7 +314,7 @@ internal sealed partial class TorrentEngineService(
 
     /// <summary>Runs under the hash lock and the queue gate: decides start / queue and persists the row.</summary>
     private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet,
-        ClientConfig config, DownloadTarget target, string savePath, string? languageState, CancellationToken ct)
+        ClientConfig config, DownloadTarget target, string savePath, string stagePath, string? languageState, CancellationToken ct)
     {
         static Admission Done(EngineAddResult result) => new(result, null, []);
 
@@ -333,6 +337,13 @@ internal sealed partial class TorrentEngineService(
             existing.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
         }
+        if (existing is not null && request.Provenance == EngineProvenance.Hand && existing.Provenance != EngineProvenance.Hand)
+        {
+            // The owner picking a release the finder already chose makes it his own pick.
+            existing.Provenance = EngineProvenance.Hand;
+            existing.UpdatedAt = Now;
+            await db.SaveChangesAsync(ct);
+        }
 
         if (backend.Get(hash) is { } live)
         {
@@ -346,7 +357,7 @@ internal sealed partial class TorrentEngineService(
                 : new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyDownloading, Math.Round(live.Progress * 100, 1), live.Peers), hash));
         }
 
-        if (existing is not null && IsDownloaded(existing))
+        if (existing is not null && PayloadVerified(existing))
             return Done(new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash));
 
         if (existing is not null && existing.Status == EngineTorrentStatus.Queued && !request.Forced)
@@ -358,7 +369,8 @@ internal sealed partial class TorrentEngineService(
         if (existing is null)
         {
             var reserved = DownloadQueue.QueuedReservedBytes(await QueueRowsAsync(db, ct));
-            var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.ExpectedSizeBytes, reserved, request.OverrideStorageCap);
+            var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.ExpectedSizeBytes, reserved, request.OverrideStorageCap,
+                await StagingOutsideRootAsync(db, config, stagePath, ct));
             if (!check.Ok) return Done(new EngineAddResult(false, check.Message ?? "Storage limit", null, hash) { StorageLimit = check.Limit });
         }
 
@@ -383,8 +395,17 @@ internal sealed partial class TorrentEngineService(
             if (request.ExpectedSizeBytes is > 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
         }
         // A fresh admission owes the English check after add; a row already queued keeps the one it has.
-        if (languageState != null && (existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error))
+        var fresh = existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error;
+        if (languageState != null && fresh)
             row.LanguageCheckJson = languageState;
+        if (fresh)
+        {
+            // A new row is staged. A legacy row keeps writing where it already has files; it still passes the gate.
+            if (existing is null || !existing.Legacy) row.StagePath = stagePath;
+            row.Promotion = null;
+            row.PromotionReason = null;
+            if (existing is null || request.Provenance == EngineProvenance.Hand) row.Provenance = request.Provenance;
+        }
         if (request.Forced) row.MarkForcedNow(Now);
         row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
         row.Error = null;
@@ -548,16 +569,23 @@ internal sealed partial class TorrentEngineService(
         if (!recovered && bytes is not null && FileListProblem(bytes, SelectionOf(row)) is { } problem)
             return new BackendAddOutcome(false, MediaFileRules.Message(problem));
         var recoveredPaths = recovered ? VerifiedFiles(row).Where(f => f.FullPath is not null).ToDictionary(f => f.Path, f => f.FullPath!) : null;
+        // Payload is written to the stage folder until promotion; legacy rows, imports and recoveries write in place.
+        var root = PayloadRoot(row);
+        if (StagePaths.IsStage(root) && StagePaths.Prepare(root) is { } stageError) return new BackendAddOutcome(false, stageError);
         IReadOnlyList<string?>? indexed = bytes is null ? null : recovered
             ? recoveredPaths!.Count == 0 ? null : MonoTorrent.Torrent.Load(bytes).Files.Select(f => recoveredPaths.GetValueOrDefault(f.Path)).ToList()
-            : _layoutManifest.IndexedPaths(row.Hash, row.SavePath) ?? _layoutManifest.PlacedPaths(row.Hash, row.SavePath);
+            : _layoutManifest.IndexedPaths(row.Hash, root) ?? _layoutManifest.PlacedPaths(row.Hash, root)
+                // Added again after it was promoted and removed without its files: the library copy is re-checked where it
+                // is, never downloaded a second time.
+                ?? (StagedRoot(row) is not null ? _layoutManifest.IndexedPaths(row.Hash, row.SavePath) : null);
         var reuseFlatLayout = row.TorrentUrl == DownloadRecoveryService.SeedingMarker
-            || !recovered && indexed is null && _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
-        // A download writes straight into the save path, without its release folder, wherever that is free.
-        var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout;
+            || !recovered && indexed is null && _layoutManifest.CanReuseFlatLayout(row.Hash, root, out _);
+        // A legacy download writes straight into the save path, without its release folder, wherever that is free. A staged
+        // one keeps the torrent's own layout in its private stage folder; the layout drops the release folder on promotion.
+        var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout && StagedRoot(row) is null;
         var selection = SelectionOf(row);
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), TorrentPurpose.Keep, null, !reuseFlatLayout, indexed, flatten, recovered,
+            root, TorrentPurpose.Keep, null, !reuseFlatLayout, indexed, flatten, recovered,
             selection);
         var wasLoaded = backend.Contains(row.Hash);
         try
@@ -567,9 +595,9 @@ internal sealed partial class TorrentEngineService(
             {
                 if (!wasLoaded) _startedAt[row.Hash] = Now;
                 if (backend.GetMetadata(row.Hash) is { } meta) SaveTorrentFile(row.Hash, meta);
-                if (flatten && backend.Get(row.Hash) is { Files.Count: > 0 } placed && row.SavePath is { } save
-                    && placed.Files.Any(f => string.Equals(Path.GetFullPath(f.FullPath), Path.GetFullPath(Path.Combine(save, f.Path)), StringComparison.OrdinalIgnoreCase)))
-                    _layoutManifest.Place(row.Hash, save, placed.Files.OrderBy(f => f.Index).Select(f => (string?)f.FullPath).ToList());
+                if (flatten && backend.Get(row.Hash) is { Files.Count: > 0 } placed
+                    && placed.Files.Any(f => string.Equals(Path.GetFullPath(f.FullPath), Path.GetFullPath(Path.Combine(root, f.Path)), StringComparison.OrdinalIgnoreCase)))
+                    _layoutManifest.Place(row.Hash, root, placed.Files.OrderBy(f => f.Index).Select(f => (string?)f.FullPath).ToList());
                 // Already live: re-apply its selection (every file unless chosen).
                 if (wasLoaded) await backend.SetSelectedFilesAsync(row.Hash, selection);
             }
@@ -791,7 +819,7 @@ internal sealed partial class TorrentEngineService(
             {
                 await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
                 var row = await FindAsync(db, hash, CancellationToken.None);
-                if (row is null || row.Status != EngineTorrentStatus.Downloading || IsDownloaded(row)) return true;
+                if (row is null || row.Status != EngineTorrentStatus.Downloading || PayloadVerified(row)) return true;
                 var outcome = await StartInBackendAsync(row, CancellationToken.None);
                 if (outcome.Ok) return true;
                 logger.LogWarning("Starting {Hash} failed: {Message}", hash, outcome.Message);
@@ -851,6 +879,7 @@ internal sealed partial class TorrentEngineService(
         logger.LogInformation("Engine rehydrate: starting {Count} of the kept downloads (cap {Cap})", start.Count, Cap);
         // One failure (or shutdown mid-way) must not strand the rest as downloading.
         await StartClaimedAsync(start);
+        await ResumePromotionsAsync(ct);
     }
 
     /// <summary>Port of builtin-engine-lifecycle shouldRehydrateTorrent, restricted to kept downloads.</summary>
@@ -861,11 +890,29 @@ internal sealed partial class TorrentEngineService(
         var status = row.Status.ToLowerInvariant();
         if (status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error or EngineTorrentStatus.Parked
             or EngineTorrentStatus.Queued or EngineTorrentStatus.Paused) return false;
-        if (IsDownloaded(row)) return false;
+        if (PayloadVerified(row)) return false;
         return !string.IsNullOrWhiteSpace(row.TorrentUrl) || !string.IsNullOrWhiteSpace(row.Magnet) || status == EngineTorrentStatus.Downloading;
     }
 
-    internal static bool IsDownloaded(EngineTorrent row) => row.VerifiedAt is not null && row.Progress >= 0.9999;
+    /// <summary>Downloaded: promoted into the library. The one predicate, <see cref="EngineTorrent.IsDownloaded"/>.</summary>
+    internal static bool IsDownloaded(EngineTorrent row) => EngineTorrent.IsDownloaded(row);
+
+    /// <summary>
+    /// Every wanted byte is verified on disk, promoted or not. Engine mechanics only (nothing to pause, start or swap);
+    /// never "downloaded", which waits for promotion (<see cref="IsDownloaded"/>).
+    /// </summary>
+    internal static bool PayloadVerified(EngineTorrent row) => row.VerifiedAt is not null && row.Progress >= 0.9999;
+
+    /// <summary>Where the row's files are now: its stage folder until promoted, else its save path.</summary>
+    private string PayloadRoot(EngineTorrent row) => EngineTorrent.PayloadRoot(row) ?? Path.Combine(Options.DataDirectory, "downloads");
+
+    /// <summary>Stage folders on other volumes than the download root, this one included, so the storage cap counts them.</summary>
+    private static async Task<IReadOnlyList<string>> StagingOutsideRootAsync(TorrentFlowDbContext db, ClientConfig config, string? also, CancellationToken ct)
+    {
+        var stages = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id && r.StagePath != null)
+            .Select(r => r.StagePath).ToListAsync(ct);
+        return StagePaths.OutsideRoot(stages.Append(also), config.DownloadRoot);
+    }
 
 
     // ---------------------------------------------------------------- read
@@ -974,6 +1021,8 @@ internal sealed partial class TorrentEngineService(
         if (live is not null && !durable)
         {
             var state = TransferStates.FromClient(live.State);
+            // Every byte is in, but it only counts once its files are promoted into the library.
+            if (state == TransferStates.Downloaded && !IsDownloaded(row)) state = EnginePromotion.FinishingState;
             long? eta = null;
             var liveSize = LiveSize(row, live);
             if (live.DownloadRate > 0 && liveSize > 0)
@@ -1005,6 +1054,7 @@ internal sealed partial class TorrentEngineService(
                 Verified = row.VerifiedAt is not null,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
                 LanguageNote = EngineLanguageState.Note(row.LanguageCheckJson),
+                Provenance = row.Provenance,
                 BytesReceived = live.BytesReceived,
             };
         }
@@ -1014,7 +1064,7 @@ internal sealed partial class TorrentEngineService(
             Hash = row.Hash,
             Name = row.Name,
             // Parked/complete rows keep their verified progress after restart (no live client).
-            Progress = IsDownloaded(row) ? 1 : row.Progress,
+            Progress = PayloadVerified(row) ? 1 : row.Progress,
             SizeBytes = row.SizeBytes,
             State = display,
             Peers = 0,
@@ -1030,8 +1080,10 @@ internal sealed partial class TorrentEngineService(
             Forced = row.ForcedAt is not null,
             ForcedReason = row.ForcedAt is null ? null : row.ForcedReason ?? ForcedReasons.Legacy,
             Verified = row.VerifiedAt is not null,
-            Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, f.FullPath is not null, IsDownloaded(row) && f.FullPath is not null ? 1 : 0, f.FullPath)).ToList() : null,
+            Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, f.FullPath is not null, PayloadVerified(row) && f.FullPath is not null ? 1 : 0, f.FullPath)).ToList() : null,
             LanguageNote = EngineLanguageState.Note(row.LanguageCheckJson),
+            HeldReason = display == EnginePromotion.HeldState ? row.PromotionReason : null,
+            Provenance = row.Provenance,
         };
     }
 
@@ -1060,6 +1112,8 @@ internal sealed partial class TorrentEngineService(
                 Magnet = candidate.Magnet, SavePath = candidate.SavePath, SizeBytes = candidate.SizeBytes,
                 TorrentUrl = candidate.CreateContainingDirectory ? DownloadRecoveryService.ContainingDirectoryMarker : DownloadRecoveryService.SeedingMarker,
                 Origin = TorrentOrigin.User, Status = missing ? EngineTorrentStatus.Paused : EngineTorrentStatus.Downloading,
+                // Another client's files, in place: the owner's own, promoted once the re-check verifies them.
+                Provenance = EngineProvenance.Hand,
                 Error = missing ? "Original data is missing. Paused; restore the files before resuming, or resume to download again." : null,
                 VerifiedFilesJson = candidate.FilePaths is { Count: > 0 }
                     ? JsonSerializer.Serialize(candidate.FilePaths.Select(pair =>
@@ -1127,7 +1181,7 @@ internal sealed partial class TorrentEngineService(
             var row = await FindAsync(db, hash, ct);
             if (row is null) return new EngineActionResult(false, NotFound);
             var live = backend.Get(hash);
-            if (IsDownloaded(row) || live?.State == "complete") return new EngineActionResult(false, DownloadedCannotPause);
+            if (PayloadVerified(row) || live?.State == "complete") return new EngineActionResult(false, DownloadedCannotPause);
             row.Status = EngineTorrentStatus.Paused;
             // A paused item is the owner's decision; it must not jump back ahead of the queue as "forced".
             row.ClearForced();
@@ -1176,7 +1230,7 @@ internal sealed partial class TorrentEngineService(
                 await using var db = await dbFactory.CreateDbContextAsync(ct);
                 var row = await FindAsync(db, hash, ct);
                 if (row is null) return new EngineActionResult(false, NotFound);
-                var seeding = IsDownloaded(row);
+                var seeding = PayloadVerified(row);
                 if (seeding && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                     return new EngineActionResult(true, "Already downloaded");
                 if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
@@ -1237,7 +1291,7 @@ internal sealed partial class TorrentEngineService(
                 var found = await FindAsync(db, hash, ct);
                 if (found is null) return new EngineActionResult(false, NotFound);
                 row = found;
-                if (IsDownloaded(row) && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
+                if (PayloadVerified(row) && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                     return new EngineActionResult(true, "Already downloaded");
                 row.MarkForcedNow(Now);
                 row.Status = EngineTorrentStatus.Downloading;
@@ -1310,9 +1364,11 @@ internal sealed partial class TorrentEngineService(
             var tombstones = await db.EngineDeletions.Where(d => d.UserId == LocalUser.Id && wanted.Contains(d.Hash)).ToListAsync(ct);
             foreach (var row in rows)
             {
+                // Files are wherever the payload is now: the stage folder until promoted, else the save path.
+                var root = PayloadRoot(row);
                 var files = backend.Get(row.Hash)?.Files.Select(f => f.FullPath).ToList()
                     ?? VerifiedFiles(row).Select(f => f.FullPath).OfType<string>().ToList();
-                if (files.Count == 0 && LoadTorrentFile(row.Hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
+                if (files.Count == 0 && LoadTorrentFile(row.Hash) is { } meta) files = FilesFromMetadata(meta, root);
                 // Deleted again after a re-add while the first delete is still being cleaned up: one tombstone covers both.
                 var tombstone = tombstones.FirstOrDefault(d => d.Hash == row.Hash);
                 if (tombstone is null)
@@ -1322,7 +1378,7 @@ internal sealed partial class TorrentEngineService(
                     tombstones.Add(tombstone);
                 }
                 tombstone.Name = row.Name;
-                tombstone.SavePath = row.SavePath ?? tombstone.SavePath;
+                tombstone.SavePath = root;
                 tombstone.FilesJson = JsonSerializer.Serialize(DeletionFiles(tombstone).Concat(files).Distinct().ToList(), JsonOptions);
                 db.EngineTorrents.Remove(row);
             }
@@ -1362,11 +1418,9 @@ internal sealed partial class TorrentEngineService(
     }
 
     /// <summary>
-    /// Validates and lays out a parked download. Caller holds the hash lock; runs only once the client has let go of
-    /// the files.
+    /// Lays out a promoted download again (Tidy, or a parked row whose detach failed). Caller holds the hash lock; runs only
+    /// once the client has let go of the files.
     /// </summary>
-    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash) => (await FinalizeLayoutLockedAsync(hash, validate: true)).Outcome;
-
     private async Task<LayoutResult> FinalizeLayoutLockedAsync(string hash, bool validate)
     {
         if (layout is null) return LayoutResult.Unchanged;
@@ -1493,12 +1547,12 @@ internal sealed partial class TorrentEngineService(
                 {
                     // Marked downloading but not in the client (a start that died, a client drop): it holds a slot
                     // and nothing would ever move it, so restart it.
-                    if (row.Origin == TorrentOrigin.User && row.Status == EngineTorrentStatus.Downloading && !IsDownloaded(row)
+                    if (row.Origin == TorrentOrigin.User && row.Status == EngineTorrentStatus.Downloading && !PayloadVerified(row)
                         && !_starting.ContainsKey(row.Hash))
                         stranded.Add(row.Hash);
                     continue;
                 }
-                if (row.Status == EngineTorrentStatus.Parked && IsDownloaded(row))
+                if (row.Status == EngineTorrentStatus.Parked && PayloadVerified(row))
                 {
                     // Finished but still loaded (an earlier detach failed). The English check comes first: a fail stops
                     // and blocks it, and one still probing stays loaded until the probe settles.
@@ -1580,7 +1634,8 @@ internal sealed partial class TorrentEngineService(
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && SelectionHolds(row, live))
                 {
-                    if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) && IsDownloaded(row)) continue;
+                    var recovered = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl);
+                    if (recovered && PayloadVerified(row)) continue;
                     var manifest = BuildManifest(live, SelectionOf(row));
                     if (manifest is not null)
                     {
@@ -1588,17 +1643,21 @@ internal sealed partial class TorrentEngineService(
                         row.VerifiedBitfield = live.PieceBitfield;
                         row.VerifiedAt = Now;
                         row.Progress = 1;
-                        row.Status = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) ? "seeding" : EngineTorrentStatus.Parked;
+                        row.Status = recovered ? "seeding" : EngineTorrentStatus.Parked;
+                        // Recovered files already sit in the library. Anything else waits for the gate before it counts.
+                        row.Promotion = recovered ? EnginePromotion.Promoted : EnginePromotion.Completed;
+                        row.PromotionReason = null;
                         row.ClearForced();
                         row.Error = null;
-                        if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
+                        if (recovered)
                         {
                             completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                             continue;
                         }
+                        // Completed is saved before the detach, so a restart resumes the promotion; the completion is
+                        // announced when the files reach the library (FinishAsync).
                         detach.Add(row.Hash);
                         finalize.Add(row.Hash);
-                        completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                     }
                 }
             }
@@ -1615,14 +1674,11 @@ internal sealed partial class TorrentEngineService(
             _startedAt.TryRemove(hash, out _);
         }
         DeleteFragments();
-        // Released by the client, so the files can be validated and moved to their final layout.
+        // Released by the client, so the files can go through the gate and be promoted into the library.
         foreach (var hash in finalize)
         {
             if (lostHashes.Contains(hash)) continue;
-            LayoutOutcome outcome;
-            using (await LockHashAsync(hash, CancellationToken.None)) outcome = await FinalizeLayoutLockedAsync(hash);
-            // Not a real video, or not readable: it is an error row now, not a finished download.
-            if (outcome is LayoutOutcome.Invalid or LayoutOutcome.Unchecked) completed.RemoveAll(e => e.Hash == hash);
+            await FinishAsync(hash);
         }
         foreach (var hash in stranded)
         {

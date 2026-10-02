@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Storage;
 
 namespace TorrentFlow.Engine;
 
@@ -103,10 +104,14 @@ internal sealed partial class TorrentEngineService
             var gone = tombstones.Where(d => !readded.Contains(d.Hash)).ToList();
             await Task.WhenAll(gone.Select(d => backend.RemoveAsync(d.Hash)));
 
-            var withFiles = gone.Where(d => d.DeleteFiles).ToList();
+            // A transfer that never reached the library owns its whole stage folder: it goes in one piece, files or not,
+            // since nothing in a stage folder is the owner's library.
+            var staged = gone.Where(d => StagePaths.IsStage(d.SavePath)).ToList();
+            var withFiles = gone.Where(d => d.DeleteFiles || staged.Contains(d)).ToList();
             IReadOnlyList<string> left = [];
             if (withFiles.Count > 0)
             {
+                var inPlace = withFiles.Except(staged).ToList();
                 var baseRoot = (await settings.GetConfigAsync(CancellationToken.None)).DownloadRoot;
                 List<string> otherPaths = [];
                 if (!string.IsNullOrWhiteSpace(baseRoot))
@@ -115,7 +120,10 @@ internal sealed partial class TorrentEngineService
                         if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
                         otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).OfType<string>());
                     }
-                left = await DeleteReleasesAsync(withFiles.Select(d => (d.SavePath, (IReadOnlyList<string>)DeletionFiles(d))).ToList(), baseRoot, otherPaths);
+                if (inPlace.Count > 0)
+                    left = await DeleteReleasesAsync(inPlace.Select(d => (d.SavePath, (IReadOnlyList<string>)DeletionFiles(d))).ToList(), baseRoot, otherPaths);
+                foreach (var d in staged)
+                    if (!await StagePaths.DeleteAsync(d.SavePath)) left = [.. left, d.SavePath!];
                 storage.ResetDirectorySizeCache();
             }
 

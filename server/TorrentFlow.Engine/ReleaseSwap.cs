@@ -33,7 +33,7 @@ internal sealed partial class TorrentEngineService
                 var old = await FindAsync(db, hash, ct);
                 if (old is null) return new(false, NotFound);
                 var live = backend.Get(hash);
-                if (old.Origin != TorrentOrigin.User || IsDownloaded(old) || live?.Progress >= .9999)
+                if (old.Origin != TorrentOrigin.User || PayloadVerified(old) || live?.Progress >= .9999)
                     return new(false, "Only downloads that haven't finished can be replaced.");
                 if (await db.EngineTorrents.AnyAsync(r => r.Hash == nextHash, ct))
                     return new(false, "That release is already in your downloads.");
@@ -43,23 +43,31 @@ internal sealed partial class TorrentEngineService
                     return new(false, "That release has already been tried.");
                 var config = await settings.GetConfigAsync(ct);
                 var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.SizeBytes,
-                    Queue.DownloadQueue.QueuedReservedBytes((await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash)), false);
+                    Queue.DownloadQueue.QueuedReservedBytes((await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash)), false,
+                    await StagingOutsideRootAsync(db, config, old.StagePath, ct));
                 if (!check.Ok) return new(false, check.Message ?? "Storage limit") { StorageLimit = check.Limit };
 
+                // The old release's partial files are wherever it was writing: its stage folder, or its save path (legacy).
+                var oldRoot = PayloadRoot(old);
+                var oldStage = StagedRoot(old);
                 var files = live?.Files.Where(f => f.Progress < 1).Select(f => f.FullPath).ToList()
-                    ?? IncompleteFilesFromMetadata(hash, old.SavePath);
+                    ?? IncompleteFilesFromMetadata(hash, oldRoot);
                 var others = await db.EngineTorrents.AsNoTracking().Where(r => r.Hash != hash).ToListAsync(ct);
                 var protectedFiles = others.SelectMany(r => (backend.Get(r.Hash)?.Files.Select(f => f.FullPath)
                     ?? VerifiedFiles(r).Select(f => f.FullPath).OfType<string>())
-                    .Concat(LoadTorrentFile(r.Hash) is { } otherMeta ? FilesFromMetadata(otherMeta, r.SavePath) : [])).ToList();
-                files = PartialFilesToRemove(files, old.SavePath, protectedFiles).ToList();
+                    .Concat(LoadTorrentFile(r.Hash) is { } otherMeta ? FilesFromMetadata(otherMeta, PayloadRoot(r)) : [])).ToList();
+                files = PartialFilesToRemove(files, oldRoot, protectedFiles).ToList();
+                // The new release gets a stage folder of its own; nothing it writes lands in the library before the gate.
+                var nextStage = old.SavePath is { } finalPath ? StagePaths.For(finalPath, config, nextHash) : null;
+                if (nextStage is not null && StagePaths.Prepare(nextStage) is { } stageError) return new(false, stageError);
                 replacement = new EngineTorrent
                 {
                     Id = Ids.New(), UserId = old.UserId, Hash = nextHash, Name = request.Name,
                     Magnet = TorrentSource.WidenTrackers(request.Magnet!, Options.EffectivePublicTrackers),
-                    SavePath = old.SavePath, Category = old.Category, Origin = old.Origin, WorkId = old.WorkId,
+                    SavePath = old.SavePath, StagePath = nextStage, Category = old.Category, Origin = old.Origin, WorkId = old.WorkId,
                     QueueKey = old.QueueKey, Lane = old.Lane, ForcedAt = old.ForcedAt, ForcedReason = old.ForcedReason, CreatedAt = old.CreatedAt,
                     LastUsedAt = Now, UpdatedAt = Now, SizeBytes = request.SizeBytes ?? 0,
+                    Provenance = EngineProvenance.Of(request.ByHand),
                     Status = old.Status == EngineTorrentStatus.Paused ? EngineTorrentStatus.Paused : EngineTorrentStatus.Queued,
                 };
 
@@ -91,8 +99,11 @@ internal sealed partial class TorrentEngineService
                     if (!files.Any(File.Exists)) break;
                     await Task.Delay(250);
                 }
+                // A staged release owns its whole stage folder (finished files and fragments included): it goes.
+                if (oldStage is not null && !await StagePaths.DeleteAsync(oldStage))
+                    logger.LogWarning("[builtin-engine] could not remove the stage folder {Stage} of the replaced {Hash} yet", oldStage, hash);
                 TryDelete(TorrentFilePath(hash));
-                _layoutManifest.Forget(hash, old.SavePath);
+                _layoutManifest.Forget(hash, oldRoot);
             }
             finally { _queueGate.Release(); }
         }

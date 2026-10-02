@@ -70,10 +70,12 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// Lays out one parked row: every file still where MonoTorrent put it moves to its final place; files already laid
     /// out stay put (and keep their names reserved). Safe to run again — that is how Tidy finishes a layout whose
     /// conflict has since gone. <paramref name="validate"/> runs the media check first; a re-run of an accepted download
-    /// skips it.
+    /// skips it. <paramref name="sourceRoot"/> is the stage folder the payload was written to (docs/english-gates-plan.md
+    /// section 1): files are read there in the torrent's layout and promoted into the save path; null lays a legacy or
+    /// promoted row out where it is.
     /// </summary>
     public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct,
-        IReadOnlyList<(string Hash, string FullPath)>? live = null)
+        IReadOnlyList<(string Hash, string FullPath)>? live = null, string? sourceRoot = null)
     {
         var manifest = TorrentEngineService.VerifiedFiles(row);
         if (manifest.Count == 0 || string.IsNullOrWhiteSpace(row.SavePath)) return LayoutResult.Unchanged;
@@ -100,7 +102,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         }
 
         var dest = Path.GetFullPath(row.SavePath);
-        var rel = manifest.Select(f => f.FullPath is null ? null : RelativeTo(dest, f.FullPath)).ToList();
+        var source = sourceRoot is null ? dest : Path.GetFullPath(sourceRoot);
+        var rel = manifest.Select(f => f.FullPath is null ? null : RelativeTo(source, f.FullPath)).ToList();
         if (InferTorrentLayout(manifest, rel) is not { } torrent) return LayoutResult.Unchanged;
 
         var files = torrent.Paths.Select((p, i) => new LayoutFile(p, manifest[i].Size)).ToList();
@@ -164,7 +167,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             return LayoutResult.Unchanged;
         }
 
-        RemoveEmptyParents(moves.Select(m => m.Src), dest);
+        RemoveEmptyParents(moves.Select(m => m.Src), source);
         foreach (var junk in moves.Where(m => m.Discard))
             logger.LogInformation("[content-layout] dropped duplicate junk \"{Path}\"", Path.GetRelativePath(dest, junk.Dst));
         logger.LogInformation("[content-layout] {Name} → {Dest}: {What}", string.IsNullOrWhiteSpace(row.Name) ? "torrent" : row.Name, dest, plan.Describe());

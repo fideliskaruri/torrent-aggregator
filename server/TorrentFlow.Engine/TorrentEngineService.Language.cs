@@ -72,7 +72,7 @@ internal sealed partial class TorrentEngineService
     {
         foreach (var row in rows)
         {
-            if (row.Status != EngineTorrentStatus.Parked && !IsDownloaded(row)) continue;
+            if (row.Status != EngineTorrentStatus.Parked && !PayloadVerified(row)) continue;
             if (EngineLanguageState.Read(row.LanguageCheckJson) is not { State: EngineLanguageState.Pending or EngineLanguageState.Probing } state)
                 continue;
             row.LanguageCheckJson = (state with { State = EngineLanguageState.Unconfirmed, Reason = "check interrupted" }).Write();

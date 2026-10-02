@@ -140,14 +140,15 @@ public sealed class ReaddLayoutTests
         var torrentBytes = (await creator.CreateAsync(new TorrentFileSource(sourceRelease))).Encode();
         var torrent = Torrent.Load(torrentBytes);
         var releaseName = torrent.Name;
-        var releaseRoot = Path.Combine(downloadRoot, releaseName);
+        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        // Where MonoTorrent leaves a finished download: its own stage folder, in the torrent's layout.
+        var releaseRoot = Path.Combine(downloadRoot, ".staging", hash, releaseName);
         var initialFile = Path.Combine(releaseRoot, torrent.Files[0].Path.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(initialFile)!);
         File.Copy(fixture, initialFile, overwrite: true);
         await File.WriteAllTextAsync(Path.Combine(releaseRoot, "readme.txt"), "keep me");
 
         await using var harness = await RealEngineHarness.CreateAsync(root);
-        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
         var magnet = $"magnet:?xt=urn:btih:{hash}&dn={Uri.EscapeDataString(releaseName)}";
         var add = await harness.Engine.AddAsync(new EngineAddRequest
         {
@@ -164,7 +165,9 @@ public sealed class ReaddLayoutTests
         await harness.Engine.TickAsync();
         var flatPath = Path.Combine(downloadRoot, Path.GetFileName(initialFile));
 
-        await WaitUntil(() => Task.FromResult(File.Exists(flatPath) && !Directory.Exists(Path.Combine(downloadRoot, releaseName))), TimeSpan.FromSeconds(30),
+        // Promoted: laid out into the save folder without its release folder, and the stage folder is gone.
+        await WaitUntil(() => Task.FromResult(File.Exists(flatPath) && !Directory.Exists(Path.Combine(downloadRoot, releaseName))
+            && !Directory.Exists(Path.Combine(downloadRoot, ".staging", hash))), TimeSpan.FromSeconds(30),
             "completed download was not laid out");
 
         var remove = await harness.Engine.RemoveAsync(hash, deleteFiles: false);
@@ -185,8 +188,12 @@ public sealed class ReaddLayoutTests
         Assert.Equal(0, snap.BytesReceived ?? 0);
         Assert.True(File.Exists(flatPath));
         Assert.False(Directory.Exists(Path.Combine(downloadRoot, releaseName)));
-        Assert.Equal(2, Directory.EnumerateFiles(downloadRoot, "*", SearchOption.AllDirectories).Count());
+        Assert.Equal(2, LibraryFiles(downloadRoot));
     }
+
+    /// <summary>Files in the save folder, outside the hidden stage folder.</summary>
+    private static int LibraryFiles(string downloadRoot) => Directory.EnumerateFiles(downloadRoot, "*", SearchOption.AllDirectories)
+        .Count(p => !Path.GetRelativePath(downloadRoot, p).StartsWith(".staging", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<(byte[] Bytes, Torrent Torrent, string Hash, string Magnet)> ReleaseAsync(string sourceRoot, string downloadRoot, string name, string video, string fixture, string screen)
     {
@@ -196,14 +203,14 @@ public sealed class ReaddLayoutTests
         await File.WriteAllTextAsync(Path.Combine(src, "Screens", "s1.png"), screen);
         var bytes = (await new TorrentCreator { PieceLength = 64 * 1024 }.CreateAsync(new TorrentFileSource(src))).Encode();
         var torrent = Torrent.Load(bytes);
-        // Where MonoTorrent would leave a finished download: <save>/<name>/<path>.
+        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        // Where MonoTorrent leaves a finished download: <save>/.staging/<hash>/<name>/<path>.
         foreach (var file in torrent.Files)
         {
-            var target = Path.Combine(downloadRoot, torrent.Name, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            var target = Path.Combine(downloadRoot, ".staging", hash, torrent.Name, file.Path.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(Path.Combine(src, file.Path.Replace('/', Path.DirectorySeparatorChar)), target, overwrite: true);
         }
-        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
         return (bytes, torrent, hash, $"magnet:?xt=urn:btih:{hash}&dn={Uri.EscapeDataString(torrent.Name)}");
     }
 
@@ -249,6 +256,6 @@ public sealed class ReaddLayoutTests
         Assert.Equal("first screen", await File.ReadAllTextAsync(neighbour));
         Assert.Equal("second screen!", await File.ReadAllTextAsync(movedAside));
         Assert.False(Directory.Exists(Path.Combine(downloadRoot, "Show.S01E02.1080p.WEB")));
-        Assert.Equal(4, Directory.EnumerateFiles(downloadRoot, "*", SearchOption.AllDirectories).Count());
+        Assert.Equal(4, LibraryFiles(downloadRoot));
     }
 }
