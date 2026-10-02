@@ -6,6 +6,7 @@ using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Queue;
+using TorrentFlow.Engine.Storage;
 using ManifestFile = TorrentFlow.Engine.TorrentEngineService.ManifestFile;
 
 namespace TorrentFlow.Engine.Layout;
@@ -22,8 +23,11 @@ internal enum LayoutOutcome
     Unchecked,
 }
 
-/// <summary>A layout run: what happened, how many files moved, and how many videos had to stay in their release folder.</summary>
-internal sealed record LayoutResult(LayoutOutcome Outcome, int Moved = 0, int KeptVideos = 0)
+/// <summary>
+/// A layout run: what happened, how many files moved, how many videos had to stay in their release folder, and whether a
+/// move would have crossed to another drive (nothing moved; promotion holds it for the owner rather than copying).
+/// </summary>
+internal sealed record LayoutResult(LayoutOutcome Outcome, int Moved = 0, int KeptVideos = 0, bool CrossDevice = false)
 {
     public static readonly LayoutResult Unchanged = new(LayoutOutcome.Unchanged);
 }
@@ -37,7 +41,8 @@ internal sealed record LayoutResult(LayoutOutcome Outcome, int Moved = 0, int Ke
 /// </summary>
 internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator, TimeProvider time, ILogger<CompletedLayoutFinalizer> logger)
 {
-    private const string StageSuffix = ".tflayout";
+    /// <summary>A file renamed aside while the layout runs; a restart in between finds it again under this suffix.</summary>
+    internal const string StageSuffix = ".tflayout";
     private const string BackupSuffix = ".tflayout-old";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -72,10 +77,12 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// conflict has since gone. <paramref name="validate"/> runs the media check first; a re-run of an accepted download
     /// skips it. <paramref name="sourceRoot"/> is the stage folder the payload was written to (docs/english-gates-plan.md
     /// section 1): files are read there in the torrent's layout and promoted into the save path; null lays a legacy or
-    /// promoted row out where it is.
+    /// promoted row out where it is. Every move is a rename (<see cref="NoCopyMove"/>): one that would cross to another
+    /// drive moves nothing and reports <see cref="LayoutResult.CrossDevice"/>. <paramref name="checkpoint"/> is called
+    /// with "claimed" once the targets are recorded and "staged" once every file is renamed aside (Development test hooks).
     /// </summary>
     public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct,
-        IReadOnlyList<(string Hash, string FullPath)>? live = null, string? sourceRoot = null)
+        IReadOnlyList<(string Hash, string FullPath)>? live = null, string? sourceRoot = null, Action<string>? checkpoint = null)
     {
         var manifest = TorrentEngineService.VerifiedFiles(row);
         if (manifest.Count == 0 || string.IsNullOrWhiteSpace(row.SavePath)) return LayoutResult.Unchanged;
@@ -156,7 +163,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
 
         try
         {
-            Execute(moves);
+            checkpoint?.Invoke("claimed");
+            Execute(moves, checkpoint);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -164,7 +172,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             logger.LogWarning("[content-layout] rewrite failed {Message}", ex.Message);
             row.VerifiedFilesJson = before;
             await db.SaveChangesAsync(CancellationToken.None);
-            return LayoutResult.Unchanged;
+            return new LayoutResult(LayoutOutcome.Unchanged, CrossDevice: ex is CrossDeviceMoveException);
         }
 
         RemoveEmptyParents(moves.Select(m => m.Src), source);
@@ -178,9 +186,10 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
 
     /// <summary>
     /// All-or-nothing. Every source is first renamed aside, so a plan that moves one of our files onto another's old
-    /// location cannot overwrite it; then each lands at its target. Any failure undoes every rename in reverse.
+    /// location cannot overwrite it; then each lands at its target. Any failure undoes every rename in reverse. Every step
+    /// is a rename that never copies (<see cref="NoCopyMove"/>), so a file is always whole at exactly one place.
     /// </summary>
-    private static void Execute(List<Move> moves)
+    private static void Execute(List<Move> moves, Action<string>? checkpoint = null)
     {
         var done = new Stack<(string From, string To)>();
         var backups = new List<string>();
@@ -191,10 +200,11 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             {
                 if (PathsEqual(m.Src, m.Dst)) continue;
                 var stage = m.Src + StageSuffix;
-                File.Move(m.Src, stage);
+                NoCopyMove.Move(m.Src, stage);
                 done.Push((m.Src, stage));
                 staged.Add((m, stage));
             }
+            checkpoint?.Invoke("staged");
             foreach (var (m, stage) in staged)
             {
                 if (m.Discard) continue;
@@ -204,11 +214,11 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
                     // An unclaimed file of the same size: a download of ours from before the manifest existed. The staged
                     // copy is the verified one; the old one is kept aside until every move has landed.
                     var backup = m.Dst + BackupSuffix;
-                    File.Move(m.Dst, backup);
+                    NoCopyMove.Move(m.Dst, backup);
                     done.Push((m.Dst, backup));
                     backups.Add(backup);
                 }
-                File.Move(stage, m.Dst);
+                NoCopyMove.Move(stage, m.Dst);
                 done.Push((stage, m.Dst));
             }
         }
@@ -216,7 +226,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         {
             while (done.TryPop(out var op))
             {
-                try { File.Move(op.To, op.From); }
+                try { NoCopyMove.Move(op.To, op.From); }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
