@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Browse;
@@ -27,10 +28,12 @@ public sealed class LibraryOnDisk
     private readonly Dictionary<string, HashSet<(int Season, int Episode)>> _episodes;
     private readonly List<ReleaseIdentity> _unmatched;
     private readonly Dictionary<string, List<(int? Season, int? Episode, bool Ready)>> _wanted;
+    private readonly HashSet<string> _live;
 
     private LibraryOnDisk(HashSet<string> films, Dictionary<string, HashSet<(int, int)>> episodes, List<ReleaseIdentity> unmatched,
-        Dictionary<string, List<(int?, int?, bool)>> wanted)
+        Dictionary<string, List<(int?, int?, bool)>> wanted, HashSet<string> live)
     {
+        _live = live;
         _films = films;
         _episodes = episodes;
         _unmatched = unmatched;
@@ -43,6 +46,10 @@ public sealed class LibraryOnDisk
         var hashes = ready.Select(t => t.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
         var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Status != "failed")
             .Select(t => new { t.WorkKey, t.Scope, t.Season, t.Episode, t.InfoHash }).ToListAsync(ct);
+        // Transfers still on their way: a request whose grabs were all removed or failed is not downloading.
+        var live = (await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id &&
+                t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed)
+            .Select(t => t.Hash).ToListAsync(ct)).Select(h => h.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
         var workIds = ready.Select(t => t.WorkId).OfType<string>().Distinct().ToList();
         var workKeys = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.WorkKey, ct);
 
@@ -70,7 +77,7 @@ public sealed class LibraryOnDisk
             else if (key != null && !identity.IsSeries) films.Add(key);
             else unmatched.Add(identity);
         }
-        return new LibraryOnDisk(films, episodes, unmatched, wanted);
+        return new LibraryOnDisk(films, episodes, unmatched, wanted, live);
     }
 
     private static void Add(Dictionary<string, HashSet<(int, int)>> map, string key, (int, int) episode)
@@ -100,11 +107,14 @@ public sealed class LibraryOnDisk
     {
         var status = row.Status;
         if (status is MediaRequestStatus.Pending or MediaRequestStatus.Declined or MediaRequestStatus.Cancelled) return new(status, 0, 0);
-        var started = !string.IsNullOrEmpty(row.GrabbedHashes);
+        var started = (row.GrabbedHashes ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Any(h => _live.Contains(h.ToLowerInvariant()));
+        // Fulfilled whose files have since gone reads as approved again (it is wanted, not here).
+        if (status == MediaRequestStatus.Fulfilled) status = MediaRequestStatus.Approved;
         if (row.Scope == MediaRequestScope.Movie)
         {
             if (HasFilm(row.WorkKey)) return new(RequestProgress.Available, 1, 1);
-            return new(started || status == MediaRequestStatus.Fulfilled ? RequestProgress.Downloading : status, 0, 1);
+            return new(started ? RequestProgress.Downloading : status, 0, 1);
         }
         var seasons = RequestRules.ParseSeasons(row.Seasons);
         var all = row.Scope == MediaRequestScope.Series || seasons.Count == 0;
@@ -115,7 +125,7 @@ public sealed class LibraryOnDisk
         wanted.UnionWith(onDisk.Where(e => all || seasons.Contains(e.Season)));
         var done = wanted.Count(onDisk.Contains);
         if (wanted.Count > 0 && done == wanted.Count) return new(RequestProgress.Available, done, wanted.Count);
-        if (started || done > 0 || status == MediaRequestStatus.Fulfilled) return new(RequestProgress.Downloading, done, wanted.Count);
+        if (started || done > 0) return new(RequestProgress.Downloading, done, wanted.Count);
         return new(status, done, wanted.Count);
     }
 }
