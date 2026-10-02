@@ -50,13 +50,19 @@ Facts behind the design (code on feat/english-rule, MonoTorrent 3.0.2, live chec
 Status: built (P1, OPS-602, branch feat/promotion). The gate is `IPromotionGate` (`Core/Contracts/Engine/EnginePromotion.cs`);
 the default `PromoteEverythingGate` promotes everything until P2 plugs the English check in. One done-ness predicate,
 `EngineTorrent.IsDownloaded` (query form `EngineTorrent.Downloaded`); one path resolver, `StagePaths`. Engine side:
-`TorrentEngineService.Promotion.cs`. Where the build differs from the bullets below: a final path on another volume
-than the download root is not refused; its stage is a `.staging` folder on that volume next to the library root, so
-promotion is still a rename.
+`TorrentEngineService.Promotion.cs`. Where the build differs from the bullets below: a final path on another device than
+the download root is not refused when the setting is saved. Its stage goes in a `.staging` folder next to the library root
+when that one is on the final path's device; otherwise the finished download is held for the owner ("The library folder
+is on another drive. Move the files yourself, or change the download folder."), never copied.
 
 - Every transfer has a final path (what the owner sees, today's SavePath) and a stage path:
-  `<download root>\.staging\<hash>`, on the same drive, outside every Jellyfin library. Payload is written to the
-  stage path. The `.staging` folder is hidden and holds a `.ignore` file.
+  `<download root>\.staging\<hash>`, on the same device, outside every Jellyfin library. Payload is written to the
+  stage path. The `.staging` folder is hidden and holds an empty `.ignore` file (Jellyfin 10.11 reads a non-empty one
+  as rules). The transfer's own folder is made only when it starts, so a refused add leaves nothing behind.
+- "Same device" is proven, not guessed from drive letters: `StagePaths.SameDevice` renames an empty probe folder between
+  the two places with `NoCopyMove`, which catches junctions, mounted folders and Docker bind mounts (every path on
+  Linux starts with `/`). Every promotion move is a `NoCopyMove` rename (`MoveFileEx` without copy on Windows,
+  `rename(2)` elsewhere): a move that would cross devices fails and holds the download instead of copying it.
 - States after the payload is complete: Completed, Checking, Promoted (or Held, or Rejected). Open, "downloaded",
   notifications, request Available and Library ready all wait for Promoted. Completed and Checking are saved, so a
   restart runs the gate again, once. The Downloads row reads "Moving to library" until it is promoted, and "Waiting for
@@ -65,8 +71,22 @@ promotion is still a rename.
   wanted items back so the finder picks again.
 - Promotion moves the kept files (the video plus its own sidecars) into the final path with Jellyfin names, and leaves
   junk behind (OPS-578, OPS-587, OPS-597 land here). P1 uses today's layout (`CompletedLayoutFinalizer`, reading from
-  the stage folder); the stage folder is deleted afterwards, with any unselected pack files in it.
-- Storage accounting includes the staging folder. Stage and final must be on the same volume (a rename).
+  the stage folder). Before a row counts as Promoted, every kept file must be in the final path at its recorded size;
+  otherwise it is held and its stage folder stays. Then the files are remembered for a re-add (so "Remove, keep files"
+  followed by adding the same release re-checks the library copy in place) and the stage folder is deleted, with any
+  unselected pack files in it.
+- A restart in the middle of a promotion is safe: the layout and the as-is move record their targets before anything
+  moves, every move is a rename, and on the next try each kept file is found where it really is (still in the stage,
+  renamed aside as `*.tflayout`, or at its target).
+- A promotion that fails (a busy database, a file race) is tried again with backoff (5 s, doubling to 5 minutes), every
+  tick, also while nothing downloads; after five failures it is held for the owner. A gate that throws or times out
+  holds the download too; it never stops the host.
+- "Remove, keep files" on a finished download still in its stage folder (Completed, Checking or Held) moves its files
+  into the library as they are first; one that can't be moved is not removed. Only an unfinished transfer drops its
+  stage folder.
+- A stage folder that can't be deleted at once (a promoted, rejected, swapped or removed download, a file still held) is
+  swept by the cleanup worker until it is gone, across restarts: any `.staging\<hash>` folder no transfer owns.
+- Storage accounting includes the staging folder.
 - Upgrade: rows already downloading keep writing where they are and go through the check before they are counted as
   done; rows already done are left alone. Every row from before the upgrade is marked `legacy`.
 - Provenance (`automatic` or `hand`) is kept on every engine row: the finder, requests, season downloads and Find the

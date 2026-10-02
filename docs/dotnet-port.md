@@ -802,9 +802,11 @@ being an atomic snapshot of Engine's admission decision.
 ## Content layout (Engine)
 
 `server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. A kept download writes into its own stage folder,
-`<download root>\.staging\<hash>` (hidden, with a `.ignore` file, on the same volume as the save path;
-`Storage/StagePaths.cs`), in the torrent's own layout, so nothing reaches the library folder before it is checked
-(docs/english-gates-plan.md, section 1). Rows from before staging (`legacy`) keep the old behaviour, like the Next.js
+`<download root>\.staging\<hash>` (hidden, with an empty `.ignore` file, on the same device as the save path, proven by
+a probe rename; `Storage/StagePaths.cs`), in the torrent's own layout, so nothing reaches the library folder before it is
+checked (docs/english-gates-plan.md, section 1). Every move here is a rename that never copies (`Storage/NoCopyMove.cs`):
+a move to another drive fails, rolls back, and the promotion is held for the owner. Rows from before staging (`legacy`)
+keep the old behaviour, like the Next.js
 engine (depth-0 wrapper always dropped): once metadata is known, the stopped manager points
 each file at `<save>/<torrent path>` (`BackendAddSpec.FlattenWrapper`, `MonoTorrentBackend.DropWrapperAsync`), and
 the paths are recorded (`CompletedLayoutManifestStore.Place`) so a restart resumes them. A file stays in
@@ -840,14 +842,18 @@ files from the stage folder and:
    all-or-nothing and rolls back on failure. Other rows' manifests are the ownership record. The layout
    works out which files are still where MonoTorrent put them (`InferTorrentLayout`). Files already moved or
    discarded are pinned, so re-running it is safe.
-4. Remembers each file's final path by torrent file index in `layout-manifest.json`. A re-add of the same
+4. Remembers each file's final path by torrent file index in `layout-manifest.json`, after every promotion (a single
+   file moved as it is included). A re-add of the same
    torrent loads in its release folder and points each file at its recorded path (`BackendAddSpec.FilePaths`,
    `TorrentManager.MoveFileAsync` while stopped). The files are re-checked where they are, not downloaded
    again, and a neighbour's file at the flat path is never touched. This needs the saved `.torrent`; a
    magnet-only re-add of a laid-out torrent downloads into its release folder again and is laid out afterwards.
-5. Moves whatever kept files the layout left in place into the save path as they are, then deletes the stage folder
-   (with any unselected pack files in it) and marks the row `promoted`. Only then is it downloaded (Open, Ready,
-   notifications, request status) and `TorrentCompleted` raised.
+5. Moves whatever kept files the layout left in place into the save path as they are (targets recorded first, then
+   renamed), checks every kept file is in the save path at its recorded size (otherwise the row is held and the stage
+   folder kept), marks the row `promoted`, then deletes the stage folder (with any unselected pack files in it; one that
+   can't be deleted yet is swept later by the cleanup worker). Only then is it downloaded (Open, Ready, notifications,
+   request status) and `TorrentCompleted` raised. A restart between recording and moving finds each file where it is
+   (`*.tflayout` files are renamed back) before trying again.
 
 **Tidy folders.** Downloads that finished before this layout existed, or before a restart, can still be
 nested. The Downloads page button **Tidy folders** calls `POST /api/client/torrents/tidy`
