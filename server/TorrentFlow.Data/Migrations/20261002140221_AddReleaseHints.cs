@@ -21,7 +21,8 @@ namespace TorrentFlow.Data.Migrations
                     filesJson = table.Column<string>(type: "TEXT", nullable: true),
                     attempts = table.Column<int>(type: "INTEGER", nullable: false),
                     fetchedAt = table.Column<string>(type: "DATETIME", nullable: false),
-                    retryAt = table.Column<string>(type: "DATETIME", nullable: true)
+                    retryAt = table.Column<string>(type: "DATETIME", nullable: true),
+                    host = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {

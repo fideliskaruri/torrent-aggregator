@@ -1282,6 +1282,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("filesJson");
 
+                    b.Property<string>("Host")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("host");
+
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasColumnType("TEXT")

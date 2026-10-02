@@ -4,14 +4,20 @@ using TorrentFlow.Core.Contracts.Search;
 
 namespace TorrentFlow.Search.Adapters;
 
-/// <summary>AnimeTosho JSON feed: a keyless anime index mirroring Nyaa, TokyoTosho, AniDex and more, with swarm counts.</summary>
+/// <summary>
+/// AnimeTosho's JSON feed: a keyless anime index mirroring Nyaa, TokyoTosho, AniDex and more, with swarm counts. The live
+/// site is Anime Tosho NEW (feed.animetosho.xyz, which redirects to feed.animetosho.net); the original feed.animetosho.org
+/// stopped processing in May 2026. The base URL is the registry's animetosho entry, shared with the language hints.
+/// </summary>
 public sealed class AnimeToshoAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
+    /// <summary>The shipped base URL (sources.default.json); the owner changes it in Settings, Sources.</summary>
+    public const string DefaultBaseUrl = "https://feed.animetosho.xyz";
     public override string Id => "animetosho";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(o.Query) || o.Category is not ("all" or "anime")) return [];
-        using var doc = JsonDocument.Parse(await Http.GetAsync($"{BaseUrl("https://feed.animetosho.org")}/json?q={EncodeUriComponent(o.Query.Trim())}",
+        using var doc = JsonDocument.Parse(await Http.GetAsync($"{BaseUrl(DefaultBaseUrl)}/json?q={EncodeUriComponent(o.Query.Trim())}",
             IndexerHttp.BrowserAgent, cancellationToken: cancellationToken));
         if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
         return doc.RootElement.EnumerateArray().Take(o.Limit ?? 50).Select(r =>

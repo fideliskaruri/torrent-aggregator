@@ -5,7 +5,8 @@ namespace TorrentFlow.Data.Entities;
 /// <summary>
 /// One release's language hint as an index told it before download (docs/release-language.md, "Hints before download"):
 /// AnimeTosho's track lists by info hash, or apibay's file list by TPB id. A complete answer is kept for good (a hash's
-/// files never change); a miss or an item still being processed is asked again after <see cref="RetryAt"/>.
+/// files never change); a miss or an item still being processed is asked again after <see cref="RetryAt"/>, and a miss
+/// for a release older than 30 days is kept for good too (no <see cref="RetryAt"/>).
 /// </summary>
 public partial class ReleaseHint
 {
@@ -28,6 +29,12 @@ public partial class ReleaseHint
 
     public DateTime FetchedAt { get; set; }
 
-    /// <summary>When to ask again; null for a complete answer, which is never asked again.</summary>
+    /// <summary>When to ask again; null for a complete answer or a permanent miss, which are never asked again.</summary>
     public DateTime? RetryAt { get; set; }
+
+    /// <summary>
+    /// The host that gave the answer (feed.animetosho.xyz, apibay.org). A miss only holds for that host: when the owner
+    /// moves the source to another host, its misses are asked again there. A complete answer holds everywhere.
+    /// </summary>
+    public string? Host { get; set; }
 }

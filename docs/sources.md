@@ -31,7 +31,8 @@ replaces only the fields it supplies; arrays and `options` are replaced as a who
 Entries with new IDs add a source. Disable a built-in source instead of deleting it.
 Custom Torznab entries can be removed.
 
-A default can list hosts its site has abandoned under `retired` (YTS: `yts.mx`). When a
+A default can list hosts its site has abandoned under `retired` (YTS: `yts.mx`; AnimeTosho:
+`animetosho.org`). When a
 saved entry, a legacy `*_BASE_URL` setting or a hand edit still names one as its base URL
 or a mirror, the registry puts the shipped base URL in its place, so the live host is
 tried first. The file is not rewritten; the next save from Settings stores the live URL.
@@ -84,7 +85,7 @@ Each adapter lives in `server/TorrentFlow.Search/Adapters/` and reuses the share
 | Id | Site | Format | Categories | Default | Pacing (per host) |
 |----|------|--------|------------|---------|-------------------|
 | `nyaa` | nyaa.si | RSS | anime | on | 2 at once, 1000 ms |
-| `animetosho` | feed.animetosho.org | JSON feed (Nyaa, TokyoTosho, AniDex mirror) | anime | on | 2 at once, 1000 ms |
+| `animetosho` | feed.animetosho.xyz, Anime Tosho NEW (308 to mirror feed.animetosho.net; `animetosho.org` retired) | JSON feed (Nyaa, TokyoTosho, AniDex mirror) | anime | on | 2 at once, 1000 ms |
 | `subsplease` | subsplease.org | JSON search API, one row per resolution | anime | on | 1 at once, 1000 ms |
 | `apibay` | apibay.org (The Pirate Bay) | JSON | all | on | 2 at once, 2000 ms |
 | `torrentscsv` | torrents-csv.com | JSON | all | on | default |
@@ -107,19 +108,25 @@ title and walks up to five pages (newest first) until it passes the wanted seaso
 
 Two sites also answer what is inside a release before it downloads (docs/release-language.md, "Hints before download"):
 
-- AnimeTosho: `https://feed.animetosho.org/json?show=torrent&btih=<info hash>` (or `id=<AnimeTosho id>`) returns the
-  torrent with `status` (`complete`, `processing`, `skipped`) and `files[]`. Each file's `attachments[]` with
-  `type: "subtitle"` carry `info: {codec, lang, name, default, enabled, forced, trackid, tracknum}`; some files carry
-  `info.mediainfo` text with the audio tracks. An unknown hash answers 404 `{"error":"Requested torrent not found"}`.
-  AnimeTosho mirrors nyaa's English-translated anime, so only those (and its own listings) are asked. It stopped
-  processing new items in May 2026 and says the feed will shut down soon; its unfiltered latest feed is already off.
+- AnimeTosho: `<base URL>/json?show=torrent&btih=<info hash>` (or `id=<AnimeTosho id>`), on the registry entry's
+  hosts, the ones its search uses (default `https://feed.animetosho.xyz`, Anime Tosho NEW; it redirects to
+  `feed.animetosho.net`, the mirror). It returns the torrent with `status` and `files[]`. Each file's
+  `info.mediainfo` text lists the Video, Audio and Text tracks (Title, Language, Default, Forced): that is read first.
+  Subtitle attachments come second: the original feed's per-file `attachments[]` with `info: {codec, lang, name,
+  default, enabled, forced, trackid, tracknum}`, or Anime Tosho NEW's per-file or torrent-wide `attachments[]` with
+  `info: {default, forced, format, language, language_code}`. An unknown hash answers 404. AnimeTosho mirrors nyaa's
+  English-translated anime, so only those (and its own listings) are asked. The original `feed.animetosho.org`
+  stopped processing new items in May 2026 and is retired in the registry; Anime Tosho NEW imported its archive
+  (same ids, 630440 and 592301 exist there) and lists this week's releases, so the `animetosho` search is live again.
+  Old batches the original skipped answer `status: "unknown"` with no files.
 - apibay: `https://apibay.org/f.php?id=<TPB id>` returns `[{"name":["Subs/English.srt"],"size":[72229]}]`, or one
   `{"name":{"0":"Filelist not found"}}` entry. The apibay adapter keeps the TPB id on each result (`SiteId`). apibay's
   search answers nothing for some one-word queries (`Dune`, `Sintel`) while `Dune 2021` works.
 
 Both lookups use the adapter's user agent through `IndexerHttp` (cool-down on a real 429 or 503 with Retry-After) and
 their own line per site: AnimeTosho starts at least 1 s apart, up to 3 open; apibay 2 s apart, one at a time. Answers
-are cached in the `ReleaseHint` table.
+are cached in the `ReleaseHint` table with the host that gave them. A host that fails 3 times in a row rests behind a
+breaker for 30 minutes, then gets one probe, so a dead or frozen site never slows a search.
 
 SubsPlease lists only its own releases and reports no swarm counts; the tracker scrape
 fills them in. It numbers each season from 01, so `Sousou no Frieren S2 - 01` finds the

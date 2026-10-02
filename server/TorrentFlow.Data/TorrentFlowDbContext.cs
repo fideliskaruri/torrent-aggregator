@@ -463,6 +463,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Attempts).HasColumnName("attempts");
             entity.Property(e => e.FetchedAt).HasColumnType("DATETIME").HasColumnName("fetchedAt");
             entity.Property(e => e.RetryAt).HasColumnType("DATETIME").HasColumnName("retryAt");
+            entity.Property(e => e.Host).HasColumnName("host");
         });
 
         modelBuilder.Entity<MediaProbe>(entity =>

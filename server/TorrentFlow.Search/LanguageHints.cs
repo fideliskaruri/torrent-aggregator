@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,6 +18,8 @@ namespace TorrentFlow.Search;
 /// Language hints before download (docs/release-language.md, "Hints before download"): AnimeTosho's per-file track lists
 /// for anime candidates, by info hash, and apibay's file lists for TPB candidates, by TPB id. One fetcher per source, one
 /// cache (the ReleaseHint table), a polite line per site, and a time budget per search: a missing or slow hint is no hint.
+/// Each source's hosts are its registry entry's (base URL, then mirrors), the same ones its search uses, and a host that
+/// keeps failing rests behind a breaker so a dead or frozen site never slows a search.
 /// Hints only order releases and let an automatic pick skip a clear no-English one; the files decide once they are here.
 /// </summary>
 public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlowDbContext> factory, ILogger<LanguageHints> logger,
@@ -39,6 +42,14 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
     public static readonly TimeSpan PendingRetry = TimeSpan.FromMinutes(2);
     public static readonly TimeSpan MissingRetry = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan MaxRetry = TimeSpan.FromHours(24);
+    /// <summary>A miss for a release out longer than this is kept for good: the index won't add it now.</summary>
+    public static readonly TimeSpan PermanentMissAge = TimeSpan.FromDays(30);
+    /// <summary>Failures in a row (no answer, a timeout, a server error or a page that isn't the feed) that rest a host.</summary>
+    public const int BreakerFailures = 3;
+    /// <summary>How long a failing host rests before one probe request.</summary>
+    public static readonly TimeSpan BreakerRest = TimeSpan.FromMinutes(30);
+    /// <summary>How long one lookup may take, waiting in the site's line included; also the probe's turn.</summary>
+    private static readonly TimeSpan FetchBound = TimeSpan.FromSeconds(60);
 
     internal const string Complete = "complete";
     internal const string Pending = "pending";
@@ -48,9 +59,11 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
     private readonly ConcurrentDictionary<string, Lazy<Task<LanguageHint?>>> flights = new(StringComparer.Ordinal);
     private readonly Line animeTosho = new(AnimeToshoSpacing, 3);
     private readonly Line apibay = new(ApibaySpacing, 1);
+    private readonly Breaker breaker = new(logger);
 
     /// <param name="Fetch">Among the top <see cref="Candidates"/> of its source: asked for when not cached.</param>
-    private sealed record Lookup(string ResultId, string Source, string Key, bool Fetch);
+    /// <param name="Released">The earliest date a site gave the release, when one did.</param>
+    private sealed record Lookup(string ResultId, string Source, string Key, bool Fetch, DateTimeOffset? Released);
 
     /// <summary>
     /// The hints for the best ranked candidates, keyed by <see cref="TorrentResult.Id"/>: AnimeTosho for anime releases that
@@ -82,12 +95,19 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
         var fetches = new List<(Lookup Lookup, Task<LanguageHint?> Work)>();
         foreach (var lookup in lookups)
         {
+            var attempts = 0;
             if (rows.TryGetValue((lookup.Source, lookup.Key), out var row))
             {
                 if (row.State == Complete) { Keep(found, lookup.ResultId, Read(lookup.Source, row.FilesJson)); continue; }
-                if (row.RetryAt > now) continue;
+                // A miss or an unfinished answer holds while the source still uses the host that gave it: until RetryAt, or
+                // for good without one. After the owner moves the source to another host, that host is asked afresh.
+                if (row.Host is { } host && Endpoints(lookup.Source).Any(e => HostOf(e) == host))
+                {
+                    if (row.RetryAt is not { } retry || retry > now) continue;
+                    attempts = row.Attempts;
+                }
             }
-            if (lookup.Fetch && Fetch(lookup.Source, lookup.Key, row?.Attempts ?? 0) is { } work) fetches.Add((lookup, work));
+            if (lookup.Fetch && Fetch(lookup, attempts) is { } work) fetches.Add((lookup, work));
         }
         if (fetches.Count > 0)
         {
@@ -115,9 +135,11 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
     {
         var anime = new HashSet<string>(StringComparer.Ordinal);
         var tpb = new Dictionary<string, string>(StringComparer.Ordinal);
+        var released = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         foreach (var listing in listings)
         {
             if (Hash(listing) is not { } hash) continue;
+            Note(released, hash, listing);
             if (WaitsForHint(listing)) anime.Add(hash);
             else if (listing.Source == Apibay && TpbId(listing) is { } id) tpb.TryAdd(hash, id);
         }
@@ -132,13 +154,24 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
             // A hash's files never change, so a cached AnimeTosho answer counts for whichever site listed it; only releases
             // AnimeTosho or nyaa listed are asked for.
             var hash = Hash(r);
+            if (hash != null) Note(released, hash, r);
+            var date = hash != null && released.TryGetValue(hash, out var at) ? at : Published(r);
             if (animeOn && hash != null && seen.Add($"{AnimeTosho}:{hash}"))
-                picked.Add(new(r.Id, AnimeTosho, hash, anime.Contains(hash) && animeCount++ < Candidates));
+                picked.Add(new(r.Id, AnimeTosho, hash, anime.Contains(hash) && animeCount++ < Candidates, date));
             if (tpbOn && (hash != null && tpb.TryGetValue(hash, out var id) ? id : r.Source == Apibay ? TpbId(r) : null) is { } tpbId &&
                 seen.Add($"{Apibay}:{tpbId}"))
-                picked.Add(new(r.Id, Apibay, tpbId, tpbCount++ < Candidates));
+                picked.Add(new(r.Id, Apibay, tpbId, tpbCount++ < Candidates, date));
         }
         return picked;
+    }
+
+    private static DateTimeOffset? Published(TorrentResult r) =>
+        DateTimeOffset.TryParse(r.PublishedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at) ? at : null;
+
+    /// <summary>Keeps the earliest date any site gave a hash.</summary>
+    private static void Note(Dictionary<string, DateTimeOffset> released, string hash, TorrentResult r)
+    {
+        if (Published(r) is { } at && (!released.TryGetValue(hash, out var known) || at < known)) released[hash] = at;
     }
 
     private static string? Hash(TorrentResult r) =>
@@ -157,68 +190,118 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
 
     private bool Enabled(string id) => registry?.Find(id) is not { } entry || registry.IsEnabled(entry);
 
-    /// <summary>One lookup per hash or id at a time; null when the site's line is already full.</summary>
-    private Task<LanguageHint?>? Fetch(string source, string key, int attempts)
+    /// <summary>One lookup per hash or id at a time; null when the site's line is full or every host of the source rests.</summary>
+    private Task<LanguageHint?>? Fetch(Lookup lookup, int attempts)
     {
-        var flight = $"{source}:{key}";
+        var flight = $"{lookup.Source}:{lookup.Key}";
         if (flights.TryGetValue(flight, out var running)) return running.Value;
-        var line = source == AnimeTosho ? animeTosho : apibay;
+        if (Endpoints(lookup.Source).All(e => breaker.Resting(HostOf(e)))) return null;
+        var line = lookup.Source == AnimeTosho ? animeTosho : apibay;
         if (line.Waiting >= MaxWaiting) return null;
         return flights.GetOrAdd(flight, name => new Lazy<Task<LanguageHint?>>(() => Task.Run(async () =>
         {
-            try { return await FetchAsync(line, source, key, attempts); }
+            try { return await FetchAsync(line, lookup, attempts); }
             finally { flights.TryRemove(name, out var _); }
         }))).Value;
     }
 
-    private async Task<LanguageHint?> FetchAsync(Line line, string source, string key, int attempts)
+    /// <summary>
+    /// Asks the source's hosts in order (base URL, then mirrors), skipping a resting one. Any answer from a host, a 404
+    /// included, is that host's answer; a host that fails counts toward its breaker and the next one is asked.
+    /// </summary>
+    private async Task<LanguageHint?> FetchAsync(Line line, Lookup lookup, int attempts)
     {
+        var (source, key) = (lookup.Source, lookup.Key);
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(lifetime?.ApplicationStopping ?? CancellationToken.None);
-        bounded.CancelAfter(TimeSpan.FromSeconds(60));
-        var url = source == AnimeTosho
-            ? $"{BaseUrl(AnimeTosho, "https://feed.animetosho.org")}/json?show=torrent&btih={key}"
-            : $"{BaseUrl(Apibay, "https://apibay.org")}/f.php?id={key}";
-        (string State, IReadOnlyList<LanguageHintFile> Files) answer;
-        var sent = false;
-        try
+        bounded.CancelAfter(FetchBound);
+        string? failed = null;
+        foreach (var endpoint in Endpoints(source))
         {
-            var body = await line.RunAsync(() =>
+            var host = HostOf(endpoint);
+            if (breaker.Resting(host)) continue;
+            var url = source == AnimeTosho ? $"{endpoint}/json?show=torrent&btih={key}" : $"{endpoint}/f.php?id={key}";
+            (string State, IReadOnlyList<LanguageHintFile> Files, string Via) answer;
+            var sent = false;
+            try
             {
-                sent = true;
-                return http.GetAsync(url, IndexerHttp.BrowserAgent, timeoutMs: 8000,
-                    accept: "application/json, text/plain, */*", cancellationToken: bounded.Token);
-            }, bounded.Token);
-            answer = source == AnimeTosho ? ReadAnimeTosho(body) : ReadFileList(body);
+                // Checked again when the request's turn comes: lookups queued behind the failures that opened the breaker
+                // send nothing, and the first one after a rest is the probe.
+                var body = await line.RunAsync<string?>(async () =>
+                {
+                    if (!breaker.Allow(host)) return null;
+                    sent = true;
+                    return await http.GetAsync(url, IndexerHttp.BrowserAgent, timeoutMs: 8000,
+                        accept: "application/json, text/plain, */*", cancellationToken: bounded.Token);
+                }, bounded.Token);
+                if (body is null) continue;
+                answer = Parse(source, body);
+                breaker.Answered(host);
+                // An item out for over 30 days that the index still hasn't finished never will be (Anime Tosho NEW reports
+                // the batches the original skipped as "unknown", with no files): that is a miss.
+                if (answer.State == Pending && Old(lookup)) answer = (Missing, [], answer.Via);
+            }
+            catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.NotFound)
+            {
+                breaker.Answered(host);
+                answer = (Missing, [], "none");
+            }
+            // The site is cooling down after a 429 (Retry-After is honoured by IndexerHttp): busy, not down, and not this
+            // release's fault.
+            catch (HttpRequestException e) when (e is SourceBusyException || e.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+            {
+                logger.LogInformation("Language hint {Source} {Key}: {Host} busy, no hint this time", source, key, host);
+                return null;
+            }
+            catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or OperationCanceledException or TimeoutException)
+            {
+                // Still waiting in the site's line when time ran out, or shutting down: nothing was asked, so nothing to record.
+                if (!sent || lifetime?.ApplicationStopping.IsCancellationRequested == true) return null;
+                logger.LogDebug(e, "Language hint {Source} {Key} failed on {Host}", source, key, host);
+                breaker.Failed(host, e);
+                failed = host;
+                continue;
+            }
+            await SaveAsync(lookup, answer.State, answer.Files, attempts, host);
+            logger.LogInformation("Language hint {Source} {Key} from {Host}: {State}, {Files} file(s), tracks from {Via}",
+                source, key, host, answer.State, answer.Files.Count, answer.Via);
+            return answer.State == Complete && answer.Files.Count > 0 ? new LanguageHint(Kind(source), answer.Files) : null;
         }
-        catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.NotFound)
+        // Every host failed: ask again after the pending wait.
+        if (failed != null) await SaveAsync(lookup, Pending, [], attempts, failed);
+        return null;
+    }
+
+    private static (string State, IReadOnlyList<LanguageHintFile> Files, string Via) Parse(string source, string body)
+    {
+        if (source != AnimeTosho)
         {
-            answer = (Missing, []);
+            var (state, files) = ReadFileList(body);
+            return (state, files, "file list");
         }
-        // The site is cooling down after a 429 (Retry-After is honoured by IndexerHttp): not this release's fault.
-        catch (HttpRequestException e) when (e is SourceBusyException || e.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
-        {
-            logger.LogInformation("Language hint {Source} {Key}: site busy, no hint this time", source, key);
-            return null;
-        }
-        catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or OperationCanceledException or TimeoutException)
-        {
-            logger.LogDebug(e, "Language hint {Source} {Key} failed", source, key);
-            // Still waiting in the site's line when time ran out, or shutting down: nothing was asked, so nothing to record.
-            if (!sent || lifetime?.ApplicationStopping.IsCancellationRequested == true) return null;
-            answer = (Pending, []);
-        }
-        await SaveAsync(source, key, answer.State, answer.Files, attempts);
-        logger.LogInformation("Language hint {Source} {Key}: {State}, {Files} file(s)", source, key, answer.State, answer.Files.Count);
-        return answer.State == Complete && answer.Files.Count > 0 ? new LanguageHint(Kind(source), answer.Files) : null;
+        var answer = AnimeToshoTracks.Read(body);
+        return (answer.State, answer.Files, answer.Via);
     }
 
     private static string Kind(string source) => source == AnimeTosho ? LanguageHint.AnimeTosho : LanguageHint.FileList;
 
-    private string BaseUrl(string id, string fallback) =>
-        registry?.Find(id)?.BaseUrl is { Length: > 0 } configured ? configured.TrimEnd('/') : fallback;
+    /// <summary>Out for longer than <see cref="PermanentMissAge"/>, by the earliest date a site gave it.</summary>
+    private static bool Old(Lookup lookup) => lookup.Released is { } released && DateTimeOffset.UtcNow - released > PermanentMissAge;
 
-    private async Task SaveAsync(string source, string key, string state, IReadOnlyList<LanguageHintFile> files, int attempts)
+    /// <summary>The source's registry entry, base URL then mirrors: the hosts its search uses, which the owner sets.</summary>
+    private IReadOnlyList<string> Endpoints(string source)
     {
+        var entry = registry?.Find(source);
+        var urls = (entry is null ? [] : new[] { entry.BaseUrl }.Concat(entry.Mirrors))
+            .Where(u => !string.IsNullOrWhiteSpace(u)).Select(u => u.Trim().TrimEnd('/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return urls.Count > 0 ? urls : [source == AnimeTosho ? AnimeToshoAdapter.DefaultBaseUrl : ApiBayAdapter.DefaultBaseUrl];
+    }
+
+    private static string HostOf(string endpoint) =>
+        Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ? uri.Authority.ToLowerInvariant() : endpoint.ToLowerInvariant();
+
+    private async Task SaveAsync(Lookup lookup, string state, IReadOnlyList<LanguageHintFile> files, int attempts, string host)
+    {
+        var (source, key) = (lookup.Source, lookup.Key);
         try
         {
             await using var db = await factory.CreateDbContextAsync();
@@ -227,6 +310,7 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
             var now = DateTime.UtcNow;
             row.State = state;
             row.FetchedAt = now;
+            row.Host = host;
             if (state == Complete)
             {
                 row.FilesJson = JsonSerializer.Serialize(files, Json);
@@ -237,7 +321,8 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
             {
                 row.FilesJson = null;
                 row.Attempts = attempts + 1;
-                row.RetryAt = now + RetryAfter(state, row.Attempts);
+                // The index won't add a release that has been out for over 30 days: that miss is kept for good.
+                row.RetryAt = state == Missing && Old(lookup) ? null : now + RetryAfter(state, row.Attempts);
             }
             await db.SaveChangesAsync();
         }
@@ -265,97 +350,6 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
             logger.LogDebug(e, "Unreadable language hint for {Source}", source);
             return null;
         }
-    }
-
-    /// <summary>
-    /// AnimeTosho's <c>json?show=torrent</c>: each file's subtitle attachments (language, name, default, forced) and, when it
-    /// has one, the mediainfo text's audio tracks. Not processed yet, or no files: pending. Skipped: missing.
-    /// </summary>
-    internal static (string State, IReadOnlyList<LanguageHintFile> Files) ReadAnimeTosho(string body)
-    {
-        using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.ValueKind != JsonValueKind.Object) return (Missing, []);
-        if (root.TryGetProperty("error", out _)) return (Missing, []);
-        var status = Text(root, "status");
-        // AnimeTosho never processes an item it skipped (batches, many non-English releases): ask again only rarely.
-        if (string.Equals(status, "skipped", StringComparison.OrdinalIgnoreCase)) return (Missing, []);
-        if (!string.Equals(status, Complete, StringComparison.OrdinalIgnoreCase) ||
-            !root.TryGetProperty("files", out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() == 0)
-            return (Pending, []);
-        var files = new List<LanguageHintFile>();
-        foreach (var file in list.EnumerateArray())
-        {
-            var path = Text(file, "filename");
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            var size = file.TryGetProperty("size", out var s) && s.TryGetInt64(out var n) ? n : 0;
-            var processed = !file.TryGetProperty("processed", out var p) || p.ValueKind is JsonValueKind.True ||
-                p.ValueKind == JsonValueKind.Number && p.GetInt32() != 0;
-            files.Add(new(path, size, processed ? Tracks(file) : null));
-        }
-        // A video still unprocessed has no track list yet: ask again later.
-        if (files.Count == 0 || files.Any(f => MediaFileRules.IsVideo(f.Path) && f.Tracks == null)) return (Pending, []);
-        return (Complete, files);
-    }
-
-    private static List<MediaTrack> Tracks(JsonElement file)
-    {
-        var tracks = new List<MediaTrack>();
-        if (file.TryGetProperty("attachments", out var attachments) && attachments.ValueKind == JsonValueKind.Array)
-            foreach (var attachment in attachments.EnumerateArray())
-            {
-                if (Text(attachment, "type") != "subtitle" || !attachment.TryGetProperty("info", out var info) || info.ValueKind != JsonValueKind.Object) continue;
-                var raw = Text(info, "lang");
-                var number = Number(info, "tracknum") ?? Number(info, "trackid") ?? tracks.Count + 1;
-                tracks.Add(new(number, MediaTrackKind.Subtitle, LanguageTag.Normalize(raw), raw, Flag(info, "default"),
-                    !info.TryGetProperty("enabled", out _) || Flag(info, "enabled"), Flag(info, "forced"), Text(info, "name"),
-                    Text(info, "codec"), MediaTrack.Indexer));
-            }
-        if (file.TryGetProperty("info", out var fileInfo) && fileInfo.ValueKind == JsonValueKind.Object && Text(fileInfo, "mediainfo") is { } mediainfo)
-            tracks.AddRange(AudioTracks(mediainfo));
-        return tracks;
-    }
-
-    /// <summary>The Audio sections of MediaInfo's text report: "Language : Japanese", "Title : Commentary", "Default : Yes".</summary>
-    internal static IEnumerable<MediaTrack> AudioTracks(string mediainfo)
-    {
-        var tracks = new List<MediaTrack>();
-        string? language = null, title = null, codec = null;
-        bool inAudio = false, isDefault = false, forced = false;
-        void Close()
-        {
-            if (inAudio)
-                tracks.Add(new(1000 + tracks.Count, MediaTrackKind.Audio, ReleaseLanguage.LanguageCode(language), language, isDefault, true, forced,
-                    title, codec, MediaTrack.Indexer));
-            inAudio = false;
-            language = title = codec = null;
-            isDefault = forced = false;
-        }
-        foreach (var raw in mediainfo.Split('\n'))
-        {
-            var line = raw.Trim();
-            var colon = line.IndexOf(':');
-            if (colon < 0)
-            {
-                if (line.Length == 0) continue;
-                Close();
-                inAudio = line.StartsWith("Audio", StringComparison.OrdinalIgnoreCase);
-                continue;
-            }
-            if (!inAudio) continue;
-            var name = line[..colon].Trim();
-            var value = line[(colon + 1)..].Trim();
-            switch (name.ToLowerInvariant())
-            {
-                case "language": language ??= value; break;
-                case "title": title ??= value; break;
-                case "format": codec ??= value; break;
-                case "default": isDefault = value.StartsWith("Yes", StringComparison.OrdinalIgnoreCase); break;
-                case "forced": forced = value.StartsWith("Yes", StringComparison.OrdinalIgnoreCase); break;
-            }
-        }
-        Close();
-        return tracks;
     }
 
     /// <summary>
@@ -388,14 +382,68 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
         return first.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? null : first.ToString();
     }
 
-    private static string? Text(JsonElement row, string key) =>
-        row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    /// <summary>
+    /// Hosts that stopped answering. After <see cref="BreakerFailures"/> failures in a row a host gets no hint requests for
+    /// <see cref="BreakerRest"/>, then one probe: an answer closes the breaker, a failure rests the host again. Logged once
+    /// when it opens and once when the host answers again.
+    /// </summary>
+    private sealed class Breaker(ILogger logger)
+    {
+        private sealed class State
+        {
+            public int Failures;
+            public DateTimeOffset? RestUntil;
+        }
 
-    private static int? Number(JsonElement row, string key) =>
-        row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) ? n : null;
+        private readonly ConcurrentDictionary<string, State> hosts = new(StringComparer.OrdinalIgnoreCase);
 
-    private static bool Flag(JsonElement row, string key) => row.TryGetProperty(key, out var value) &&
-        (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) && n != 0);
+        public bool Resting(string host)
+        {
+            if (!hosts.TryGetValue(host, out var state)) return false;
+            lock (state) return state.RestUntil > DateTimeOffset.UtcNow;
+        }
+
+        /// <summary>Whether a request may go now; the first one after a rest is the probe, and the rest wait for its answer.</summary>
+        public bool Allow(string host)
+        {
+            if (!hosts.TryGetValue(host, out var state)) return true;
+            lock (state)
+            {
+                if (state.RestUntil is not { } until) return true;
+                var now = DateTimeOffset.UtcNow;
+                if (now < until) return false;
+                state.RestUntil = now + FetchBound;
+                return true;
+            }
+        }
+
+        public void Answered(string host)
+        {
+            if (!hosts.TryGetValue(host, out var state)) return;
+            lock (state)
+            {
+                if (state.RestUntil != null) logger.LogInformation("Language hints: {Host} answers again, breaker closed", host);
+                state.Failures = 0;
+                state.RestUntil = null;
+            }
+        }
+
+        public void Failed(string host, Exception error)
+        {
+            var state = hosts.GetOrAdd(host, _ => new State());
+            lock (state)
+            {
+                state.Failures++;
+                var now = DateTimeOffset.UtcNow;
+                // The probe, or a request sent before the breaker opened, failed: rest again without another log line.
+                if (state.RestUntil != null) { state.RestUntil = now + BreakerRest; return; }
+                if (state.Failures < BreakerFailures) return;
+                state.RestUntil = now + BreakerRest;
+                logger.LogWarning("Language hints: {Host} failed {Failures} times in a row ({Error}); breaker open, no hint requests to it for {Minutes} minutes, then one probe",
+                    host, state.Failures, error.Message, BreakerRest.TotalMinutes);
+            }
+        }
+    }
 
     /// <summary>One site's hint requests: at most <paramref name="concurrency"/> open, starts at least <paramref name="spacing"/> apart.</summary>
     private sealed class Line(TimeSpan spacing, int concurrency)

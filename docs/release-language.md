@@ -359,11 +359,17 @@ file-list and header checks (and the coming gate on the finished files) run as b
 
 | Source | Lookup | Evidence | Applies to |
 | --- | --- | --- | --- |
-| AnimeTosho | `feed.animetosho.org/json?show=torrent&btih=<hash>` | each file's subtitle tracks (language, name, default, forced), and audio tracks from `info.mediainfo` when present, as `MediaTrack` with `Source = "indexer"`; judged like header facts | releases AnimeTosho or nyaa (English-translated, 1_2) listed; a cached answer counts for any site that lists the same hash |
-| apibay | `apibay.org/f.php?id=<TPB id>` | file names: `.en.srt`, `Subs/English.srt`, `2_English.srt` | releases TPB listed (the adapter keeps the TPB id as `SiteId`, even when another site's listing of the same hash was kept); only torrents with one main video |
+| AnimeTosho | `<animetosho base URL>/json?show=torrent&btih=<hash>` (default `feed.animetosho.xyz`, Anime Tosho NEW) | each file's tracks, as `MediaTrack` with `Source = "indexer"`, judged like header facts. First choice: the file's `info.mediainfo` text (Video, Audio and Text sections, each with Title, Language, Default and Forced). Only when that lists no subtitle track: the subtitle attachments, in the original feed's per-file shape (`{codec, lang, name, default, enabled, forced, tracknum}`) or Anime Tosho NEW's per-file or torrent-wide shape (`{default, forced, format, language, language_code}`, no name; a label like "English (SDH)" or "Latin American" becomes the name) | releases AnimeTosho or nyaa (English-translated, 1_2) listed; a cached answer counts for any site that lists the same hash |
+| apibay | `<apibay base URL>/f.php?id=<TPB id>` | file names: `.en.srt`, `Subs/English.srt`, `2_English.srt` | releases TPB listed (the adapter keeps the TPB id as `SiteId`, even when another site's listing of the same hash was kept); only torrents with one main video |
 
-Track names and forced flags are kept on the tracks (`MediaTrack.Name`, `Forced`), so the track-roles rule (a "Signs"
-or "Forced" English track is not full English subtitles) applies to hints as soon as the shared judge has it.
+Evidence tiers, strongest first: a file's own header (the header probe after add, then the gate on the finished files);
+an index's MediaInfo track list (names, languages, default and forced flags, audio included); an index's subtitle
+attachments (no audio, and no names in Anime Tosho NEW's shape); a file list's subtitle file names; the release name.
+Only the files themselves pass a release at the gate.
+
+Track names and forced and default flags are kept on every track built from MediaInfo or attachments (`MediaTrack.Name`,
+`Forced`, `Default`), so the track-roles rule decides with names (SubsPlease marks its only English track forced; a
+"Signs" track is not full English subtitles) as soon as the shared judge has it. There is no second judge here.
 
 Fetching (`LanguageHints`, `server/TorrentFlow.Search/LanguageHints.cs`):
 
@@ -371,19 +377,35 @@ Fetching (`LanguageHints`, `server/TorrentFlow.Search/LanguageHints.cs`):
   3 seconds for them; an interactive search with no anime candidates waits only while the scrape runs, so film searches
   don't get slower. A missing or slow hint is no hint; lookups still running finish in the background and fill the cache
   for the next search (the ladder's next rung, the wanted queue's retry, the picker).
-- One cache, the `ReleaseHint` table (source, key, state, files, attempts, retryAt). `complete` answers are kept for
-  good: a hash's files never change. An item AnimeTosho is still processing, or a lookup that failed after it was sent,
-  is `pending` and asked again after 2 minutes; one it doesn't have (404), one it skipped (it never processes those) or
-  apibay's "Filelist not found" is `missing` and asked again after 10 minutes; each answer in a row doubles the wait, up
-  to a day. A lookup still waiting in the site's line when its time ran out records nothing.
+- The hosts are the source's registry entry (Settings, Sources): its base URL, then its mirrors, the same ones its search
+  uses. AnimeTosho ships as `https://feed.animetosho.xyz` (Anime Tosho NEW, which answers with a 308 to
+  `feed.animetosho.net`, also listed as a mirror); `animetosho.org` is retired, so a saved entry naming it moves to the
+  shipped URL. Any answer from a host, a 404 included, is that host's answer; a host that fails moves the lookup to the
+  next one.
+- One cache, the `ReleaseHint` table (source, key, state, files, attempts, retryAt, host). `complete` answers are kept
+  for good and count whichever host gave them: a hash's files never change. An item AnimeTosho is still processing, or
+  a lookup where every host failed after it was sent, is `pending` and asked again after 2 minutes; one it doesn't have
+  (404), one it skipped (it never processes those) or apibay's "Filelist not found" is `missing` and asked again after
+  10 minutes; each answer in a row doubles the wait, up to a day. A miss or pending answer holds only for the host that
+  gave it: when the owner moves the source to another host, the new host is asked afresh. A lookup still waiting in the
+  site's line when its time ran out records nothing.
+- Old releases: a `missing` answer for a release out for more than 30 days (by the earliest date any site gave it) is
+  kept for good (no `retryAt`); the index won't add it now. An unfinished answer for such a release (Anime Tosho NEW
+  reports the batches the original skipped as `unknown`, with no files) counts as that miss.
+- Breaker per host: after 3 failures in a row (no connection, a timeout, a server error, or a page that isn't the
+  feed), the host gets no hint requests for 30 minutes, then one probe: an answer closes it, a failure rests it for
+  another 30 minutes. Lookups already queued for the host send nothing once it opens, and a search whose hosts all
+  rest doesn't wait for hints at all. It logs once when it opens ("Language hints: <host> failed 3 times in a row ...;
+  breaker open") and once when the host answers again. A 429, or a 503 with Retry-After, is a cool-down, not a failure.
 - Polite: one line per site for hint lookups, starts at least 1 s apart for AnimeTosho (up to 3 open, it answers in
   about 2 s) and 2 s for apibay (one at a time). With the sites' own search pacing (1 s and 2 s) that stays at about
   2 requests a second to AnimeTosho. Requests go through `IndexerHttp` with the adapters' user agent, so a 429 or a 503
   with Retry-After cools the site for searches and hints alike; a lookup during a cool-down is simply no hint.
 - At most 16 lookups wait in one site's line; past that a candidate gets no hint this time. A source turned off in
   Settings is not asked.
-- AnimeTosho stopped processing new items in May 2026 and says its feed will shut down. Episodes released after that
-  come back `missing` and are asked again with backoff; older episodes keep working from the cache.
+- The original AnimeTosho (`feed.animetosho.org`) stopped processing new items in May 2026 and its feed is going away.
+  Anime Tosho NEW, named on its shutdown notice, imported its archive (same ids) and processes new releases, usually
+  with MediaInfo for every file.
 
 ## The engine's check after add
 
