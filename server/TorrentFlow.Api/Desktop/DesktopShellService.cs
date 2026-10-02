@@ -74,7 +74,8 @@ public sealed class DesktopShellService(
         });
 
     /// <summary>Downloads that are transferring or waiting; finished files are left alone.</summary>
-    internal static bool CanPause(EngineTorrentInfo t) => t.State is not ("paused" or "downloaded" or "error");
+    internal static bool CanPause(EngineTorrentInfo t) => t.State is not ("paused" or "downloaded" or "error"
+        or EnginePromotion.FinishingState or EnginePromotion.HeldState);
 
     internal static bool CanResume(EngineTorrentInfo t) => t.State == "paused";
 

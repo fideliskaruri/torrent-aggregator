@@ -16,6 +16,7 @@ import {
   isDownloaded,
   isDownloading,
   isError,
+  isHeld,
   isPaused,
   isQueued,
   leadQueuePosition,
@@ -55,6 +56,10 @@ const STATE_LABELS: Record<string, string> = {
   // The built-in engine's own download queue: admitted and ordered, but not
   // transferring yet because the active-download cap is full.
   queued: "Queued",
+  // Every byte is in; it is checked and moved into the library before it is Ready.
+  finishing: "Moving to library",
+  // Downloaded, but kept out of the library until the owner decides.
+  held: "Waiting for you",
 };
 
 /**
@@ -114,6 +119,12 @@ export function transferErrorMessage(
   return torrent.error?.trim() || null;
 }
 
+/** Why a held row waits for the owner, as the server said it; null for every other row. */
+export function heldReason(torrent: Pick<ClientTorrent, "state" | "heldReason">): string | null {
+  if (!isHeld(torrent.state)) return null;
+  return torrent.heldReason?.trim() || "TorrentFlow wants you to check this one";
+}
+
 /**
  * The status chip for a series or season. Once any member has failed it reads
  * as counts ("1 downloading · 30 need attention") rather than one member's
@@ -151,6 +162,8 @@ export function pauseResumeAction(
   torrent: Pick<ClientTorrent, "state" | "ownerClientType">,
 ): "pause" | "resume" | null {
   if (isError(torrent.state) || isPaused(torrent.state)) return "resume";
+  // Every byte is in: there is nothing left to pause, only Keep or Find another on a held row.
+  if (isHeld(torrent.state) || torrent.state === "finishing") return null;
   if (isDownloaded(torrent.state)) return torrent.ownerClientType === "builtin" ? null : "pause";
   return "pause";
 }

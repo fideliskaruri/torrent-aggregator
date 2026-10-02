@@ -211,7 +211,7 @@ public sealed partial class BrowseService(
     {
         if (t is null || t.Status == "removed") return null;
         var live = presence(t.Hash);
-        if (t.Progress == 1)
+        if (EngineTorrent.IsDownloaded(t))
             return (filePresence?.Invoke(t.Hash) ?? LocalFilePresence.Unknown) == LocalFilePresence.Present || live == TorrentPresence.Present ? "ready" : null;
         return t.Progress > 0 && t.Status != "error" && live == TorrentPresence.Present ? "warm" : null;
     }
@@ -225,7 +225,8 @@ public sealed partial class BrowseService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var rows = await db.EngineTorrents.AsNoTracking()
-            .Where(t => t.UserId == userId && t.Progress == 1 && t.Status != "removed" && t.Status != "error")
+            .Where(t => t.UserId == userId && t.Status != "removed" && t.Status != "error")
+            .Where(EngineTorrent.Downloaded)
             .OrderByDescending(t => t.CreatedAt).Take(120).ToListAsync(ct).ConfigureAwait(false);
         var filePresence = files.Lookup(rows);
         var torrents = rows.Where(t => LibraryTorrentCanSurface(t)
@@ -291,7 +292,7 @@ public sealed partial class BrowseService(
         return new Rail(YourLibraryRailId, DownloadedRailTitle, items);
     }
 
-    public static bool LibraryTorrentCanSurface(EngineTorrent t) => t.Progress >= 1 && t.Status != "removed" && t.Status != "error";
+    public static bool LibraryTorrentCanSurface(EngineTorrent t) => EngineTorrent.IsDownloaded(t) && t.Status != "removed" && t.Status != "error";
 
     /// <summary>A season pack represents the work over single episodes.</summary>
     public static bool LibraryRepresentativePreference(string name) => ReleaseEpisodeParser.Parse(name).IsSeasonPack;

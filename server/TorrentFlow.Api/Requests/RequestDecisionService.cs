@@ -17,8 +17,9 @@ public interface IRequestTransfers
 
 public sealed class EngineRequestTransfers(ITorrentEngine engine) : IRequestTransfers
 {
+    /// <summary>Done the one way the engine counts it: promoted into the library (<see cref="EngineTorrentInfo.IsDownloaded"/>).</summary>
     public async Task<bool> CompletedAsync(string hash, CancellationToken ct) =>
-        await engine.GetAsync(hash, ct) is { } info && (info.Progress >= 1 || info.State == "downloaded");
+        await engine.GetAsync(hash, ct) is { IsDownloaded: true };
 }
 
 /// <summary>

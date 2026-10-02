@@ -73,7 +73,10 @@ public static class TransferStates
     {
         var status = row.Status.ToLowerInvariant();
         if (status == EngineTorrentStatus.Error) return Error;
-        if (TorrentEngineService.IsDownloaded(row)) return Downloaded;
+        if (EngineTorrent.IsDownloaded(row)) return Downloaded;
+        // The payload is in, but not in the library yet: the gate runs, or it waits for the owner.
+        if (row.VerifiedAt is not null && row.Promotion == EnginePromotion.Held) return EnginePromotion.HeldState;
+        if (EngineTorrent.IsFinishing(row)) return EnginePromotion.FinishingState;
         if (status is EngineTorrentStatus.Paused or EngineTorrentStatus.Parked) return Paused;
         // Waiting for a slot. Distinct from paused: the owner did not stop it, so the UI offers "Download now".
         if (status == EngineTorrentStatus.Queued) return Queued;

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Storage;
 
 namespace TorrentFlow.Engine;
 
@@ -54,7 +55,9 @@ internal sealed partial class TorrentEngineService
         }
     }
 
-    /// <summary>One pass over the due batches, oldest first. Returns how long until the next retry is due.</summary>
+    /// <summary>
+    /// One pass over the due batches, oldest first, then the stage sweep. Returns how long until the next retry is due.
+    /// </summary>
     internal async Task<TimeSpan> CleanupDeletionsAsync(bool includeNotDue, CancellationToken ct)
     {
         var now = Now;
@@ -64,10 +67,63 @@ internal sealed partial class TorrentEngineService
             ct.ThrowIfCancellationRequested();
             await CleanupBatchAsync(batch.Key, batch.Select(d => d.Hash).ToList());
         }
+        var wait = Timeout.InfiniteTimeSpan;
         var pending = await PendingDeletionsAsync(ct);
-        if (pending.Count == 0) return Timeout.InfiniteTimeSpan;
-        var next = pending.Min(d => d.NextAttemptAt) - Now;
-        return next > TimeSpan.Zero ? next : TimeSpan.Zero;
+        if (pending.Count > 0)
+        {
+            var next = pending.Min(d => d.NextAttemptAt) - Now;
+            wait = next > TimeSpan.Zero ? next : TimeSpan.Zero;
+        }
+        if (await SweepStagesAsync(ct))
+        {
+            var retry = TimeSpan.FromTicks(Math.Min(LastCleanupRetry.Ticks, FirstCleanupRetry.Ticks << Math.Min(_stageSweepMisses++, 16)));
+            if (wait == Timeout.InfiniteTimeSpan || retry < wait) wait = retry;
+        }
+        else _stageSweepMisses = 0;
+        return wait;
+    }
+
+    private int _stageSweepMisses;
+
+    /// <summary>
+    /// The persisted retry for stage folders (docs/english-gates-plan.md section 1). A promoted, rejected, swapped or removed
+    /// download's stage folder is deleted at once when it can be; one that couldn't (a file still held, a crash in between)
+    /// is found here, because the folder itself is the record: any transfer folder under a <c>.staging</c> folder that no
+    /// transfer owns any more (<see cref="OwnsStage"/>) goes, so leftovers never sit against the storage cap. A folder a
+    /// transfer still writes to or waits in, or whose delete is still being cleaned up, is never touched. Returns true when
+    /// one is left for the next pass.
+    /// </summary>
+    private async Task<bool> SweepStagesAsync(CancellationToken ct)
+    {
+        var root = (await settings.GetConfigAsync(ct)).DownloadRoot;
+        List<string?> stagePaths;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            stagePaths = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id && r.StagePath != null)
+                .Select(r => r.StagePath).ToListAsync(ct);
+        var left = false;
+        var removed = 0;
+        foreach (var folder in StagePaths.Roots(root, stagePaths).SelectMany(StagePaths.Folders).ToList())
+        {
+            ct.ThrowIfCancellationRequested();
+            var hash = Path.GetFileName(folder).ToLowerInvariant();
+            using (await LockHashAsync(hash, ct))
+            {
+                // Read under the lock, after the folder was seen: a transfer is saved before its stage folder is made.
+                if (backend.Contains(hash) || _finishing.ContainsKey(hash)) continue;
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                if (await db.EngineDeletions.AsNoTracking().AnyAsync(d => d.UserId == LocalUser.Id && d.Hash == hash, ct)) continue;
+                var row = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
+                if (row is not null && OwnsStage(row, folder)) continue;
+                if (await StagePaths.DeleteAsync(folder, attempts: 1))
+                {
+                    removed++;
+                    logger.LogInformation("[promotion] removed the stage folder {Folder}, which no download uses any more", folder);
+                }
+                else left = true;
+            }
+        }
+        if (removed > 0) storage.ResetDirectorySizeCache();
+        return left;
     }
 
     private async Task<List<EngineDeletion>> PendingDeletionsAsync(CancellationToken ct)
@@ -103,10 +159,14 @@ internal sealed partial class TorrentEngineService
             var gone = tombstones.Where(d => !readded.Contains(d.Hash)).ToList();
             await Task.WhenAll(gone.Select(d => backend.RemoveAsync(d.Hash)));
 
-            var withFiles = gone.Where(d => d.DeleteFiles).ToList();
+            // A transfer that never reached the library owns its whole stage folder: it goes in one piece, files or not,
+            // since nothing in a stage folder is the owner's library.
+            var staged = gone.Where(d => StagePaths.IsStage(d.SavePath)).ToList();
+            var withFiles = gone.Where(d => d.DeleteFiles || staged.Contains(d)).ToList();
             IReadOnlyList<string> left = [];
             if (withFiles.Count > 0)
             {
+                var inPlace = withFiles.Except(staged).ToList();
                 var baseRoot = (await settings.GetConfigAsync(CancellationToken.None)).DownloadRoot;
                 List<string> otherPaths = [];
                 if (!string.IsNullOrWhiteSpace(baseRoot))
@@ -115,7 +175,10 @@ internal sealed partial class TorrentEngineService
                         if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
                         otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).OfType<string>());
                     }
-                left = await DeleteReleasesAsync(withFiles.Select(d => (d.SavePath, (IReadOnlyList<string>)DeletionFiles(d))).ToList(), baseRoot, otherPaths);
+                if (inPlace.Count > 0)
+                    left = await DeleteReleasesAsync(inPlace.Select(d => (d.SavePath, (IReadOnlyList<string>)DeletionFiles(d))).ToList(), baseRoot, otherPaths);
+                foreach (var d in staged)
+                    if (!await StagePaths.DeleteAsync(d.SavePath)) left = [.. left, d.SavePath!];
                 storage.ResetDirectorySizeCache();
             }
 

@@ -196,7 +196,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var best = found.RecommendedToken is { } token ? found.Alternatives.FirstOrDefault(a => a.Token == token) : null;
         if (best is null || best.Seeders <= (found.Health.ConnectedSeeders ?? 0))
             return new(false, $"No better release was found {where}. Your current download was kept.");
-        return await Swap(hash, best.Token, ct);
+        return await Swap(hash, best.Token, false, ct, byHand: false);
     }
 
     /// <summary>
@@ -266,8 +266,9 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
     /// <summary>
     /// Swaps to a listed release. One this user blocked needs <paramref name="useBlocked"/> ("Use it anyway"), and the
     /// swap then lifts its block; without it the swap is refused with <see cref="ReleaseBlocks.UseAnywayMessage"/>.
+    /// <paramref name="byHand"/>: the owner picked this release in the list (provenance hand); Find the best one is automatic.
     /// </summary>
-    public async Task<EngineAddResult> Swap(string hash, string token, bool useBlocked, CancellationToken ct)
+    public async Task<EngineAddResult> Swap(string hash, string token, bool useBlocked, CancellationToken ct, bool byHand = true)
     {
         if (!cache.TryGetValue<Choice>($"release-swap:{token}", out var choice) || choice is null
             || !choice.CurrentHash.Equals(hash, StringComparison.OrdinalIgnoreCase))
@@ -276,7 +277,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         await using (var db = await factory.CreateDbContextAsync(ct))
             blocked = (await ReleaseBlocks.GetAsync(db, LocalUser.Id, [choice.Swap.Hash], ct)).Count > 0;
         if (blocked && !useBlocked) return new(false, ReleaseBlocks.UseAnywayMessage);
-        return await engine.SwapAsync(choice.CurrentHash, blocked ? choice.Swap with { UseBlocked = true } : choice.Swap, ct);
+        return await engine.SwapAsync(choice.CurrentHash, choice.Swap with { UseBlocked = blocked, ByHand = byHand }, ct);
     }
 
     public static IReadOnlyList<TorrentResult> Select(IEnumerable<TorrentResult> ranked, string workKey, string title,

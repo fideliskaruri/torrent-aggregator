@@ -5,8 +5,9 @@ using TorrentFlow.Core.Contracts.Engine;
 namespace TorrentFlow.Engine.Tests;
 
 /// <summary>
-/// Downloads write without their release folder, as the Next.js engine did: the owner's
-/// <c>www.UIndex.org    -    Rick and Morty S01E0N ...</c> wrappers never appear in the season folder.
+/// Downloads write into their own stage folder (<c>&lt;download root&gt;\.staging\&lt;hash&gt;</c>, docs/english-gates-plan.md
+/// section 1), never into the season folder: the owner's <c>www.UIndex.org    -    Rick and Morty S01E0N ...</c> wrappers
+/// only ever exist there, and the layout drops them when the files are promoted.
 /// </summary>
 public sealed class DownloadWithoutWrapperTests
 {
@@ -26,7 +27,7 @@ public sealed class DownloadWithoutWrapperTests
         (await h.Engine.AddAsync(new EngineAddRequest { Name = r.Torrent.Name, Magnet = r.Magnet, TorrentBytes = r.Bytes, Purpose = "keep", WorkId = "show" })).Ok;
 
     [Fact]
-    public async Task EpisodesDownloadStraightIntoTheSaveFolderAndOnlyATakenPathStaysInTheReleaseFolder()
+    public async Task EpisodesDownloadIntoTheirOwnStageFolderAndNothingReachesTheSaveFolder()
     {
         var root = EngineHarness.NewRoot();
         var downloads = Path.Combine(root, "downloads");
@@ -37,14 +38,13 @@ public sealed class DownloadWithoutWrapperTests
         Assert.True(await AddAsync(h, first));
         Assert.True(await AddAsync(h, second));
 
-        var one = h.Backend.Get(first.Hash)!;
-        var two = h.Backend.Get(second.Hash)!;
-        string Flat(string p) => Path.GetFullPath(Path.Combine(downloads, p));
-        Assert.All(one.Files, f => Assert.Equal(Flat(f.Path), Path.GetFullPath(f.FullPath)));
-        var video = two.Files.Single(f => f.Path.EndsWith(".mkv"));
-        Assert.Equal(Flat(video.Path), Path.GetFullPath(video.FullPath));
-        // The site note is the first torrent's path: this one writes it in its own release folder.
-        var note = two.Files.Single(f => f.Path.EndsWith(".txt"));
-        Assert.Equal(Path.GetFullPath(Path.Combine(downloads, second.Torrent.Name, note.Path)), Path.GetFullPath(note.FullPath));
+        // Same file names (the site note) never collide: each release writes in a stage folder of its own.
+        string Staged((byte[] Bytes, Torrent Torrent, string Hash, string Magnet) r, string p) =>
+            Path.GetFullPath(Path.Combine(downloads, ".staging", r.Hash, r.Torrent.Name, p));
+        Assert.All(h.Backend.Get(first.Hash)!.Files, f => Assert.Equal(Staged(first, f.Path), Path.GetFullPath(f.FullPath)));
+        Assert.All(h.Backend.Get(second.Hash)!.Files, f => Assert.Equal(Staged(second, f.Path), Path.GetFullPath(f.FullPath)));
+        Assert.True(File.GetAttributes(Path.Combine(downloads, ".staging")).HasFlag(FileAttributes.Hidden));
+        Assert.True(File.Exists(Path.Combine(downloads, ".staging", ".ignore")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(downloads).Where(p => Path.GetFileName(p) != ".staging"));
     }
 }

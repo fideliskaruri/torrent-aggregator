@@ -71,6 +71,31 @@ public partial class EngineTorrent
     /// </summary>
     public string? LanguageCheckJson { get; set; }
 
+    /// <summary>
+    /// Where the payload is written until it is promoted (docs/english-gates-plan.md section 1):
+    /// <c>&lt;download root&gt;\.staging\&lt;hash&gt;</c> on the same volume as <see cref="SavePath"/>. Null for rows that
+    /// write straight into SavePath: <see cref="Legacy"/> rows, imports and recoveries.
+    /// </summary>
+    public string? StagePath { get; set; }
+
+    /// <summary>
+    /// The completion state once the payload is in (EnginePromotion): completed, checking, promoted, held or rejected.
+    /// Null while it downloads. Only promoted counts as downloaded (<see cref="IsDownloaded(EngineTorrent)"/>).
+    /// </summary>
+    public string? Promotion { get; set; }
+
+    /// <summary>Why the promotion gate held or rejected it, in plain words. Null otherwise.</summary>
+    public string? PromotionReason { get; set; }
+
+    /// <summary>Who chose the release (EngineProvenance): automatic (the finder, requests, swaps to the best) or hand.</summary>
+    public string Provenance { get; set; } = "automatic";
+
+    /// <summary>
+    /// Added before staged downloads existed: it keeps writing into <see cref="SavePath"/> (no move mid-download) and still
+    /// passes the promotion gate before it counts as downloaded. Rows already finished at the upgrade were promoted as they were.
+    /// </summary>
+    public bool Legacy { get; set; }
+
     public virtual User User { get; set; } = null!;
 
     public virtual Work? Work { get; set; }

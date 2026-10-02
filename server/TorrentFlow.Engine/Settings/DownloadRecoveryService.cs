@@ -143,10 +143,12 @@ internal sealed class DownloadRecoveryService(
     private static EngineTorrent NewRow(string hash, string name, string savePath, string marker)
     {
         var now = DateTime.UtcNow;
+        // Recovered and imported files already sit in the library: they are promoted as found, and the owner's own.
         return new EngineTorrent
         {
             Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, Name = name, SavePath = savePath,
             TorrentUrl = marker, Origin = TorrentOrigin.User, Status = EngineTorrentStatus.Parked,
+            Promotion = EnginePromotion.Promoted, Provenance = EngineProvenance.Hand,
             CreatedAt = now, UpdatedAt = now, LastUsedAt = now,
         };
     }
