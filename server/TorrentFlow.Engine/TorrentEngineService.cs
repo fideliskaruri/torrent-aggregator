@@ -850,6 +850,7 @@ internal sealed partial class TorrentEngineService(
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var all = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
             var eligible = all.Where(ShouldRehydrate).ToList();
+            SettleInterruptedLanguageChecks(all);
             var schedule = Schedule;
             var plan = DownloadQueue.PlanRehydrate(all.Where(r => r.Status == EngineTorrentStatus.Queued || eligible.Contains(r)).Select(ToQueueRow).ToList(),
                 CapFor(schedule), schedule.Open);
@@ -1047,6 +1048,7 @@ internal sealed partial class TorrentEngineService(
             ForcedReason = row.ForcedAt is null ? null : row.ForcedReason ?? ForcedReasons.Legacy,
             Verified = row.VerifiedAt is not null,
             Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, f.FullPath is not null, IsDownloaded(row) && f.FullPath is not null ? 1 : 0, f.FullPath)).ToList() : null,
+            LanguageNote = EngineLanguageState.Note(row.LanguageCheckJson),
         };
     }
 
@@ -1515,7 +1517,21 @@ internal sealed partial class TorrentEngineService(
                 }
                 if (row.Status == EngineTorrentStatus.Parked && IsDownloaded(row))
                 {
-                    // Finished but still loaded (an earlier detach failed): detach and lay it out now.
+                    // Finished but still loaded (an earlier detach failed). The English check comes first: a fail stops
+                    // and blocks it, and one still probing stays loaded until the probe settles.
+                    if (EngineLanguageState.Read(row.LanguageCheckJson)?.State is EngineLanguageState.Pending or EngineLanguageState.Probing)
+                    {
+                        if (live.HasMetadata && CheckLanguageOnMetadata(row, live) is { } parkedNoEnglish)
+                        {
+                            failed.Add(new(row.Hash, row.Name, row.Origin));
+                            await FailLanguageAsync(db, row, parkedNoEnglish, ct);
+                            detach.Add(row.Hash);
+                            continue;
+                        }
+                        if (EngineLanguageState.Read(row.LanguageCheckJson)?.State is EngineLanguageState.Pending or EngineLanguageState.Probing)
+                            continue;
+                    }
+                    // Detach and lay it out now.
                     detach.Add(row.Hash);
                     finalize.Add(row.Hash);
                     continue;

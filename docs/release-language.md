@@ -214,7 +214,9 @@ subtitles only, so the Russian audio sorts as Preferred.
   `ReleaseLanguage.WithHeader(...)`. Only a finished probe settles it: Pass becomes `passed`, Fail becomes `failed`.
   A partial probe (one file read, another timed out), anything else, a timeout, no peers, a full queue or a probe that
   throws becomes `unconfirmed`, once, with the reason. Shutting down is not a failure: a restart requeues rows left
-  in `probing`.
+  in `probing` that load again. A finished row (parked or downloaded) that does not load again has its `pending` or
+  `probing` check settled once at startup as `unconfirmed` ("check interrupted"); nothing is downloaded again. A parked
+  row still loaded (its detach failed) is checked before it is detached and laid out.
 - **A fail** (file list or header) on a transfer still downloading: the row turns to an error (`No English audio or
   subtitles (<reason>). TorrentFlow stopped it and will look for another release.`), the release is blocked
   (`ReleaseBlock`, reason `no_english`, origin `language_check`), its wanted items are released, and the transfer is

@@ -62,6 +62,25 @@ internal sealed partial class TorrentEngineService
         return null;
     }
 
+    /// <summary>
+    /// Startup: a finished row (parked or downloaded) that is not loaded again can't finish its check, since the probe
+    /// queue lives in memory and the tick only reads loaded rows. Its pending or probing check is settled once as
+    /// unconfirmed ("check interrupted"); nothing is downloaded again. Unfinished rows keep theirs: the check runs
+    /// when they load.
+    /// </summary>
+    private void SettleInterruptedLanguageChecks(IEnumerable<EngineTorrent> rows)
+    {
+        foreach (var row in rows)
+        {
+            if (row.Status != EngineTorrentStatus.Parked && !IsDownloaded(row)) continue;
+            if (EngineLanguageState.Read(row.LanguageCheckJson) is not { State: EngineLanguageState.Pending or EngineLanguageState.Probing } state)
+                continue;
+            row.LanguageCheckJson = (state with { State = EngineLanguageState.Unconfirmed, Reason = "check interrupted" }).Write();
+            logger.LogInformation("[builtin-engine] English check {Hash} ({Name}) was interrupted while {Status}; kept as not confirmed",
+                row.Hash, row.Name, row.Status);
+        }
+    }
+
     /// <summary>Queues the header probe; a full queue keeps the transfer as unconfirmed rather than waiting.</summary>
     private void QueueProbe(EngineTorrent row)
     {
@@ -174,7 +193,9 @@ internal sealed partial class TorrentEngineService
             if (row is null || EngineLanguageState.Read(row.LanguageCheckJson) is not { State: EngineLanguageState.Probing } probing) return;
             state ??= probing with { State = EngineLanguageState.Unconfirmed, Reason = unconfirmedWhy };
             row.LanguageCheckJson = state.Write();
-            if (state.State == EngineLanguageState.Failed && row.Status is EngineTorrentStatus.Downloading or EngineTorrentStatus.Queued)
+            // A parked row still loaded (its detach failed) has not been laid out yet, so it is stopped like a download.
+            if (state.State == EngineLanguageState.Failed && (row.Status is EngineTorrentStatus.Downloading or EngineTorrentStatus.Queued
+                || row.Status == EngineTorrentStatus.Parked && backend.Get(hash) is not null))
             {
                 await FailLanguageAsync(db, row, state.Reason ?? "no English audio or subtitles", CancellationToken.None);
                 stopped = new(row.Hash, row.Name, row.Origin);
