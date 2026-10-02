@@ -86,6 +86,14 @@ public interface ITorrentEngine
     Task<EngineRelocation> RelocateAsync(string infoHash, WorkPlacement placement, CancellationToken ct = default) =>
         Task.FromResult(new EngineRelocation(false, EngineRelocation.NotSupported, null, null));
 
+    /// <summary>
+    /// Whether a transfer's files are gone from disk, read fresh under the transfer's lock so a move of its files
+    /// (<see cref="RelocateAsync"/>) is never mistaken for a loss: true when the transfer is gone, false while a move is
+    /// under way or waits to be settled at the next start, else true only when every file it kept is confirmed missing
+    /// (<see cref="VerifiedFiles.AllMissing"/>). An engine that cannot tell says true, the answer its row gave before.
+    /// </summary>
+    Task<bool> FilesMissingAsync(string infoHash, CancellationToken ct = default) => Task.FromResult(true);
+
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
     /// <summary>Raised when a transfer enters a failed state.</summary>
@@ -161,7 +169,7 @@ public sealed record EngineRelocation(bool Moved, string? Problem, string? From,
 {
     public const string NotSupported = "not_supported";
     public const string NotFound = "not_found";
-    /// <summary>Still in the client (seeding) or not finished: tried again later.</summary>
+    /// <summary>Still in the client (seeding), not finished, or an earlier move of its files is not settled yet: tried again later.</summary>
     public const string NotParked = "not_parked";
     /// <summary>Not a show or season folder change inside one library under the download root: never moved.</summary>
     public const string OutsideLibrary = "outside_library";

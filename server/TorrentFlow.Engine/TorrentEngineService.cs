@@ -845,11 +845,13 @@ internal sealed partial class TorrentEngineService(
     }
 
     /// <summary>
-    /// Startup: apply the cap to whatever the database says, then start only active + forced kept rows. Outside the
-    /// download hours only forced rows start; the rest wait as queued until a window opens.
+    /// Startup: settle any move of files a crash cut short (before anything can load or start a transfer), apply the cap
+    /// to whatever the database says, then start only active + forced kept rows. Outside the download hours only forced
+    /// rows start; the rest wait as queued until a window opens.
     /// </summary>
     internal async Task RehydrateAsync(CancellationToken ct = default)
     {
+        await RecoverRelocationsAsync(ct);
         await AttachLimitsAsync(ct);
         await using (var seedDb = await dbFactory.CreateDbContextAsync(ct))
         {
@@ -948,11 +950,14 @@ internal sealed partial class TorrentEngineService(
         return row is null ? null : Present(row, ToInfo(row, backend.Get(hash), QueueViewOf(rows), includeFiles: true));
     }
 
-    /// <summary>The row as the Downloads page reads it: when it was added, whether its files are gone, and its magnet.</summary>
+    /// <summary>
+    /// The row as the Downloads page reads it: when it was added, whether its files are gone (never while a move of them
+    /// is under way or waits to be settled), and its magnet.
+    /// </summary>
     private EngineTorrentInfo Present(EngineTorrent row, EngineTorrentInfo info) => WithMagnet(row, info with
     {
         AddedAt = DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc),
-        FilesMissing = info.State == "downloaded" && FilesMissing(row),
+        FilesMissing = info.State == "downloaded" && row.RelocationJson is null && FilesMissing(row),
     });
 
     // Finished downloads whose kept files were deleted or moved outside TorrentFlow. Checked at most every 30 seconds per

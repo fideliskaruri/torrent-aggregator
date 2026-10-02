@@ -1,12 +1,12 @@
 using System.Text.Json;
 
-namespace TorrentFlow.Library.Features.Common;
+namespace TorrentFlow.Core.Contracts.Engine;
 
 /// <summary>
 /// One entry of an engine row's verified file list. <see cref="Path"/> is the absolute on-disk location, or null when the
 /// row records none (a duplicate the content layout discarded). <see cref="Name"/> is the file name, known either way.
 /// </summary>
-internal readonly record struct VerifiedFile(string? Path, string? Name, long Size);
+public readonly record struct VerifiedFile(string? Path, string? Name, long Size);
 
 /// <summary>
 /// Reads <c>EngineTorrent.VerifiedFilesJson</c> in both shapes: the TS engine stores an absolute <c>path</c>, while the .NET
@@ -14,7 +14,7 @@ internal readonly record struct VerifiedFile(string? Path, string? Name, long Si
 /// <c>fullPath</c> to the moved location and nulls it for discarded junk, keeping the original <c>path</c>. Like the engine,
 /// the location is <c>fullPath</c>, else <c>path</c> only when it is rooted.
 /// </summary>
-internal static class VerifiedFiles
+public static class VerifiedFiles
 {
     /// <summary>The recorded files, or null when the JSON is malformed.</summary>
     public static IReadOnlyList<VerifiedFile>? Read(string? json)
@@ -63,5 +63,15 @@ internal static class VerifiedFiles
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
         catch (ArgumentException) { return false; }
+    }
+
+    /// <summary>
+    /// True when the list records at least one file location and every one is <see cref="ConfirmedMissing"/>: the one test
+    /// of "this transfer's files are gone from disk". An empty or malformed list proves nothing.
+    /// </summary>
+    public static bool AllMissing(string? json)
+    {
+        var located = (Read(json) ?? []).Select(f => f.Path).OfType<string>().ToList();
+        return located.Count > 0 && located.All(ConfirmedMissing);
     }
 }

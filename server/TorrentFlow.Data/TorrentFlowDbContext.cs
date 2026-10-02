@@ -397,6 +397,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.PromotionReason).HasColumnName("promotionReason");
             entity.Property(e => e.Provenance).HasColumnName("provenance");
             entity.Property(e => e.Legacy).HasColumnName("legacy");
+            entity.Property(e => e.RelocationJson).HasColumnName("relocationJson");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.SizeBytes)
                 .HasColumnType("BIGINT")

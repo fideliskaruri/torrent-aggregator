@@ -863,6 +863,17 @@ transfers the client still holds, and it does not re-check media. It returns
 folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
 uses the recorded paths.
 
+**Moving finished episodes.** When an anime show's season numbering files an episode under another show or season
+folder (`AnimeNumberingReconciler`), the engine moves the parked transfer's files there (`RelocateAsync`): inside one
+library under the download root, one same-volume rename per file, never over an existing file. Before the first file
+moves, the move is saved on the row as `relocationJson` (the old and new folder, the save path to store, each file's old
+and new path, and when it started); the save that records the new folder clears it. A failed rename puts back what
+moved. At start, before anything can load a transfer, a move a crash cut short is finished when every file is in the
+new folder and none is left in the old one, and undone otherwise, never over a file; a file that cannot go back keeps
+the journal for the next try. While a row has a journal its files never count as missing: the title page asks the
+engine (`FilesMissingAsync`, under the transfer's lock) before it unlinks an episode whose files look gone, and the
+Downloads row does not say Files missing.
+
 The smart `TV/<Show>/Season NN` / `Movies/<Title (Year)>` save path is built by one function,
 `SmartSendTargets.BuildPath`. Every grab (film, episode, season pack, request, wanted queue, picked release) sends its
 catalog work (`WorkPlacement`), so the show folder is the catalog title the UI shows and the season is the catalog's

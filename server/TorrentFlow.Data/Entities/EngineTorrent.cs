@@ -103,6 +103,14 @@ public partial class EngineTorrent
     /// </summary>
     public DateTime? LibraryCheckedAt { get; set; }
 
+    /// <summary>
+    /// The move of this transfer's files to another folder while it is under way, as JSON: the old and new folder, the
+    /// save path it takes once done, each file's old and new path, and when it started. Saved before the first file
+    /// moves and cleared in the save that records the new folder (or once a failed move is put back), so a move a crash
+    /// cut short is finished or undone at the next start. Null when no move is under way or waiting to be settled.
+    /// </summary>
+    public string? RelocationJson { get; set; }
+
     public virtual User User { get; set; } = null!;
 
     public virtual Work? Work { get; set; }
