@@ -55,8 +55,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
 
     /// <summary>
     /// The one transfer shape of a title payload. <c>status</c> is the acquisition row's own status; <c>state</c> splits its
-    /// "queued" in three: "looking" (no release found yet), "waiting_english" (releases were found but none has English
-    /// audio or subtitles, docs/release-language.md) and "queued" (a release waits for a download slot, with the engine's
+    /// "queued" in four: "looking" (no release found yet), "waiting_english" (releases were found but none has English
+    /// audio or subtitles, docs/release-language.md), "waiting_season_list" (an anime episode whose show season is not
+    /// known yet, nothing is searched) and "queued" (a release waits for a download slot, with the engine's
     /// <c>queuePosition</c> and <c>waitReason</c>). Requesters get only <c>state</c> (RequesterCatalogProjectionMiddleware).
     /// </summary>
     internal static Dictionary<string, object?> Transfer(AcquisitionTarget target, IReadOnlyDictionary<string, EngineTorrentInfo> queue) =>
@@ -64,7 +65,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             target.InfoHash, target.FilePath, target.Error, target.InfoHash is { } hash ? queue.GetValueOrDefault(hash) : null);
 
     private static string TransferState(AcquisitionTarget target) => target.Status == "queued" && target.InfoHash == null
-        ? GrabFailure.IsWaitingForEnglish(target.Error) ? "waiting_english" : "looking"
+        ? GrabFailure.IsWaitingForEnglish(target.Error) ? "waiting_english"
+        : GrabFailure.IsWaitingForSeasonList(target.Error) ? "waiting_season_list" : "looking"
         : target.Status;
 
     private static Dictionary<string, object?> Transfer(string status, string state, double progress,

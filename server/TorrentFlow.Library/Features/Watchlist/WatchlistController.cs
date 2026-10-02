@@ -364,7 +364,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         var updates = new List<object>();
         foreach (var item in items)
         {
-            var next = EpisodeCursor.Parse(item.LastEpisode) is { } last ? await NextAsync(item, last, ct) : (EpisodeCursor?)null;
+            var work = await WatchlistWorks.LinkAsync(db, item, ct);
+            var next = EpisodeCursor.Parse(item.LastEpisode) is { } last ? await NextAsync(item, work, last, ct) : (EpisodeCursor?)null;
             var query = next?.Query(item.Title) ?? item.Title;
             string? latest = null;
             try
@@ -380,7 +381,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
                     item.LatestReleaseMagnet = best.Magnet;
                     item.LatestReleaseAt = DateTime.TryParse(best.PublishedAt, out var published) ? published.ToUniversalTime() : DateTime.UtcNow;
                     item.LastChecked = item.UpdatedAt = DateTime.UtcNow;
-                    item.NextEpisodeHint = ep is { } found ? (await NextAsync(item, found, ct)).Query(item.Title) : query;
+                    item.NextEpisodeHint = ep is { } found ? (await NextAsync(item, work, found, ct)).Query(item.Title) : query;
                     query = item.NextEpisodeHint;
                 }
             }
@@ -392,7 +393,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>The episode after <paramref name="episode"/> as the show numbers it, the same answer the grab gives (<see cref="AnimeEpisodeMappings.NextAsync"/>).</summary>
-    private Task<EpisodeCursor> NextAsync(WatchListItem item, EpisodeCursor episode, CancellationToken ct) =>
-        episodeMappings?.NextAsync(item.Work?.WorkKey, item.Work?.CanonicalTitle ?? item.Title, item.Work?.Year, item.Work?.MediaType ?? item.MediaType,
-            item.Work?.Provider, item.Work?.ProviderId, episode, ct) ?? Task.FromResult(episode.Next());
+    private Task<EpisodeCursor> NextAsync(WatchListItem item, Work? work, EpisodeCursor episode, CancellationToken ct) =>
+        episodeMappings?.NextAsync(work?.WorkKey, work?.CanonicalTitle ?? item.Title, work?.Year, work?.MediaType ?? item.MediaType,
+            work?.Provider ?? (WatchlistWorks.AniListId(item) != null ? "anilist" : null), work?.ProviderId ?? WatchlistWorks.AniListId(item),
+            episode, ct) ?? Task.FromResult(episode.Next());
 }

@@ -89,11 +89,13 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     /// </summary>
     private static readonly HashSet<string> Unsearched = ["sources_unavailable", "search_busy", "season_list_pending"];
     private static readonly TimeSpan MaxUnsearchedWait = TimeSpan.FromMinutes(15);
+    /// <summary>An anime episode still waiting for its show's season list after this tells the owner once.</summary>
+    private static readonly TimeSpan SeasonListPatience = TimeSpan.FromHours(24);
 
     /// <summary>What one run covers: a film, a season's queued episodes, or (<see cref="Episode"/>) one episode clicked on its own.</summary>
     private readonly record struct Unit(string WorkKey, int? Season, int? Episode = null);
     private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane, int Unsearched = 0,
-        string? RunId = null, bool Single = false);
+        string? RunId = null, bool Single = false, DateTime? PendingSince = null);
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
@@ -221,10 +223,12 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     /// "failed", so a later attempt that already succeeded is never overwritten. A queue run settles only rows still
     /// without a release (<paramref name="unclaimedOnly"/>, compare-and-set on what it read): a release the owner picked
     /// meanwhile wins, and the run's late result is dropped. A release <paramref name="claimed"/> says the run newly
-    /// admitted is recorded as the run's claim on the row. Returns the target keys it settled.
+    /// admitted is recorded as the run's claim on the row. A started transfer whose row no longer has its key (an anime
+    /// show renumbered meanwhile) is settled on the row it was read as (<paramref name="ids"/>) or the key it moved to, so
+    /// its torrent never stays unlinked. Returns the target keys it settled.
     /// </summary>
     public async Task<HashSet<string>> SettleAsync(IReadOnlyDictionary<string, int?> tracked, string workId, IReadOnlyList<EpisodeTransfer> transfers,
-        CancellationToken ct, bool unclaimedOnly = false, Func<string, bool>? claimed = null)
+        CancellationToken ct, bool unclaimedOnly = false, Func<string, bool>? claimed = null, IReadOnlyDictionary<string, string>? ids = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
@@ -236,14 +240,26 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 var miss = transfer.RealMiss ? 1 : 0;
                 var claim = transfer.InfoHash is { } hash && claimed?.Invoke(hash) == true ? hash : null;
                 // InfoHash == null keeps a season pack claim made meanwhile from being overwritten by a late miss.
-                var changed = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key && open.Contains(x.Status) &&
-                        (transfer.InfoHash != null || x.InfoHash == null || x.FileIndex == null) && (!unclaimedOnly || x.InfoHash == null)).ExecuteUpdateAsync(s => s
+                IQueryable<AcquisitionTarget> Open(IQueryable<AcquisitionTarget> rows) => rows.Where(x => x.UserId == LocalUser.Id &&
+                    open.Contains(x.Status) && (transfer.InfoHash != null || x.InfoHash == null || x.FileIndex == null) && (!unclaimedOnly || x.InfoHash == null));
+                Task<int> Update(IQueryable<AcquisitionTarget> rows) => Open(rows).ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, transfer.Status).SetProperty(t => t.Progress, 0)
                     .SetProperty(t => t.InfoHash, transfer.InfoHash).SetProperty(t => t.RunHash, claim).SetProperty(t => t.FilePath, (string?)null)
                     .SetProperty(t => t.RealMisses, t => t.RealMisses + miss)
                     .SetProperty(t => t.ClickedAt, t => transfer.InfoHash == null ? t.ClickedAt : null)
                     .SetProperty(t => t.Error, transfer.Error).SetProperty(t => t.UpdatedAt, now), ct);
+                if (await Update(db.AcquisitionTargets.Where(x => x.TargetKey == key)) > 0)
+                {
+                    settled.Add(key);
+                    continue;
+                }
+                if (transfer.InfoHash == null || await db.AcquisitionTargets.AnyAsync(x => x.UserId == LocalUser.Id && x.TargetKey == key, ct)) continue;
+                var id = ids?.GetValueOrDefault(key);
+                var moved = numbering?.MovedKey(key);
+                var changed = id != null ? await Update(db.AcquisitionTargets.Where(x => x.Id == id)) : 0;
+                if (changed == 0 && moved != null) changed = await Update(db.AcquisitionTargets.Where(x => x.TargetKey == moved));
                 if (changed > 0) settled.Add(key);
+                else logger.LogWarning("Transfer {Hash} found no wanted row: {Key} is gone (moved to {Moved})", transfer.InfoHash, key, moved ?? "nothing");
             }
         return settled;
     }
@@ -511,8 +527,17 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 }
             }
             catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation("Numbering of {WorkKey} before its grab stopped: {Error}", unit.WorkKey, error.Message); }
+            // Another grab of the work put its renumbering off: nothing is searched under numbers the show no longer uses.
+            if (numbering.Waiting(unit.WorkKey))
+            {
+                Reschedule(unit, plans.GetValueOrDefault(unit)?.Order, [GrabFailure.SeasonListPending], null, null);
+                return;
+            }
         }
         await using var db = await factory.CreateDbContextAsync(ct);
+        // The run holds its work against renumbering from the rows it reads until its last settle (WorkGrabGate).
+        var heldId = await db.Works.AsNoTracking().Where(w => w.WorkKey == unit.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct);
+        using var hold = heldId != null ? await WorkGrabGate.EnterAsync(heldId, ct) : null;
         var scope = unit.Season == null ? "title" : "episode";
         // A clicked episode's run takes only that episode; a season's run leaves alone the episodes clicked on their own.
         var rows = (await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == unit.WorkKey &&
@@ -555,6 +580,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             Provider: work.Provider, ProviderId: work.ProviderId, Urgent: plan?.Single ?? false,
             Admitted: hash => record.Admitted.TryAdd(hash.ToLowerInvariant(), 0));
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
+        var ids = rows.ToDictionary(r => r.TargetKey, r => r.Id);
         var workId = work.Id;
         // Each episode's row and reason update the moment that episode settles, so a found episode starts and shows at
         // once instead of waiting for the slowest episode in its season. Settles take turns with picks and Remove.
@@ -563,7 +589,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             using var held = await GateAsync(unit.WorkKey, ct);
             // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
             var done = await SettleAsync(tracked, workId, settled.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct,
-                unclaimedOnly: true, claimed: record.Owns);
+                unclaimedOnly: true, claimed: record.Owns, ids: ids);
             var late = settled.SelectMany(t => tracked.Where(x => (x.Value ?? 0) == t.Episode).Select(x => x.Key)).Where(k => !done.Contains(k)).ToArray();
             if (late.Length > 0)
                 logger.LogInformation("Wanted {WorkKey}: dropped this search's late result for {Targets}; they already have a release", unit.WorkKey, string.Join(", ", late));
@@ -661,7 +687,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             foreach (var row in due) why[row.TargetKey] = "Season still airing, or we could not confirm it has finished. Waiting for single episodes.";
             return none;
         }
-        var targets = due.ToDictionary(t => t.Episode!.Value, t => t.TargetKey);
+        var targets = due.DistinctBy(t => t.Episode).ToDictionary(t => t.Episode!.Value, t => t.TargetKey);
         var outcome = await grabs.SeasonPack(input, season, targets, settings.SeasonPackProbes, ct);
         logger.LogInformation("Season pack for {WorkKey} season {Season} ({Due} due): {Detail}", unit.WorkKey, season, due.Count, outcome.Detail);
         if (outcome.InfoHash is not { } hash || outcome.Claimed.Count == 0) return none;
@@ -686,16 +712,25 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             // Retry soon (1, 2, 4, 8, then every 15 minutes) without spending a try or asking the owner.
             var rounds = plan.Unsearched + 1;
             var wait = TimeSpan.FromMinutes(Math.Min(MaxUnsearchedWait.TotalMinutes, 1 << Math.Min(rounds - 1, 4)));
-            plans[unit] = plan with { Unsearched = rounds, DueAt = time.GetUtcNow().UtcDateTime + wait * options.Value.WantedRetryScale };
+            var now = time.GetUtcNow().UtcDateTime;
+            // The season list wait has no end of its own (AniList may stay down): after a day the owner hears about it once.
+            var pending = failures.All(f => f.Code == GrabFailure.SeasonListPending.Code) ? plan.PendingSince ?? now : (DateTime?)null;
+            var tell = work != null && !plan.Asked && pending is { } since && now - since >= SeasonListPatience;
+            plans[unit] = plan with { Unsearched = rounds, DueAt = now + wait * options.Value.WantedRetryScale, PendingSince = pending, Asked = plan.Asked || tell };
+            if (tell) AskOwner(unit, GrabFailure.SeasonListPending, work!, episodes);
             return;
         }
         var tries = plan.Tries + 1;
         var failure = failures.GroupBy(f => f.Code).OrderByDescending(g => g.Count()).First().First();
         var ask = work != null && !plan.Asked && tries >= TriesBeforeAskingOwner && failures.Any(f => !Passing.Contains(f.Code));
-        plans[unit] = plan with { Tries = tries, Unsearched = 0, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1] * options.Value.WantedRetryScale, Asked = plan.Asked || ask };
-        if (!ask) return;
+        plans[unit] = plan with { Tries = tries, Unsearched = 0, PendingSince = null, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1] * options.Value.WantedRetryScale, Asked = plan.Asked || ask };
+        if (ask) AskOwner(unit, failure, work!, episodes);
+    }
+
+    private void AskOwner(Unit unit, GrabFailure failure, Work work, IReadOnlyList<int>? episodes)
+    {
         var single = episodes is { Count: 1 } ? episodes[0] : (int?)null;
-        var query = ReleasePicker.DefaultQuery(work!.CanonicalTitle, unit.Season, single);
+        var query = ReleasePicker.DefaultQuery(work.CanonicalTitle, unit.Season, single);
         var help = new WantedHelp(unit.WorkKey, work.CanonicalTitle, unit.Season, episodes ?? [], failure, query,
             PickLink(unit.WorkKey, work.CanonicalTitle, unit.Season, single, query));
         _ = Task.Run(async () =>

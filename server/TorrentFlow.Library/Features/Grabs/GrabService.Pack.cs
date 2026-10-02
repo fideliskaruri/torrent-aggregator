@@ -32,6 +32,7 @@ public sealed partial class GrabService
     {
         if (targets.Count == 0) return new(null, new Dictionary<int, int>(), "nothing missing");
         var query = $"{Apostrophes.Normalize(input.Title)} S{season:00}";
+        using var hold = input.WorkId is { } held ? await WorkGrabGate.EnterAsync(held, ct) : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var (prepared, settings, floor, refusal) = await Prepare(db, input with { Cursor = new EpisodeCursor(season, targets.Keys.Min()) }, query, ct);
         if (refusal != null) return new(null, new Dictionary<int, int>(), refusal.Message);

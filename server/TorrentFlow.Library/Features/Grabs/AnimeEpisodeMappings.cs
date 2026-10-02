@@ -20,8 +20,13 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
         string? providerId, EpisodeCursor cursor, CancellationToken ct)
     {
         if (provider != "anilist" && mediaType != "anime") return null;
-        // Only the provider-backed shape can vouch for a chain; with none at all (a bare Library host) nothing is held.
-        var confident = provider == "anilist" && shapes is not null and not DefaultSeasonShapeLookup && workKey != null;
+        // A valid AniList id is enough to number the episode as its show does: a library row not linked to its work yet
+        // reads the same franchise by that id. Only the provider-backed shape can vouch for a chain; with none at all (a
+        // bare Library host) nothing is held.
+        var aniList = provider == "anilist" && int.TryParse(providerId, System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0;
+        workKey ??= aniList ? $"anilist-{providerId}" : null;
+        var confident = aniList && shapes is not null and not DefaultSeasonShapeLookup;
         SeasonShape? shape = null;
         AnimeEpisodeMapping? mapping = null;
         try
@@ -63,12 +68,15 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
         string? providerId, EpisodeCursor current, CancellationToken ct)
     {
         var next = current.Next();
+        if (workKey == null && provider == "anilist" && providerId != null) workKey = $"anilist-{providerId}";
         if (shapes == null || workKey == null || provider != "anilist" && mediaType != "anime") return next;
         try
         {
             var shape = await shapes.GetSeasonAsync(new(workKey, title, year, mediaType, provider, providerId, current.Season), ct);
+            // Only the season's real last episode crosses: an episode the shape does not list (an absolute number past a
+            // listing, One Piece S01E1122) just counts on.
             if (shape is not { Chained: true, Provisional: false } || shape.Episodes.Count == 0 ||
-                current.Episode < shape.Episodes.Max(e => e.Episode)) return next;
+                shape.Episodes.All(e => e.Episode != current.Episode) || current.Episode < shape.Episodes.Max(e => e.Episode)) return next;
             var following = await shapes.GetSeasonAsync(new(workKey, title, year, mediaType, provider, providerId, current.Season + 1), ct);
             return following is { Episodes.Count: > 0, Provisional: false } ? new(current.Season + 1, following.Episodes.Min(e => e.Episode)) : next;
         }

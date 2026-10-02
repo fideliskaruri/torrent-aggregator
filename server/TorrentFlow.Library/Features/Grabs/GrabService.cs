@@ -93,6 +93,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         // The pick-it-yourself link searches with this text too, so it carries plain apostrophes like every rung.
         var plain = Apostrophes.Normalize(input.Title);
         var query = input.Cursor?.Query(plain) ?? plain;
+        // An anime work's stored numbers never move under a grab in flight (AnimeNumberingReconciler).
+        using var hold = input.WorkId is { } held ? await WorkGrabGate.EnterAsync(held, ct) : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         if (Dedupes(input) && input.Cursor is { } requested &&
             (input.WorkId ?? await db.Works.AsNoTracking().Where(w => w.WorkKey == input.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct)) is { } workId)
@@ -593,6 +595,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// <summary>A release the owner chose by hand (<see cref="ReleasePicker"/>), sent like any automatic pick.</summary>
     public async Task<GrabResult> SendPicked(GrabInput input, TorrentResult release, string query, CancellationToken ct)
     {
+        using var hold = input.WorkId is { } held ? await WorkGrabGate.EnterAsync(held, ct) : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var (prepared, settings, _, refusal) = await Prepare(db, input, query, ct);
         if (refusal != null) return refusal;

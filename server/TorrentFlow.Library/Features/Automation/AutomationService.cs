@@ -143,14 +143,6 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
         {
             IReadOnlyList<RuleRunResult> rules = includeRules ? await Rules(ct) : [];
             await using var db = await factory.CreateDbContextAsync(ct);
-            // A cursor saved under an anime show's old numbering moves to its current seasons before it is hunted.
-            if (numbering != null)
-            {
-                var hunted = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Monitored == true && x.WorkId != null &&
-                    (x.Status == "watching" || x.Status == "planned") && (itemIds == null || itemIds.Contains(x.Id))).Select(x => x.WorkId!).ToListAsync(ct);
-                try { await numbering.ReconcileAllAsync(hunted, ct); }
-                catch (Exception) when (!ct.IsCancellationRequested) { }
-            }
             var query = db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Monitored == true &&
                 (x.Status == "watching" || x.Status == "planned"));
             if (itemIds != null) query = query.Where(x => itemIds.Contains(x.Id));
@@ -160,10 +152,19 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
             var interval = SettingsDefaults.AutomationIntervalOrDefault(stored);
             int checkedCount = 0, sent = 0, skipped = 0, failed = 0, deferred = 0;
             var searched = false;
-            foreach (var item in items)
+            foreach (var listed in items)
             {
+                var item = listed;
                 var now = DateTime.UtcNow;
                 if (itemIds != null && WaitReasonService.IsFuture(item.NextCheckAt, now)) { deferred++; continue; }
+                // An anime row finds its work, and a cursor saved under the show's old numbering moves to its current
+                // seasons, before it is hunted: only this row's work, never a pass over the library.
+                var work = await WatchlistWorks.LinkAsync(db, item, ct);
+                if (work is { Provider: "anilist" } && await RenumberAsync(work.WorkKey, ct))
+                    item = await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.Id, ct) ?? item;
+                // A grab of the work in flight put its renumbering off: the cursor may still carry old numbers, so the
+                // hunt waits for the next run.
+                if (work != null && numbering?.Waiting(work.WorkKey) == true) { deferred++; continue; }
                 var cursor = EpisodeCursor.Resolve(item);
                 DateTime? airDate = null;
                 try
@@ -198,9 +199,12 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                     searched = true;
                     checkedCount++;
                     var identity = await AnimeIdentity(item, ct);
+                    // A valid AniList id is enough to number the episode as its show does, even when AniList is not answering now.
+                    var aniList = WatchlistWorks.AniListId(item);
                     var result = await grabs.Grab(new(item.Title, item.MediaType, cursor, item.Id, item.WorkId, item.PreferredResolution,
                         Aliases: identity?.Aliases, Background: true, Year: identity?.Year,
-                        Provider: identity?.Source, ProviderId: identity?.ExternalId), ct);
+                        Provider: identity?.Source ?? work?.Provider ?? (aniList != null ? "anilist" : null),
+                        ProviderId: identity?.ExternalId ?? work?.ProviderId ?? aniList), ct);
                     if (result.Ok) sent++;
                     else if (result.Skipped) skipped++;
                     else failed++;
@@ -241,6 +245,19 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                 (deferred > 0 ? $", {deferred} waiting for their next check" : ""));
         }
         finally { await Unlock(token); }
+    }
+
+    /// <summary>
+    /// Brings one hunted work's stored numbers to its show's seasons (its franchise is usually cached); a slow AniList
+    /// never holds up the hunt: after a few seconds it goes on, and the grab holds the episode if the seasons are unknown.
+    /// </summary>
+    private async Task<bool> RenumberAsync(string workKey, CancellationToken ct)
+    {
+        if (numbering == null) return false;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(5));
+        try { return await numbering.ReconcileAsync(workKey, budget.Token); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return false; }
     }
 
     private async Task<MediaMetadata?> AnimeIdentity(WatchListItem item, CancellationToken ct)
