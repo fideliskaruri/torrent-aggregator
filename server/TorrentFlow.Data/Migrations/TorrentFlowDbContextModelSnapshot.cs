@@ -67,6 +67,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("realMisses");
 
+                    b.Property<string>("RunHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("runHash");
+
                     b.Property<string>("RunId")
                         .HasColumnType("TEXT")
                         .HasColumnName("runId");
@@ -734,6 +738,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<bool>("Legacy")
                         .HasColumnType("INTEGER")
                         .HasColumnName("legacy");
+
+                    b.Property<string>("LibraryCheckedAt")
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("libraryCheckedAt");
 
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")

@@ -231,6 +231,9 @@ public sealed class RequestDecisionService(
             status == MediaRequestStatus.Partial ? "Request partly started" : "Request still searching", $"{row.Title}: {reason}", "/requests");
     }
 
+    /// <summary>Checks one request for fulfilment now, e.g. after the owner stopped part of what it was waiting on.</summary>
+    public Task RecheckAsync(string id, CancellationToken ct) => CheckFulfilledAsync(id, ct);
+
     /// <summary>Called when a transfer completes: every approved request that grabbed it is re-checked.</summary>
     public async Task OnTorrentCompletedAsync(string hash, CancellationToken ct)
     {
@@ -250,10 +253,11 @@ public sealed class RequestDecisionService(
         await db.MediaRequests.Where(r => r.Status == MediaRequestStatus.Failed && r.GrabbedHashes != null && r.GrabbedHashes != "")
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Partial), ct);
         var rows = await db.MediaRequests.AsNoTracking()
-            .Where(r => r.Status == MediaRequestStatus.Approved).Select(r => new { r.Id, r.GrabbedHashes }).ToListAsync(ct);
+            .Where(r => r.Status == MediaRequestStatus.Approved).Select(r => new { r.Id, r.GrabbedHashes, r.DecisionReason }).ToListAsync(ct);
         foreach (var row in rows)
         {
-            if (string.IsNullOrEmpty(row.GrabbedHashes)) await GrabAsync(row.Id, ct);
+            // Grabbing a request the owner stopped part of would bring back the episodes he removed.
+            if (string.IsNullOrEmpty(row.GrabbedHashes)) { if (!RequestWantedObserver.OwnerStopped(row.DecisionReason)) await GrabAsync(row.Id, ct); }
             else await CheckFulfilledAsync(row.Id, ct);
         }
     }

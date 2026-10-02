@@ -109,6 +109,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.RealMisses).HasDefaultValue(0).HasColumnName("realMisses");
             entity.Property(e => e.RunId).HasColumnName("runId");
             entity.Property(e => e.ClickedAt).HasColumnName("clickedAt");
+            entity.Property(e => e.RunHash).HasColumnName("runHash");
             entity.Property(e => e.PreferredResolution).HasColumnName("preferredResolution");
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.Scope).HasColumnName("scope");
@@ -373,6 +374,9 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnType("DATETIME")
                 .HasColumnName("forcedAt");
             entity.Property(e => e.ForcedReason).HasColumnName("forcedReason");
+            entity.Property(e => e.LibraryCheckedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("libraryCheckedAt");
             entity.Property(e => e.Hash).HasColumnName("hash");
             entity.Property(e => e.LastUsedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")

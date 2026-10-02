@@ -67,6 +67,13 @@ export interface ClientTorrent {
   /** Shareable magnet built by the server (own trackers + public list); absent for external-client rows. */
   magnet?: string | null;
   imported?: boolean;
+  /**
+   * A failed release the app already replaced: its film or episode has another
+   * release, is Ready, or is being looked for again. History, not an error.
+   */
+  replaced?: boolean;
+  /** Refused for a program file or no video; retrying would fetch the same files. */
+  refused?: boolean;
 }
 
 /**
@@ -82,9 +89,11 @@ export type TorrentRowAction = "pause" | "resume" | "force" | "swap" | "keep" | 
  * Whether a row belongs on the Downloads page: every transfer the server marks
  * as kept, or does not mark at all. A server older than this build may still
  * report a short-lived cache transfer, and that was never a download the user
- * chose to keep.
+ * chose to keep. A failed release the app already replaced is history and
+ * leaves the list, so it never counts as needing attention.
  */
 export function isDownloadRow(t: ClientTorrent): boolean {
+  if (t.replaced === true) return false;
   return (
     t.retentionState == null ||
     t.retentionState === "kept" ||

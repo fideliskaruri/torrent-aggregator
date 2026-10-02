@@ -75,7 +75,8 @@ import {
   type DownloadTab,
 } from "./media-filter";
 import {
-  releaseDisplayFacts,  pauseResumeTargets,
+  releaseDisplayFacts,
+  titleWithYear,  pauseResumeTargets,
   rollupChip,  transferLabel,
   transfersLabel,  swapSubjectFor,} from "./release-display";
 import {
@@ -1879,7 +1880,7 @@ function SeriesOverviewRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors",
+        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors max-md:pl-4",
         allSelected ? "bg-brand-dim" : "hover:bg-muted/60",
       )}
       data-download-group
@@ -1890,7 +1891,7 @@ function SeriesOverviewRow({
         checked={allSelected ? true : checkedCount > 0 ? "indeterminate" : false}
         onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`}
-        className="shrink-0"
+        className="shrink-0 max-md:z-[1]"
       />
       <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={art?.posterUrl} />
 
@@ -1933,7 +1934,7 @@ function FilmRow({
     <DownloadTransferRow
       torrent={t}
       kind="torrent"
-      title={display.title}
+      title={titleWithYear(display.title, display.year)}
       titleHref={downloadTitleHref(t)}
       posterUrl={artwork.artFor(t)?.posterUrl}
       showThumb

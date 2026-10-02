@@ -64,6 +64,7 @@ public sealed class ClientTorrentsController(
             }
         }));
         var torrents = snapshots.SelectMany(s => s.Torrents).ToList();
+        AnnotateRefused(torrents);
         await AnnotateAcquisitionIntentAsync(torrents, ct);
         await AnnotatePostersAsync(torrents, ct);
         var issues = snapshots.Select(s => s.Issue).OfType<ClientIssue>().ToList();
@@ -180,6 +181,45 @@ public sealed class ClientTorrentsController(
         {
             var hash = torrent["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant();
             if (hash != null && packs.FirstOrDefault(p => p.Hash == hash) is { } pack) torrent["packEpisodes"] = pack.Count;
+        }
+        await AnnotateReplacedAsync(db, torrents, targetHashes, ct);
+    }
+
+    /// <summary>
+    /// <c>refused</c> marks a release the engine refused (a program file, no video, or not a real video once finished):
+    /// retrying it would fetch the same thing, so Downloads never offers Retry. Any row, linked to a title or not.
+    /// </summary>
+    private static void AnnotateRefused(List<JsonObject> torrents)
+    {
+        foreach (var torrent in torrents)
+            if (torrent["state"] is JsonValue s && s.TryGetValue<string>(out var state) && state == "error"
+                && TorrentEngineService.IsRefusedRelease(torrent["error"] is JsonValue e && e.TryGetValue<string>(out var error) ? error : null))
+                torrent["refused"] = true;
+    }
+
+    /// <summary>
+    /// A failed release the app already handed back is history, not something for the owner: <c>replaced</c> when the
+    /// film or episode it was fetched for has moved on (another release, Ready, or looking again), so Downloads neither
+    /// lists it as needing attention nor offers Retry.
+    /// </summary>
+    private static async Task AnnotateReplacedAsync(TorrentFlowDbContext db, List<JsonObject> torrents, HashSet<string> linked, CancellationToken ct)
+    {
+        static string? Text(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+        static int? Number(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<int>(out var n) ? n : null;
+        var failed = torrents.Where(t => Text(t, "state") == "error").ToList();
+        var orphaned = failed.Where(t => Text(t, "workKey") != null && Text(t, "hash") is { } h && !linked.Contains(h.Trim().ToLowerInvariant())).ToList();
+        if (orphaned.Count == 0) return;
+        var workKeys = orphaned.Select(t => Text(t, "workKey")!).Distinct().ToList();
+        var targets = await db.AcquisitionTargets.AsNoTracking().Where(a => a.UserId == LocalUser.Id && workKeys.Contains(a.WorkKey))
+            .Where(a => a.Status != "failed")
+            .Select(a => new { a.WorkKey, a.Scope, a.Season, a.Episode }).ToListAsync(ct);
+        foreach (var torrent in orphaned)
+        {
+            var (workKey, season, episode) = (Text(torrent, "workKey"), Number(torrent, "season"), Number(torrent, "episode"));
+            // Its own target now points elsewhere: Ready, another release, or the queue looking again. A target that
+            // failed with it has nothing in its place, so the error stays for the owner.
+            if (targets.Any(a => a.WorkKey == workKey && (episode == null ? a.Scope == "title" : a.Season == season && a.Episode == episode)))
+                torrent["replaced"] = true;
         }
     }
 

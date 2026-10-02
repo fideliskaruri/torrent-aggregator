@@ -96,6 +96,13 @@ public partial class EngineTorrent
     /// </summary>
     public bool Legacy { get; set; }
 
+    /// <summary>
+    /// When the Library took this finished download into account (added its title, found it already there, or found its
+    /// files gone). Null for a download not finished yet, and for one that finished before the Library did this or while
+    /// the app was stopping: those are picked up at the next start.
+    /// </summary>
+    public DateTime? LibraryCheckedAt { get; set; }
+
     public virtual User User { get; set; } = null!;
 
     public virtual Work? Work { get; set; }

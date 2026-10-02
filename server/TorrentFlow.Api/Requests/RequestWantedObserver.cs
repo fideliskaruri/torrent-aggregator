@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Core.Contracts.Engine;
@@ -25,8 +26,17 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
 
     public async Task StartedAsync(string workKey, int? season, IReadOnlyCollection<string> hashes, CancellationToken ct)
     {
-        foreach (var id in await Covering(workKey, season, Live, ct))
-            await Decisions.AttachStartedAsync(id, hashes, ct);
+        // Every request for the title gets the hashes in one turn, so a Remove never sees the group half attached; once
+        // the turn is taken it finishes whole.
+        using var held = await HoldAsync(workKey, ct);
+        foreach (var id in await Covering(workKey, season, Live, CancellationToken.None))
+            await Decisions.AttachStartedAsync(id, hashes, CancellationToken.None);
+    }
+
+    public async Task ReplacedAsync(TorrentFlowDbContext db, string workKey, string oldHash, string newHash, CancellationToken ct)
+    {
+        using var held = await HoldAsync(workKey, ct);
+        await ReplaceHashAsync(db, oldHash, newHash, ct);
     }
 
     public async Task NeedsOwnerAsync(WantedHelp help, CancellationToken ct)
@@ -50,14 +60,110 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         notifications.UpsertAsync(LocalUser.Id, NotificationKind.DownloadSummary, run.Summary.Message,
             run.Summary.Action is { Length: > 0 } next ? next : null, run.Link, create, ct);
 
+    /// <summary>
+    /// Stop looking for a film, a season or one episode. Transfers the stopped search started and Remove undid
+    /// (<paramref name="removed"/>) leave every request naming them, so none waits on a transfer that is gone. Then each
+    /// request covering what stopped is settled on its own, by what the queue is still looking for in its scope. One that
+    /// names no transfer and has nothing left to look for is cancelled, so nothing brings it back. One still looking stays
+    /// open; an approved one that names no transfer yet is marked as stopped in part, so the restart sweep doesn't grab its
+    /// seasons again and bring back what the owner removed. One that names transfers and has nothing left to look for no
+    /// longer waits on a search: a partial or failed one is approved again, and each is fulfilled now if its transfers
+    /// have finished, or when the last one finishes.
+    /// </summary>
+    public async Task StoppedAsync(string workKey, int? season, int? episode, IReadOnlyCollection<string> removed, CancellationToken ct)
+    {
+        using var held = await HoldAsync(workKey, ct);
+        await using var db = await factory.CreateDbContextAsync(ct);
+        foreach (var hash in removed) await ReplaceHashAsync(db, hash, null, ct);
+        var ids = await Covering(workKey, season, Live, ct);
+        if (ids.Count == 0) return;
+        // The seasons (null: the film) the queue is still looking for in this title: wanted rows with no transfer yet.
+        var looking = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey &&
+                (t.Scope == "title" || t.Scope == "episode" && t.Season != null) && t.Status == "queued" && t.InfoHash == null)
+            .Select(t => t.Scope == "title" ? null : t.Season).Distinct().ToListAsync(ct);
+        var rows = await db.MediaRequests.AsNoTracking().Where(r => ids.Contains(r.Id))
+            .Select(r => new { r.Id, r.Status, r.Scope, r.Seasons, r.GrabbedHashes }).ToListAsync(ct);
+        var now = DateTime.UtcNow;
+        foreach (var row in rows)
+        {
+            var empty = string.IsNullOrEmpty(row.GrabbedHashes);
+            var stillLooking = looking.Any(s => Covers(row.Scope, row.Seasons, s));
+            if (empty && !stillLooking)
+            {
+                await db.MediaRequests.Where(r => r.Id == row.Id && Live.Contains(r.Status) && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
+                    .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
+                        .SetProperty(r => r.DecisionReason, StoppedReason).SetProperty(r => r.UpdatedAt, now), ct);
+            }
+            else if (empty)
+            {
+                if (row.Status == MediaRequestStatus.Approved && row.Scope != MediaRequestScope.Movie)
+                    await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Approved && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
+                        .ExecuteUpdateAsync(u => u.SetProperty(r => r.DecisionReason, StoppedPartReason).SetProperty(r => r.UpdatedAt, now), ct);
+            }
+            else
+            {
+                if (!stillLooking && row.Status is MediaRequestStatus.Partial or MediaRequestStatus.Failed)
+                    await db.MediaRequests.Where(r => r.Id == row.Id && (r.Status == MediaRequestStatus.Partial || r.Status == MediaRequestStatus.Failed) &&
+                            r.GrabbedHashes != null && r.GrabbedHashes != "")
+                        .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Approved)
+                            .SetProperty(r => r.DecisionReason, (string?)null).SetProperty(r => r.UpdatedAt, now), ct);
+                await Decisions.RecheckAsync(row.Id, ct);
+            }
+        }
+    }
+
+    public const string StoppedReason = "The owner stopped looking for this.";
+    public const string StoppedPartReason = "The owner stopped looking for some episodes.";
+
+    /// <summary>The owner stopped this request, or part of it: grabbing it again would bring back what he removed.</summary>
+    public static bool OwnerStopped(string? reason) => reason is StoppedReason or StoppedPartReason;
+
+    /// <summary>
+    /// A transfer requests were waiting on was replaced (a picked release, <paramref name="replacement"/>) or undone
+    /// (Remove, null): every request row naming it, siblings included, names the replacement instead or drops it. Saves on
+    /// <paramref name="db"/>, so it joins the caller's transaction.
+    /// </summary>
+    private static async Task ReplaceHashAsync(TorrentFlowDbContext db, string old, string? replacement, CancellationToken ct)
+    {
+        var needle = old.ToLowerInvariant();
+        var next = replacement?.ToLowerInvariant();
+        var rows = await db.MediaRequests.Where(r => r.GrabbedHashes != null && r.GrabbedHashes.Contains(needle)).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            var hashes = row.GrabbedHashes!.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (!hashes.Contains(needle)) continue;
+            row.GrabbedHashes = string.Join(',', hashes.Select(h => h == needle ? next : h).OfType<string>().Distinct());
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>One turn per title: attaching what a search started and stopping it never interleave.</summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> Titles = new(StringComparer.Ordinal);
+
+    private static async Task<IDisposable> HoldAsync(string workKey, CancellationToken ct)
+    {
+        var gate = Titles.GetOrAdd(workKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        return new Held(gate);
+    }
+
+    private sealed class Held(SemaphoreSlim gate) : IDisposable
+    {
+        private int done;
+        public void Dispose() { if (Interlocked.Exchange(ref done, 1) == 0) gate.Release(); }
+    }
+
     /// <summary>Requests in <paramref name="statuses"/> for this title whose scope includes the season (or the film).</summary>
     private async Task<IReadOnlyList<string>> Covering(string workKey, int? season, string[] statuses, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var rows = await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == workKey && statuses.Contains(r.Status))
             .Select(r => new { r.Id, r.Scope, r.Seasons }).ToListAsync(ct);
-        return rows.Where(r => season == null ? r.Scope == MediaRequestScope.Movie
-                : r.Scope == MediaRequestScope.Series || RequestRules.ParseSeasons(r.Seasons) is var s && (s.Count == 0 || s.Contains(season.Value)))
-            .Select(r => r.Id).ToArray();
+        return rows.Where(r => Covers(r.Scope, r.Seasons, season)).Select(r => r.Id).ToArray();
     }
+
+    /// <summary>Whether a request's scope includes this season (null: the film).</summary>
+    private static bool Covers(string scope, string? seasons, int? season) => season == null ? scope == MediaRequestScope.Movie
+        : scope != MediaRequestScope.Movie && (scope == MediaRequestScope.Series || RequestRules.ParseSeasons(seasons) is var s && (s.Count == 0 || s.Contains(season.Value)));
 }

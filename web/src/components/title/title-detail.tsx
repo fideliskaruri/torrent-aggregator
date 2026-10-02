@@ -58,6 +58,7 @@ import { SeasonProgressMeter } from "./season-progress-meter";
 import { MoreLikeThis } from "./more-like-this";
 import { LinkedRecords } from "./linked-records";
 import { RequestAction } from "@/components/requests/request-action";
+import { WantedActions, useWantedRows } from "@/components/wanted/wanted-actions";
 import { useCapabilities } from "@/lib/capabilities";
 import { parseRequestState, type RequesterTitle } from "@/lib/requests";
 import type { CatalogIdentity } from "@/lib/browse/types";
@@ -96,7 +97,7 @@ import {
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { ReleaseSwapDialog, type ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
-import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
+import { openReleasePicker } from "@/components/releases/release-picker-store";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -1072,6 +1073,17 @@ function TitleContent({
     canSeeTransfers: caps.canSeeTransfers,
   });
   const downloadLabel = downloadControl.label;
+  // Still looking for a release, or waiting for an English one: the owner gets
+  // the same way out as the Downloads row (Pick a release, Try now, Remove),
+  // from the same component.
+  const titleLooking =
+    showDownload &&
+    caps.canManage &&
+    (titleTransfer?.state === "looking" || titleTransfer?.state === "waiting_english");
+  const titleWanted = useWantedRows(titleLooking);
+  const titleWantedRow = titleLooking
+    ? titleWanted.rows.find((r) => r.workKey === payload.workKey && r.season == null) ?? null
+    : null;
   const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
   // A downloaded film opens in the owner's own player, on the computer running
@@ -1373,19 +1385,19 @@ function TitleContent({
                   </Button>
                 ) : null}
 
-                {showDownload && caps.canDownload && titleTransfer?.state === "waiting_english" ? (
-                  <Button
-                    type="button"
+                {titleLooking ? (
+                  <WantedActions
+                    target={{ workKey: payload.workKey, season: null, episode: null }}
+                    name={metaYear ? `${title} (${metaYear})` : title}
+                    pickTitle={title}
+                    looking={titleWantedRow?.looking ?? true}
+                    onChanged={async () => {
+                      await titleWanted.reload();
+                      onLibraryChanged();
+                    }}
                     size="lg"
-                    variant="outline"
-                    data-title-pick-release
-                    aria-label={`${PICK_RELEASE_LABEL} for ${title}`}
-                    onClick={() => openReleasePicker({ workKey, title, onPicked: onLibraryChanged })}
-                    className="relative w-full min-w-0 md:w-auto"
-                  >
-                    <Search aria-hidden />
-                    {PICK_RELEASE_LABEL}
-                  </Button>
+                    className="w-full md:w-auto"
+                  />
                 ) : null}
 
                 {canFindSource && findSourceHash ? (

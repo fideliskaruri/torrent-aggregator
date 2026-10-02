@@ -43,6 +43,17 @@ internal static class VerifiedFiles
     private static string? Text(JsonElement file, string name) =>
         file.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : null;
 
+    /// <summary>
+    /// Whether a finished release's files are still on disk, by the files the engine recorded (the same test as its
+    /// "files missing"): true when every recorded file is there, false when one is confirmed gone, null when the row
+    /// records no locations to go by.
+    /// </summary>
+    public static bool? StillOnDisk(string? json)
+    {
+        var located = (Read(json) ?? []).Select(f => f.Path).OfType<string>().ToList();
+        return located.Count == 0 ? null : !located.Any(ConfirmedMissing);
+    }
+
     /// <summary>True only when the file system says the path is gone; permission or I/O trouble is not proof of absence.</summary>
     public static bool ConfirmedMissing(string path)
     {

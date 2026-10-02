@@ -10,9 +10,12 @@ export interface LibraryStateItem {
   fromSeason?: number | null;
   nextEpisodeHint?: string | null;
   latestReleaseMagnet?: string | null;
+  /** A finished download of this title is on disk. */
+  ready?: boolean | null;
 }
 
 type LibraryItemStatusKind =
+  | "ready"
   | "in-client"
   | "getting"
   | "waiting"
@@ -28,7 +31,7 @@ export interface LibraryItemState {
 }
 
 export function libraryPageSummary(items: LibraryStateItem[]): string {
-  const ready = items.filter((item) => Boolean(item.latestReleaseMagnet)).length;
+  const ready = items.filter((item) => Boolean(item.ready || item.latestReleaseMagnet)).length;
   const waiting = items.filter(
     (item) =>
       isSeriesMediaType(item.mediaType) &&
@@ -36,7 +39,8 @@ export function libraryPageSummary(items: LibraryStateItem[]): string {
       !item.latestReleaseMagnet &&
       (Boolean(nextEpisodeLabel(item)) || newEpisodesOnly(item)),
   ).length;
-  const paused = items.filter((item) => item.monitored === false).length;
+  // A finished title reads as ready, not paused: there is nothing left to track for it.
+  const paused = items.filter((item) => item.monitored === false && !item.ready).length;
 
   return [
     `${items.length} ${items.length === 1 ? "title" : "titles"}`,
@@ -61,6 +65,17 @@ export function libraryItemState(
       kind: "getting",
       label: `Getting ${target} ready…`,
       detail: "This row will update when the grab finishes.",
+      nextLabel,
+    };
+  }
+
+  if (item.ready) {
+    return {
+      kind: "ready",
+      label: "Ready to watch",
+      detail: isSeries
+        ? "Downloaded episodes are on your disk."
+        : "Downloaded and on your disk.",
       nextLabel,
     };
   }

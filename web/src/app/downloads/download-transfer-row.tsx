@@ -191,7 +191,7 @@ export function DownloadTransferRow({
           Download now
         </Button>
       ) : null}
-      {isError(t.state) ? (
+      {isError(t.state) && t.refused !== true ? (
         <Button
           type="button"
           variant="default"
@@ -249,7 +249,7 @@ export function DownloadTransferRow({
         "group transition-colors",
         card
           ? "flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3"
-          : "grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5",
+          : "grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 max-md:pl-4",
         isSelected ? "bg-brand-dim" : card ? "bg-muted/40" : "hover:bg-muted/60",
         highlighted && (card ? "ring-2 ring-brand" : "ring-2 ring-inset ring-brand"),
       )}
@@ -289,7 +289,7 @@ export function DownloadTransferRow({
           checked={isSelected}
           onCheckedChange={() => onToggleSelect(t.transferId, true)}
           aria-label={`Select ${title}`}
-          className={cn("shrink-0", card && "mt-0.5")}
+          className={cn("shrink-0 max-md:z-[1]", card && "mt-0.5")}
         />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start gap-2.5">

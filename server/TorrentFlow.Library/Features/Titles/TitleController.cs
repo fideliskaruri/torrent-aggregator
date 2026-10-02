@@ -233,8 +233,7 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
             : targets.Where(t => t.Scope == "title");
         var tracked = await targets.ToDictionaryAsync(t => t.TargetKey, t => t.Episode, ct);
         if (tracked.Count == 0) return;
-        await wanted.SettleAsync(tracked, row.WorkId, tracked.Values.Distinct().Select(ep => Transfer(result, ep)).ToArray(), ct);
-        await wanted.ReportStartedAsync(workKey, key?.Season, [result.InfoHash!], ct);
+        await wanted.ClaimPickedAsync(workKey, key?.Season, tracked, row.WorkId, tracked.Values.Distinct().Select(ep => Transfer(result, ep)).ToArray(), ct);
     }
 
     private static bool IsUniqueViolation(DbUpdateException error) =>
