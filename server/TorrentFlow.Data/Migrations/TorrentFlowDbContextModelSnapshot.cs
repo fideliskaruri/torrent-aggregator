@@ -1036,6 +1036,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("acquisitionTargetId");
 
+                    b.Property<string>("CoveredThrough")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("coveredThrough");
+
                     b.Property<string>("CreatedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

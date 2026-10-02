@@ -259,6 +259,7 @@ public sealed class MediaRequestService(
                 row.DecidedAt = now;
                 row.GrabbedHashes = joined.GrabbedHashes;
                 row.FulfilledThrough = joined.FulfilledThrough;
+                row.CoveredThrough = joined.CoveredThrough;
                 // The stops the ask was told about come along, so the newcomer shares them without being told again.
                 row.StoppedKey = joined.StoppedKey;
             }

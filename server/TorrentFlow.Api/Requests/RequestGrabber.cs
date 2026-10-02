@@ -65,7 +65,7 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
         {
             // Nothing was ever wanted (approval found no episodes): grabbed as on approval. A request that had something
             // never adds rows back here; what the owner stopped looking for stays stopped.
-            return string.IsNullOrEmpty(request.GrabbedHashes) && request.FulfilledThrough is null
+            return string.IsNullOrEmpty(request.GrabbedHashes) && request.FulfilledThrough is null && request.CoveredThrough is null
                 ? await QueueAsync(request, ct) : new([], null, Queued: true);
         }
         var workId = await EnsureWorkAsync(request, ct);
@@ -89,6 +89,8 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
         var marks = RequestMarks.Parse(request.FulfilledThrough);
+        var known = await KnownEpisodesAsync(request, ct);
+        var queued = new List<(int Season, int Episode)>();
         var owed = false;
         var covered = false;
         var upcoming = false;
@@ -106,8 +108,13 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
                 continue;
             }
             owed = true;
-            await wanted.EnqueueAsync(new(request.WorkKey, workId, season, aired, Lane: TorrentLane.Request), ct);
+            // Grabbed again (a restart before anything started): what the owner removed or stopped looking for stays so.
+            var wantedNow = aired.Where(e => !Stopped(request, known, season, e)).ToList();
+            if (wantedNow.Count == 0) continue;
+            await wanted.EnqueueAsync(new(request.WorkKey, workId, season, wantedNow, Lane: TorrentLane.Request), ct);
+            queued.AddRange(wantedNow.Select(e => (season, e)));
         }
+        await CoverAsync(request, queued, ct);
         if (owed || covered) return new([], null, Queued: true);
         // Waiting only for a season whose first episode is dated in the future; an aired season whose episodes never
         // resolved fails as before, so the owner gets Retry and Pick a release.
@@ -127,28 +134,25 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
     /// A season request means the whole season as it airs. Approval queues the episodes aired then; this queues every
     /// episode aired since that no target covers yet, on the same request lane, so status and fulfilment count one set.
     /// Once fulfilled, only episodes above the request's mark count: an episode the owner deleted stays deleted, and a
-    /// named season that had not aired then (mark 0) is queued whole once it starts.
+    /// named season that had not aired then (mark 0) is queued whole once it starts. An episode at or below what the
+    /// request already covered whose wanted row is gone was removed or stopped by the owner, and is never queued again.
     /// </summary>
     public async Task<int> ReconcileAsync(MediaRequest request, CancellationToken ct, Func<Task>? beforeQueue = null)
     {
         if (request.Scope == MediaRequestScope.Movie) return 0;
         string? workId;
-        HashSet<(int, int)> known;
         await using (var db = await factory.CreateDbContextAsync(ct))
-        {
             workId = await db.Works.AsNoTracking().Where(w => w.WorkKey == request.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct);
-            if (workId is null) return 0;
-            known = (await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == request.WorkKey &&
-                    t.Scope == "episode" && t.Season != null && t.Episode != null)
-                .Select(t => new { t.Season, t.Episode }).ToListAsync(ct)).Select(t => (t.Season!.Value, t.Episode!.Value)).ToHashSet();
-        }
+        if (workId is null) return 0;
+        var known = await KnownEpisodesAsync(request, ct);
         var marks = RequestMarks.Parse(request.FulfilledThrough);
         var missing = new List<(int Season, List<int> Episodes)>();
         foreach (var season in await SeasonsAsync(request, ct))
         {
             var shape = await seasonShapes.GetSeasonAsync(new(request.WorkKey, request.Title, request.Year, request.MediaType,
                 request.Provider, request.ProviderId, season), ct);
-            var episodes = (shape?.AiredEpisodes ?? []).Where(e => RequestMarks.Counts(marks, season, e) && !known.Contains((season, e))).ToList();
+            var episodes = (shape?.AiredEpisodes ?? []).Where(e => RequestMarks.Counts(marks, season, e) && !known.Contains((season, e)) &&
+                !Stopped(request, known, season, e)).ToList();
             if (episodes.Count > 0) missing.Add((season, episodes));
         }
         if (missing.Count == 0) return 0;
@@ -156,7 +160,39 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
         if (beforeQueue != null) await beforeQueue();
         foreach (var (season, episodes) in missing)
             await wanted.EnqueueAsync(new(request.WorkKey, workId, season, episodes, Lane: TorrentLane.Request), ct);
+        await CoverAsync(request, missing.SelectMany(m => m.Episodes.Select(e => (m.Season, e))), ct);
         return missing.Sum(m => m.Episodes.Count);
+    }
+
+    /// <summary>Every episode of the work that has a wanted row (any status).</summary>
+    private async Task<HashSet<(int, int)>> KnownEpisodesAsync(MediaRequest request, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        return (await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == request.WorkKey &&
+                t.Scope == "episode" && t.Season != null && t.Episode != null)
+            .Select(t => new { t.Season, t.Episode }).ToListAsync(ct)).Select(t => (t.Season!.Value, t.Episode!.Value)).ToHashSet();
+    }
+
+    /// <summary>
+    /// The request covered this episode before (<see cref="MediaRequest.CoveredThrough"/>) and its wanted row is gone: the
+    /// owner removed it or stopped looking for it (Remove on a looking row), so it is never brought back.
+    /// </summary>
+    private static bool Stopped(MediaRequest request, IReadOnlySet<(int, int)> known, int season, int episode) =>
+        RequestMarks.Parse(request.CoveredThrough) is { } covered && episode <= covered.GetValueOrDefault(season) && !known.Contains((season, episode));
+
+    /// <summary>Raises the covered mark of every row that shares this request's ask to what was just queued.</summary>
+    private async Task CoverAsync(MediaRequest request, IEnumerable<(int Season, int Episode)> queued, CancellationToken ct)
+    {
+        var episodes = queued.ToList();
+        if (episodes.Count == 0) return;
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var key = RequestRules.SameAskKey(request);
+        var rows = (await db.MediaRequests.Where(r => r.WorkKey == request.WorkKey && r.Status != MediaRequestStatus.Cancelled &&
+                r.Status != MediaRequestStatus.Declined).ToListAsync(ct))
+            .Where(r => r.Id == request.Id || RequestRules.SameAskKey(r) == key).ToList();
+        foreach (var row in rows) row.CoveredThrough = RequestMarks.Advance(row.CoveredThrough, episodes);
+        await db.SaveChangesAsync(ct);
+        request.CoveredThrough = RequestMarks.Advance(request.CoveredThrough, episodes);
     }
 
     private async Task<List<int>> SeasonsAsync(MediaRequest request, CancellationToken ct)

@@ -11,6 +11,12 @@ namespace TorrentFlow.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
+                name: "coveredThrough",
+                table: "MediaRequest",
+                type: "TEXT",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
                 name: "fulfilledThrough",
                 table: "MediaRequest",
                 type: "TEXT",
@@ -26,6 +32,10 @@ namespace TorrentFlow.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropColumn(
+                name: "coveredThrough",
+                table: "MediaRequest");
+
             migrationBuilder.DropColumn(
                 name: "fulfilledThrough",
                 table: "MediaRequest");

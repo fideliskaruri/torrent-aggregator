@@ -220,10 +220,16 @@ title-search box still has its own 60/minute per-client guard against keystroke 
 - Retry, for every row of the ask, forgets stopped, replaced and removed hashes. After a stop it looks again only
   for the stopped episodes (and anything the queue was still looking for); what the owner removed stays removed.
   After a removal it looks again for what was removed. Retry never adds a wanted row back, so an episode the owner
-  stopped looking for never returns; only a request that never had any wanted row is grabbed as on approval. A
+  stopped looking for never returns; only a request that never wanted anything is grabbed as on approval. A
   hand-picked release (`POST /api/requests/{id}/pick`) fills the film's or episode's acquisition target, so it
   follows the same path, and every row of the ask shares it. A new requester never joins an ask whose transfers
   all died.
+- Covered mark: every row of an ask records, per season, the last episode it has ever wanted (`coveredThrough`),
+  whenever approval or the airing check queues episodes. An episode at or below it whose wanted row is gone was
+  removed by the owner or stopped (Remove on a looking row, see Downloads), so neither the airing check, nor a
+  restart re-grab, nor Retry brings it back; only episodes above it are new. The owner's own stop marker on a
+  request ("The owner stopped looking for some episodes.") is kept through later finds, and such a request is
+  never put into the quiet removal path above: what is left of it is judged for fulfilment as usual.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).

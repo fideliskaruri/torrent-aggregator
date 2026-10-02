@@ -129,6 +129,7 @@ public sealed class RequestDecisionService(
                 : null;
             var hashes = running?.GrabbedHashes;
             var mark = running?.FulfilledThrough;
+            var covered = running?.CoveredThrough;
             // The stopped transfers the running row already announced come along, so the newcomers are not told again.
             var told = running?.StoppedKey;
             var changed = await db.MediaRequests.Where(r => ids.Contains(r.Id) && r.Status == MediaRequestStatus.Pending)
@@ -136,6 +137,7 @@ public sealed class RequestDecisionService(
                     .SetProperty(r => r.DecidedAt, now).SetProperty(r => r.UpdatedAt, now)
                     .SetProperty(r => r.GrabbedHashes, r => hashes ?? r.GrabbedHashes)
                     .SetProperty(r => r.FulfilledThrough, r => mark ?? r.FulfilledThrough)
+                    .SetProperty(r => r.CoveredThrough, r => covered ?? r.CoveredThrough)
                     .SetProperty(r => r.StoppedKey, r => told ?? r.StoppedKey), ct);
             if (changed != ids.Count)
             {
@@ -346,7 +348,8 @@ public sealed class RequestDecisionService(
         else
         {
             row.Status = MediaRequestStatus.Approved;
-            row.DecisionReason = null;
+            // The owner's own stop (Remove on a looking row) stays on record; anything else is answered by the find.
+            if (!RequestWantedObserver.OwnerStopped(row.DecisionReason)) row.DecisionReason = null;
             row.StoppedKey = null;
         }
         await db.SaveChangesAsync(ct);
@@ -569,7 +572,9 @@ public sealed class RequestDecisionService(
                 continue;
             }
             await DropReplacedAsync(db, row, health, ct);
-            if (health.Missing > 0 && row.FulfilledThrough is null) await MarkRemovedAsync(db, row, health, ct);
+            // The owner stopped part of it himself (Remove on a looking row): his marker stands, and the rest is judged.
+            if (health.Missing > 0 && row.FulfilledThrough is null && !RequestWantedObserver.OwnerStopped(row.DecisionReason))
+                await MarkRemovedAsync(db, row, health, ct);
             else if (health.Gone.Count > 0 || health.Replaced.Count > 0 || row.FulfilledThrough != null) await CheckFulfilledAsync(row.Id, ct);
         }
     }

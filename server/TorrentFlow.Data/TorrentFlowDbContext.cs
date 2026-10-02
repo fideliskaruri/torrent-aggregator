@@ -586,6 +586,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.AcquisitionTargetId).HasColumnName("acquisitionTargetId");
             entity.Property(e => e.GrabbedHashes).HasColumnName("grabbedHashes");
             entity.Property(e => e.FulfilledThrough).HasColumnName("fulfilledThrough");
+            entity.Property(e => e.CoveredThrough).HasColumnName("coveredThrough");
             entity.Property(e => e.StoppedKey).HasColumnName("stoppedKey");
 
             entity.HasOne(d => d.RequestedBy).WithMany(p => p.MediaRequests)

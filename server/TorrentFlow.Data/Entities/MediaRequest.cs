@@ -58,6 +58,13 @@ public partial class MediaRequest
     public string? FulfilledThrough { get; set; }
 
     /// <summary>
+    /// Per-season, the last episode this request has ever wanted ("6:4"). A wanted row missing at or below it means the
+    /// owner removed or stopped looking for that episode, so nothing (approval re-grab, airing check, Retry) adds it back;
+    /// only episodes above it are new. Null until the request first queues something.
+    /// </summary>
+    public string? CoveredThrough { get; set; }
+
+    /// <summary>
     /// The stopped transfers the requester and owner were told about: sorted, comma-separated hashes; null when none. A
     /// hash not in it is news; a set that only shrank is stored without telling anyone again.
     /// </summary>
