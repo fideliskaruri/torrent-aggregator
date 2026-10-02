@@ -55,17 +55,22 @@ One derivation (`LibraryOnDisk` in `Requests/RequestState.cs`) answers "what has
 page, the Requests page (both roles), notifications and the requester Library. Its source of truth is the
 owner's Downloaded rail: finished transfers whose files are still on disk, mapped to their works and
 episodes. An approved film is `downloading` until its file is there, then `available`; a season request
-counts the aired episodes of the requested seasons (`done` of `total`) and is `available` when all of them
-are there. Pending, declined and cancelled requests pass through unchanged.
+counts the aired episodes of the requested seasons (`done` of `total`, from the season shape every
+acquisition path reads, else the episodes the queue wants) and is `available` only when every one of them
+is there; a season with one episode on disk is not in the library. Ready episodes are placed by their
+queue key, their name's season and episode, or an absolute number ("Frieren - 29") mapped through the
+season shape. Anime series count as series (the work's stored format, else the request scope). Pending, declined and cancelled requests pass through unchanged.
 
 ### Shared requests
 
 Requests are one per title and scope across requesters (same work key, scope and seasons). When a second
 requester asks for something already requested, their row joins it: if the first is still pending it stays
 pending and the owner is not notified again; if it is already approved the joiner's row is approved too and
-they get the "Request approved" notification. The owner's inbox shows one card naming everyone who asked
-(`requesters`); approving or declining it decides every pending row of that ask and notifies each requester,
-while only one grab is started.
+they get the "Request approved" notification. A failed ask is never joined: the new request is pending
+and the owner is notified. The owner's inbox shows one card naming everyone who asked
+(`requesters`); approving or declining it decides every pending row of that ask in one transaction (decisions
+and joins are serialized), so racing decisions leave one outcome. Each requester is notified, one row (the
+oldest) is elected to grab and the others take its outcome: its transfers, or its failure.
 
 ### Previewing as a requester
 
@@ -170,7 +175,9 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   shape as GET.
 - One episode is grabbed once whichever path gets there first (request approval, the hunter, a season
   download or an on-demand grab): `GrabService` keys in-flight grabs by work and episode (not resolution)
-  and skips an episode that already has a transfer or is covered by a season pack.
+  and skips an episode that already has a healthy transfer or is covered by a season pack. A transfer that
+  errored, was removed or lost its files does not count, so the episode can be grabbed again. Transfers
+  from before episode keys are matched by their name's season and episode.
 - Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request whose
   grabbed transfers have all completed becomes `fulfilled`.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**

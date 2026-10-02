@@ -90,8 +90,21 @@ public static partial class RequestRules
     public static string SameAskKey(MediaRequest r) =>
         $"{r.WorkKey}|{r.Scope}|{(r.Scope == MediaRequestScope.Seasons ? FormatSeasons(ParseSeasons(r.Seasons)) : "")}";
 
-    /// <summary>A series as a whole is never "in the library"; only its seasons are.</summary>
-    public static bool IsSeriesType(string mediaType) => mediaType is "tv" or "series";
+    /// <summary>
+    /// Whether a title is a series for request state (a series as a whole is never "in the library"; only its seasons
+    /// are). The work's stored format decides; without one, the request's scope; without either, the media type, where
+    /// anime is a series unless it is a film. Point this at WorkKinds.IsSeries once that owner lands.
+    /// </summary>
+    public static bool IsSeries(WorkFormat? format, string? scope, string? mediaType) =>
+        format is { } f ? f == WorkFormat.Series
+        : scope is { } s ? s != MediaRequestScope.Movie
+        : mediaType is "tv" or "series" or "anime";
+
+    /// <summary>
+    /// Serializes every change to who shares an ask (approve, decline, a requester joining), so one shared ask has one
+    /// outcome and one grab, however the calls race.
+    /// </summary>
+    public static readonly SemaphoreSlim AskGate = new(1, 1);
 
     public static IReadOnlyList<int> ParseSeasons(string? stored) =>
         string.IsNullOrWhiteSpace(stored) ? [] :

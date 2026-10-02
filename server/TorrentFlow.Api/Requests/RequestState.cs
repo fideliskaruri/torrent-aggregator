@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Browse;
@@ -20,90 +21,153 @@ public sealed record RequestProgress(string Phase, int Done, int Total)
 
 /// <summary>
 /// The library as files on disk, read from the same ready transfers as the Downloaded rail
-/// (<see cref="BrowseService.ReadyTorrentsAsync"/>): which films and which episodes of each work are there.
+/// (<see cref="BrowseService.ReadyTorrentsAsync"/>): which films and which episodes of each work are there. A season is
+/// only complete when every aired episode of it is on disk, by the season shape every acquisition path reads
+/// (<see cref="ISeasonShapeLookup"/>); without a shape, every episode the queue wants for it.
 /// </summary>
 public sealed class LibraryOnDisk
 {
-    private readonly HashSet<string> _films;
-    private readonly Dictionary<string, HashSet<(int Season, int Episode)>> _episodes;
-    private readonly List<ReleaseIdentity> _unmatched;
-    private readonly Dictionary<string, List<(int? Season, int? Episode, bool Ready)>> _wanted;
-    private readonly HashSet<string> _live;
+    private const int MaxShapeSeasons = 30;
 
-    private LibraryOnDisk(HashSet<string> films, Dictionary<string, HashSet<(int, int)>> episodes, List<ReleaseIdentity> unmatched,
-        Dictionary<string, List<(int?, int?, bool)>> wanted, HashSet<string> live)
-    {
-        _live = live;
-        _films = films;
-        _episodes = episodes;
-        _unmatched = unmatched;
-        _wanted = wanted;
-    }
+    private readonly HashSet<string> _films = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<(int Season, int Episode)>> _episodes = new(StringComparer.Ordinal);
+    private readonly List<ReleaseIdentity> _unmatched = [];
+    private readonly Dictionary<string, List<(int? Season, int? Episode, bool Ready)>> _wanted = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Work> _works = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string, int), IReadOnlyList<(int Season, int Episode)>?> _shapes = [];
+    private readonly ISeasonShapeLookup _shapeLookup;
+    private HashSet<string> _live = new(StringComparer.Ordinal);
 
-    public static async Task<LibraryOnDisk> LoadAsync(TorrentFlowDbContext db, BrowseService browse, CancellationToken ct)
+    private LibraryOnDisk(ISeasonShapeLookup shapes) => _shapeLookup = shapes;
+
+    /// <summary>A work as the season shape asks about it.</summary>
+    private sealed record Identity(string WorkKey, string Title, int? Year, string? MediaType, string? Provider, string? ProviderId);
+
+    public static async Task<LibraryOnDisk> LoadAsync(TorrentFlowDbContext db, BrowseService browse, ISeasonShapeLookup shapes, CancellationToken ct)
     {
+        var library = new LibraryOnDisk(shapes);
         var ready = await browse.ReadyTorrentsAsync(LocalUser.Id, 5000, ct);
         var hashes = ready.Select(t => t.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
         var targets = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Status != "failed")
             .Select(t => new { t.WorkKey, t.Scope, t.Season, t.Episode, t.InfoHash }).ToListAsync(ct);
         // Transfers still on their way: a request whose grabs were all removed or failed is not downloading.
-        var live = (await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id &&
-                t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed)
-            .Select(t => t.Hash).ToListAsync(ct)).Select(h => h.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        library._live = (await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id)
+                .Select(t => new { t.Hash, t.Status }).ToListAsync(ct))
+            .Where(t => EngineTorrentStatus.IsHealthy(t.Status)).Select(t => t.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
         var workIds = ready.Select(t => t.WorkId).OfType<string>().Distinct().ToList();
-        var workKeys = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.WorkKey, ct);
+        var byId = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, ct);
 
-        var films = new HashSet<string>(StringComparer.Ordinal);
-        var episodes = new Dictionary<string, HashSet<(int, int)>>(StringComparer.Ordinal);
-        var wanted = new Dictionary<string, List<(int?, int?, bool)>>(StringComparer.Ordinal);
         var claimed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in targets)
         {
             var isReady = t.InfoHash is { } h && hashes.Contains(h.ToLowerInvariant());
-            if (!wanted.TryGetValue(t.WorkKey, out var list)) wanted[t.WorkKey] = list = [];
+            if (!library._wanted.TryGetValue(t.WorkKey, out var list)) library._wanted[t.WorkKey] = list = [];
             list.Add((t.Season, t.Episode, isReady));
             if (!isReady) continue;
             claimed.Add(t.InfoHash!.ToLowerInvariant());
-            if (t.Scope == "episode" && t.Season is { } s && t.Episode is { } e) Add(episodes, t.WorkKey, (s, e));
-            else if (t.Scope == "title") films.Add(t.WorkKey);
+            if (t.Scope == "episode" && t.Season is { } s && t.Episode is { } e) library.Add(t.WorkKey, (s, e));
+            else if (t.Scope == "title") library._films.Add(t.WorkKey);
         }
-        var unmatched = new List<ReleaseIdentity>();
+        foreach (var work in byId.Values) library._works[work.WorkKey] = work;
         foreach (var torrent in ready.Where(t => !claimed.Contains(t.Hash.ToLowerInvariant())))
         {
             var identity = ReleaseNames.WorkIdentity(torrent.Name);
-            var key = torrent.WorkId is { } id ? workKeys.GetValueOrDefault(id) : null;
-            var episode = ReleaseEpisodeParser.Parse(torrent.Name);
-            if (key != null && episode is { Season: { } s, Episode: { } e } && !episode.IsBatch) Add(episodes, key, (s, e));
-            else if (key != null && !identity.IsSeries) films.Add(key);
-            else unmatched.Add(identity);
+            var work = torrent.WorkId is { } id ? byId.GetValueOrDefault(id) : null;
+            if (work == null) { library._unmatched.Add(identity); continue; }
+            if (await library.EpisodeOfAsync(work, torrent, ct) is { } episode) library.Add(work.WorkKey, episode);
+            else if (!identity.IsSeries) library._films.Add(work.WorkKey);
+            else library._unmatched.Add(identity);
         }
-        return new LibraryOnDisk(films, episodes, unmatched, wanted, live);
+        var missing = library._episodes.Keys.Where(k => !library._works.ContainsKey(k)).ToList();
+        foreach (var work in await db.Works.AsNoTracking().Where(w => missing.Contains(w.WorkKey)).ToListAsync(ct))
+            library._works[work.WorkKey] = work;
+        return library;
     }
 
-    private static void Add(Dictionary<string, HashSet<(int, int)>> map, string key, (int, int) episode)
+    private void Add(string key, (int, int) episode)
     {
-        if (!map.TryGetValue(key, out var set)) map[key] = set = [];
+        if (!_episodes.TryGetValue(key, out var set)) _episodes[key] = set = [];
         set.Add(episode);
+    }
+
+    private static Identity Of(Work w) => new(w.WorkKey, w.CanonicalTitle, w.Year, w.MediaType, w.Provider, w.ProviderId);
+
+    /// <summary>
+    /// The episode a ready transfer of a work holds: its queue key, else its name's season and episode, else an
+    /// absolute number ("Frieren - 29") placed through the season shape's franchise numbering. Null for packs and films.
+    /// </summary>
+    private async Task<(int, int)?> EpisodeOfAsync(Work work, EngineTorrent torrent, CancellationToken ct)
+    {
+        if (QueueKeys.Parse(torrent.QueueKey) is { } keyed) return keyed;
+        var parsed = ReleaseEpisodeParser.Parse(torrent.Name);
+        if (parsed.IsBatch || parsed.IsSeasonPack) return null;
+        if (parsed is { Season: { } s, Episode: { } e }) return (s, e);
+        if ((parsed.AbsoluteEpisode ?? parsed.Episode) is not { } absolute) return null;
+        var identity = Of(work);
+        for (var season = 1; season <= MaxShapeSeasons; season++)
+        {
+            var shape = await ShapeAsync(identity, season, ct);
+            if (shape is null) break;
+            if (shape.FirstOrDefault(x => x.Absolute == absolute) is { } hit) return (hit.Season, hit.Episode);
+        }
+        return (await ShapeAsync(identity, 1, ct))?.Any(x => x.Episode == absolute) == true ? (1, absolute) : null;
+    }
+
+    private readonly Dictionary<(string, int), IReadOnlyList<SeasonShapeEpisode>?> _fullShapes = [];
+
+    private async Task<IReadOnlyList<SeasonShapeEpisode>?> ShapeAsync(Identity work, int season, CancellationToken ct)
+    {
+        if (_fullShapes.TryGetValue((work.WorkKey, season), out var cached)) return cached;
+        IReadOnlyList<SeasonShapeEpisode>? episodes = null;
+        try
+        {
+            episodes = (await _shapeLookup.GetSeasonAsync(new(work.WorkKey, work.Title, work.Year, work.MediaType, work.Provider,
+                work.ProviderId, season), ct))?.Episodes;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { }
+        if (episodes is { Count: 0 }) episodes = null;
+        _fullShapes[(work.WorkKey, season)] = episodes;
+        return episodes;
+    }
+
+    /// <summary>Every episode a season needs on disk: its aired episodes, else the ones the queue wants for it.</summary>
+    private async Task<IReadOnlyCollection<(int Season, int Episode)>> RequiredAsync(Identity? work, string workKey, int season, CancellationToken ct)
+    {
+        if (!_shapes.TryGetValue((workKey, season), out var required))
+        {
+            var shape = work is null ? null : await ShapeAsync(work, season, ct);
+            var aired = shape?.Where(e => e.Aired).Select(e => (season, e.Episode)).Distinct().ToList();
+            required = aired is { Count: > 0 } ? aired : null;
+            _shapes[(workKey, season)] = required;
+        }
+        if (required != null) return required;
+        return (_wanted.GetValueOrDefault(workKey) ?? []).Where(w => w.Season == season && w.Episode != null)
+            .Select(w => (season, w.Episode!.Value)).ToHashSet();
     }
 
     /// <summary>The film's file is on disk (matched by its work, else by its release name like the Downloaded rail).</summary>
     public bool HasFilm(string workKey) =>
         _films.Contains(workKey) || _unmatched.Any(r => !r.IsSeries && TorrentFlow.Core.Text.WorkKeySlug.Matches(workKey, r.Name, r.Year));
 
-    /// <summary>Seasons of this work with at least one episode on disk and none still wanted.</summary>
-    public IReadOnlyList<int> AvailableSeasons(string workKey)
+    /// <summary>Seasons of this work whose every episode is on disk.</summary>
+    public async Task<IReadOnlyList<int>> AvailableSeasonsAsync(string workKey, CancellationToken ct)
     {
         if (!_episodes.TryGetValue(workKey, out var onDisk)) return [];
-        var open = _wanted.GetValueOrDefault(workKey)?.Where(w => w.Season != null && w.Episode != null && !w.Ready)
-            .Select(w => w.Season!.Value).ToHashSet() ?? [];
-        return onDisk.Select(e => e.Season).Distinct().Where(s => !open.Contains(s)).Order().ToList();
+        var work = _works.TryGetValue(workKey, out var w) ? Of(w) : null;
+        var seasons = new List<int>();
+        foreach (var season in onDisk.Select(e => e.Season).Distinct().Order())
+        {
+            var required = await RequiredAsync(work, workKey, season, ct);
+            if (required.Count > 0 && required.All(onDisk.Contains)) seasons.Add(season);
+        }
+        return seasons;
     }
 
     /// <summary>
-    /// The derived state of one request (<see cref="RequestProgress"/>). Seasons count the episodes the queue wants
-    /// for them; a season request never counts other seasons, so it never marks the whole show.
+    /// The derived state of one request (<see cref="RequestProgress"/>). A season counts every episode it needs; a
+    /// season request never counts other seasons, so it never marks the whole show.
     /// </summary>
-    public RequestProgress Progress(MediaRequest row)
+    public async Task<RequestProgress> ProgressAsync(MediaRequest row, CancellationToken ct)
     {
         var status = row.Status;
         if (status is MediaRequestStatus.Pending or MediaRequestStatus.Declined or MediaRequestStatus.Cancelled) return new(status, 0, 0);
@@ -116,16 +180,22 @@ public sealed class LibraryOnDisk
             if (HasFilm(row.WorkKey)) return new(RequestProgress.Available, 1, 1);
             return new(started ? RequestProgress.Downloading : status, 0, 1);
         }
-        var seasons = RequestRules.ParseSeasons(row.Seasons);
-        var all = row.Scope == MediaRequestScope.Series || seasons.Count == 0;
         var onDisk = _episodes.GetValueOrDefault(row.WorkKey) ?? [];
-        var wanted = (_wanted.GetValueOrDefault(row.WorkKey) ?? [])
-            .Where(w => w.Season is { } s && w.Episode != null && (all || seasons.Contains(s)))
-            .Select(w => (w.Season!.Value, w.Episode!.Value)).ToHashSet();
-        wanted.UnionWith(onDisk.Where(e => all || seasons.Contains(e.Season)));
-        var done = wanted.Count(onDisk.Contains);
-        if (wanted.Count > 0 && done == wanted.Count) return new(RequestProgress.Available, done, wanted.Count);
-        if (started || done > 0) return new(RequestProgress.Downloading, done, wanted.Count);
-        return new(status, done, wanted.Count);
+        var asked = RequestRules.ParseSeasons(row.Seasons);
+        var seasons = row.Scope == MediaRequestScope.Seasons && asked.Count > 0 ? asked
+            : (_wanted.GetValueOrDefault(row.WorkKey) ?? []).Select(w => w.Season).OfType<int>().Concat(onDisk.Select(e => e.Season))
+                .Where(s => s >= 1).Distinct().Order().ToList();
+        var work = new Identity(row.WorkKey, row.Title, row.Year, row.MediaType, row.Provider, row.ProviderId);
+        var total = 0;
+        var done = 0;
+        foreach (var season in seasons)
+        {
+            var required = await RequiredAsync(work, row.WorkKey, season, ct);
+            total += required.Count;
+            done += required.Count(onDisk.Contains);
+        }
+        if (total > 0 && done == total) return new(RequestProgress.Available, done, total);
+        if (started || done > 0) return new(RequestProgress.Downloading, done, total);
+        return new(status, done, total);
     }
 }

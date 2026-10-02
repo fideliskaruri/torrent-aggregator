@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Notifications;
 using Microsoft.Extensions.Options;
+using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Grabs;
@@ -18,7 +20,7 @@ public sealed record RequesterTitle(
 
 /// <summary>
 /// Own-request + library flags for a catalog hit; never other users' requests. <see cref="RequestStatus"/> is the
-/// request's derived phase (<see cref="LibraryOnDisk.Progress"/>); a series is never <see cref="InLibrary"/> as a whole,
+/// request's derived phase (<see cref="LibraryOnDisk.ProgressAsync"/>); a series is never <see cref="InLibrary"/> as a whole,
 /// only by its <see cref="AvailableSeasons"/>.
 /// </summary>
 public sealed record CatalogRequestState(bool InLibrary, string? RequestStatus, string? RequestId, IReadOnlyList<int>? AvailableSeasons = null,
@@ -76,27 +78,27 @@ public sealed class MediaRequestService(
     IOptionsMonitor<RequestOptions> options,
     TimeProvider time,
     NotificationService notifications,
-    BrowseService browse)
+    BrowseService browse,
+    ISeasonShapeLookup shapes)
 {
     private const int SearchTake = 20;
-    // Duplicate and cap checks read then write; one writer at a time keeps two quick taps from both passing.
-    private readonly SemaphoreSlim _createLock = new(1, 1);
-
     public RequestOptions Options => options.CurrentValue;
 
     public async Task<(IReadOnlyList<RequesterTitle> Results, bool Partial)> SearchAsync(string userId, string scope, string query, CancellationToken ct)
     {
         var outcome = await catalog.SearchAsync(scope, query, SearchTake, ct);
         await using var db = await factory.CreateDbContextAsync(ct);
-        var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
+        var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
         var open = await OpenRequestsAsync(db, userId, ct);
-        var results = outcome.Results.Select(hit =>
+        var formats = await FormatsAsync(db, outcome.Results.Select(h => h.WorkKey), ct);
+        var results = new List<RequesterTitle>();
+        foreach (var hit in outcome.Results)
         {
-            var state = StateFor(library, open, hit.WorkKey, hit.MediaType, hit.ProviderId, hit.Provider);
-            return new RequesterTitle(hit.WorkKey, hit.Title, hit.Year, hit.MediaType, hit.IsSeries, hit.Format, hit.Category,
+            var state = await StateForAsync(library, open, formats, hit.WorkKey, hit.MediaType, hit.ProviderId, hit.Provider, ct);
+            results.Add(new RequesterTitle(hit.WorkKey, hit.Title, hit.Year, hit.MediaType, hit.IsSeries, hit.Format, hit.Category,
                 hit.Provider, hit.ProviderId, hit.PosterUrl, hit.Overview, hit.ReleaseDate,
-                state.InLibrary, state.RequestStatus, state.RequestId);
-        }).ToList();
+                state.InLibrary, state.RequestStatus, state.RequestId));
+        }
         return (results, outcome.Partial);
     }
 
@@ -111,21 +113,33 @@ public sealed class MediaRequestService(
     {
         if (items.Count == 0) return [];
         await using var db = await factory.CreateDbContextAsync(ct);
-        var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
+        var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
         var open = await OpenRequestsAsync(db, userId, ct);
-        return items.Select(i => StateFor(library, open, i.WorkKey, i.MediaType, i.ProviderId, i.Provider)).ToList();
+        var formats = await FormatsAsync(db, items.Select(i => i.WorkKey), ct);
+        var states = new List<CatalogRequestState>();
+        foreach (var i in items) states.Add(await StateForAsync(library, open, formats, i.WorkKey, i.MediaType, i.ProviderId, i.Provider, ct));
+        return states;
     }
 
-    private static CatalogRequestState StateFor(LibraryOnDisk library, List<OpenRequest> open, string workKey, string mediaType, string? providerId, string provider)
+    private static async Task<Dictionary<string, WorkFormat?>> FormatsAsync(TorrentFlowDbContext db, IEnumerable<string> workKeys, CancellationToken ct)
+    {
+        var keys = workKeys.Distinct().ToList();
+        return (await db.Works.AsNoTracking().Where(w => keys.Contains(w.WorkKey)).Select(w => new { w.WorkKey, w.Format }).ToListAsync(ct))
+            .DistinctBy(w => w.WorkKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(w => w.WorkKey, w => w.Format, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<CatalogRequestState> StateForAsync(LibraryOnDisk library, List<OpenRequest> open, Dictionary<string, WorkFormat?> formats,
+        string workKey, string mediaType, string? providerId, string provider, CancellationToken ct)
     {
         var identity = RequestRules.Identity(provider, providerId, mediaType, workKey);
         // Prefer catalog identity; fall back to work key so title pages without provider ids still see the caller's request.
         var request = open.FirstOrDefault(r => r.Identity == identity)
             ?? open.FirstOrDefault(r => string.Equals(r.Row.WorkKey, workKey, StringComparison.OrdinalIgnoreCase));
-        var film = !RequestRules.IsSeriesType(mediaType);
-        var progress = request is null ? null : library.Progress(request.Row);
+        var film = !RequestRules.IsSeries(formats.GetValueOrDefault(workKey), request?.Row.Scope, mediaType);
+        var progress = request is null ? null : await library.ProgressAsync(request.Row, ct);
         return new CatalogRequestState(film && library.HasFilm(workKey), progress?.Phase, request?.Row.Id,
-            film ? [] : library.AvailableSeasons(workKey), progress?.Done ?? 0, progress?.Total ?? 0);
+            film ? [] : await library.AvailableSeasonsAsync(workKey, ct), progress?.Done ?? 0, progress?.Total ?? 0);
     }
 
     public async Task<IReadOnlyList<int>> SeasonsAsync(RequestDraft work, CancellationToken ct)
@@ -141,8 +155,11 @@ public sealed class MediaRequestService(
             .OrderByDescending(r => r.CreatedAt).Take(200).ToListAsync(ct);
         var posters = await WorkPosters.LoadAsync(db, rows.Select(r => r.WorkKey), ct);
         await WorkPosters.StoreOnRequestsAsync(db, rows.Select(r => (r.Id, r.PosterUrl, WorkPosters.Pick(posters, r.WorkKey, r.PosterUrl))), ct);
-        var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
-        return rows.Select(r => ToRequester(r, library.Progress(r)) with { PosterUrl = WorkPosters.Pick(posters, r.WorkKey, r.PosterUrl) }).ToList();
+        var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
+        var mine = new List<RequesterRequest>();
+        foreach (var r in rows)
+            mine.Add(ToRequester(r, await library.ProgressAsync(r, ct)) with { PosterUrl = WorkPosters.Pick(posters, r.WorkKey, r.PosterUrl) });
+        return mine;
     }
 
     public async Task<IReadOnlyList<OwnerRequest>> AllAsync(string? status, CancellationToken ct)
@@ -154,23 +171,23 @@ public sealed class MediaRequestService(
             .Select(r => new { Row = r, Email = r.RequestedBy.Email }).ToListAsync(ct);
         var posters = await WorkPosters.LoadAsync(db, rows.Select(x => x.Row.WorkKey), ct);
         await WorkPosters.StoreOnRequestsAsync(db, rows.Select(x => (x.Row.Id, x.Row.PosterUrl, WorkPosters.Pick(posters, x.Row.WorkKey, x.Row.PosterUrl))), ct);
-        var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
+        var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
         // The same title and scope asked by several friends is one card: the oldest ask leads, everyone is named.
-        return rows.GroupBy(x => (RequestRules.SameAskKey(x.Row), x.Row.Status))
-            .Select(g =>
-            {
+        var cards = new List<OwnerRequest>();
+        foreach (var g in rows.GroupBy(x => (RequestRules.SameAskKey(x.Row), x.Row.Status)))
+        {
                 var lead = g.OrderBy(x => x.Row.CreatedAt).First();
-                var progress = library.Progress(lead.Row);
-                return new OwnerRequest(lead.Row.Id, lead.Email ?? "", lead.Row.Title, lead.Row.Year, lead.Row.MediaType, lead.Row.Provider,
+                var progress = await library.ProgressAsync(lead.Row, ct);
+                cards.Add(new OwnerRequest(lead.Row.Id, lead.Email ?? "", lead.Row.Title, lead.Row.Year, lead.Row.MediaType, lead.Row.Provider,
                     lead.Row.ProviderId, lead.Row.WorkKey, WorkPosters.Pick(posters, lead.Row.WorkKey, lead.Row.PosterUrl), lead.Row.Scope,
                     RequestRules.ParseSeasons(lead.Row.Seasons), lead.Row.Note, lead.Row.Status, lead.Row.DecisionReason, lead.Row.DecidedAt,
                     lead.Row.CreatedAt, g.Max(x => x.Row.UpdatedAt), lead.Row.WatchListItemId, lead.Row.AcquisitionTargetId)
                 {
                     Requesters = g.OrderBy(x => x.Row.CreatedAt).Select(x => x.Email ?? "").Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                     Phase = progress.Phase, Done = progress.Done, Total = progress.Total,
-                };
-            })
-            .OrderByDescending(r => r.CreatedAt).ToList();
+                });
+        }
+        return cards.OrderByDescending(r => r.CreatedAt).ToList();
     }
 
     public async Task<int> PendingCountAsync(CancellationToken ct)
@@ -195,13 +212,14 @@ public sealed class MediaRequestService(
 
     public async Task<(CreateOutcome Outcome, RequesterRequest? Request)> CreateAsync(string userId, RequestDraft draft, CancellationToken ct)
     {
-        await _createLock.WaitAsync(ct);
+        // Duplicate, cap and join checks read then write; the gate decisions take keeps a join from racing an approve.
+        await RequestRules.AskGate.WaitAsync(ct);
         try
         {
             await using var db = await factory.CreateDbContextAsync(ct);
-            var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
+            var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
             if (draft.Scope == MediaRequestScope.Movie ? library.HasFilm(draft.WorkKey)
-                : draft.Scope == MediaRequestScope.Seasons && draft.Seasons.All(library.AvailableSeasons(draft.WorkKey).Contains))
+                : draft.Scope == MediaRequestScope.Seasons && draft.Seasons.All((await library.AvailableSeasonsAsync(draft.WorkKey, ct)).Contains))
                 return (CreateOutcome.InLibrary, null);
             var open = await OpenRequestsAsync(db, userId, ct);
             if (open.Any(r => r.Identity == draft.Identity && RequestRules.Overlaps(r.Row.Scope, RequestRules.ParseSeasons(r.Row.Seasons), draft.Scope, draft.Seasons)))
@@ -217,9 +235,10 @@ public sealed class MediaRequestService(
             };
             // Someone else already asked for the same title and scope: this ask joins theirs. Pending, it waits on the
             // same card; approved, it is approved now and shares what is already downloading. Nothing is grabbed again.
+            // A failed ask is never joined: the new ask is pending again so the owner sees it.
             var askKey = RequestRules.SameAskKey(row);
             var others = await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == row.WorkKey && r.RequestedByUserId != userId &&
-                (MediaRequestStatus.Open.Contains(r.Status) || r.Status == MediaRequestStatus.Failed)).OrderBy(r => r.CreatedAt).ToListAsync(ct);
+                MediaRequestStatus.Open.Contains(r.Status)).OrderBy(r => r.CreatedAt).ToListAsync(ct);
             var joined = others.Where(r => RequestRules.SameAskKey(r) == askKey).OrderBy(r => r.Status == MediaRequestStatus.Pending).FirstOrDefault();
             if (joined is { Status: not MediaRequestStatus.Pending })
             {
@@ -234,11 +253,11 @@ public sealed class MediaRequestService(
                 await notifications.TryPublishAsync(LocalUser.Id, NotificationKind.RequestNew, "New request", row.Title, "/requests");
             else if (row.Status != MediaRequestStatus.Pending)
                 await notifications.TryPublishAsync(userId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
-            return (CreateOutcome.Created, ToRequester(row, library.Progress(row)));
+            return (CreateOutcome.Created, ToRequester(row, await library.ProgressAsync(row, ct)));
         }
         finally
         {
-            _createLock.Release();
+            RequestRules.AskGate.Release();
         }
     }
 
@@ -255,8 +274,8 @@ public sealed class MediaRequestService(
             .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
                 .SetProperty(r => r.UpdatedAt, row.UpdatedAt), ct);
         if (changed == 0) await db.Entry(row).ReloadAsync(ct);
-        var library = await LibraryOnDisk.LoadAsync(db, browse, ct);
-        return (true, changed > 0, ToRequester(row, library.Progress(row)));
+        var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
+        return (true, changed > 0, ToRequester(row, await library.ProgressAsync(row, ct)));
     }
 
     private static RequesterRequest ToRequester(MediaRequest r, RequestProgress progress) => new(r.Id, r.Title, r.Year, r.MediaType, r.Provider,

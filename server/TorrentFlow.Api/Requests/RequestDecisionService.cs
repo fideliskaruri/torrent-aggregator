@@ -62,71 +62,88 @@ public sealed class RequestDecisionService(
 
     public async Task<(DecisionOutcome Outcome, string? Status)> ApproveAsync(string id, CancellationToken ct, string? decisionReason = null)
     {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
-        if (row is null) return (DecisionOutcome.NotFound, null);
-        if (row.Status != MediaRequestStatus.Pending) return (DecisionOutcome.NotPending, row.Status);
-        var now = time.GetUtcNow().UtcDateTime;
-        row.Status = MediaRequestStatus.Approved;
-        row.DecisionReason = string.IsNullOrWhiteSpace(decisionReason) ? null : decisionReason.Trim();
-        row.DecidedAt = now;
-        row.UpdatedAt = now;
-        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Pending)
-            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, row.Status)
-                .SetProperty(r => r.DecisionReason, row.DecisionReason).SetProperty(r => r.DecidedAt, now)
-                .SetProperty(r => r.UpdatedAt, now), ct);
-        if (changed == 0)
-            return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
-        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
-        // Friends who asked for the same title and scope share this decision; only this one grabs.
-        foreach (var other in await ClaimSameAskAsync(db, row, MediaRequestStatus.Approved, now, ct))
-            await notifications.TryPublishAsync(other.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", other.Title, "/requests");
-        LastGrab = Task.Run(() => GrabAsync(id, lifetime.ApplicationStopping), CancellationToken.None);
-        return (DecisionOutcome.Done, row.Status);
+        var (outcome, status, claimed, grab) = await DecideAsync(id, MediaRequestStatus.Approved, decisionReason, ct);
+        if (outcome != DecisionOutcome.Done) return (outcome, status);
+        foreach (var row in claimed)
+            await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
+        if (grab is { } leadId) LastGrab = Task.Run(() => GrabAsync(leadId, lifetime.ApplicationStopping), CancellationToken.None);
+        return (outcome, status);
     }
 
     public async Task<(DecisionOutcome Outcome, string? Status)> DeclineAsync(string id, string? reason, CancellationToken ct)
     {
-        await using var db = await factory.CreateDbContextAsync(ct);
-        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
-        if (row is null) return (DecisionOutcome.NotFound, null);
-        if (row.Status != MediaRequestStatus.Pending) return (DecisionOutcome.NotPending, row.Status);
-        var now = time.GetUtcNow().UtcDateTime;
-        row.Status = MediaRequestStatus.Declined;
-        row.DecisionReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        row.DecidedAt = now;
-        row.UpdatedAt = now;
-        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Pending)
-            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, row.Status)
-                .SetProperty(r => r.DecisionReason, row.DecisionReason).SetProperty(r => r.DecidedAt, now)
-                .SetProperty(r => r.UpdatedAt, now), ct);
-        if (changed == 0)
-            return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
-        foreach (var other in (await ClaimSameAskAsync(db, row, MediaRequestStatus.Declined, now, ct)).Prepend(row))
-            await notifications.TryPublishAsync(other.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
-                row.DecisionReason is { } reasonText ? $"{other.Title}: {reasonText}" : other.Title, "/requests");
-        return (DecisionOutcome.Done, row.Status);
+        var (outcome, status, claimed, _) = await DecideAsync(id, MediaRequestStatus.Declined, reason, ct);
+        if (outcome != DecisionOutcome.Done) return (outcome, status);
+        foreach (var row in claimed)
+            await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
+                row.DecisionReason is { } reasonText ? $"{row.Title}: {reasonText}" : row.Title, "/requests");
+        return (outcome, status);
     }
 
     /// <summary>
-    /// The other pending requests for the same title and scope (<see cref="RequestRules.SameAskKey"/>) take the decision
-    /// <paramref name="row"/> just got. Each is claimed atomically, so a concurrent decision on one of them wins once.
+    /// Decides a whole shared ask at once (<see cref="RequestRules.SameAskKey"/>): every pending row for the same title and
+    /// scope takes the decision in one transaction, behind <see cref="RequestRules.AskGate"/>, so racing approvals and
+    /// declines leave one outcome. An approval elects one row to grab (the oldest), unless the ask is already downloading
+    /// for an earlier approved row, whose transfers the claimed rows then share.
     /// </summary>
-    private static async Task<List<MediaRequest>> ClaimSameAskAsync(TorrentFlowDbContext db, MediaRequest row, string status, DateTime now,
-        CancellationToken ct)
+    private async Task<(DecisionOutcome Outcome, string? Status, List<MediaRequest> Claimed, string? Grab)> DecideAsync(string id, string status,
+        string? reason, CancellationToken ct)
     {
-        var key = RequestRules.SameAskKey(row);
-        var pending = await db.MediaRequests.AsNoTracking()
-            .Where(r => r.Id != row.Id && r.WorkKey == row.WorkKey && r.Status == MediaRequestStatus.Pending).ToListAsync(ct);
-        var claimed = new List<MediaRequest>();
-        foreach (var other in pending.Where(r => RequestRules.SameAskKey(r) == key))
+        await RequestRules.AskGate.WaitAsync(ct);
+        try
         {
-            var changed = await db.MediaRequests.Where(r => r.Id == other.Id && r.Status == MediaRequestStatus.Pending)
-                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, status).SetProperty(r => r.DecisionReason, row.DecisionReason)
-                    .SetProperty(r => r.DecidedAt, now).SetProperty(r => r.UpdatedAt, now), ct);
-            if (changed > 0) claimed.Add(other);
+            await using var db = await factory.CreateDbContextAsync(ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var row = await db.MediaRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, ct);
+            if (row is null) return (DecisionOutcome.NotFound, null, [], null);
+            if (row.Status != MediaRequestStatus.Pending) return (DecisionOutcome.NotPending, row.Status, [], null);
+            var key = RequestRules.SameAskKey(row);
+            var ask = (await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == row.WorkKey).ToListAsync(ct))
+                .Where(r => RequestRules.SameAskKey(r) == key).ToList();
+            var claimed = ask.Where(r => r.Status == MediaRequestStatus.Pending).OrderBy(r => r.CreatedAt).ToList();
+            var ids = claimed.Select(r => r.Id).ToList();
+            var now = time.GetUtcNow().UtcDateTime;
+            var note = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            var running = status == MediaRequestStatus.Approved
+                ? ask.Where(r => r.Status is MediaRequestStatus.Approved or MediaRequestStatus.Partial).OrderBy(r => r.CreatedAt).FirstOrDefault()
+                : null;
+            var hashes = running?.GrabbedHashes;
+            var changed = await db.MediaRequests.Where(r => ids.Contains(r.Id) && r.Status == MediaRequestStatus.Pending)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, status).SetProperty(r => r.DecisionReason, note)
+                    .SetProperty(r => r.DecidedAt, now).SetProperty(r => r.UpdatedAt, now)
+                    .SetProperty(r => r.GrabbedHashes, r => hashes ?? r.GrabbedHashes), ct);
+            if (changed != ids.Count)
+            {
+                await tx.RollbackAsync(CancellationToken.None);
+                return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct), [], null);
+            }
+            await tx.CommitAsync(ct);
+            foreach (var r in claimed) { r.Status = status; r.DecisionReason = note; r.DecidedAt = now; r.UpdatedAt = now; }
+            return (DecisionOutcome.Done, status, claimed, status == MediaRequestStatus.Approved && running is null ? claimed[0].Id : null);
         }
-        return claimed;
+        finally
+        {
+            RequestRules.AskGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The rows that share the elected row's ask and are waiting on its grab take its outcome, and each requester hears it.
+    /// </summary>
+    private async Task ShareOutcomeAsync(TorrentFlowDbContext db, MediaRequest lead, string? kind, string? heading, CancellationToken ct)
+    {
+        var key = RequestRules.SameAskKey(lead);
+        var siblings = (await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == lead.WorkKey && r.Id != lead.Id &&
+                r.Status == MediaRequestStatus.Approved).ToListAsync(ct))
+            .Where(r => RequestRules.SameAskKey(r) == key && string.IsNullOrEmpty(r.GrabbedHashes)).ToList();
+        if (siblings.Count == 0) return;
+        var ids = siblings.Select(r => r.Id).ToList();
+        await db.MediaRequests.Where(r => ids.Contains(r.Id) && r.Status == MediaRequestStatus.Approved)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, lead.Status).SetProperty(r => r.DecisionReason, lead.DecisionReason)
+                .SetProperty(r => r.GrabbedHashes, lead.GrabbedHashes).SetProperty(r => r.UpdatedAt, lead.UpdatedAt), ct);
+        if (kind is { } k && heading != null)
+            foreach (var r in siblings)
+                await notifications.TryPublishAsync(r.RequestedByUserId, k, heading, $"{r.Title}: {lead.DecisionReason}", "/requests");
     }
 
     private async Task GrabAsync(string id, CancellationToken ct)
@@ -174,9 +191,10 @@ public sealed class RequestDecisionService(
             current.DecisionReason = current.Status == MediaRequestStatus.Partial
                 ? PartialReason : NoDownloadReason;
             await db.SaveChangesAsync(CancellationToken.None);
-            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed,
-                current.Status == MediaRequestStatus.Partial ? "Request partly started" : "Request could not be downloaded",
+            var heading = current.Status == MediaRequestStatus.Partial ? "Request partly started" : "Request could not be downloaded";
+            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, heading,
                 $"{current.Title}: {current.DecisionReason}", "/requests");
+            await ShareOutcomeAsync(db, current, NotificationKind.RequestFailed, heading, CancellationToken.None);
             return;
         }
         current.GrabbedHashes = string.Join(',', outcome.Hashes.Select(h => h.ToLowerInvariant()).Distinct());
@@ -189,11 +207,13 @@ public sealed class RequestDecisionService(
             await db.SaveChangesAsync(CancellationToken.None);
             await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request partly started",
                 $"{current.Title}: {current.DecisionReason}", "/requests");
+            await ShareOutcomeAsync(db, current, NotificationKind.RequestFailed, "Request partly started", CancellationToken.None);
             return;
         }
         current.Status = MediaRequestStatus.Approved;
         if (retry) current.DecisionReason = null;
         await db.SaveChangesAsync(CancellationToken.None);
+        await ShareOutcomeAsync(db, current, null, null, CancellationToken.None);
         await CheckFulfilledAsync(id, CancellationToken.None);
     }
 
