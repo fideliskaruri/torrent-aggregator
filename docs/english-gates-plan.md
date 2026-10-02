@@ -2,6 +2,12 @@
 
 Status: approved with the recommended defaults (owner away, 2 Oct): files with no language tags are held for the owner, a no-English automatic pick is deleted and replaced, external subtitles are a later lane, T6 merged as the base. Research and critique: OPS-600.
 
+Progress: E1 (OPS-603) built the "what counts as English subtitles" part of P2: track roles (Full, SignsSongs, Forced,
+Unknown) kept on the verdict, `und` tracks named by language, one judge (`ReleaseLanguage.Verdict`, `JudgeRelease`) used by
+the file-list check, the header probe, the season pack check, the picker and the swap dialog, and the per-video sidecar
+closure (`VideoSidecars.Of`), which season pack selections now download with each episode. The gate on the finished
+files (P2) calls the same judge. Rules and real examples: docs/release-language.md, "Track roles and sidecars".
+
 Owner rule: an automatic pick must have English audio or English subtitles. A hand pick always goes.
 
 ## What we want
