@@ -82,6 +82,12 @@ public sealed partial class WorkSearchService
     private readonly CinemetaClient? _cinemeta;
     private readonly IDbContextFactory<TorrentFlowDbContext>? _works;
     private readonly BoundedTtlCache<(WorkSearchOutcome Result, DateTimeOffset FreshUntil)> _cache;
+    /// <summary>How long the stored works' keys and canonical ids are reused before being read again (sooner when a work changes).</summary>
+    private static readonly TimeSpan StoredIndexTtl = TimeSpan.FromSeconds(30);
+    private StoredIndex? _storedIndex;
+
+    /// <summary>Every stored work's key, the name it gives (<see cref="WorkKeySlug.NameOf"/>) and its canonical ids, as read at <paramref name="Version"/>.</summary>
+    private sealed record StoredIndex(long Version, DateTimeOffset ReadAt, IReadOnlyList<(string Key, string Name, HashSet<string> Ids)> Works);
 
     public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time,
         SourceRegistry? registry = null, CinemetaClient? cinemeta = null, IDbContextFactory<TorrentFlowDbContext>? works = null)
@@ -322,12 +328,12 @@ public sealed partial class WorkSearchService
         try
         {
             await using var db = await _works.CreateDbContextAsync(ct).ConfigureAwait(false);
-            // A library holds hundreds of works, so its keys and canonical ids are read once and matched here:
-            // "doctor-who-1963-tv" and "doctor-who-2005-tv-tmdb57243" are keys of "doctor-who", and a work stored under
-            // another name ("money-heist-2017") is still the record whose IMDb id it keeps.
-            foreach (var row in await db.Works.AsNoTracking().Select(w => new { w.WorkKey, w.IdsJson }).ToListAsync(ct).ConfigureAwait(false))
-                if (names.Contains(WorkKeySlug.NameOf(row.WorkKey)) || WorkIdentities.Of(WorkIds.FromJson(row.IdsJson)).Overlaps(identities))
-                    keys.Add(row.WorkKey);
+            // A library holds hundreds of works, so its keys and canonical ids are matched in memory, from one reading shared
+            // by searches for a short while: "doctor-who-1963-tv" and "doctor-who-2005-tv-tmdb57243" are keys of
+            // "doctor-who", and a work stored under another name ("money-heist-2017") is still the record whose IMDb id it keeps.
+            foreach (var (key, name, known) in (await StoredIndexAsync(db, ct).ConfigureAwait(false)).Works)
+                if (names.Contains(name) || known.Overlaps(identities))
+                    keys.Add(key);
             var linked = db.WorkLinks.Where(l => l.Verified && !l.Rejected && ids.Contains(l.ExternalId)).Select(l => l.WorkId);
             var works = await db.Works.AsNoTracking().Include(w => w.Links.Where(l => l.Verified && !l.Rejected))
                 .Where(w => keys.Contains(w.WorkKey) || (w.ProviderId != null && ids.Contains(w.ProviderId)) || linked.Contains(w.Id))
@@ -339,6 +345,22 @@ public sealed partial class WorkSearchService
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// The stored works' keys, names and canonical ids, read again only when a work was added, removed, re-keyed or got
+    /// other ids since (<see cref="WorkIdentities.Version"/>) or after <see cref="StoredIndexTtl"/>, so one reading serves every
+    /// search and enrichment lookup in between. Each search still loads the works it matches afresh, ids and links included.
+    /// </summary>
+    private async Task<StoredIndex> StoredIndexAsync(TorrentFlowDbContext db, CancellationToken ct)
+    {
+        var version = WorkIdentities.Version;
+        var now = _time.GetUtcNow();
+        if (_storedIndex is { } index && index.Version == version && now - index.ReadAt < StoredIndexTtl) return index;
+        var rows = await db.Works.AsNoTracking().Select(w => new { w.WorkKey, w.IdsJson }).ToListAsync(ct).ConfigureAwait(false);
+        var read = new StoredIndex(version, now, rows.Select(r => (r.WorkKey, WorkKeySlug.NameOf(r.WorkKey), WorkIdentities.Of(WorkIds.FromJson(r.IdsJson)))).ToList());
+        _storedIndex = read;
+        return read;
     }
     public async Task<WorkSearchOutcome> SearchAsync(string scope, string rawQuery, int limit, CancellationToken ct = default)
     {

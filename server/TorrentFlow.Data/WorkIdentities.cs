@@ -14,6 +14,16 @@ public enum IdentityMatch { Unknown, Same, Different }
 /// </summary>
 public static class WorkIdentities
 {
+    private static long _version;
+
+    /// <summary>
+    /// Bumped whenever a saved change adds, removes or re-keys a work or changes its canonical ids
+    /// (<see cref="TorrentFlowDbContext"/>), so a cached view of every work's identity (search's) knows to read again.
+    /// </summary>
+    public static long Version => Interlocked.Read(ref _version);
+
+    internal static void Changed() => Interlocked.Increment(ref _version);
+
     /// <summary>One id as "provider:id"; Cinemeta's ids are IMDb's.</summary>
     public static string Id(string provider, string id)
     {
