@@ -33,6 +33,7 @@ public static class LibraryModule
         services.AddSingleton<TitleService>();
         services.AddSingleton<WorkNamesRefresh>();
         services.AddHostedService<WorkAnimeBackfill>();
+        services.AddHostedService<WorkIdsBackfill>();
         services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();

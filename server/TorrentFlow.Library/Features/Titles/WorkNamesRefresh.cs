@@ -28,12 +28,22 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
 
     /// <summary>
     /// Whether this work's names, ids, format and language were never taken from its own provider (AniList or TMDB; the
-    /// others give nothing more than ingest stored), or its format or anime verdict is still unknown. Once taken, values
-    /// the provider doesn't know (TMDB "xx", a country with no mapped language, no IMDb id) stay unknown rather than being fetched again.
+    /// others give nothing more than ingest stored), or its format or anime verdict is still unknown, or it is a TVmaze
+    /// work saved before TVmaze records carried their IMDb and TheTVDB ids (<see cref="MissingTvmazeIds"/>). Once taken,
+    /// values the provider doesn't know (TMDB "xx", a country with no mapped language, no IMDb id) stay unknown rather
+    /// than being fetched again; a TVmaze show with no IMDb or TheTVDB id is asked at most once a day.
     /// </summary>
     public static bool Stale(Work work) =>
         work.NamesRefreshedAt == null && work.Provider is "anilist" or "tmdb"
-        || (work.Anime == null || work.Format == null || work.Year == null) && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider);
+        || (work.Anime == null || work.Format == null || work.Year == null) && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider)
+        || MissingTvmazeIds(work);
+
+    /// <summary>
+    /// A TVmaze work known only by its TVmaze id: no IMDb or TheTVDB id among its ids or verified links. A download from
+    /// TMDB's or Cinemeta's record of the same show can't find it until its own record is read again
+    /// (<see cref="WorkIdsBackfill"/>, or the next title open).
+    /// </summary>
+    public static bool MissingTvmazeIds(Work work) => work.Provider == "tvmaze" && work.ProviderId != null && work.ReadIds() is { Imdb: null, Tvdb: null };
 
     /// <summary>
     /// Claims this flight's lookup slot; only one caller wins a slot, however many race for it. Slots older than their
