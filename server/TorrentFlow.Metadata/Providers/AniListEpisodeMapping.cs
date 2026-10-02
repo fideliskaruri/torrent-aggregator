@@ -126,12 +126,17 @@ public sealed partial class AniListClient
                 // An OVA or film told before the first TV season (Attack on Titan's, Jujutsu Kaisen 0) is no season, so only
                 // TV/ONA prequels count: none is the first season, two are a branch.
                 var edges = all.Where(e => ChainTarget(e) != null).ToArray();
+                int? bridged = null;
                 if (edges.Length == 0)
                 {
-                    complete = true;
-                    break;
+                    bridged = await BridgeAsync(all, "PREQUEL", seen, deadline.Token).ConfigureAwait(false);
+                    if (bridged is null)
+                    {
+                        complete = true;
+                        break;
+                    }
                 }
-                if (edges.Length != 1 || ChainTarget(edges[0]) is not { } next || !seen.Add(next) ||
+                if ((bridged ?? (edges.Length == 1 ? ChainTarget(edges[0]) : null)) is not { } next || !seen.Add(next) ||
                     await ChainNodeAsync(next, deadline.Token).ConfigureAwait(false) is not { } prequel) break;
                 prequels.Add(prequel);
                 node = prequel;
@@ -140,7 +145,10 @@ public sealed partial class AniListClient
             while (sequels && later.Count < 16)
             {
                 // A movie next to the next TV season is not a season; two TV sequels are a branch, so the walk stops.
-                var next = Edges(node, "SEQUEL")?.Select(ChainTarget).OfType<int>().Distinct().ToArray();
+                var edges = Edges(node, "SEQUEL");
+                var next = edges?.Select(ChainTarget).OfType<int>().Distinct().ToArray();
+                if (next is { Length: 0 } && await BridgeAsync(edges!, "SEQUEL", seen, deadline.Token).ConfigureAwait(false) is { } over)
+                    next = [over];
                 if (next is not { Length: 1 } || !seen.Add(next[0]) ||
                     await ChainNodeAsync(next[0], deadline.Token).ConfigureAwait(false) is not { } sequel ||
                     Str(sequel, "status") == "NOT_YET_RELEASED") break;
@@ -163,7 +171,25 @@ public sealed partial class AniListClient
     private static int? ChainTarget(JsonElement edge) =>
         edge.TryGetProperty("node", out var node) && Str(node, "type") == "ANIME" && Str(node, "format") is "TV" or "ONA" ? Int(node, "id") : null;
 
-    private async Task<JsonElement?> ChainNodeAsync(int id, CancellationToken ct)
+    /// <summary>
+    /// A TV special aired between two seasons (Dr. Stone's Ryuusui between Stone Wars and New World) is the only
+    /// prequel/sequel edge of its neighbours, which would cut the chain in two. When the sole edge is one special and that
+    /// special has exactly one TV/ONA edge onward in the same direction, the walk steps over it.
+    /// </summary>
+    private async Task<int?> BridgeAsync(JsonElement[] edges, string relationType, HashSet<int> seen, CancellationToken ct)
+    {
+        var specials = edges.Where(e => e.TryGetProperty("node", out var n) && Str(n, "type") == "ANIME" && Str(n, "format") == "SPECIAL")
+            .Select(e => Int(e.GetProperty("node"), "id")).OfType<int>().Distinct().ToArray();
+        if (specials is not [var special] || seen.Contains(special) ||
+            await NodeAsync(special, ct).ConfigureAwait(false) is not { } node) return null;
+        var onward = Edges(node, relationType)?.Select(ChainTarget).OfType<int>().Distinct().ToArray();
+        return onward is [var next] && !seen.Contains(next) ? next : null;
+    }
+
+    private async Task<JsonElement?> ChainNodeAsync(int id, CancellationToken ct) =>
+        await NodeAsync(id, ct).ConfigureAwait(false) is { } media && Str(media, "format") is "TV" or "ONA" ? media : null;
+
+    private async Task<JsonElement?> NodeAsync(int id, CancellationToken ct)
     {
         var key = id.ToString(CultureInfo.InvariantCulture);
         if (!_chainNodes.TryGet(key, out var media))
@@ -179,7 +205,7 @@ public sealed partial class AniListClient
             media = found.Clone();
             _chainNodes.Set(key, media, Str(media, "status") == "FINISHED" ? TimeSpan.FromHours(12) : TimeSpan.FromMinutes(30));
         }
-        return Str(media, "format") is "TV" or "ONA" ? media : null;
+        return media;
     }
 
     internal static AnimeEpisodeMapping MapEpisodeChain(IReadOnlyList<JsonElement> chain, bool complete = true)
