@@ -5,6 +5,7 @@ using TorrentFlow.Metadata.Providers;
 using TorrentFlow.Metadata.Text;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Sources;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 
 namespace TorrentFlow.Metadata.Search;
@@ -51,11 +52,7 @@ public sealed record WorkSearchHit
 public sealed record StoredWork(string WorkKey, int? Year, bool IsSeries, IReadOnlySet<string> Ids)
 {
     /// <summary>One id as "provider:id"; Cinemeta's ids are IMDb's.</summary>
-    public static string Id(string provider, string id)
-    {
-        var name = provider.Trim().ToLowerInvariant();
-        return $"{(name == "cinemeta" ? "imdb" : name)}:{id.Trim().ToLowerInvariant()}";
-    }
+    public static string Id(string provider, string id) => WorkIdentities.Id(provider, id);
 }
 
 public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query, string DisplayQuery, IReadOnlyList<string> Attempted,
@@ -67,9 +64,6 @@ public delegate Task<List<WorkSearchHit>> WorkSearchProvider(string query, int l
 /// <summary>Port of src/lib/search/work-search.ts + work-search-fanout.ts.</summary>
 public sealed partial class WorkSearchService
 {
-    [System.Text.RegularExpressions.GeneratedRegex(@"^(.+)-(?:19|20)\d{2}(?:-(?:tv|film))?$")]
-    private static partial System.Text.RegularExpressions.Regex StoredDatedKey();
-
     public static readonly string[] Categories = ["movies", "series", "anime"];
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StaleTtl = TimeSpan.FromHours(24);
@@ -319,29 +313,23 @@ public sealed partial class WorkSearchService
         var names = hits.Select(h => WorkKeys.WorkKeyFor(h.Title, null)).Where(k => k.Length > 0).ToHashSet(StringComparer.Ordinal);
         var ids = hits.SelectMany(h => (h.ExternalIds?.Values ?? []).Append(h.ProviderId)).OfType<string>()
             .Select(v => v.Trim()).Where(v => v.Length > 0).Distinct().ToList();
+        var identities = hits.SelectMany(h => (h.ExternalIds ?? new Dictionary<string, string>()).Select(p => (Provider: p.Key, Id: p.Value))
+                .Append((Provider: h.Provider, Id: h.ProviderId ?? "")))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id)).Select(x => StoredWork.Id(x.Provider, x.Id)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         try
         {
             await using var db = await _works.CreateDbContextAsync(ct).ConfigureAwait(false);
-            // A library holds hundreds of works, so its keys are read once and matched here: "doctor-who-1963-tv" is a
-            // dated key of "doctor-who".
-            foreach (var key in await db.Works.AsNoTracking().Select(w => w.WorkKey).ToListAsync(ct).ConfigureAwait(false))
-                if (StoredDatedKey().Match(key) is { Success: true } m && names.Contains(m.Groups[1].Value)) keys.Add(key);
+            // A library holds hundreds of works, so its keys and canonical ids are read once and matched here:
+            // "doctor-who-1963-tv" and "doctor-who-2005-tv-tmdb57243" are keys of "doctor-who", and a work stored under
+            // another name ("money-heist-2017") is still the record whose IMDb id it keeps.
+            foreach (var row in await db.Works.AsNoTracking().Select(w => new { w.WorkKey, w.IdsJson }).ToListAsync(ct).ConfigureAwait(false))
+                if (names.Contains(WorkKeySlug.NameOf(row.WorkKey)) || WorkIdentities.Of(WorkIds.FromJson(row.IdsJson)).Overlaps(identities))
+                    keys.Add(row.WorkKey);
             var linked = db.WorkLinks.Where(l => l.Verified && !l.Rejected && ids.Contains(l.ExternalId)).Select(l => l.WorkId);
             var works = await db.Works.AsNoTracking().Include(w => w.Links.Where(l => l.Verified && !l.Rejected))
                 .Where(w => keys.Contains(w.WorkKey) || (w.ProviderId != null && ids.Contains(w.ProviderId)) || linked.Contains(w.Id))
                 .ToListAsync(ct).ConfigureAwait(false);
-            return works.Select(w =>
-            {
-                var known = w.ReadIds();
-                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (w.Provider is { } provider && w.ProviderId is { } providerId) set.Add(StoredWork.Id(provider, providerId));
-                if (known.Tmdb is { } tmdb) set.Add(StoredWork.Id("tmdb", tmdb.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                if (known.AniList is { } anilist) set.Add(StoredWork.Id("anilist", anilist.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                if (known.Mal is { } mal) set.Add(StoredWork.Id("mal", mal.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                if (known.Imdb is { } imdb) set.Add(StoredWork.Id("imdb", imdb));
-                foreach (var link in w.Links) set.Add(StoredWork.Id(link.Provider, link.ExternalId));
-                return new StoredWork(w.WorkKey, w.Year, w.MediaType != "movie", set);
-            }).ToList();
+            return works.Select(w => new StoredWork(w.WorkKey, w.Year, w.MediaType != "movie", WorkIdentities.Of(w))).ToList();
         }
         catch (Exception e) when (!ct.IsCancellationRequested && e is DbUpdateException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
         {

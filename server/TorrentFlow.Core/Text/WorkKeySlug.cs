@@ -16,7 +16,8 @@ public static partial class WorkKeySlug
     [GeneratedRegex(@"-(?:19|20)\d{2}$")] private static partial Regex TrailingYear();
     [GeneratedRegex(@"-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)")]
     private static partial Regex LegacySizeGroup();
-    [GeneratedRegex(@"((?:-(?:19|20)\d{2})?)-(?:tv|film)$")] private static partial Regex KindSuffix();
+    [GeneratedRegex(@"((?:-(?:19|20)\d{2})?)-(tv|film)(?:-(?:tmdb|tvmaze|anilist|imdb|cinemeta|itunes|mal)[a-z0-9]+)?$")]
+    private static partial Regex KindSuffix();
 
     // Hosts that run with invariant globalization may not decompose accents, so the common Latin ones fold here too.
     private const string Accented = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝŸýÿÇçÑñ";
@@ -61,9 +62,30 @@ public static partial class WorkKeySlug
     /// <summary>The key a work key takes when a stored work of the other kind holds it: "the-flash-2023-tv", "family-guy-film".</summary>
     public static string KindKey(string key, bool series) => $"{key}-{(series ? "tv" : "film")}";
 
+    /// <summary>
+    /// The keys a record named <paramref name="key"/> may take, in order: the key, its <see cref="KindKey"/>, then the kind
+    /// key tagged with its own catalog id ("the-flash-2023-tv-tmdb200"), which no other record can hold.
+    /// </summary>
+    public static IReadOnlyList<string> KeyCandidates(string key, bool series, string? provider, string? providerId)
+    {
+        // A key that already carries this kind's tag (or the id tag too) is extended from its name and year, never doubled.
+        var name = KindOf(key) == series ? KindSuffix().Replace(key, "$1") : key;
+        var kind = KindKey(name, series);
+        var tag = Slugify($"{provider}{providerId}").Replace("-", "", StringComparison.Ordinal);
+        List<string> keys = provider is { Length: > 0 } && providerId is { Length: > 0 } && tag.Length > 0 ? [key, kind, $"{kind}-{tag}"] : [key, kind];
+        return keys.Distinct(StringComparer.Ordinal).ToList();
+    }
+
     /// <summary>Whether a <see cref="KindKey"/> names a series (true) or a film (false); null for any other key.</summary>
     public static bool? KindOf(string? key) =>
-        KindSuffix().Match((key ?? "").Trim().ToLowerInvariant()) is { Success: true } m ? m.Value.EndsWith("-tv", StringComparison.Ordinal) : null;
+        KindSuffix().Match((key ?? "").Trim().ToLowerInvariant()) is { Success: true } m ? m.Groups[2].Value == "tv" : null;
+
+    /// <summary>A key's name alone: "doctor-who-1963", "doctor-who-1963-tv" and "doctor-who" all name "doctor-who".</summary>
+    public static string NameOf(string? key)
+    {
+        var plain = KindSuffix().Replace((key ?? "").Trim().ToLowerInvariant(), "$1");
+        return TrailingYear().Replace(plain, "");
+    }
 
     public static bool SameKey(string left, string right) =>
         string.Equals(Uri.UnescapeDataString(left), Uri.UnescapeDataString(right), StringComparison.OrdinalIgnoreCase);

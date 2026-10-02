@@ -186,9 +186,12 @@ const LEGACY_SIZE_GROUP =
 /**
  * The kind tag a key takes when a stored work of the other kind already holds
  * its plain spelling (`the-flash-2023-tv`, `family-guy-film`; the server's
- * `WorkKeySlug.KindKey`). The name and year before it still name the work.
+ * `WorkKeySlug.KindKey`), or that tag plus the record's own catalog id when
+ * another work holds that too (`the-flash-2023-tv-tmdb200`). The name and year
+ * before it still name the work.
  */
-const KIND_SUFFIX = /((?:-(?:19|20)\d{2})?)-(?:tv|film)$/;
+const KIND_SUFFIX =
+  /((?:-(?:19|20)\d{2})?)-(?:tv|film)(?:-(?:tmdb|tvmaze|anilist|imdb|cinemeta|itunes|mal)[a-z0-9]+)?$/;
 
 /**
  * Every spelling of `key` a stored row may legitimately answer to.

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Text;
+using TorrentFlow.Data;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Metadata.Search;
@@ -133,52 +134,90 @@ internal static partial class SearchRanking
     }
 
     /// <summary>
-    /// The work key each hit links to. A stored work always keeps its key: a hit that is that work by provider identity
-    /// (provider id, a stored id or a verified link), or a same-name series from the stored work's era, links to it, so
-    /// its downloads, requests and watchlist row stay attached. Any other series is keyed by its name and the first year
-    /// of its era, "doctor-who-1963", as films are, so its key never depends on which namesakes the catalogs returned
-    /// this time. A dated key a stored work of the other kind (or another identity) already holds gets the kind on the
-    /// end, "the-flash-2023-tv", so a series never opens or downloads into a film's work.
+    /// The work key each hit links to. A stored work always keeps its key: a hit that is that work by identity (its
+    /// provider id, stored ids or verified links, <see cref="WorkIdentities"/>), or a same-name series from the stored
+    /// work's era that no id contradicts, links to it, so its downloads, requests and watchlist row stay attached. Any
+    /// other series is keyed by its name and the first year of its era, "doctor-who-1963", as films are, so its key never
+    /// depends on which namesakes the catalogs returned this time. A key that a stored work of the other kind or another
+    /// identity holds, or another work of these results took, gets the kind on the end ("the-flash-2023-tv"), then the
+    /// record's own id ("the-flash-2023-tv-tmdb200"), so a hit never opens or downloads into another work.
     /// </summary>
     private static IReadOnlyList<WorkSearchHit> AssignWorkKeys(IReadOnlyList<WorkSearchHit> hits, IReadOnlyList<StoredWork> stored)
     {
-        var resolved = hits.Select(hit => stored.FirstOrDefault(w => w.IsSeries == hit.IsSeries && w.Ids.Overlaps(IdentityOf(hit))) is { } work
-            ? hit.WithWorkKey(work.WorkKey) with { Stored = true } : hit).ToList();
         // Every era of each plain series key: the years of the hits under it and of the stored works named alike. Catalogs
         // date a start a year apart (Doctor Who 2023 and 2024), so an era is years a year apart and is named by its first.
         var eras = new Dictionary<string, List<int>>(StringComparer.Ordinal);
         foreach (var hit in hits.Where(h => h.IsSeries && h.Year is not null))
             Era(eras, hit.WorkKey).Add(hit.Year!.Value);
         foreach (var work in stored.Where(w => w.IsSeries && w.Year is not null))
-            Era(eras, PlainSeriesKey(work.WorkKey)).Add(work.Year!.Value);
-        return resolved.Select((hit, i) =>
+            Era(eras, WorkKeySlug.NameOf(work.WorkKey)).Add(work.Year!.Value);
+        // The key each hit is named by before stored works are consulted: a film's own dated key, a series' era key.
+        var named = hits.Select(hit =>
         {
-            if (hit.Stored) return hit;
-            var key = hit.WorkKey;
-            if (hit.IsSeries)
+            if (!hit.IsSeries || hit.Year is not { } year) return hit.WorkKey;
+            var era = Clusters(eras[hit.WorkKey]).First(c => c.Contains(year)).Min();
+            return hit.WorkKey.EndsWith($"-{era}", StringComparison.Ordinal) ? hit.WorkKey : WorkKeys.WorkKeyFor(hit.Title, era);
+        }).ToList();
+        // The records of one work: hits of a kind under one name whose ids never contradict each other (TVmaze's Doctor Who
+        // 2005 and TMDB's, which share no id but name the same show). Each group is one claim, so its records always land
+        // on one key, and a stored work is judged against all of their ids together.
+        var groups = new List<(bool IsSeries, string Named, HashSet<string> Ids, List<int> Members)>();
+        for (var i = 0; i < hits.Count; i++)
+        {
+            var ids = IdentityOf(hits[i]);
+            var group = groups.FindIndex(g => g.IsSeries == hits[i].IsSeries && g.Named == named[i] &&
+                WorkIdentities.Compare(g.Ids, ids) != IdentityMatch.Different);
+            if (group < 0) groups.Add((hits[i].IsSeries, named[i], ids, [i]));
+            else
             {
-                var plain = hits[i].WorkKey;
-                var clusters = eras.TryGetValue(plain, out var years) ? Clusters(years) : [];
-                // A stored namesake with no year is this show only when no other era is in sight.
-                if (stored.FirstOrDefault(w => w.IsSeries && PlainSeriesKey(w.WorkKey) == plain && SameEra(w.Year, hit.Year) &&
-                        (w.Year is not null || clusters.Count < 2)) is { } same)
-                    return hit.WithWorkKey(same.WorkKey);
-                if (hit.Year is { } year)
-                {
-                    var era = clusters.First(c => c.Contains(year)).Min();
-                    key = plain.EndsWith($"-{era}", StringComparison.Ordinal) ? plain : WorkKeys.WorkKeyFor(hit.Title, era);
-                }
+                groups[group].Ids.UnionWith(ids);
+                groups[group].Members.Add(i);
             }
-            var ids = IdentityOf(hit);
-            if (stored.Any(w => string.Equals(w.WorkKey, key, StringComparison.OrdinalIgnoreCase) && (w.IsSeries != hit.IsSeries || Conflicts(w.Ids, ids))))
-                key = WorkKeySlug.KindKey(key, hit.IsSeries);
-            return key == hit.WorkKey ? hit : hit.WithWorkKey(key);
+        }
+        // Identity decides before any name does, so each pass only takes keys no earlier pass gave to another group.
+        var chosen = new string?[groups.Count];
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 1. The stored work these records are (a shared provider id, stored id or verified link) keeps its key.
+        for (var g = 0; g < groups.Count; g++)
+            if (stored.FirstOrDefault(w => w.IsSeries == groups[g].IsSeries && WorkIdentities.Compare(w.Ids, groups[g].Ids) == IdentityMatch.Same) is { } same)
+                taken.Add(chosen[g] = same.WorkKey);
+        // 2. A series takes a stored namesake from its era only when no id of it contradicts the records and no group above
+        // holds it: a stored tmdb:100 never lends its key to tmdb:200. One with no year is this show only when no other era
+        // is in sight.
+        for (var g = 0; g < groups.Count; g++)
+        {
+            var (isSeries, name, ids, members) = groups[g];
+            if (chosen[g] != null || !isSeries) continue;
+            var year = hits[members[0]].Year;
+            var plain = WorkKeySlug.NameOf(name);
+            var clusters = eras.TryGetValue(plain, out var years) ? Clusters(years) : [];
+            if (stored.FirstOrDefault(w => w.IsSeries && !taken.Contains(w.WorkKey) && WorkKeySlug.NameOf(w.WorkKey) == plain && SameEra(w.Year, year) &&
+                    (w.Year is not null || clusters.Count < 2) && WorkIdentities.Compare(w.Ids, ids) != IdentityMatch.Different) is { } namesake)
+                taken.Add(chosen[g] = namesake.WorkKey);
+        }
+        // 3. Every other group takes the first of its keys that no group above took and no stored work of the other kind or
+        // another identity holds, base and kind-tagged alike: "the-flash-2023", "the-flash-2023-tv", "the-flash-2023-tv-tmdb200".
+        for (var g = 0; g < groups.Count; g++)
+        {
+            var (isSeries, name, ids, members) = groups[g];
+            if (chosen[g] != null) continue;
+            var first = hits[members[0]];
+            var key = WorkKeySlug.KeyCandidates(name, isSeries, first.Provider, first.ProviderId).FirstOrDefault(candidate => !taken.Contains(candidate) &&
+                (stored.FirstOrDefault(w => string.Equals(w.WorkKey, candidate, StringComparison.OrdinalIgnoreCase)) is not { } holder ||
+                    holder.IsSeries == isSeries && WorkIdentities.Compare(holder.Ids, ids) != IdentityMatch.Different), name);
+            taken.Add(chosen[g] = key);
+        }
+        var keys = new string[hits.Count];
+        for (var g = 0; g < groups.Count; g++)
+            foreach (var member in groups[g].Members) keys[member] = chosen[g]!;
+        return hits.Select((hit, i) =>
+        {
+            var keyed = keys[i] == hit.WorkKey ? hit : hit.WithWorkKey(keys[i]);
+            // The stored work's own record (it shares an id) keeps the card, so its link stays the library's work.
+            return stored.Any(w => w.IsSeries == hit.IsSeries && string.Equals(w.WorkKey, keys[i], StringComparison.OrdinalIgnoreCase) &&
+                WorkIdentities.Compare(w.Ids, IdentityOf(hit)) == IdentityMatch.Same) ? keyed with { Stored = true } : keyed;
         }).ToList();
     }
-
-    /// <summary>Two records of different works: an id from the same catalog that differs, and none in common.</summary>
-    private static bool Conflicts(IReadOnlySet<string> stored, IReadOnlySet<string> hit) =>
-        !stored.Overlaps(hit) && stored.Any(a => hit.Any(b => a[..a.IndexOf(':')] == b[..b.IndexOf(':')]));
 
     private static List<int> Era(Dictionary<string, List<int>> eras, string key) =>
         eras.TryGetValue(key, out var list) ? list : eras[key] = [];
@@ -192,11 +231,6 @@ internal static partial class SearchRanking
             else clusters.Add([year]);
         return clusters;
     }
-
-    /// <summary>"doctor-who-1963" (or "-1963-tv") → "doctor-who"; a key with no year suffix is already plain.</summary>
-    private static string PlainSeriesKey(string key) => DatedKey().Replace(key, "");
-
-    [GeneratedRegex(@"-(?:19|20)\d{2}(?:-(?:tv|film))?$")] private static partial Regex DatedKey();
 
     /// <summary>The ids a hit is known by, as "provider:id" (Cinemeta's ids are IMDb's).</summary>
     private static HashSet<string> IdentityOf(WorkSearchHit hit)
