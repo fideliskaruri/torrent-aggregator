@@ -50,10 +50,14 @@ public sealed partial class GrabService
                 if (seen.Add(EpisodeLadder.CandidateKey(pack))) candidates.Add((pack, rung));
         }
         // The English rule: Pass packs are probed first, Unknown ones only when no healthy Pass pack exists, Fail ones never.
-        candidates = candidates.Where(c => Judge(input, c.Release).Verdict != EnglishVerdict.Fail)
-            .OrderBy(c => Judge(input, c.Release).Verdict).ToList();
-        var healthyPass = candidates.Any(c => Judge(input, c.Release).Verdict == EnglishVerdict.Pass && c.Release.Seeders >= LanguageHold.HealthySeeders);
-        if (healthyPass) candidates = candidates.Where(c => Judge(input, c.Release).Verdict == EnglishVerdict.Pass).ToList();
+        // A pack an index listed (AnimeTosho tracks, an apibay file list) is judged like an inspected one: only its files that
+        // map to missing episodes, each with its own sidecars and tracks. Otherwise its name decides.
+        var before = candidates.ToDictionary(c => EpisodeLadder.CandidateKey(c.Release), c => ListedCall(input, c.Release, season, targets.Keys),
+            StringComparer.Ordinal);
+        EnglishVerdict Listed((TorrentResult Release, LadderRung Rung) c) => before[EpisodeLadder.CandidateKey(c.Release)].Verdict;
+        candidates = candidates.Where(c => Listed(c) != EnglishVerdict.Fail).OrderBy(Listed).ToList();
+        var healthyPass = candidates.Any(c => Listed(c) == EnglishVerdict.Pass && c.Release.Seeders >= LanguageHold.HealthySeeders);
+        if (healthyPass) candidates = candidates.Where(c => Listed(c) == EnglishVerdict.Pass).ToList();
         var notes = new List<string>();
         (TorrentResult Release, EngineInspectResult Files, PackFileMapping Map, LadderRung Rung, LanguageCall Call)? best = null;
         foreach (var (candidate, rung) in candidates.Take(Math.Max(1, maxProbes)))
@@ -66,13 +70,11 @@ public sealed partial class GrabService
             if (map.Ok && input.Constraints?.MaxSizeBytes is { } max)
                 map = map with { Episodes = map.Episodes.Where(e => files[e.Value].Length <= max).ToDictionary() };
             // A pack stands in for every missing episode, so each mapped file is judged with only its own subtitle and audio
-            // files, and the worst one is the pack's call (docs/release-language.md). The name alone decides only when no file
-            // maps: once the episodes' files are known, they speak for the pack (a VOSTFR-named pack whose episodes carry
-            // English sidecars passes).
-            var list = files.Select(f => (f.Index, f.Path, f.Length)).ToList();
-            var call = map.Episodes.Count == 0 ? Judge(input, candidate)
-                : map.Episodes.Values.Select(index => Judge(input, candidate, VideoSidecars.Paths(list.First(f => f.Index == index), list)))
-                    .MaxBy(c => (c.Verdict, c.Fit))!;
+            // files and the tracks an index listed for it, and the worst one is the pack's call (docs/release-language.md).
+            // Unmapped files (extras, a creditless OP) never count. The name alone decides only when no file maps: once the
+            // episodes' files are known, they speak for the pack (a VOSTFR-named pack whose episodes carry English sidecars
+            // passes), and a hint about the whole torrent never overrides them.
+            var call = PackCall(input, candidate, files, map.Episodes.Values);
             logger?.LogInformation("Season pack {Title} ({Hash}): {Mapped} of {Missing} missing episodes map; {Language}; {Rejection} {Notes}",
                 candidate.Title, inspected.Hash, map.Episodes.Count, targets.Count, call.Label, map.Rejection ?? "", string.Join("; ", map.Notes.Take(8)));
             if (!map.Ok || map.Episodes.Count == 0) { notes.Add($"{candidate.Title}: {map.Rejection ?? "no_episodes"}"); continue; }
@@ -113,6 +115,29 @@ public sealed partial class GrabService
         }
         return new(hash, claimed, $"downloading {claimed.Count} missing episode{(claimed.Count == 1 ? "" : "s")} from season pack {chosen.Release.Title}",
             chosen.Release.Title);
+    }
+
+    /// <summary>
+    /// A season pack's language call from a file list (the torrent's own after inspection, an index's before): the worst
+    /// of the files mapped to missing episodes, each judged with only its own sidecars (<see cref="VideoSidecars.Of"/>) and
+    /// the tracks an index listed for it (<see cref="LanguageHint.TracksFor"/>), as the engine judges the files. Unmapped
+    /// files never count. No mapped file: the release's own call (its name, or what an index told about the torrent).
+    /// </summary>
+    private static LanguageCall PackCall(GrabInput input, TorrentResult pack, IReadOnlyList<PackFile> files, IEnumerable<int> mapped)
+    {
+        var selected = mapped.ToHashSet();
+        if (selected.Count == 0) return Judge(input, pack);
+        var list = files.Select(f => (f.Index, f.Path, f.Length)).ToList();
+        return LanguageCall.From(ReleaseLanguage.JudgeRelease(WantOf(input), pack.Title, pack.Category, list, selected,
+            index => pack.LanguageHint?.TracksFor(list.First(f => f.Index == index).Path)));
+    }
+
+    /// <summary>A pack's call before inspection: an index's file list mapped like an inspected one, else the release's own call.</summary>
+    private static LanguageCall ListedCall(GrabInput input, TorrentResult pack, int season, IEnumerable<int> missing)
+    {
+        if (pack.LanguageHint is not { Files.Count: > 0 } hint) return Judge(input, pack);
+        var files = hint.Files.Select((f, i) => new PackFile(i, f.Path, f.Size, 0)).ToList();
+        return PackCall(input, pack, files, SeasonPackFiles.Map(files, season, missing.ToArray()).Episodes.Values);
     }
 
     /// <summary>

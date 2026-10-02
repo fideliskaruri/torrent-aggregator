@@ -125,8 +125,9 @@ Two sites also answer what is inside a release before it downloads (docs/release
 
 Both lookups use the adapter's user agent through `IndexerHttp` (cool-down on a real 429 or 503 with Retry-After) and
 their own line per site: AnimeTosho starts at least 1 s apart, up to 3 open; apibay 2 s apart, one at a time. Answers
-are cached in the `ReleaseHint` table with the host that gave them. A host that fails 3 times in a row rests behind a
-breaker for 30 minutes, then gets one probe, so a dead or frozen site never slows a search.
+are cached in the `ReleaseHint` table with the host that gave them, and dropped after 90 days (permanent misses stay). A
+host that fails 3 times in a row (a plain 503 and a malformed answer count; a 429 or a 503 with Retry-After is a
+cool-down) rests behind a breaker for 30 minutes, then gets one probe, so a dead or frozen site never slows a search.
 
 SubsPlease lists only its own releases and reports no swarm counts; the tracker scrape
 fills them in. It numbers each season from 01, so `Sousou no Frieren S2 - 01` finds the

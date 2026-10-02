@@ -200,16 +200,6 @@ public static partial class ReleaseLanguage
     public static string LanguageName(string? code) => code == null ? "unknown" : code == "other" ? "non-English"
         : Names.TryGetValue(code, out var name) ? name : code;
 
-    /// <summary>A language as a code or an English name ("eng", "en-US", "Japanese", "English (US)") to its ISO 639-1 code; null when unknown.</summary>
-    public static string? LanguageCode(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        var word = text.Trim();
-        var cut = word.IndexOfAny(['(', ',', '/']);
-        if (cut > 0) word = word[..cut].Trim();
-        return LanguageTag.Normalize(word) ?? Words.GetValueOrDefault(word.ToUpperInvariant());
-    }
-
     // ---------------------------------------------------------------- judging
 
     /// <summary>Places the facts under the want (the decision table in docs/release-language.md).</summary>

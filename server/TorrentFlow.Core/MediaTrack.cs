@@ -10,8 +10,6 @@ public enum MediaTrackKind { Video, Audio, Subtitle }
 /// <param name="Language">Canonical ISO 639-1 code (<see cref="LanguageTag.Normalize"/>); null when untagged, und, mul, zxx or unknown.</param>
 /// <param name="RawLanguage">The tag as written (LanguageBCP47 when present, else Language); null when the header has none.
 /// Matroska defines an absent Language as "eng", but an untagged track counts as unknown here, never as English.</param>
-/// <param name="Source">Who read the track list: null for the file's own header (the header probe), <c>indexer</c> for an
-/// index's list of the file's tracks before download (AnimeTosho, <see cref="LanguageHint"/>).</param>
 public sealed record MediaTrack(
     int Number,
     MediaTrackKind Kind,
@@ -21,11 +19,7 @@ public sealed record MediaTrack(
     bool Enabled,
     bool Forced,
     string? Name,
-    string? Codec,
-    string? Source = null)
-{
-    public const string Indexer = "indexer";
-}
+    string? Codec);
 
 /// <summary>
 /// The one language-code normaliser. Track headers (ISO 639-2/B and /T, BCP 47) and release-name code lists

@@ -18,11 +18,14 @@ internal static partial class AnimeToshoTracks
     /// <param name="Via">Where the tracks came from: mediainfo, attachments, both, or none.</param>
     public sealed record Answer(string State, IReadOnlyList<LanguageHintFile> Files, string Via = "none");
 
+    /// <summary>Reads one answer. An answer that isn't an object is not the feed's: <see cref="InvalidDataException"/> (the host failed).
+    /// A file entry that isn't an object, or a value of the wrong type, is skipped or read as unknown.</summary>
     public static Answer Read(string body)
     {
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
-        if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty("error", out _)) return new(LanguageHints.Missing, []);
+        if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("AnimeTosho's answer is not an object");
+        if (root.TryGetProperty("error", out _)) return new(LanguageHints.Missing, []);
         var status = Text(root, "status");
         // AnimeTosho never processes an item it skipped (batches, many non-English releases).
         if (string.Equals(status, "skipped", StringComparison.OrdinalIgnoreCase)) return new(LanguageHints.Missing, []);
@@ -37,12 +40,11 @@ internal static partial class AnimeToshoTracks
         {
             var path = Text(file, "filename");
             if (string.IsNullOrWhiteSpace(path)) continue;
-            var size = file.TryGetProperty("size", out var s) && s.TryGetInt64(out var n) ? n : 0;
+            var size = Long(file, "size");
             var processed = !file.TryGetProperty("processed", out var p) || p.ValueKind is JsonValueKind.True ||
                 p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var flag) && flag != 0;
             if (!processed) { files.Add(new(path, size)); continue; }
-            var tracks = file.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Object && Text(info, "mediainfo") is { } text
-                ? MediaInfo(text).ToList() : [];
+            var tracks = file.TryGetProperty("info", out var info) && Text(info, "mediainfo") is { } text ? MediaInfo(text).ToList() : [];
             mediainfo |= tracks.Count > 0;
             if (tracks.All(t => t.Kind != MediaTrackKind.Subtitle))
             {
@@ -75,9 +77,9 @@ internal static partial class AnimeToshoTracks
                 format.StartsWith("EIA-", StringComparison.OrdinalIgnoreCase)))
             {
                 var raw = fields.GetValueOrDefault("Language");
-                tracks.Add(new(LeadingNumber(fields.GetValueOrDefault("ID")) ?? 1000 + tracks.Count, k, ReleaseLanguage.LanguageCode(raw), raw,
+                tracks.Add(new(LeadingNumber(fields.GetValueOrDefault("ID")) ?? 1000 + tracks.Count, k, Code(raw), raw,
                     Yes(fields, "Default"), !No(fields, "Enabled"), Yes(fields, "Forced"), fields.GetValueOrDefault("Title"),
-                    fields.GetValueOrDefault("Format"), MediaTrack.Indexer));
+                    fields.GetValueOrDefault("Format")));
             }
             kind = null;
             fields.Clear();
@@ -111,19 +113,22 @@ internal static partial class AnimeToshoTracks
             var code = Text(info, "lang") ?? Text(info, "language_code");
             var label = Text(info, "language");
             var number = Number(info, "tracknum") ?? Number(info, "trackid") ??
-                (Text(attachment, "url") is { } url && TrackInUrl().Match(url) is { Success: true } m ? int.Parse(m.Groups[1].Value) : 2000 + tracks.Count);
+                (Text(attachment, "url") is { } url && TrackInUrl().Match(url) is { Success: true } m && int.TryParse(m.Groups[1].Value, out var n)
+                    ? n : 2000 + tracks.Count);
             // The new feed has no track name; its label ("English (SDH)", "Latin American") is one when it says more than the language.
             var name = Text(info, "name") ?? (label is { Length: > 0 } && !IsLanguage(label) ? label : null);
-            tracks.Add(new(number, MediaTrackKind.Subtitle, LanguageTag.Normalize(code) ?? ReleaseLanguage.LanguageCode(label) ?? ReleaseLanguage.LanguageCode(code),
-                code ?? label, Flag(info, "default"), !info.TryGetProperty("enabled", out _) || Flag(info, "enabled"), Flag(info, "forced"), name,
-                Text(info, "codec") ?? Text(info, "format"), MediaTrack.Indexer));
+            tracks.Add(new(number, MediaTrackKind.Subtitle, LanguageTag.Normalize(code) ?? Code(label), code ?? label, Flag(info, "default"),
+                !info.TryGetProperty("enabled", out _) || Flag(info, "enabled"), Flag(info, "forced"), name, Text(info, "codec") ?? Text(info, "format")));
         }
         return tracks;
     }
 
+    /// <summary>A language as a code ("eng") or as a name ("English", "Portuguese (Brazil)", "European Spanish"); null when unknown.</summary>
+    private static string? Code(string? text) => string.IsNullOrWhiteSpace(text) ? null : LanguageTag.Normalize(text) ?? ReleaseLanguage.NameLanguage(text);
+
     /// <summary>"English" or "eng" alone, nothing more.</summary>
     private static bool IsLanguage(string label) => LanguageTag.Normalize(label) != null ||
-        ReleaseLanguage.LanguageCode(label) is { } code && ReleaseLanguage.LanguageName(code).Equals(label.Trim(), StringComparison.OrdinalIgnoreCase);
+        Code(label) is { } code && ReleaseLanguage.LanguageName(code).Equals(label.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static string Stem(string path)
     {
@@ -132,17 +137,25 @@ internal static partial class AnimeToshoTracks
         return dot > 0 ? file[..dot] : file;
     }
 
+    // Each helper reads a value only from an object and only of the expected type: anything else reads as missing.
     private static IEnumerable<JsonElement> Array(JsonElement row, string key) =>
-        row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : [];
+        row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : [];
 
     private static string? Text(JsonElement row, string key) =>
-        row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static int? Number(JsonElement row, string key) =>
-        row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) ? n : null;
+        row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt32(out var n) ? n : null;
+
+    /// <summary>A size in bytes: a number, or digits in a string; 0 when unknown.</summary>
+    private static long Long(JsonElement row, string key) =>
+        row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) &&
+        (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) || value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), out n))
+        && n > 0 ? n : 0;
 
     /// <summary>true/false, or 1/0 in the original feed.</summary>
-    private static bool Flag(JsonElement row, string key) => row.TryGetProperty(key, out var value) &&
+    private static bool Flag(JsonElement row, string key) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) &&
         (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) && n != 0);
 
     private static bool Yes(Dictionary<string, string> fields, string key) =>

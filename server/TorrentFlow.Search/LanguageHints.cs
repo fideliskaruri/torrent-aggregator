@@ -44,6 +44,9 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
     public static readonly TimeSpan MaxRetry = TimeSpan.FromHours(24);
     /// <summary>A miss for a release out longer than this is kept for good: the index won't add it now.</summary>
     public static readonly TimeSpan PermanentMissAge = TimeSpan.FromDays(30);
+    /// <summary>Cached answers fetched longer ago than this are dropped (permanent misses stay), checked at most once a day.</summary>
+    public static readonly TimeSpan KeepFor = TimeSpan.FromDays(90);
+    private static readonly TimeSpan PruneEvery = TimeSpan.FromDays(1);
     /// <summary>Failures in a row (no answer, a timeout, a server error or a page that isn't the feed) that rest a host.</summary>
     public const int BreakerFailures = 3;
     /// <summary>How long a failing host rests before one probe request.</summary>
@@ -60,6 +63,7 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
     private readonly Line animeTosho = new(AnimeToshoSpacing, 3);
     private readonly Line apibay = new(ApibaySpacing, 1);
     private readonly Breaker breaker = new(logger);
+    private long lastPrune;
 
     /// <param name="Fetch">Among the top <see cref="Candidates"/> of its source: asked for when not cached.</param>
     /// <param name="Released">The earliest date a site gave the release, when one did.</param>
@@ -78,13 +82,17 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
         var lookups = Pick(ranked, listings);
         var found = new Dictionary<string, LanguageHint>(StringComparer.Ordinal);
         if (lookups.Count == 0) return found;
-        var keys = lookups.Select(l => l.Key).Distinct().ToList();
-        Dictionary<(string, string), ReleaseHint> rows;
+        var rows = new Dictionary<(string, string), ReleaseHint>();
         try
         {
             await using var db = await factory.CreateDbContextAsync(ct);
-            rows = (await db.ReleaseHints.AsNoTracking().Where(h => keys.Contains(h.Key)).ToListAsync(ct))
-                .ToDictionary(h => (h.Source, h.Key));
+            // One query per source, so the (source, key) unique index answers it.
+            foreach (var group in lookups.GroupBy(l => l.Source))
+            {
+                var (source, keys) = (group.Key, group.Select(l => l.Key).Distinct().ToList());
+                foreach (var row in await db.ReleaseHints.AsNoTracking().Where(h => h.Source == source && keys.Contains(h.Key)).ToListAsync(ct))
+                    rows[(row.Source, row.Key)] = row;
+            }
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
@@ -190,14 +198,13 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
 
     private bool Enabled(string id) => registry?.Find(id) is not { } entry || registry.IsEnabled(entry);
 
-    /// <summary>One lookup per hash or id at a time; null when the site's line is full or every host of the source rests.</summary>
+    /// <summary>One lookup per hash or id at a time; null when every host of the source rests.</summary>
     private Task<LanguageHint?>? Fetch(Lookup lookup, int attempts)
     {
         var flight = $"{lookup.Source}:{lookup.Key}";
         if (flights.TryGetValue(flight, out var running)) return running.Value;
         if (Endpoints(lookup.Source).All(e => breaker.Resting(HostOf(e)))) return null;
         var line = lookup.Source == AnimeTosho ? animeTosho : apibay;
-        if (line.Waiting >= MaxWaiting) return null;
         return flights.GetOrAdd(flight, name => new Lazy<Task<LanguageHint?>>(() => Task.Run(async () =>
         {
             try { return await FetchAsync(line, lookup, attempts); }
@@ -226,13 +233,15 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
             {
                 // Checked again when the request's turn comes: lookups queued behind the failures that opened the breaker
                 // send nothing, and the first one after a rest is the probe.
-                var body = await line.RunAsync<string?>(async () =>
+                var (joined, body) = await line.RunAsync<string?>(async () =>
                 {
                     if (!breaker.Allow(host)) return null;
                     sent = true;
                     return await http.GetAsync(url, IndexerHttp.BrowserAgent, timeoutMs: 8000,
                         accept: "application/json, text/plain, */*", cancellationToken: bounded.Token);
                 }, bounded.Token);
+                // The site's line is full: no hint this time, and nothing to record.
+                if (!joined) return null;
                 if (body is null) continue;
                 answer = Parse(source, body);
                 breaker.Answered(host);
@@ -245,13 +254,15 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
                 breaker.Answered(host);
                 answer = (Missing, [], "none");
             }
-            // The site is cooling down after a 429 (Retry-After is honoured by IndexerHttp): busy, not down, and not this
-            // release's fault.
-            catch (HttpRequestException e) when (e is SourceBusyException || e.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+            // The site is cooling down after a 429, or a 503 with Retry-After (IndexerHttp honours it): busy, not down, and
+            // not this release's fault. A plain 503 is a failure like any other server error.
+            catch (HttpRequestException e) when (e is SourceBusyException || e.StatusCode == HttpStatusCode.TooManyRequests ||
+                e.StatusCode == HttpStatusCode.ServiceUnavailable && http.CoolingDown(url))
             {
                 logger.LogInformation("Language hint {Source} {Key}: {Host} busy, no hint this time", source, key, host);
                 return null;
             }
+            // No answer, a timeout, a server error, or an answer that isn't the feed's (malformed): the host failed.
             catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or OperationCanceledException or TimeoutException)
             {
                 // Still waiting in the site's line when time ran out, or shutting down: nothing was asked, so nothing to record.
@@ -271,15 +282,24 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
         return null;
     }
 
+    /// <summary>The index's answer read into files and tracks. Anything unreadable in it (a value of the wrong type, a list
+    /// entry that isn't an object) makes it a malformed answer, which counts as the host's failure and is asked again later.</summary>
     private static (string State, IReadOnlyList<LanguageHintFile> Files, string Via) Parse(string source, string body)
     {
-        if (source != AnimeTosho)
+        try
         {
-            var (state, files) = ReadFileList(body);
-            return (state, files, "file list");
+            if (source != AnimeTosho)
+            {
+                var (state, files) = ReadFileList(body);
+                return (state, files, "file list");
+            }
+            var answer = AnimeToshoTracks.Read(body);
+            return (answer.State, answer.Files, answer.Via);
         }
-        var answer = AnimeToshoTracks.Read(body);
-        return (answer.State, answer.Files, answer.Via);
+        catch (Exception e) when (e is not (JsonException or InvalidDataException or OutOfMemoryException))
+        {
+            throw new InvalidDataException($"Malformed {source} answer: {e.Message}", e);
+        }
     }
 
     private static string Kind(string source) => source == AnimeTosho ? LanguageHint.AnimeTosho : LanguageHint.FileList;
@@ -325,9 +345,25 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
                 row.RetryAt = state == Missing && Old(lookup) ? null : now + RetryAfter(state, row.Attempts);
             }
             await db.SaveChangesAsync();
+            await PruneAsync(db);
         }
         catch (DbUpdateException e) { logger.LogDebug(e, "Language hint {Source} {Key} raced another save", source, key); }
         catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "Language hint {Source} {Key} not saved", source, key); }
+    }
+
+    /// <summary>
+    /// Keeps the cache from growing for good: at most once a day, from a lookup's background save (searches never wait for
+    /// it), drops answers fetched more than <see cref="KeepFor"/> ago. Permanent misses stay; a release still searched for
+    /// is simply asked again.
+    /// </summary>
+    private async Task PruneAsync(TorrentFlowDbContext db)
+    {
+        var now = DateTime.UtcNow;
+        var last = Interlocked.Read(ref lastPrune);
+        if (now.Ticks - last < PruneEvery.Ticks || Interlocked.CompareExchange(ref lastPrune, now.Ticks, last) != last) return;
+        var cutoff = now - KeepFor;
+        var removed = await db.ReleaseHints.Where(h => h.FetchedAt < cutoff && !(h.State == Missing && h.RetryAt == null)).ExecuteDeleteAsync();
+        logger.LogInformation("Language hints: pruned {Rows} cached answer(s) fetched before {Cutoff:yyyy-MM-dd}", removed, cutoff);
     }
 
     /// <summary>2 minutes for an item still processing, 10 for a miss, doubled per answer in a row, at most a day.</summary>
@@ -354,18 +390,20 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
 
     /// <summary>
     /// apibay's <c>f.php</c>: <c>[{"name":["Subs/English.srt"],"size":[72229]}]</c>, or one "Filelist not found" entry (missing).
+    /// Anything else (a root that isn't a list) is not the file list: a malformed answer.
     /// </summary>
     internal static (string State, IReadOnlyList<LanguageHintFile> Files) ReadFileList(string body)
     {
         using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array) return (Missing, []);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("apibay's file list is not a list");
         var files = new List<LanguageHintFile>();
         foreach (var entry in doc.RootElement.EnumerateArray())
         {
+            if (entry.ValueKind != JsonValueKind.Object) continue;
             var path = First(entry, "name");
             if (string.IsNullOrWhiteSpace(path)) continue;
             if (path.Equals("Filelist not found", StringComparison.OrdinalIgnoreCase)) return (Missing, []);
-            files.Add(new(path.Replace('\\', '/'), long.TryParse(First(entry, "size"), out var size) ? size : 0));
+            files.Add(new(path.Replace('\\', '/'), long.TryParse(First(entry, "size"), out var size) && size > 0 ? size : 0));
         }
         return files.Count == 0 ? (Missing, []) : (Complete, files);
     }
@@ -452,11 +490,18 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
         private readonly object gate = new();
         private DateTimeOffset next;
         private int waiting;
-        public int Waiting => Volatile.Read(ref waiting);
 
-        public async Task<T> RunAsync<T>(Func<Task<T>> send, CancellationToken ct)
+        /// <summary>
+        /// Runs <paramref name="send"/> in its turn. The place in the line is taken first and checked after, in one atomic
+        /// step: when <see cref="MaxWaiting"/> lookups already wait, it returns at once (not joined) without sending.
+        /// </summary>
+        public async Task<(bool Joined, T? Result)> RunAsync<T>(Func<Task<T>> send, CancellationToken ct)
         {
-            Interlocked.Increment(ref waiting);
+            if (Interlocked.Increment(ref waiting) > MaxWaiting)
+            {
+                Interlocked.Decrement(ref waiting);
+                return (false, default);
+            }
             try { await open.WaitAsync(ct); }
             finally { Interlocked.Decrement(ref waiting); }
             try
@@ -470,7 +515,7 @@ public sealed class LanguageHints(IndexerHttp http, IDbContextFactory<TorrentFlo
                     wait = start - now;
                 }
                 if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
-                return await send();
+                return (true, await send());
             }
             finally { open.Release(); }
         }
