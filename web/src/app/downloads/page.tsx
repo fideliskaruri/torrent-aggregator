@@ -217,6 +217,21 @@ async function postRowAction(
       `TorrentFlow answered HTTP ${res.status}. Try again.`,
   };
 }
+
+/** Keep or Find another on a held built-in row (docs/english-gates-plan.md). */
+async function postHeldDecision(
+  act: "keep" | "find-another",
+  torrent: ClientTorrent,
+): Promise<RowActionOutcome> {
+  const res = await fetch(`/api/downloads/${encodeURIComponent(torrent.transferId)}/${act}`, { method: "POST" }).catch(() => null);
+  if (!res) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
+  const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(res);
+  if (res.ok && data?.ok !== false) return { ok: true };
+  return {
+    ok: false,
+    reason: data?.message?.trim() || data?.error?.trim() || `TorrentFlow answered HTTP ${res.status}. Try again.`,
+  };
+}
 export default function ClientPage() {
   const displayPath = useDisplayPath();
   // Rows, error, offline and "was that read authoritative" move together: a
@@ -682,6 +697,7 @@ export default function ClientPage() {
 
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
     if (act === "swap") { setSwapTorrent(torrent); return; }
+    if (act === "keep" || act === "find-another") { await decideHeld(act, torrent); return; }
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
@@ -704,6 +720,23 @@ export default function ClientPage() {
     setAnnouncement(
       `${act === "pause" ? "Paused" : verb === "retry" ? "Retrying" : "Resumed"} ${label}.`,
     );
+  }
+
+  /** The owner's answer to a held row: move it into the library, or drop it and pick another release. */
+  async function decideHeld(act: "keep" | "find-another", torrent: ClientTorrent) {
+    invalidateInFlight();
+    const label = transferLabel(torrent);
+    const outcome = await postHeldDecision(act, torrent);
+    void load();
+    if (!outcome.ok) {
+      const failed = act === "keep" ? `Couldn't keep ${label}` : `Couldn't drop ${label}`;
+      toast.error(failed, { description: outcome.reason });
+      setAnnouncement(`${failed}.`);
+      return;
+    }
+    const done = act === "keep" ? `Moved ${label} into your library` : `Looking for another release of ${label}`;
+    toast.success(done);
+    setAnnouncement(`${done}.`);
   }
 
   async function sendRawTorrent() {

@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Check, Download, Search, Zap } from "lucide-react";
+import { Check, Download, FolderInput, Search, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { useDisplayPath, useFeatures } from "@/lib/features";
@@ -30,6 +30,7 @@ import {
   canDownloadNow,
   canOpenFinishedFile,
   forcedStartLabel,
+  heldReason,
   packLabel,
   rollupChip,
   releaseDisplayFacts,
@@ -133,6 +134,7 @@ export function DownloadTransferRow({
   const canOpen = openFolder && canOpenFinishedFile(t) && !isSeasonPack && !t.packEpisodes;
   const isBuiltin = t.ownerClientType === "builtin";
   const errorMessage = transferErrorMessage(t);
+  const held = isBuiltin ? heldReason(t) : null;
   const [errorExpanded, setErrorExpanded] = useState(false);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
   const speed = isDownloading(t.state) ? formatSpeed(t.dlspeed) : null;
@@ -150,6 +152,32 @@ export function DownloadTransferRow({
 
   const actions = (
     <>
+      {held ? (
+        <>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => onAction("keep", t)}
+            aria-label={`Keep ${title} and move it into your library`}
+            {...rowAttr(kind, "keep")}
+          >
+            <FolderInput className="h-3.5 w-3.5" />
+            Keep
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => onAction("find-another", t)}
+            aria-label={`Find another release of ${title}`}
+            {...rowAttr(kind, "find-another")}
+          >
+            <Search className="h-3.5 w-3.5" />
+            Find another
+          </Button>
+        </>
+      ) : null}
       {canDownloadNow(t) && isBuiltin ? (
         <Button
           type="button"
@@ -332,6 +360,11 @@ export function DownloadTransferRow({
                     {errorMessage}
                   </CollapsibleTrigger>
                 </Collapsible>
+              ) : null}
+              {held ? (
+                <p className="text-[12px] leading-snug text-muted-foreground" {...rowAttr(kind, "held-reason")}>
+                  {held}. Its files wait outside your library until you choose.
+                </p>
               ) : null}
               {showsProgressBar(t) ? (
                 <TransferProgress

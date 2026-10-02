@@ -34,6 +34,14 @@ export interface ClientTorrent {
   forced?: boolean;
   /** "English not confirmed" when the check after add could not confirm English audio or subtitles (docs/release-language.md). */
   languageNote?: string | null;
+  /**
+   * While `state` is "held": why the promotion gate wants the owner to decide
+   * (docs/english-gates-plan.md). The files wait outside the library; Keep moves
+   * them in, Find another deletes them and picks another release.
+   */
+  heldReason?: string | null;
+  /** Who chose the release: the finder ("automatic") or the owner ("hand"). */
+  provenance?: "automatic" | "hand" | null;
 
   /** Checked on disk after completion; survives a restart with no live client. */
   verified?: boolean;
@@ -65,8 +73,10 @@ export interface ClientTorrent {
  * A one-row action on a transfer. `force` is "Download now": it starts a row
  * waiting in the built-in engine's queue past the active-download cap.
  * `swap` opens "Find another source"; it sends nothing by itself.
+ * `keep` and `find-another` answer a held row: move its files into the
+ * library, or drop them and pick another release.
  */
-export type TorrentRowAction = "pause" | "resume" | "force" | "swap";
+export type TorrentRowAction = "pause" | "resume" | "force" | "swap" | "keep" | "find-another";
 
 /**
  * Whether a row belongs on the Downloads page: every transfer the server marks

@@ -78,6 +78,8 @@ const DOWNLOADING_STATES = new Set([
   "checkingresumedata",
   "checkingup",
   "downloading",
+  // Every byte is in; the files are being checked and moved into the library.
+  "finishing",
   "forceddl",
   "metadl",
   "queuedcheck",
@@ -132,6 +134,14 @@ export function isError(state: string): boolean {
  */
 export function isQueued(state: string): boolean {
   return state.trim().toLowerCase() === "queued";
+}
+
+/**
+ * Downloaded but held outside the library until the owner decides: Keep or
+ * Find another (docs/english-gates-plan.md). Never "downloaded" yet.
+ */
+export function isHeld(state: string): boolean {
+  return state.trim().toLowerCase() === "held";
 }
 
 /** The earliest queue position among a set's queued members, or null. */
@@ -344,7 +354,8 @@ export function statusCounts(
   for (const member of members) {
     const state = member.state ?? "";
     counts.total += 1;
-    if (isError(state)) counts.error += 1;
+    // A held row waits for the owner, so it counts with the ones that need attention.
+    if (isError(state) || isHeld(state)) counts.error += 1;
     else if (isDownloaded(state)) counts.done += 1;
     else if (isDownloading(state)) counts.downloading += 1;
     else if (isQueued(state)) counts.queued += 1;
