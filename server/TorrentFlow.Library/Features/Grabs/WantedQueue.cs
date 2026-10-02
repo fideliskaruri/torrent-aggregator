@@ -353,6 +353,8 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     private async Task RunAsync(Unit unit, CancellationToken ct)
     {
+        // An automation order's provider lookups are background; anything the owner pressed goes first (ProviderPriority).
+        using var priority = plans.TryGetValue(unit, out var ordered) && ordered.Lane == TorrentLane.Automation ? ProviderPriority.Background() : null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var scope = unit.Season == null ? "title" : "episode";
         // A clicked episode's run takes only that episode; a season's run leaves alone the episodes clicked on their own.

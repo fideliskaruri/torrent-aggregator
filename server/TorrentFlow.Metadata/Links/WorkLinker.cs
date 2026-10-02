@@ -295,6 +295,8 @@ public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> fac
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Linking is background work: its AniList requests go only when foreground requests leave room.
+        using var priority = ProviderPriority.Background();
         try
         {
             await map.Loaded.WaitAsync(stoppingToken);
@@ -323,11 +325,11 @@ public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> fac
         logger.LogInformation("Linking {Count} works against map {Version}", keys.Count, version);
         foreach (var key in keys)
         {
-            // AniList's pace is shared with every other lane: while it refuses requests, linking waits rather than adding to the 429s.
-            if (anilist?.Gate.BlockedUntil is { } until && until > time.GetUtcNow())
+            // AniList's pace is shared with every other lane: linking waits for its background turn rather than adding to the 429s.
+            if (anilist?.Gate.BackgroundHold() is { } hold)
             {
-                logger.LogInformation("AniList is rate-limiting; linking waits until {Until:HH:mm:ss}", until);
-                await Task.Delay(until - time.GetUtcNow() + TimeSpan.FromSeconds(1), time, ct);
+                logger.LogInformation("Linking {WorkKey} waits for AniList: {Reason}", key, hold.Reason);
+                await anilist.Gate.WaitBackgroundAsync(null, ct);
             }
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(PerWork);

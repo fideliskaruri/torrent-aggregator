@@ -40,6 +40,11 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     public DateTimeOffset? BlockedUntil(string provider) => provider == "anilist" ? Gate.BlockedUntil : null;
 
+    public string? BackgroundHold(string provider) => provider == "anilist" ? Gate.BackgroundHold()?.Reason : null;
+
+    public Task BackgroundTurnAsync(string provider, CancellationToken ct) =>
+        provider == "anilist" ? Gate.WaitBackgroundAsync(null, ct) : Task.CompletedTask;
+
     private const string MediaFields = """
       id
       idMal
@@ -187,9 +192,17 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     /// <summary>Every AniList request goes out here, in its turn at <see cref="Gate"/>; one refused a turn is a synthetic 429.</summary>
     internal async Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct, string? url = null)
     {
-        if (!await Gate.WaitTurnAsync(MaxTurnWait, ct).ConfigureAwait(false))
+        // Background flows (ProviderPriority.Background) go only when foreground requests leave room.
+        var background = ProviderPriority.IsBackground;
+        if (background && Gate.BackgroundHold() is { } hold)
+            logger?.LogInformation("Background AniList request waits: {Reason}", hold.Reason);
+        if (!await Gate.WaitTurnAsync(MaxTurnWait, ct, background).ConfigureAwait(false))
         {
-            logger?.LogInformation("AniList request not sent: AniList is rate-limiting until {Until:HH:mm:ss}", Gate.BlockedUntil);
+            if (Gate.BlockedUntil is { } blocked)
+                logger?.LogInformation("AniList request not sent: AniList is rate-limiting until {Until:HH:mm:ss}", blocked);
+            else
+                logger?.LogInformation("{Priority} AniList request not sent: its turn did not come within {Seconds} s",
+                    background ? "Background" : "Foreground", MaxTurnWait.TotalSeconds);
             return Gate.Refused();
         }
         using var request = new HttpRequestMessage(HttpMethod.Post, url ?? Url)

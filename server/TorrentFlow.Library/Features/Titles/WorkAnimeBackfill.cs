@@ -12,7 +12,8 @@ namespace TorrentFlow.Library.Features.Titles;
 /// refresh owner, <see cref="WorkNamesRefresh"/>. A filled verdict is never asked again. A provider that answered
 /// without a verdict (not found, failed) is noted on the work (<see cref="Data.Entities.Work.AnimeCheckedAt"/>) and
 /// asked again a day later, so restarts resume where the last pass stopped instead of starting over. A rate-limited
-/// provider stops the pass, unnoted, until it takes requests again.
+/// provider stops the pass, unnoted, until it takes requests again. Its requests are background
+/// (<see cref="ProviderPriority"/>): each waits until foreground requests leave the provider room.
 /// </summary>
 public sealed class WorkAnimeBackfill(IDbContextFactory<TorrentFlowDbContext> factory, WorkNamesRefresh names, TimeProvider time,
     ILogger<WorkAnimeBackfill> logger, IProviderPacing? pacing = null) : BackgroundService
@@ -26,6 +27,7 @@ public sealed class WorkAnimeBackfill(IDbContextFactory<TorrentFlowDbContext> fa
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        using var priority = ProviderPriority.Background();
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(5), time, stoppingToken);
@@ -54,6 +56,7 @@ public sealed class WorkAnimeBackfill(IDbContextFactory<TorrentFlowDbContext> fa
         foreach (var (key, provider) in works)
         {
             if (Blocked(provider) is { } wait) return Stopped(provider, wait, asked);
+            await BackgroundTurnAsync(provider, key, ct);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(PerWork);
             NamesRefresh outcome;
@@ -72,6 +75,13 @@ public sealed class WorkAnimeBackfill(IDbContextFactory<TorrentFlowDbContext> fa
 
     private static IQueryable<Data.Entities.Work> Unknown(TorrentFlowDbContext db, DateTime due) =>
         db.Works.AsNoTracking().Where(w => w.Anime == null && w.Provider != null && w.ProviderId != null && (w.AnimeCheckedAt == null || w.AnimeCheckedAt < due));
+
+    private async Task BackgroundTurnAsync(string provider, string key, CancellationToken ct)
+    {
+        if (pacing?.BackgroundHold(provider) is not { } reason) return;
+        logger.LogInformation("Anime backfill waits before asking {Provider} about {WorkKey}: {Reason}", provider, key, reason);
+        await pacing.BackgroundTurnAsync(provider, ct);
+    }
 
     private TimeSpan? Blocked(string provider) =>
         pacing?.BlockedUntil(provider) is { } until && until - time.GetUtcNow() is var wait && wait > TimeSpan.Zero ? wait : null;

@@ -562,6 +562,7 @@ public sealed class CatalogRefreshWorker(CatalogService catalog, IOptions<Metada
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (options.Value.CatalogTimer?.Trim().ToLowerInvariant() is "0" or "off" or "false") return;
+        using var priority = ProviderPriority.Background();
         using var timer = new PeriodicTimer(CatalogService.HomeRefreshTick, time);
         try
         {

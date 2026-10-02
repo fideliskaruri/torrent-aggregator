@@ -41,6 +41,38 @@ public interface IProviderPacing
 {
     /// <summary>When <paramref name="provider"/> takes requests again; null when it takes them now.</summary>
     DateTimeOffset? BlockedUntil(string provider);
+
+    /// <summary>Why a background request to <paramref name="provider"/> must wait right now; null when it may go.</summary>
+    string? BackgroundHold(string provider);
+
+    /// <summary>Waits until a background request to <paramref name="provider"/> may go (<see cref="ProviderPriority"/>).</summary>
+    Task BackgroundTurnAsync(string provider, CancellationToken ct);
+}
+
+/// <summary>
+/// Whose turn a provider request is. Requests are foreground (a title page, a search, a grab) unless the code that
+/// makes them runs inside <see cref="Background"/>: backfills, link jobs, the hunter and other reconciliation. A rate
+/// gate sends foreground requests first and lets background ones use only what foreground calls leave over.
+/// </summary>
+public static class ProviderPriority
+{
+    private static readonly AsyncLocal<bool> Current = new();
+
+    /// <summary>True inside a <see cref="Background"/> scope.</summary>
+    public static bool IsBackground => Current.Value;
+
+    /// <summary>Marks every provider request made by this flow (and what it awaits) as background until disposed.</summary>
+    public static IDisposable Background()
+    {
+        var prior = Current.Value;
+        Current.Value = true;
+        return new Scope(prior);
+    }
+
+    private sealed class Scope(bool prior) : IDisposable
+    {
+        public void Dispose() => Current.Value = prior;
+    }
 }
 
 /// <summary>Resolves catalog metadata for free-text / release titles. Implemented by the Metadata module.</summary>
