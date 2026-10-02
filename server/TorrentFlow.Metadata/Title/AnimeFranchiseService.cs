@@ -186,8 +186,11 @@ public sealed partial class AnimeFranchiseService(AniListClient anilist, TmdbCli
         if (titles.Any(t => Cour().IsMatch(t))) return false;
         if (prequel is not null)
         {
-            var bases = Titles(prequel).Select(ArtworkMatching.NormalizeTitleForMatch).Where(n => n.Length > 0).ToHashSet();
-            if (titles.Any(t => Part().Matches(t).Any(m => bases.Contains(ArtworkMatching.NormalizeTitleForMatch(t.Remove(m.Index, m.Length))))))
+            // Both titles lose their part marker first, so "Final Season Part 2" continues "Final Season Part 1" (BEASTARS)
+            // as it continues a plain "Final Season".
+            var bases = Titles(prequel).Select(t => ArtworkMatching.NormalizeTitleForMatch(AnyPart().Replace(t, " ")))
+                .Where(n => n.Length > 0).ToHashSet();
+            if (titles.Any(t => Part().IsMatch(t) && bases.Contains(ArtworkMatching.NormalizeTitleForMatch(AnyPart().Replace(t, " ")))))
                 return false;
         }
         if (titles.Any(t => NewSeason().IsMatch(t) || HasRomanSequel(t))) return true;
@@ -217,6 +220,11 @@ public sealed partial class AnimeFranchiseService(AniListClient anilist, TmdbCli
     [System.Text.RegularExpressions.GeneratedRegex(@"\bPart\s*(?:[2-9]|\d{2}|II|III|IV)\b|\b(?:2nd|3rd|[4-9]th|second|third)\s+Part\b",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, 1000)]
     private static partial System.Text.RegularExpressions.Regex Part();
+
+    /// <summary>Any part marker, the first included ("Part 1", "1st Part"), stripped before two titles are compared.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"\bPart\s*(?:\d{1,2}|I{1,3}|IV)\b|\b(?:1st|2nd|3rd|[4-9]th|first|second|third)\s+Part\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, 1000)]
+    private static partial System.Text.RegularExpressions.Regex AnyPart();
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\bSeason\s*\d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)\s+Season\b|\bFinal\s+Season\b|\bS\d{1,2}\b",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, 1000)]
