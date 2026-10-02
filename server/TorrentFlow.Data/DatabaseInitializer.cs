@@ -20,12 +20,6 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
     public const string BaselineMigrationId = "20260924234437_PrismaBaseline";
     public const int BackupsKept = 5;
 
-    /// <summary>
-    /// True for the start that applied <see cref="Migrations.BackfillLibraryFromDownloads"/>: the Library adds the
-    /// downloads that finished before it filled itself, once.
-    /// </summary>
-    public bool LibraryBackfillDue { get; private set; }
-
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -62,7 +56,6 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
         }
 
         await db.Database.MigrateAsync(ct);
-        LibraryBackfillDue = pending.Any(m => m.EndsWith("_" + nameof(Migrations.BackfillLibraryFromDownloads), StringComparison.Ordinal));
 
         if (before.Count > 0)
         {

@@ -27,10 +27,12 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         await WorkPosters.StoreOnWatchlistAsync(db, resolved, ct);
         foreach (var (item, art) in items.Zip(resolved)) item.PosterUrl = art.Resolved;
         var workIds = items.Where(x => x.WorkId != null).Select(x => x.WorkId!).ToList();
-        // Ready = a finished download of the title is still on disk (not removed or failed), so the card can say so.
+        // Ready = a finished download of the title whose recorded files are all still on disk (not removed, failed or
+        // moved away), so the card can say so.
         var ready = (await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId != null && workIds.Contains(t.WorkId)
                 && t.Progress >= 1 && t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed)
-            .Select(t => t.WorkId!).Distinct().ToListAsync(ct)).ToHashSet();
+            .Select(t => new { WorkId = t.WorkId!, t.VerifiedFilesJson }).ToListAsync(ct))
+            .Where(t => VerifiedFiles.StillOnDisk(t.VerifiedFilesJson) != false).Select(t => t.WorkId).ToHashSet();
         return Ok(new { items = items.Select(x => { var row = LibraryJson.Row(x); row["ready"] = x.WorkId != null && ready.Contains(x.WorkId); return row; }) });
     }
 

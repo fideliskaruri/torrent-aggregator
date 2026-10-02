@@ -371,6 +371,9 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnType("DATETIME")
                 .HasColumnName("forcedAt");
             entity.Property(e => e.ForcedReason).HasColumnName("forcedReason");
+            entity.Property(e => e.LibraryCheckedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("libraryCheckedAt");
             entity.Property(e => e.Hash).HasColumnName("hash");
             entity.Property(e => e.LastUsedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")

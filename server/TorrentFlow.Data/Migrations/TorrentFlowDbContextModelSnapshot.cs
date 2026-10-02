@@ -731,6 +731,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnName("lastUsedAt")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<string>("LibraryCheckedAt")
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("libraryCheckedAt");
+
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")
                         .HasColumnName("magnet");

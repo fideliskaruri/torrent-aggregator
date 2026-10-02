@@ -10,8 +10,8 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261001232334_BackfillLibraryFromDownloads")]
-    partial class BackfillLibraryFromDownloads
+    [Migration("20261002135615_AddEngineTorrentLibraryCheckedAt")]
+    partial class AddEngineTorrentLibraryCheckedAt
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -723,12 +723,20 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("lane");
 
+                    b.Property<string>("LanguageCheckJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("languageCheckJson");
+
                     b.Property<string>("LastUsedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("DATETIME")
                         .HasColumnName("lastUsedAt")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("LibraryCheckedAt")
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("libraryCheckedAt");
 
                     b.Property<string>("Magnet")
                         .HasColumnType("TEXT")
