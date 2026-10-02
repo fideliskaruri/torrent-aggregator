@@ -51,5 +51,24 @@ public partial class MediaRequest
     /// <summary>Comma-separated info hashes the approval grabbed; the request is fulfilled once all complete.</summary>
     public string? GrabbedHashes { get; set; }
 
+    /// <summary>
+    /// Per-season high-water mark ("6:4,7:0") written when a season request is fulfilled: once reopened by a newly
+    /// aired episode, only episodes above it count, so an episode the owner deleted stays deleted. Null until fulfilled.
+    /// </summary>
+    public string? FulfilledThrough { get; set; }
+
+    /// <summary>
+    /// Per-season, the last episode this request has ever wanted ("6:4"). A wanted row missing at or below it means the
+    /// owner removed or stopped looking for that episode, so nothing (approval re-grab, airing check, Retry) adds it back;
+    /// only episodes above it are new. Null until the request first queues something.
+    /// </summary>
+    public string? CoveredThrough { get; set; }
+
+    /// <summary>
+    /// The stopped transfers the requester and owner were told about: sorted, comma-separated hashes; null when none. A
+    /// hash not in it is news; a set that only shrank is stored without telling anyone again.
+    /// </summary>
+    public string? StoppedKey { get; set; }
+
     public virtual User RequestedBy { get; set; } = null!;
 }

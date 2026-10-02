@@ -221,17 +221,30 @@ public sealed partial class BrowseService(
     private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType,
         string? PosterUrl = null, string? Provider = null, string? ProviderId = null);
 
-    private async Task<Rail?> BuildYourLibraryAsync(string userId, CancellationToken ct)
+    /// <summary>
+    /// The library's one source of truth: finished transfers whose files are on disk (or held by the live engine),
+    /// newest first. The Downloaded rail, the requester's Library and every request's "Available" read this.
+    /// </summary>
+    public async Task<List<EngineTorrent>> ReadyTorrentsAsync(string userId, int take, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var rows = await db.EngineTorrents.AsNoTracking()
             .Where(t => t.UserId == userId && t.Status != "removed" && t.Status != "error")
             .Where(EngineTorrent.Downloaded)
-            .OrderByDescending(t => t.CreatedAt).Take(120).ToListAsync(ct).ConfigureAwait(false);
+            .OrderByDescending(t => t.CreatedAt).Take(take).ToListAsync(ct).ConfigureAwait(false);
         var filePresence = files.Lookup(rows);
-        var torrents = rows.Where(t => LibraryTorrentCanSurface(t)
+        return rows.Where(t => LibraryTorrentCanSurface(t)
             && EngineAvailability(t, h => presence.Presence(userId, h), filePresence) == "ready").ToList();
+    }
+
+    /// <summary>The Downloaded rail's cards, one per work; <paramref name="cards"/> caps how many.</summary>
+    public Task<Rail?> DownloadedAsync(string userId, int cards, CancellationToken ct) => BuildYourLibraryAsync(userId, ct, cards);
+
+    private async Task<Rail?> BuildYourLibraryAsync(string userId, CancellationToken ct, int maxCards = 30)
+    {
+        var torrents = await ReadyTorrentsAsync(userId, Math.Max(120, maxCards * 4), ct).ConfigureAwait(false);
         if (torrents.Count == 0) return null;
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
 
         var hashes = torrents.Select(t => t.Hash.ToLowerInvariant()).ToList();
         var acquisitions = await (from a in db.AcquisitionTargets.AsNoTracking()
@@ -261,7 +274,7 @@ public sealed partial class BrowseService(
                 WorkKey = acquired?.WorkKey,
                 WorkTitle = acquired?.CanonicalTitle,
             };
-        })).OrderByDescending(w => w.Members.Max(t => t.CreatedAt)).Take(30).ToList();
+        })).OrderByDescending(w => w.Members.Max(t => t.CreatedAt)).Take(maxCards).ToList();
         var art = await ResolveArtworkForReleasesAsync(cards.Select(c => c.Name).ToList()).ConfigureAwait(false);
 
         var items = new List<object>();

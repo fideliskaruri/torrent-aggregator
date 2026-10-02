@@ -88,6 +88,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var located = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(f => f.Path).OfType<string>().ToList();
         return located.Count > 0 && located.All(VerifiedFiles.ConfirmedMissing);
     }
+    /// <summary>What a target says when its transfer was removed or its file is gone from disk.</summary>
+    public const string FileGoneError = "The requested file is no longer available.";
+
     internal static void Reconcile(AcquisitionTarget target, EngineTorrent? row)
     {
         target.Progress = Math.Clamp(target.Progress, 0, 1);
@@ -97,7 +100,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             // A season pack that failed as a whole hands its episodes back to the wanted queue.
             target.Status = target.FileIndex != null ? "queued" : "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
             target.FileIndex = null;
-            target.Error = "The requested file is no longer available.";
+            target.Error = FileGoneError;
         }
         else if (row.Status.ToLowerInvariant() is "error" or "missingfiles")
         {

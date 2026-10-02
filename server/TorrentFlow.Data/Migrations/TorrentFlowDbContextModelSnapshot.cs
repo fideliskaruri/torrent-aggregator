@@ -1036,6 +1036,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("acquisitionTargetId");
 
+                    b.Property<string>("CoveredThrough")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("coveredThrough");
+
                     b.Property<string>("CreatedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -1050,6 +1054,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("DecisionReason")
                         .HasColumnType("TEXT")
                         .HasColumnName("decisionReason");
+
+                    b.Property<string>("FulfilledThrough")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fulfilledThrough");
 
                     b.Property<string>("GrabbedHashes")
                         .HasColumnType("TEXT")
@@ -1097,6 +1105,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasDefaultValue("pending")
                         .HasColumnName("status");
+
+                    b.Property<string>("StoppedKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stoppedKey");
 
                     b.Property<string>("Title")
                         .IsRequired()

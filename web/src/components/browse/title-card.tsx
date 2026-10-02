@@ -72,7 +72,7 @@ export function TitleCard({
   const releaseGate = browseReleaseGate(item);
   const unreleased = releaseGate.gated;
 
-  const { canDownload } = useCapabilities();
+  const { canDownload, canSeeTransfers } = useCapabilities();
   const titleHref = titleHrefForItem(item);
   const action = viewerCardAction(item, canDownload, titleHref);
   // Search fallback is for unavailable library rows, not unreleased catalog
@@ -142,7 +142,9 @@ export function TitleCard({
       chip={
         unreleased ? (
           <ReleaseGateChip gate={releaseGate} data-card-coming />
-        ) : action.kind === "get" || arriving ? null : (
+        ) : action.kind === "get" || arriving || !canSeeTransfers ? null : (
+          // Requesters read their request state on the card instead; the owner's
+          // file and indexer badges ("Ready", "Not checked") aren't theirs.
           // A card offering "Get S02E01" or "Downloading" already says the
           // episode is not here yet; a second badge saying so would only repeat it.
           <AvailabilityChip state={item.availability} compact />

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Api.Requests;
@@ -81,6 +82,29 @@ public static partial class RequestRules
     /// <summary>The identity used to spot duplicates: the catalog id when there is one, else the work key.</summary>
     public static string Identity(string provider, string? providerId, string mediaType, string workKey) =>
         providerId is { Length: > 0 } ? $"{provider}:{mediaType}:{providerId}" : $"work:{mediaType}:{workKey}";
+
+    /// <summary>
+    /// Two requests ask for the same thing when they name the same work and scope (the same seasons), whoever sent them
+    /// and whichever catalog they came from: one owner card, one decision, one grab.
+    /// </summary>
+    public static string SameAskKey(MediaRequest r) =>
+        $"{r.WorkKey}|{r.Scope}|{(r.Scope == MediaRequestScope.Seasons ? FormatSeasons(ParseSeasons(r.Seasons)) : "")}";
+
+    /// <summary>
+    /// Whether a title is a series for request state (a series as a whole is never "in the library"; only its seasons
+    /// are). The work's stored format decides; without one, the request's scope; without either, the media type, where
+    /// anime is a series unless it is a film. Point this at WorkKinds.IsSeries once that owner lands.
+    /// </summary>
+    public static bool IsSeries(WorkFormat? format, string? scope, string? mediaType) =>
+        format is { } f ? f == WorkFormat.Series
+        : scope is { } s ? s != MediaRequestScope.Movie
+        : mediaType is "tv" or "series" or "anime";
+
+    /// <summary>
+    /// Serializes every change to who shares an ask (approve, decline, a requester joining), so one shared ask has one
+    /// outcome and one grab, however the calls race.
+    /// </summary>
+    public static readonly SemaphoreSlim AskGate = new(1, 1);
 
     public static IReadOnlyList<int> ParseSeasons(string? stored) =>
         string.IsNullOrWhiteSpace(stored) ? [] :

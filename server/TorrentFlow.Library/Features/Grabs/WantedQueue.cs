@@ -198,7 +198,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             {
                 // A restart never clears a healthy season pack claim: only a claim whose pack is gone or failed is reopened.
                 var pack = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == LocalUser.Id && e.Hash == packHash, ct);
-                if (pack != null && pack.Status.ToLowerInvariant() is not ("removed" or "error" or "missingfiles")) continue;
+                if (pack != null && EngineTorrentStatus.IsHealthy(pack.Status)) continue;
                 await db.SaveChangesAsync(ct);
                 await db.AcquisitionTargets.Where(t => t.Id == target.Id && t.InfoHash == packHash && t.FileIndex != null).ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.Status, "queued").SetProperty(t => t.Progress, 0).SetProperty(t => t.InfoHash, (string?)null)
@@ -436,7 +436,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         foreach (var hash in claims)
         {
             var pack = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == LocalUser.Id && e.Hash == hash, ct);
-            if (pack != null && pack.Status.ToLowerInvariant() is not ("removed" or "error" or "missingfiles")) continue;
+            if (pack != null && EngineTorrentStatus.IsHealthy(pack.Status)) continue;
             var released = await grabs.ReleasePackClaimsAsync(hash, ct);
             logger.LogInformation("Season pack {Hash} is {Status}; {Count} episodes back to the wanted queue", hash, pack?.Status ?? "gone", released);
         }
@@ -535,7 +535,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var input = new GrabInput(work.CanonicalTitle, work.MediaType, WatchListItemId: watchId, WorkId: work.Id,
             PreferredResolution: plan?.Resolution ?? rows.Select(r => r.PreferredResolution).FirstOrDefault(r => r != null),
             OverrideStorageCap: plan?.OverrideStorageCap ?? false, Aliases: aliases, Year: work.Year, WorkKey: work.WorkKey, Lane: lane,
-            Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true, Urgent: plan?.Single ?? false,
+            Provider: work.Provider, ProviderId: work.ProviderId, Urgent: plan?.Single ?? false,
             Admitted: hash => record.Admitted.TryAdd(hash.ToLowerInvariant(), 0));
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
         var workId = work.Id;

@@ -75,6 +75,8 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         using var held = await HoldAsync(workKey, ct);
         await using var db = await factory.CreateDbContextAsync(ct);
         foreach (var hash in removed) await ReplaceHashAsync(db, hash, null, ct);
+        // Every request covering what stopped, of any ask, remembers it before anything below rechecks one of them.
+        await Decisions.CoverStoppedAsync(workKey, season, episode, ct);
         var ids = await Covering(workKey, season, Live, ct);
         if (ids.Count == 0) return;
         // The seasons (null: the film) the queue is still looking for in this title: wanted rows with no transfer yet.

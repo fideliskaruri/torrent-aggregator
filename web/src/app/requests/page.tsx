@@ -26,6 +26,7 @@ import { useSessionInfo } from "@/lib/session";
 import { useCapabilities } from "@/lib/capabilities";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import {
+  AIRING_NOTE,
   autoApproveModeLabel,
   autoApproveRows,
   inboxRows,
@@ -36,7 +37,7 @@ import {
   parseRequests,
   ownerRequestErrorMessage,
   scopeLabel,
-  statusLabel,
+  progressLabel,
   canRetryRequest,
   statusTone,
   type AutoApproveMode,
@@ -62,7 +63,7 @@ export default function RequestsPage() {
     refreshMs: 30_000,
   });
   const mineList = useApiQuery(caps.ownerSession ? null : "/api/requester/requests", {
-    select: (json: unknown) => ({ requests: parseRequests(json).map((r): OwnerRequest => ({ ...r, requestedBy: "", workKey: "" })) }),
+    select: (json: unknown) => ({ requests: parseRequests(json).map((r): OwnerRequest => ({ ...r, requestedBy: "", requesters: [], workKey: "", phase: null })) }),
     refreshMs: 30_000,
     emptyOnUnauthorized: false,
   });
@@ -303,6 +304,9 @@ export default function RequestsPage() {
         <ul className="space-y-2" data-owner-request-list>
           {rows.map((request) => {
             const busy = busyId === request.id;
+            // The owner's card names everyone who asked; the badge reads what they see.
+            const shown = request.status === "pending" ? request.status : (request.phase ?? request.status);
+            const from = (request.requesters.length > 0 ? request.requesters : [request.requestedBy]).filter(Boolean).join(", ");
             return (
               <li key={request.id} className="surface flex gap-3 p-3 sm:gap-4" data-owner-request-row={request.status}>
                 <MediaPoster variant="row" src={request.posterUrl ?? artwork.artFor({ name: request.title, workTitle: request.title, workYear: request.year ?? null })?.posterUrl} title={request.title} />
@@ -315,14 +319,19 @@ export default function RequestsPage() {
                       ) : null}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant={statusTone(request.status)} data-owner-request-status={request.status}>
-                        {request.status === "pending" && reviewing ? "Waiting for you" : statusLabel(request.status)}
+                      <Badge variant={statusTone(shown)} data-owner-request-status={request.status} data-request-phase={shown}>
+                        {request.status === "pending" && reviewing ? "Waiting for you" : progressLabel(shown, request.done, request.total)}
                       </Badge>
                       <span className="text-xs text-subtle-foreground">{scopeLabel(request)}</span>
                     </div>
                     {reviewing ? (
-                      <p className="truncate text-xs text-subtle-foreground" title={request.requestedBy}>
-                        From {request.requestedBy || "someone"}
+                      <p className="truncate text-xs text-subtle-foreground" title={from} data-request-from>
+                        From {from || "someone"}
+                      </p>
+                    ) : null}
+                    {shown === "available" && request.airing ? (
+                      <p className="text-xs text-subtle-foreground" data-request-airing>
+                        {AIRING_NOTE}
                       </p>
                     ) : null}
                     {request.note ? <p className="line-clamp-3 text-xs text-muted-foreground">“{request.note}”</p> : null}

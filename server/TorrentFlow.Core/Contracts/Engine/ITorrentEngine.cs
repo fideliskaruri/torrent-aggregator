@@ -156,6 +156,15 @@ public static class EngineTorrentStatus
     public const string Parked = "parked";
     public const string Error = "error";
     public const string Removed = "removed";
+    /// <summary>The client lost the files on disk.</summary>
+    public const string MissingFiles = "missingFiles";
+
+    /// <summary>
+    /// The one answer to "is this transfer still good for its episode or film": on its way or on disk. Failed, removed
+    /// and lost-files transfers are not, so a retry may replace them.
+    /// </summary>
+    public static bool IsHealthy(string? status) =>
+        !string.IsNullOrEmpty(status) && status.ToLowerInvariant() is not ("error" or "removed" or "missingfiles");
 }
 
 public sealed record EngineAddRequest
