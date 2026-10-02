@@ -31,6 +31,7 @@ import {
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
+import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { Badge } from "@/components/ui/badge";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { MediaPoster } from "@/components/browse/media-poster-card";
@@ -114,6 +115,11 @@ export interface EpisodeListProps {
    * for everyone else, which hides the action. Must be stable across polls.
    */
   onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
+  /**
+   * Owner only: opens Pick a release yourself for an episode that is waiting
+   * for an English release. Must be stable across polls.
+   */
+  onPickRelease?: (season: number, episode: number) => void;
 }
 
 /** Stable per-row key for tracking one in-flight Download. */
@@ -143,6 +149,7 @@ export function EpisodeList({
   onSeasonGrab,
   onAction,
   onFindAnotherSource,
+  onPickRelease,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -404,6 +411,7 @@ export function EpisodeList({
                   )}
                   onAction={handleCardAction}
                   onFindAnotherSource={onFindAnotherSource}
+                  onPickRelease={onPickRelease}
                 />
               ))}
             </ul>
@@ -571,6 +579,7 @@ function EpisodeCardImpl({
   downloadStatus,
   onAction,
   onFindAnotherSource,
+  onPickRelease,
 }: {
   episode: EpisodeRowModel;
   /** The whole work is future-dated — see `EpisodeListProps.gated`. */
@@ -578,6 +587,7 @@ function EpisodeCardImpl({
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
   onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
+  onPickRelease?: (season: number, episode: number) => void;
 }) {
   const { canDownload, canSeePaths } = useCapabilities();
   const { openFolder } = useFeatures();
@@ -606,6 +616,8 @@ function EpisodeCardImpl({
           : downloadStatus === "error"
             ? "Retry download"
             : downloadAction.label;
+  // No release with English audio or subtitles yet: the pill picks one by hand.
+  const waitingForEnglish = transfer?.state === "waiting_english" && onPickRelease != null;
   const downloadCanRun =
     !held &&
     transfer?.status !== "queued" &&
@@ -745,7 +757,9 @@ function EpisodeCardImpl({
         data-episode-unaired={unaired || undefined}
         className="mt-2 hidden min-h-5 items-center text-[12px] tabular-nums text-subtle-foreground sm:flex"
       >
-        {unaired ? (airDate ? `Airs ${airDate}` : "Not aired yet") : desktopFacts}
+        {unaired
+          ? airDate ? `Airs ${airDate}` : "Not aired yet"
+          : waitingForEnglish ? downloadDisplayLabel : desktopFacts}
       </span>
     </span>
   );
@@ -887,6 +901,26 @@ function EpisodeCardImpl({
                 className={cn(CARD_ACTION_PILL, "w-auto px-3 text-[13px]")}
               />
             </span>
+          ) : canDownload && waitingForEnglish ? (
+            <span className={CARD_ACTION_SLOT}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-lg"
+                data-episode-action
+                data-action="pick-release"
+                aria-label={`${PICK_RELEASE_LABEL}, ${episode.label}`}
+                title={downloadDisplayLabel}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPickRelease?.(episode.season, episode.episode);
+                }}
+                className={cn(CARD_ACTION_PILL, "w-auto px-3 text-[13px]")}
+              >
+                <Search aria-hidden />
+                Pick a release
+              </Button>
+            </span>
           ) : canDownload ? (
           <span className={CARD_ACTION_SLOT}>
             {findSourceMenu}
@@ -957,6 +991,8 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   if (a.downloadStatus !== b.downloadStatus) return false;
   if (a.onAction !== b.onAction) return false;
   if (a.onFindAnotherSource !== b.onFindAnotherSource) return false;
+  if (a.onPickRelease !== b.onPickRelease) return false;
+
   const pe = a.episode;
   const ne = b.episode;
   if (

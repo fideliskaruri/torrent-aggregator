@@ -32,6 +32,9 @@ export interface ClientTorrent {
   error?: string | null;
   /** The owner pressed Download now on this row. */
   forced?: boolean;
+  /** "English not confirmed" when the check after add could not confirm English audio or subtitles (docs/release-language.md). */
+  languageNote?: string | null;
+
   /** Checked on disk after completion; survives a restart with no live client. */
   verified?: boolean;
   /** When the transfer was added, ISO 8601 UTC; null when the client does not say. */

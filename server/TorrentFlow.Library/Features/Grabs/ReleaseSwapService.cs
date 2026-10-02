@@ -27,8 +27,10 @@ public sealed record RankedRelease(TorrentResult Result, double Score, string Wh
 /// <param name="Fit">preferred, neutral, backup or clash.</param>
 /// <param name="Basis">Where the deciding fact came from: name, category, files, header, group or none.</param>
 /// <param name="Confidence">high, medium or low.</param>
+/// <param name="English">The English rule: pass, unknown or fail (docs/release-language.md).</param>
+/// <param name="EnglishReason">What decided it, in plain words ("English subtitles", "French subtitles only").</param>
 public sealed record ReleaseLanguageInfo(IReadOnlyList<string> Audio, IReadOnlyList<string> Subtitles, string SubtitleState,
-    string Fit, string Basis, string Confidence, string Label)
+    string Fit, string Basis, string Confidence, string Label, string English = "unknown", string? EnglishReason = null)
 {
     public static ReleaseLanguageInfo From(LanguageVerdict verdict) => new(
         verdict.Audio.Select(ReleaseLanguage.LanguageName).Distinct().ToArray(),
@@ -40,7 +42,8 @@ public sealed record ReleaseLanguageInfo(IReadOnlyList<string> Audio, IReadOnlyL
             TorrentFlow.Core.SubtitleState.Mixed => "mixed",
             _ => "unknown"
         },
-        verdict.Fit.ToString().ToLowerInvariant(), verdict.Basis, verdict.Confidence, verdict.Label);
+        verdict.Fit.ToString().ToLowerInvariant(), verdict.Basis, verdict.Confidence, verdict.Label,
+        verdict.English.Verdict.ToString().ToLowerInvariant(), verdict.English.Reason);
 }
 
 /// <summary>Manual selection today; a future recovery policy can consume the same alternatives and swap command.</summary>
@@ -111,12 +114,17 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var held = new List<TorrentResult>();
         var blocks = new Dictionary<string, TorrentFlow.Data.Entities.ReleaseBlock>(StringComparer.OrdinalIgnoreCase);
         var sources = new List<SourceStatus>();
+        // The current release is judged with its site category like every candidate: kept with its engine row since the
+        // English check, else read from the search when the same release turns up again.
+        var currentCategory = EngineLanguageState.Read(row.LanguageCheckJson)?.SourceCategory;
         foreach (var rung in rungs)
         {
             var response = await search.SearchAsync(new SearchOptions { Query = rung.Query, Category = rung.Category,
                 Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit, Enrich = false, SkipCache = true,
                 TargetResolution = floor, Filters = rung.Filters, Sources = source is null ? null : [source] }, ct);
             sources.AddRange(response.Sources);
+            currentCategory ??= response.Results.FirstOrDefault(r =>
+                string.Equals(LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet), hash, StringComparison.OrdinalIgnoreCase))?.Category;
             var selected = Select(response.Results,
                 workKey, title, cursor, episode.IsSeasonPack ? episode.Season : null, floor, tried, aliases, mapping);
             foreach (var (blockedHash, block) in await ReleaseBlocks.GetAsync(db, LocalUser.Id, selected.Select(CandidateHash), ct))
@@ -134,13 +142,18 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var currentQuality = ReleaseSelection.Resolution(releaseName) ?? floor;
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         var want = grabs != null
-            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct)
-            : LanguageWant.For(settings?.AudioLanguage, mediaType, null);
+            ? await grabs.LanguageWantAsync(settings?.AudioLanguage, mediaType, row.Work?.Provider, row.Work?.ProviderId, ct, row.Work?.OriginalLanguage)
+            : LanguageWant.For(settings?.AudioLanguage, mediaType, row.Work?.OriginalLanguage);
+
         var current = new ReleaseSwapCurrent(releaseName, grabbed?.Source, currentSize, ReleaseSelection.Resolution(releaseName), false,
-            ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, releaseName, null, info.Files?.Select(f => f.Path))));
-        // Blocked releases go last whatever their score: listed for "Use it anyway", never recommended or picked as best.
-        var listed = Rank(open, currentQuality, currentSize).Take(20)
-            .Concat(Rank(held, currentQuality, currentSize).Select(r => r with { Why = Describe(r.Result) }));
+            ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, releaseName, currentCategory, info.Files?.Select(f => f.Path))));
+        // The English rule orders the list like the picker and the automatic picks (Pass, then unknown, then fail), then the
+        // score. Blocked releases go last whatever their score: listed for "Use it anyway", never recommended or picked as best.
+        var verdicts = open.Concat(held).DistinctBy(CandidateHash)
+            .ToDictionary(CandidateHash, r => ReleaseLanguage.Verdict(want, r.Title, r.Category), StringComparer.OrdinalIgnoreCase);
+        int English(TorrentResult r) => ReleaseLanguage.Order(verdicts[CandidateHash(r)]);
+        var listed = Rank(open, currentQuality, currentSize, English).Take(20)
+            .Concat(Rank(held, currentQuality, currentSize, English).Select(r => r with { Why = Describe(r.Result) }));
         foreach (var ranked in listed)
         {
             var result = ranked.Result;
@@ -151,7 +164,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             alternatives.Add(new(token, candidateHash, result.Title, result.Seeders, result.Leechers, result.SizeBytes,
                 ReleaseSelection.Resolution(result.Title), result.Source, ranked.Why,
                 blocks.TryGetValue(candidateHash, out var block) ? ReleaseBlocks.Info(block) : null,
-                ReleaseLanguageInfo.From(ReleaseLanguage.Verdict(want, result.Title, result.Category))));
+                ReleaseLanguageInfo.From(verdicts[candidateHash])));
         }
         var found = open.Concat(held).GroupBy(r => r.Source, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
@@ -165,16 +178,20 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             if (source is null ? found.ContainsKey(id) : id.Equals(source, StringComparison.OrdinalIgnoreCase)) counts[id] = found.GetValueOrDefault(id);
         cache.Set(countsKey, counts, TimeSpan.FromMinutes(10));
         var sourceList = ids.Select(id => new ReleaseSwapSource(id, id, counts.TryGetValue(id, out var n) ? n : null)).ToList();
+        // Never recommends a release without English: with none left there is no best match.
         return new(info.Health ?? new(null, info.Peers, info.Dlspeed, 0, info.State), alternatives, sourceList,
-            alternatives.FirstOrDefault(a => a.Blocked is null)?.Token, current);
+            alternatives.FirstOrDefault(Recommendable)?.Token, current);
     }
+
+    /// <summary>What "Best match" and "Find the best one for me" may land on: not blocked, and not a release without English.</summary>
+    private static bool Recommendable(ReleaseAlternative a) => a.Blocked is null && a.Languages?.English != "fail";
 
     /// <summary>Searches, then swaps to the recommended release when it has more seeders than the current swarm offers.</summary>
     public async Task<EngineAddResult> SwapBest(string hash, string? source, CancellationToken ct)
     {
         var found = await Alternatives(hash, source, ct);
         var where = string.IsNullOrWhiteSpace(source) || source.Equals("all", StringComparison.OrdinalIgnoreCase) ? "on any source" : $"on {source.Trim()}";
-        var best = found.Alternatives.FirstOrDefault(a => a.Blocked is null);
+        var best = found.RecommendedToken is { } token ? found.Alternatives.FirstOrDefault(a => a.Token == token) : null;
         if (best is null || best.Seeders <= (found.Health.ConnectedSeeders ?? 0))
             return new(false, $"No better release was found {where}. Your current download was kept.");
         return await Swap(hash, best.Token, ct);
@@ -184,7 +201,9 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
     /// One deterministic score, best first: quality match to the current release, seeders (diminishing),
     /// size sanity against the current release, then the search health score. Ties break on seeders, size, hash.
     /// </summary>
-    public static IReadOnlyList<RankedRelease> Rank(IReadOnlyList<TorrentResult> candidates, int? currentQuality, long? currentSize)
+    /// <param name="first">Orders before the score, lowest first: the English rule (<see cref="ReleaseLanguage.Order"/>).</param>
+    public static IReadOnlyList<RankedRelease> Rank(IReadOnlyList<TorrentResult> candidates, int? currentQuality, long? currentSize,
+        Func<TorrentResult, int>? first = null)
     {
         var sizes = candidates.Select(r => r.SizeBytes).OfType<long>().Where(s => s > 0).Order().ToList();
         long? reference = currentSize ?? (sizes.Count > 0 ? sizes[sizes.Count / 2] : null);
@@ -198,7 +217,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             return score + Math.Clamp(r.Health ?? 0, 0, 100) / 10.0;
         }
         var ordered = candidates.Select(r => (Result: r, Score: Math.Round(Score(r), 6)))
-            .OrderByDescending(x => x.Score).ThenByDescending(x => x.Result.Seeders)
+            .OrderBy(x => first?.Invoke(x.Result) ?? 0).ThenByDescending(x => x.Score).ThenByDescending(x => x.Result.Seeders)
+
             .ThenBy(x => x.Result.SizeBytes ?? long.MaxValue)
             .ThenBy(x => LibraryJson.Hash(x.Result.InfoHash) ?? x.Result.Id, StringComparer.Ordinal).ToList();
         var maxSeeders = ordered.Count == 0 ? 0 : ordered.Max(x => x.Result.Seeders);

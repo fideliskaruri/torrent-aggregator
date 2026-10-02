@@ -12,8 +12,9 @@ public sealed record ReleaseBlockInfo(string Reason, DateTime At, string Message
 /// blocked under are kept for listing and for per-work reads. Automatic picks skip blocked releases. The pickers list
 /// them last and never recommend them, and a hand pick with "Use it anyway" still downloads one (and lifts its block).
 /// Blocks have no link to works or downloads, so removing a download or a title keeps them.
-/// Writers: a swap blocks the release it replaces; a release that fails the video check is blocked. Language
-/// refusals and send failures (no peers, timeouts, disk) never block.
+/// Writers: a swap blocks the release it replaces; a release that fails the video check is blocked, and so is an
+/// automatic pick whose files or header showed no English. Name-only language calls, hand picks and send failures (no
+/// peers, timeouts, disk) never block.
 /// </summary>
 public static class ReleaseBlocks
 {
@@ -23,7 +24,11 @@ public static class ReleaseBlocks
     /// <summary>It wasn't a real video: the finished download failed the check, or its file list already showed it.</summary>
     public const string FailedVideoCheck = "failed_video_check";
 
+    /// <summary>The check after add (its file list or its header) showed no English audio or subtitles (docs/release-language.md).</summary>
+    public const string NoEnglish = "no_english";
+
     public const string FromSwap = "swap";
+    public const string FromLanguageCheck = "language_check";
     public const string FromVideoCheck = "video_check";
     public const string FromMigration = "migrated";
 
@@ -35,6 +40,7 @@ public static class ReleaseBlocks
     {
         Replaced => "You replaced this release before.",
         FailedVideoCheck => "This release failed the video check before.",
+        NoEnglish => "This release had no English audio or subtitles.",
         _ => "You blocked this release before.",
     };
 

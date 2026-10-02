@@ -105,10 +105,14 @@ const AUDIO_LANGUAGE_CHOICES: ReadonlyArray<{ value: AudioLanguage; label: strin
   {
     value: "auto",
     label: "Japanese for anime, English for the rest",
-    hint: "Anime comes with English subtitles. An English dub is used only when nothing else is found.",
+    hint: "Anime comes in Japanese with English subtitles. An English dub is used when there is none.",
   },
-  { value: "english", label: "English", hint: "Pick English dubs first, anime included." },
-  { value: "any", label: "Any language", hint: "Don't check the language." },
+  {
+    value: "english",
+    label: "English",
+    hint: "English dubs first, anime included. English subtitles are used when there is no dub.",
+  },
+  { value: "any", label: "Any language", hint: "Don't check the language. Any release can download." },
 ];
 
 /** The server's audio language, or auto when it has none (or one this page doesn't know). */
@@ -908,10 +912,14 @@ export default function SettingsPage() {
                 ))}
               </RadioGroup>
               <p id="audio-language-help" className="pt-1 text-xs leading-relaxed text-subtle-foreground">
-                Before downloading, TorrentFlow checks the release name, its file list and the start of the video,
-                and skips other languages. Shows made in another language can also come in their original language
-                with English subtitles.
+                Automatic downloads need English audio or English subtitles. TorrentFlow reads the release name and
+                the site&apos;s category before it picks, then the file list once it arrives, magnets included. When
+                those don&apos;t settle it, it reads the start of the video for up to 45 seconds. A release with no
+                English is stopped and another one is tried. If the check can&apos;t finish, the download keeps going
+                and shows English not confirmed. When nothing has English, the item waits for an English release and
+                you can pick one yourself. A release you pick yourself always downloads.
               </p>
+
             </fieldset>
 
           </section>

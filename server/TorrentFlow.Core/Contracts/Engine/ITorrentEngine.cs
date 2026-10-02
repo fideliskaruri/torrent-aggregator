@@ -183,7 +183,7 @@ public sealed record EngineAddRequest
 
 /// <summary>What the sender wants to hear and what the release name already said (docs/release-language.md).</summary>
 /// <param name="NameFit">The name's fit, logged beside the file list's.</param>
-/// <param name="AcceptClash">The last-resort pass or a hand pick: never refuse for language, only record it.</param>
+/// <param name="AcceptClash">A hand pick: never refuse, stop or block it for language, only record it.</param>
 public sealed record EngineLanguageCheck(LanguageWant Want, LanguageFit? NameFit, string? NameLabel, bool AcceptClash);
 
 /// <summary>Reads a release's file list without admitting a transfer (season pack verification).</summary>
@@ -271,6 +271,8 @@ public sealed record EngineTorrentInfo
     /// <summary>True after the engine verified the payload on disk (parked/complete). Survives restart without a live client.</summary>
     public bool Verified { get; init; }
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }
+    /// <summary>"English not confirmed" when the check after add could not confirm English audio or subtitles; else null.</summary>
+    public string? LanguageNote { get; init; }
     /// <summary>Shareable magnet built server-side: the transfer's own trackers plus the public list (never for private torrents).</summary>
     public string? Magnet { get; init; }
     /// <summary>A completed local file imported without torrent metadata; it has no shareable magnet.</summary>

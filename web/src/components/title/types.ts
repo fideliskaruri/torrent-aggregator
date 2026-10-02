@@ -50,8 +50,13 @@ export interface TitleEpisode {
   state?: TitleTransferState | null;
 }
 
-/** `queued` split in two: `looking` (no release found yet) and `queued` (a release waits for a download slot). */
-export type TitleTransferState = "looking" | "queued" | "downloading" | "downloaded" | "failed";
+/**
+ * `queued` split in three: `looking` (no release found yet), `waiting_english`
+ * (releases were found but none has English audio or subtitles) and `queued`
+ * (a release waits for a download slot).
+ */
+export type TitleTransferState = "looking" | "waiting_english" | "queued" | "downloading" | "downloaded" | "failed";
+
 
 export interface TitleEpisodeTransfer {
   status: "queued" | "downloading" | "downloaded" | "failed";

@@ -96,6 +96,7 @@ import {
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { ReleaseSwapDialog, type ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
+import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -878,6 +879,13 @@ function TitleContent({
       onFindAnotherSource({ hash, workTitle: title, label: `${title} ${episodeLabel}` }),
     [onFindAnotherSource, title],
   );
+  // Waiting for an English release: the owner can pick one by hand, which always goes.
+  const workKey = payload.workKey;
+  const handlePickEpisodeRelease = useCallback(
+    (season: number, episode: number) =>
+      openReleasePicker({ workKey, title, season, episode, onPicked: onLibraryChanged }),
+    [workKey, title, onLibraryChanged],
+  );
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -1365,6 +1373,21 @@ function TitleContent({
                   </Button>
                 ) : null}
 
+                {showDownload && caps.canDownload && titleTransfer?.state === "waiting_english" ? (
+                  <Button
+                    type="button"
+                    size="lg"
+                    variant="outline"
+                    data-title-pick-release
+                    aria-label={`${PICK_RELEASE_LABEL} for ${title}`}
+                    onClick={() => openReleasePicker({ workKey, title, onPicked: onLibraryChanged })}
+                    className="relative w-full min-w-0 md:w-auto"
+                  >
+                    <Search aria-hidden />
+                    {PICK_RELEASE_LABEL}
+                  </Button>
+                ) : null}
+
                 {canFindSource && findSourceHash ? (
                   <Button
                     type="button"
@@ -1497,7 +1520,9 @@ function TitleContent({
             onSeasonGrab={requestSeasonGrab}
             onAction={handleEpisodeListAction}
             onFindAnotherSource={caps.canDownload ? handleFindEpisodeSource : undefined}
+            onPickRelease={caps.canDownload ? handlePickEpisodeRelease : undefined}
           />
+
         ) : null}
 
         {/* Somewhere to go next. On a film this is the whole reason the space

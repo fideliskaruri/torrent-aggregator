@@ -42,14 +42,20 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
 
     /// <summary>
     /// The one transfer shape of a title payload. <c>status</c> is the acquisition row's own status; <c>state</c> splits its
-    /// "queued" in two: "looking" (no release found yet) and "queued" (a release waits for a download slot, with the engine's
+    /// "queued" in three: "looking" (no release found yet), "waiting_english" (releases were found but none has English
+    /// audio or subtitles, docs/release-language.md) and "queued" (a release waits for a download slot, with the engine's
     /// <c>queuePosition</c> and <c>waitReason</c>). Requesters get only <c>state</c> (RequesterCatalogProjectionMiddleware).
     /// </summary>
     internal static Dictionary<string, object?> Transfer(AcquisitionTarget target, IReadOnlyDictionary<string, EngineTorrentInfo> queue) =>
-        Transfer(target.Status, target.Status == "queued" && target.InfoHash == null ? "looking" : target.Status, target.Progress,
+        Transfer(target.Status, TransferState(target), target.Progress,
             target.InfoHash, target.FilePath, target.Error, target.InfoHash is { } hash ? queue.GetValueOrDefault(hash) : null);
 
-    private static Dictionary<string, object?> Transfer(string status, string state, double progress, string? infoHash, string? filePath, string? error, EngineTorrentInfo? slot) =>
+    private static string TransferState(AcquisitionTarget target) => target.Status == "queued" && target.InfoHash == null
+        ? GrabFailure.IsWaitingForEnglish(target.Error) ? "waiting_english" : "looking"
+        : target.Status;
+
+    private static Dictionary<string, object?> Transfer(string status, string state, double progress,
+ string? infoHash, string? filePath, string? error, EngineTorrentInfo? slot) =>
         LibraryJson.Object(("status", status), ("state", state), ("progress", Math.Clamp(progress, 0, 1)),
             ("infoHash", infoHash), ("filePath", filePath), ("error", error),
             ("queuePosition", slot?.QueuePosition), ("waitReason", slot?.WaitReason));

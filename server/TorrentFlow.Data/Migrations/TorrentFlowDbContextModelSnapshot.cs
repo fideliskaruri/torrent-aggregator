@@ -720,6 +720,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("lane");
 
+                    b.Property<string>("LanguageCheckJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("languageCheckJson");
+
                     b.Property<string>("LastUsedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

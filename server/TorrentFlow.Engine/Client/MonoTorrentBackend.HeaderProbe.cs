@@ -26,7 +26,7 @@ internal sealed partial class MonoTorrentBackend
     private string ProbeRoot => Path.Combine(_options.EngineDirectory, "probe");
 
     public async Task<HeaderProbeResult> ProbeHeadersAsync(byte[]? torrentBytes, IReadOnlyList<int> fileIndices,
-        HeaderProbeBudget? budget, CancellationToken ct)
+        HeaderProbeBudget? budget, CancellationToken ct, bool alongside = false)
     {
         budget ??= HeaderProbeBudget.Default;
         var clock = Stopwatch.StartNew();
@@ -38,8 +38,8 @@ internal sealed partial class MonoTorrentBackend
             return HeaderProbeResult.Skipped(hash, HeaderProbeResult.NoSuchFile);
         // Pieces come whole: one piece has to leave room in the byte budget for the next.
         if (torrent.PieceLength > budget.MaxBytesPerFile / 2) return HeaderProbeResult.Skipped(hash, HeaderProbeResult.PiecesTooLarge);
-        // A loaded transfer already has its files; there is nothing to decide before it.
-        if (_managers.ContainsKey(hash) || !_probes.TryAdd(hash, 0)) return HeaderProbeResult.Skipped(hash, HeaderProbeResult.InUse);
+        // A loaded transfer already has its files; there is nothing to decide before it, unless the caller checks it alongside.
+        if (!alongside && _managers.ContainsKey(hash) || !_probes.TryAdd(hash, 0)) return HeaderProbeResult.Skipped(hash, HeaderProbeResult.InUse);
 
         var files = new List<HeaderProbeFile>();
         string? reason = null;

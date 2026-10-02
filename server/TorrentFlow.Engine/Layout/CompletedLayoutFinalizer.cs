@@ -364,7 +364,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// else from the row, so call this before <see cref="ReleaseTargetsAsync"/> unlinks them. Tracks the change; the
     /// caller saves.
     /// </summary>
-    internal static async Task BlockFailedCheckAsync(TorrentFlowDbContext db, EngineTorrent row, DateTime now, CancellationToken ct)
+    internal static async Task BlockFailedCheckAsync(TorrentFlowDbContext db, EngineTorrent row, DateTime now, CancellationToken ct,
+        string reason = ReleaseBlocks.FailedVideoCheck, string origin = ReleaseBlocks.FromVideoCheck)
     {
         var lower = row.Hash.ToLowerInvariant();
         var upper = row.Hash.ToUpperInvariant();
@@ -385,8 +386,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         var grabbed = await ReleaseBlocks.GrabbedAsync(db, row.UserId, lower, ct);
         await ReleaseBlocks.BlockAsync(db, new ReleaseBlock
         {
-            UserId = row.UserId, Hash = lower, WorkKey = workKey, Scope = scope, Reason = ReleaseBlocks.FailedVideoCheck,
-            Title = grabbed?.Title ?? row.Name, Source = grabbed?.Source, Origin = ReleaseBlocks.FromVideoCheck, CreatedAt = now,
+            UserId = row.UserId, Hash = lower, WorkKey = workKey, Scope = scope, Reason = reason,
+            Title = grabbed?.Title ?? row.Name, Source = grabbed?.Source, Origin = origin, CreatedAt = now,
         }, ct);
     }
 
