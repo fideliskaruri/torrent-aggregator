@@ -63,10 +63,12 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
     /// <summary>
     /// Stop looking for a film, a season or one episode. Transfers the stopped search started and Remove undid
     /// (<paramref name="removed"/>) leave every request naming them, so none waits on a transfer that is gone. Then each
-    /// request covering what stopped is settled on its own. One with no transfer left and nothing left in its scope (no
-    /// wanted row, no download) is cancelled, so nothing brings it back. Any other stays open and is checked for
-    /// fulfilment at once; an approved one with no transfer yet is marked as stopped in part, so the restart sweep doesn't
-    /// grab its seasons again and bring back what the owner removed.
+    /// request covering what stopped is settled on its own, by what the queue is still looking for in its scope. One that
+    /// names no transfer and has nothing left to look for is cancelled, so nothing brings it back. One still looking stays
+    /// open; an approved one that names no transfer yet is marked as stopped in part, so the restart sweep doesn't grab its
+    /// seasons again and bring back what the owner removed. One that names transfers and has nothing left to look for no
+    /// longer waits on a search: a partial or failed one is approved again, and each is fulfilled now if its transfers
+    /// have finished, or when the last one finishes.
     /// </summary>
     public async Task StoppedAsync(string workKey, int? season, int? episode, IReadOnlyCollection<string> removed, CancellationToken ct)
     {
@@ -75,9 +77,9 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         foreach (var hash in removed) await ReplaceHashAsync(db, hash, null, ct);
         var ids = await Covering(workKey, season, Live, ct);
         if (ids.Count == 0) return;
-        // The seasons (null: the film) that still have a wanted row or a download for this title.
-        var left = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey &&
-                (t.Scope == "title" || t.Scope == "episode" && t.Season != null) && (t.Status == "queued" || t.InfoHash != null))
+        // The seasons (null: the film) the queue is still looking for in this title: wanted rows with no transfer yet.
+        var looking = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey &&
+                (t.Scope == "title" || t.Scope == "episode" && t.Season != null) && t.Status == "queued" && t.InfoHash == null)
             .Select(t => t.Scope == "title" ? null : t.Season).Distinct().ToListAsync(ct);
         var rows = await db.MediaRequests.AsNoTracking().Where(r => ids.Contains(r.Id))
             .Select(r => new { r.Id, r.Status, r.Scope, r.Seasons, r.GrabbedHashes }).ToListAsync(ct);
@@ -85,18 +87,28 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         foreach (var row in rows)
         {
             var empty = string.IsNullOrEmpty(row.GrabbedHashes);
-            if (empty && !left.Any(s => Covers(row.Scope, row.Seasons, s)))
+            var stillLooking = looking.Any(s => Covers(row.Scope, row.Seasons, s));
+            if (empty && !stillLooking)
             {
                 await db.MediaRequests.Where(r => r.Id == row.Id && Live.Contains(r.Status) && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
                     .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
                         .SetProperty(r => r.DecisionReason, StoppedReason).SetProperty(r => r.UpdatedAt, now), ct);
             }
-            else if (empty && row.Status == MediaRequestStatus.Approved && row.Scope != MediaRequestScope.Movie)
+            else if (empty)
             {
-                await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Approved && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
-                    .ExecuteUpdateAsync(u => u.SetProperty(r => r.DecisionReason, StoppedPartReason).SetProperty(r => r.UpdatedAt, now), ct);
+                if (row.Status == MediaRequestStatus.Approved && row.Scope != MediaRequestScope.Movie)
+                    await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Approved && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
+                        .ExecuteUpdateAsync(u => u.SetProperty(r => r.DecisionReason, StoppedPartReason).SetProperty(r => r.UpdatedAt, now), ct);
             }
-            else if (!empty) await Decisions.RecheckAsync(row.Id, ct);
+            else
+            {
+                if (!stillLooking && row.Status is MediaRequestStatus.Partial or MediaRequestStatus.Failed)
+                    await db.MediaRequests.Where(r => r.Id == row.Id && (r.Status == MediaRequestStatus.Partial || r.Status == MediaRequestStatus.Failed) &&
+                            r.GrabbedHashes != null && r.GrabbedHashes != "")
+                        .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Approved)
+                            .SetProperty(r => r.DecisionReason, (string?)null).SetProperty(r => r.UpdatedAt, now), ct);
+                await Decisions.RecheckAsync(row.Id, ct);
+            }
         }
     }
 
