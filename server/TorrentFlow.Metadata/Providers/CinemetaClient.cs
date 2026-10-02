@@ -58,9 +58,9 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         return extra.Concat(rows).Take(limit).ToList();
     }
 
-    /// <summary>The IMDb id IMDb suggests first for the query among films (or series), whatever name matched.</summary>
-    public async Task<string?> ImdbTopIdAsync(string query, string type, CancellationToken ct = default) =>
-        (await SuggestAsync(query, type, ct)).FirstOrDefault()?.ExternalId;
+    /// <summary>IMDb's first suggestion for the query among films (or series), whatever name matched.</summary>
+    public async Task<MediaMetadata?> ImdbTopAsync(string query, string type, CancellationToken ct = default) =>
+        (await SuggestAsync(query, type, ct)).FirstOrDefault();
 
     public const string ImdbGraphql = "https://graphql.imdb.com/";
     private readonly BoundedTtlCache<List<string>> namesCache = new(400, TimeProvider.System);

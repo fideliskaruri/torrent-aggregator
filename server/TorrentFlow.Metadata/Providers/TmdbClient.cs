@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Metadata.Providers;
@@ -97,17 +98,37 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
     public Task<List<MediaMetadata>> SearchByTypeAsync(string mediaType, string query, int limit = 12, CancellationToken ct = default) =>
         SearchWithVariantsAsync(mediaType, query, limit, ct);
 
-    /// <summary>Every title TMDB lists for a film or show in other countries and scripts ("Gisaengchung" for Parasite).</summary>
+    private readonly BoundedTtlCache<List<string>> alternativeTitles = new(500, time);
+    private readonly SingleFlight<List<string>> alternativeTitlesFlight = new();
+
+    /// <summary>Every title TMDB lists for a film or show in other countries and scripts ("Gisaengchung" for Parasite).
+    /// Cached a day per key revision and title; an empty answer or failure only for a minute.</summary>
     public async Task<List<string>> AlternativeTitlesAsync(string mediaType, string id, CancellationToken ct = default)
     {
-        using var doc = await GetJsonAsync($"/{(mediaType == "tv" ? "tv" : "movie")}/{Uri.EscapeDataString(id)}/alternative_titles", [],
-            TimeSpan.FromSeconds(4), false, ct).ConfigureAwait(false);
-        if (doc is null) return [];
-        // Films list them under "titles", shows under "results".
-        var root = doc.RootElement;
-        var rows = root.TryGetProperty("titles", out var titles) ? titles : root.TryGetProperty("results", out var results) ? results : default;
-        return rows.ValueKind != JsonValueKind.Array ? []
-            : rows.EnumerateArray().Select(r => Str(r, "title")).OfType<string>().Where(t => t.Trim().Length > 0).Distinct().ToList();
+        if (ApiKey is not { } credential) return [];
+        var type = mediaType == "tv" ? "tv" : "movie";
+        // The revision tracks saved keys; the hash covers a key a source run supplies itself.
+        var key = $"{CredentialRevision}:{credential.GetHashCode()}:{type}:{id}";
+        if (alternativeTitles.TryGet(key, out var cached)) return cached;
+        return await alternativeTitlesFlight.RunAsync(key, async () =>
+        {
+            List<string> found = [];
+            try
+            {
+                // The shared lookup is not tied to one caller's request; its own timeout bounds it.
+                using var doc = await GetJsonAsync($"/{type}/{Uri.EscapeDataString(id)}/alternative_titles", [],
+                    TimeSpan.FromSeconds(4), false, CancellationToken.None).ConfigureAwait(false);
+                // Films list them under "titles", shows under "results".
+                var root = doc?.RootElement ?? default;
+                var rows = root.ValueKind != JsonValueKind.Object ? default
+                    : root.TryGetProperty("titles", out var titles) ? titles : root.TryGetProperty("results", out var results) ? results : default;
+                if (rows.ValueKind == JsonValueKind.Array)
+                    found = rows.EnumerateArray().Select(r => Str(r, "title")).OfType<string>().Where(t => t.Trim().Length > 0).Distinct().ToList();
+            }
+            catch (Exception e) when (e is HttpRequestException or JsonException or OperationCanceledException) { }
+            alternativeTitles.Set(key, found, found.Count > 0 ? TimeSpan.FromDays(1) : TimeSpan.FromMinutes(1));
+            return found;
+        }, ct).ConfigureAwait(false);
     }
 
     private async Task<List<MediaMetadata>> SearchWithVariantsAsync(string scope, string query, int limit, CancellationToken ct)

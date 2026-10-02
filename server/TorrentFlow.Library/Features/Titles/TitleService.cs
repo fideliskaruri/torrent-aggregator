@@ -134,7 +134,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
-        var watch = watches.FirstOrDefault(x => ReleaseSelection.MatchesWork(key, x.Title));
+        var kind = TorrentFlow.Core.Text.WorkKeySlug.KindOf(key);
+        var watch = watches.FirstOrDefault(x => (kind is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) &&
+            ReleaseSelection.MatchesWork(key, x.Title));
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var targets = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.WorkKey == key).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         // TS missingLinkedHashes: a linked torrent older than the scan window is still this work's torrent, not a lost one.

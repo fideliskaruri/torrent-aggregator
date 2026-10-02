@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Metadata.Search;
@@ -9,7 +11,7 @@ namespace TorrentFlow.Metadata.Search;
 /// put an obscure literal match (the 1996 TV movie "Frieren") above the anime nearly everyone searches for.
 /// Popularity is IMDb's suggestion rank when the hit carries an IMDb id, otherwise the provider's own signal.
 /// </summary>
-internal static class SearchRanking
+internal static partial class SearchRanking
 {
     private const double UnknownPopularity = 0.2;
     private const double MusicVideoPenalty = 0.4;
@@ -133,16 +135,17 @@ internal static class SearchRanking
     /// <summary>
     /// The work key each hit links to. A stored work always keeps its key: a hit that is that work by provider identity
     /// (provider id, a stored id or a verified link), or a same-name series from the stored work's era, links to it, so
-    /// its downloads, requests and watchlist row stay attached. Series keys carry no year, so namesakes from other eras
-    /// (Doctor Who 1963 and 2023 next to a stored 2005, Hunter x Hunter 1999 and 2011) get their year in their key,
-    /// "doctor-who-1963". A series nobody stored keeps the plain key unless a namesake shows up; its year then comes from
-    /// its own era, never from which catalogs answered first or which is more popular.
+    /// its downloads, requests and watchlist row stay attached. Any other series is keyed by its name and the first year
+    /// of its era, "doctor-who-1963", as films are, so its key never depends on which namesakes the catalogs returned
+    /// this time. A dated key a stored work of the other kind (or another identity) already holds gets the kind on the
+    /// end, "the-flash-2023-tv", so a series never opens or downloads into a film's work.
     /// </summary>
     private static IReadOnlyList<WorkSearchHit> AssignWorkKeys(IReadOnlyList<WorkSearchHit> hits, IReadOnlyList<StoredWork> stored)
     {
         var resolved = hits.Select(hit => stored.FirstOrDefault(w => w.IsSeries == hit.IsSeries && w.Ids.Overlaps(IdentityOf(hit))) is { } work
             ? hit.WithWorkKey(work.WorkKey) with { Stored = true } : hit).ToList();
-        // Every era of each plain series key: the years of the hits under it and of the stored works named alike.
+        // Every era of each plain series key: the years of the hits under it and of the stored works named alike. Catalogs
+        // date a start a year apart (Doctor Who 2023 and 2024), so an era is years a year apart and is named by its first.
         var eras = new Dictionary<string, List<int>>(StringComparer.Ordinal);
         foreach (var hit in hits.Where(h => h.IsSeries && h.Year is not null))
             Era(eras, hit.WorkKey).Add(hit.Year!.Value);
@@ -150,18 +153,32 @@ internal static class SearchRanking
             Era(eras, PlainSeriesKey(work.WorkKey)).Add(work.Year!.Value);
         return resolved.Select((hit, i) =>
         {
-            if (hit.Stored || !hit.IsSeries) return hit;
-            var plain = hits[i].WorkKey;
-            var namesakes = stored.Where(w => w.IsSeries && PlainSeriesKey(w.WorkKey) == plain).ToList();
-            var clusters = eras.TryGetValue(plain, out var years) ? Clusters(years) : [];
-            // A stored namesake with no year is this show only when no other era is in sight.
-            if (namesakes.FirstOrDefault(w => SameEra(w.Year, hit.Year) && (w.Year is not null || clusters.Count < 2)) is { } same)
-                return hit.WithWorkKey(same.WorkKey);
-            if (hit.Year is not { } year || (clusters.Count < 2 && namesakes.Count == 0)) return hit;
-            var era = clusters.First(c => c.Contains(year)).Min();
-            return plain.EndsWith($"-{era}", StringComparison.Ordinal) ? hit : hit.WithWorkKey(WorkKeys.WorkKeyFor(hit.Title, era));
+            if (hit.Stored) return hit;
+            var key = hit.WorkKey;
+            if (hit.IsSeries)
+            {
+                var plain = hits[i].WorkKey;
+                var clusters = eras.TryGetValue(plain, out var years) ? Clusters(years) : [];
+                // A stored namesake with no year is this show only when no other era is in sight.
+                if (stored.FirstOrDefault(w => w.IsSeries && PlainSeriesKey(w.WorkKey) == plain && SameEra(w.Year, hit.Year) &&
+                        (w.Year is not null || clusters.Count < 2)) is { } same)
+                    return hit.WithWorkKey(same.WorkKey);
+                if (hit.Year is { } year)
+                {
+                    var era = clusters.First(c => c.Contains(year)).Min();
+                    key = plain.EndsWith($"-{era}", StringComparison.Ordinal) ? plain : WorkKeys.WorkKeyFor(hit.Title, era);
+                }
+            }
+            var ids = IdentityOf(hit);
+            if (stored.Any(w => string.Equals(w.WorkKey, key, StringComparison.OrdinalIgnoreCase) && (w.IsSeries != hit.IsSeries || Conflicts(w.Ids, ids))))
+                key = WorkKeySlug.KindKey(key, hit.IsSeries);
+            return key == hit.WorkKey ? hit : hit.WithWorkKey(key);
         }).ToList();
     }
+
+    /// <summary>Two records of different works: an id from the same catalog that differs, and none in common.</summary>
+    private static bool Conflicts(IReadOnlySet<string> stored, IReadOnlySet<string> hit) =>
+        !stored.Overlaps(hit) && stored.Any(a => hit.Any(b => a[..a.IndexOf(':')] == b[..b.IndexOf(':')]));
 
     private static List<int> Era(Dictionary<string, List<int>> eras, string key) =>
         eras.TryGetValue(key, out var list) ? list : eras[key] = [];
@@ -176,9 +193,10 @@ internal static class SearchRanking
         return clusters;
     }
 
-    /// <summary>"doctor-who-1963" → "doctor-who"; a key with no year suffix is already plain.</summary>
-    private static string PlainSeriesKey(string key) =>
-        key.Length > 5 && key[^5] == '-' && key[^4..].All(char.IsAsciiDigit) ? key[..^5] : key;
+    /// <summary>"doctor-who-1963" (or "-1963-tv") → "doctor-who"; a key with no year suffix is already plain.</summary>
+    private static string PlainSeriesKey(string key) => DatedKey().Replace(key, "");
+
+    [GeneratedRegex(@"-(?:19|20)\d{2}(?:-(?:tv|film))?$")] private static partial Regex DatedKey();
 
     /// <summary>The ids a hit is known by, as "provider:id" (Cinemeta's ids are IMDb's).</summary>
     private static HashSet<string> IdentityOf(WorkSearchHit hit)

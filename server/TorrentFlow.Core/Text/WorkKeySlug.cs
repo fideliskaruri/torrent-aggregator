@@ -16,6 +16,7 @@ public static partial class WorkKeySlug
     [GeneratedRegex(@"-(?:19|20)\d{2}$")] private static partial Regex TrailingYear();
     [GeneratedRegex(@"-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)")]
     private static partial Regex LegacySizeGroup();
+    [GeneratedRegex(@"((?:-(?:19|20)\d{2})?)-(?:tv|film)$")] private static partial Regex KindSuffix();
 
     // Hosts that run with invariant globalization may not decompose accents, so the common Latin ones fold here too.
     private const string Accented = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝŸýÿÇçÑñ";
@@ -46,14 +47,23 @@ public static partial class WorkKeySlug
         return year is { } y && y != 0 ? $"{slug}-{y}" : slug;
     }
 
-    /// <summary>The key and, for keys minted with a size/group suffix by older builds, the key without it.</summary>
+    /// <summary>The key and, for keys minted with a size/group suffix by older builds, the key without it; a dated key
+    /// kept apart from a namesake of the other kind ("the-flash-2023-tv", see SearchRanking) also answers to its name and
+    /// year.</summary>
     public static IReadOnlyList<string> Aliases(string? key)
     {
         var wanted = (key ?? "").Trim().ToLowerInvariant();
         if (wanted.Length == 0) return [];
-        var legacy = LegacySizeGroup().Replace(wanted, "", 1);
+        var legacy = KindSuffix().Replace(LegacySizeGroup().Replace(wanted, "", 1), "$1");
         return legacy == wanted ? [wanted] : [wanted, legacy];
     }
+
+    /// <summary>The key a work key takes when a stored work of the other kind holds it: "the-flash-2023-tv", "family-guy-film".</summary>
+    public static string KindKey(string key, bool series) => $"{key}-{(series ? "tv" : "film")}";
+
+    /// <summary>Whether a <see cref="KindKey"/> names a series (true) or a film (false); null for any other key.</summary>
+    public static bool? KindOf(string? key) =>
+        KindSuffix().Match((key ?? "").Trim().ToLowerInvariant()) is { Success: true } m ? m.Value.EndsWith("-tv", StringComparison.Ordinal) : null;
 
     public static bool SameKey(string left, string right) =>
         string.Equals(Uri.UnescapeDataString(left), Uri.UnescapeDataString(right), StringComparison.OrdinalIgnoreCase);

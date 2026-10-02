@@ -23,18 +23,30 @@ fails only when every provider fails; a partial answer lists the failed categori
 `failedProviders` and is never cached as fresh. Ranking rules:
 
 - A hit matches only when one of its own names matches the query. When a provider's
-  top hit has no literal match, search fetches that one hit's other names once (TMDB
-  alternative titles, IMDb original title and AKAs for Cinemeta, TVmaze AKAs; AniList
-  returns romaji and synonyms already) and keeps the best one that matches as an alias
-  (`WithAlternateTitle`): "Money Heist" finds La Casa de Papel, "Gisaengchung" finds
-  Parasite, "Se7en" finds Seven (1995). Hits with no matching name only merge into
-  a card; they never add one, so "qwertyuiop" lists nothing.
+  top hit matches only loosely or not at all, search fetches that one hit's other names
+  once (TMDB alternative titles, cached a day per credential and title with failures
+  kept a minute; IMDb original title and AKAs for Cinemeta, fetched while Cinemeta
+  answers; TVmaze AKAs, only when no name of the hit matches, since TVmaze already
+  searches AKAs; AniList returns romaji and synonyms already) and keeps the best one
+  that matches as an alias (`WithAlternateTitle`): "Money Heist" finds La Casa de
+  Papel, "Gisaengchung" finds Parasite, "Se7en" finds Seven (1995). Hits with no
+  matching name only merge into a card; they never add one, so "qwertyuiop" lists
+  nothing.
 - Work keys never move (`SearchRanking.AssignWorkKeys`). A hit that is a stored work
-  (same provider ID, a stored ID or verified link, or its key) takes that work's key.
-  Same-name series from different eras (TVmaze, TMDB, Cinemeta and AniList alike)
-  stay separate cards: when a name has more than one era, an unstored era gets a
-  `name-year` key from the earliest year of its era, so Doctor Who 1963, 2005 and 2023 and Hunter x Hunter 1999 and 2011
-  are all listed, while a stored The Flash keeps `the-flash`.
+  (same provider ID, a stored ID or verified link, its key, or a stored work of the
+  same name and era) takes that work's key, so a stored The Flash keeps `the-flash`.
+  Every other hit with a year gets a `name-year` key, series as well as films (the
+  earliest year of its era), whichever providers answered: Doctor Who 1963, 2005 and
+  2023 and Hunter x Hunter 1999 and 2011 are separate cards. When a stored work of the
+  other kind, or another work of the same catalog, already holds that key, the hit
+  takes `-tv` or `-film` after it (`WorkKeySlug.KindKey`): a stored film
+  `battlestar-galactica-1978` and the 1978 series `battlestar-galactica-1978-tv`. A
+  kind-tagged key still matches release names by its name and year, but never takes
+  a catalog row or watchlist row of the other kind, and `POST /api/title/{key}` never
+  attaches a download to a stored work of the other kind or another provider ID.
+  Rails, similar titles, requests and on-demand still name an unstored series by its
+  bare name; opening or downloading one reuses the stored work with the same provider
+  ID or verified link, whatever its key.
 - The same film from several providers is one card (`SameFilmSlot`: same era and
   name, or the same year and a one-letter difference such as Se7en and Seven). Its
   identity prefers an AniList anime film, then TVmaze, TMDB, Cinemeta and iTunes;

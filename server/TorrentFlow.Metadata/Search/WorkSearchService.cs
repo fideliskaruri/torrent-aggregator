@@ -65,8 +65,11 @@ public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query
 public delegate Task<List<WorkSearchHit>> WorkSearchProvider(string query, int limit, CancellationToken ct);
 
 /// <summary>Port of src/lib/search/work-search.ts + work-search-fanout.ts.</summary>
-public sealed class WorkSearchService
+public sealed partial class WorkSearchService
 {
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(.+)-(?:19|20)\d{2}(?:-(?:tv|film))?$")]
+    private static partial System.Text.RegularExpressions.Regex StoredDatedKey();
+
     public static readonly string[] Categories = ["movies", "series", "anime"];
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StaleTtl = TimeSpan.FromHours(24);
@@ -253,15 +256,21 @@ public sealed class WorkSearchService
             case "tvmaze":
                 return await WithAlternateTitle(query, (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token))
                     .Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList(), hits => hits.FirstOrDefault(),
-                    hit => int.TryParse(hit.ProviderId, out var id) ? keyless.GetTvmazeAkasAsync(id, token) : Task.FromResult(new List<string>()));
+                    hit => int.TryParse(hit.ProviderId, out var id) ? keyless.GetTvmazeAkasAsync(id, token) : Task.FromResult(new List<string>()),
+                    unmatchedOnly: true);
             case "tmdb":
                 return await WithAlternateTitle(query, HitsInProviderOrder(await tmdb.SearchByTypeAsync(type, query, limit, token), category),
                     hits => hits.FirstOrDefault(), hit => tmdb.AlternativeTitlesAsync(type, hit.ProviderId!, token));
             case "cinemeta":
                 var rows = cinemeta.SearchAsync(query, type, limit, token);
-                var top = await cinemeta.ImdbTopIdAsync(query, type, token);
+                var top = await cinemeta.ImdbTopAsync(query, type, token);
+                // IMDb's names for a top suggestion the query matches only loosely ("Seven" for "Se7en") are fetched while
+                // Cinemeta still answers, so the evidence adds no round trip; the hit is the same tt id under the same name.
+                var names = top is { ExternalId: { } topId } && Relevance.BestTier(query, new[] { top.Title }.Concat(top.Aliases ?? [])) >= 5
+                    ? cinemeta.ImdbNamesAsync(topId, token) : null;
                 return await WithAlternateTitle(query, HitsInProviderOrder(await rows, category),
-                    hits => hits.FirstOrDefault(h => top is not null && h.ProviderId == top), hit => cinemeta.ImdbNamesAsync(hit.ProviderId!, token));
+                    hits => hits.FirstOrDefault(h => top?.ExternalId is { } id && h.ProviderId == id),
+                    hit => names ?? cinemeta.ImdbNamesAsync(hit.ProviderId!, token));
             case "itunes":
                 return HitsInProviderOrder((await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
                     { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }), category);
@@ -276,15 +285,17 @@ public sealed class WorkSearchService
     /// top hit has no name matching the query, its own other titles (TMDB alternative titles, IMDb's original title and
     /// AKAs, TVmaze AKAs) are fetched once; a title the query matches joins its aliases, so ranking matches it like any
     /// other name. With no such title the hit stays unmatched: "zzzzzz" never surfaces a popular unrelated film.
-    /// AniList returns romaji and synonyms with every hit, so it needs no lookup.
+    /// AniList returns romaji and synonyms with every hit, so it needs no lookup. TVmaze already scores a show by its AKAs,
+    /// so its top hit is looked up only when no name of it matches at all (La Casa de Papel for "Money Heist"), not for a
+    /// loose match ("Seven Up!" for "Se7en") whose lookup would only add a round trip.
     /// </summary>
     private static async Task<List<WorkSearchHit>> WithAlternateTitle(string query, List<WorkSearchHit> hits,
-        Func<List<WorkSearchHit>, WorkSearchHit?> pickTop, Func<WorkSearchHit, Task<List<string>>> titlesOf)
+        Func<List<WorkSearchHit>, WorkSearchHit?> pickTop, Func<WorkSearchHit, Task<List<string>>> titlesOf, bool unmatchedOnly = false)
     {
         // A fuzzy-only name ("Seven" for "se7en") still earns the lookup: the catalog's own title may match literally.
         if (pickTop(hits) is not { ProviderId: { Length: > 0 } } top) return hits;
         var tier = Relevance.BestTier(query, new[] { top.Title }.Concat(top.Aliases));
-        if (tier < 5) return hits;
+        if (tier < (unmatchedOnly ? 6 : 5)) return hits;
         List<string> titles;
         try { titles = await titlesOf(top).ConfigureAwait(false); }
         catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException) { return hits; }
@@ -296,25 +307,25 @@ public sealed class WorkSearchService
     }
 
     /// <summary>
-    /// The stored works the hits might be: the same provider id, a stored id or verified link, or a series key of the
-    /// same name (plain or with a year near a hit's). Search links a hit to its stored work's key (see
-    /// <see cref="SearchRanking"/>), so a download, request or watchlist row never ends up on a second key.
+    /// The stored works the hits might be: the same provider id, a stored id or verified link, the hit's own key, or any
+    /// key of the same name with a year (any year, either kind). Search links a hit to its stored work's key and keeps
+    /// other keys clear of stored ones (see <see cref="SearchRanking"/>), so a download, request or watchlist row never
+    /// ends up on a second key or on another work.
     /// </summary>
     private async Task<IReadOnlyList<StoredWork>> StoredWorksAsync(IReadOnlyList<WorkSearchHit> hits, CancellationToken ct)
     {
         if (_works is null || hits.Count == 0) return [];
-        var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var hit in hits)
-        {
-            keys.Add(hit.WorkKey);
-            if (hit.IsSeries && hit.Year is { } year)
-                for (var y = year - 1; y <= year + 1; y++) keys.Add(WorkKeys.WorkKeyFor(hit.Title, y));
-        }
+        var keys = hits.Select(h => h.WorkKey).ToHashSet(StringComparer.Ordinal);
+        var names = hits.Select(h => WorkKeys.WorkKeyFor(h.Title, null)).Where(k => k.Length > 0).ToHashSet(StringComparer.Ordinal);
         var ids = hits.SelectMany(h => (h.ExternalIds?.Values ?? []).Append(h.ProviderId)).OfType<string>()
             .Select(v => v.Trim()).Where(v => v.Length > 0).Distinct().ToList();
         try
         {
             await using var db = await _works.CreateDbContextAsync(ct).ConfigureAwait(false);
+            // A library holds hundreds of works, so its keys are read once and matched here: "doctor-who-1963-tv" is a
+            // dated key of "doctor-who".
+            foreach (var key in await db.Works.AsNoTracking().Select(w => w.WorkKey).ToListAsync(ct).ConfigureAwait(false))
+                if (StoredDatedKey().Match(key) is { Success: true } m && names.Contains(m.Groups[1].Value)) keys.Add(key);
             var linked = db.WorkLinks.Where(l => l.Verified && !l.Rejected && ids.Contains(l.ExternalId)).Select(l => l.WorkId);
             var works = await db.Works.AsNoTracking().Include(w => w.Links.Where(l => l.Verified && !l.Rejected))
                 .Where(w => keys.Contains(w.WorkKey) || (w.ProviderId != null && ids.Contains(w.ProviderId)) || linked.Contains(w.Id))

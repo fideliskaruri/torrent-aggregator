@@ -140,13 +140,28 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         if (providerId == null) provider = null;
         await using var db = await factory.CreateDbContextAsync(ct);
         var work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
-        // The verified record is already stored under another key (a link from before search dated namesakes): the
-        // download belongs to that work, never to a second copy of it.
-        if (work == null && verified != null &&
-            await db.Works.FirstOrDefaultAsync(x => x.Provider == verified.Source && x.ProviderId == verified.ExternalId && x.MediaType == type, ct) is { } stored)
+        // The key's work is another title: a film where this is a series (or the reverse), or another record of the same
+        // catalog. Search keeps such a namesake on the key with its kind on the end ("the-flash-2023-tv"); so does this.
+        if (work != null && (TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(work.MediaType) != TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(type) ||
+                (verified != null && work.Provider == verified.Source && work.ProviderId != null && work.ProviderId != verified.ExternalId)))
         {
-            work = stored;
-            workKey = stored.WorkKey;
+            workKey = TorrentFlow.Core.Text.WorkKeySlug.KindKey(workKey, TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(type));
+            work = await db.Works.FirstOrDefaultAsync(x => x.WorkKey == workKey, ct);
+        }
+        // The verified record is already stored under another key (a link from before search dated namesakes, or another
+        // catalog's record of it that the work's verified links name): the download belongs to that work, never to a
+        // second copy of it.
+        if (work == null && verified != null)
+        {
+            var source = verified.Source == "cinemeta" ? "imdb" : verified.Source;
+            var stored = await db.Works.FirstOrDefaultAsync(x => x.Provider == verified.Source && x.ProviderId == verified.ExternalId && x.MediaType == type, ct)
+                ?? await db.Works.Where(x => (x.MediaType == "movie") == (type == "movie") &&
+                    x.Links.Any(l => l.Verified && !l.Rejected && l.Provider == source && l.ExternalId == verified.ExternalId)).FirstOrDefaultAsync(ct);
+            if (stored != null)
+            {
+                work = stored;
+                workKey = stored.WorkKey;
+            }
         }
         // An identity is unique to one work; a page-derived identity already held by another work key is not copied here.
         if (verified == null && provider != null && await db.Works.AnyAsync(x => x.Provider == provider && x.ProviderId == providerId && x.MediaType == type && x.WorkKey != workKey, ct))
