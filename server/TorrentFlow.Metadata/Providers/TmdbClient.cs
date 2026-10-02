@@ -70,7 +70,8 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         return year is > 1800 and < 2200 ? $"{m.Groups[1].Value}-{m.Groups[2].Value}-{m.Groups[3].Value}" : null;
     }
 
-    private async Task<JsonDocument?> GetJsonAsync(string path, IEnumerable<(string, string)> query, TimeSpan timeout, bool throwOnHttpError, CancellationToken ct)
+    private async Task<JsonDocument?> GetJsonAsync(string path, IEnumerable<(string, string)> query, TimeSpan timeout, bool throwOnHttpError, CancellationToken ct,
+        bool throwOnTransient = false)
     {
         var key = ApiKey;
         if (key == null) return null;
@@ -81,7 +82,8 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            if (throwOnHttpError) throw new HttpRequestException($"TMDB HTTP {(int)response.StatusCode}", null, response.StatusCode);
+            if (throwOnHttpError || throwOnTransient && (int)response.StatusCode is 408 or 429 or >= 500)
+                throw new HttpRequestException($"TMDB HTTP {(int)response.StatusCode}", null, response.StatusCode);
             return null;
         }
         return await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
@@ -191,7 +193,9 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         }
     }
 
-    public async Task<List<TmdbCandidate>> SearchCandidatesAsync(string scope, string query, int? year = null, int limit = 8, int timeoutMs = 5000, CancellationToken ct = default)
+    /// <param name="strict">Throw when TMDB did not answer (a timeout, a rate limit or a server error) instead of returning nothing.</param>
+    public async Task<List<TmdbCandidate>> SearchCandidatesAsync(string scope, string query, int? year = null, int limit = 8, int timeoutMs = 5000, CancellationToken ct = default,
+        bool strict = false)
     {
         var term = query.Trim();
         if (ApiKey == null || term.Length == 0) return [];
@@ -200,7 +204,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         if (year is { } y2 && y2 != 0 && scope == "tv") q.Add(("first_air_date_year", y2.ToString(CultureInfo.InvariantCulture)));
         try
         {
-            using var doc = await GetJsonAsync($"/search/{scope}", q, TimeSpan.FromMilliseconds(timeoutMs), false, ct).ConfigureAwait(false);
+            using var doc = await GetJsonAsync($"/search/{scope}", q, TimeSpan.FromMilliseconds(timeoutMs), false, ct, strict).ConfigureAwait(false);
             return Results(doc)
                 .Where(r => scope switch
                 {
@@ -218,36 +222,39 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
                 })
                 .ToList();
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
+        catch (Exception e) when (!strict && e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
             return [];
         }
     }
 
     /// <summary>fetchTmdbDetail: detail with credits and release_dates/content_ratings appended. Returns the raw JSON root.</summary>
-    public async Task<JsonElement?> FetchDetailAsync(string mediaType, int id, int timeoutMs = 5000, CancellationToken ct = default)
+    /// <param name="strict">Throw when TMDB did not answer (a timeout, a rate limit or a server error) instead of returning null.</param>
+    public async Task<JsonElement?> FetchDetailAsync(string mediaType, int id, int timeoutMs = 5000, CancellationToken ct = default, bool strict = false)
     {
         try
         {
             using var doc = await GetJsonAsync($"/{mediaType}/{id}",
                 [("language", "en-US"), ("append_to_response", mediaType == "movie" ? "credits,release_dates" : "credits,content_ratings")],
-                TimeSpan.FromMilliseconds(timeoutMs), false, ct).ConfigureAwait(false);
+                TimeSpan.FromMilliseconds(timeoutMs), false, ct, strict).ConfigureAwait(false);
             return doc?.RootElement.Clone();
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
+        catch (Exception e) when (!strict && e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
             return null;
         }
     }
 
-    public async Task<JsonElement?> FetchSeasonAsync(int id, int seasonNumber, int timeoutMs = 5000, CancellationToken ct = default)
+    /// <param name="strict">Throw when TMDB did not answer (a timeout, a rate limit or a server error) instead of returning null.</param>
+    public async Task<JsonElement?> FetchSeasonAsync(int id, int seasonNumber, int timeoutMs = 5000, CancellationToken ct = default, bool strict = false)
     {
         try
         {
-            using var doc = await GetJsonAsync($"/tv/{id}/season/{seasonNumber}", [("language", "en-US")], TimeSpan.FromMilliseconds(timeoutMs), false, ct).ConfigureAwait(false);
+            using var doc = await GetJsonAsync($"/tv/{id}/season/{seasonNumber}", [("language", "en-US")], TimeSpan.FromMilliseconds(timeoutMs), false, ct, strict)
+                .ConfigureAwait(false);
             return doc?.RootElement.Clone();
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
+        catch (Exception e) when (!strict && e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
             return null;
         }

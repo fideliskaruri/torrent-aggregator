@@ -12,26 +12,40 @@ public sealed record SeasonShapeQuery(string WorkKey, string Title, int? Year, s
 public sealed record SeasonShapeEpisode(int Season, int Episode, bool Aired, int? Absolute = null, string? AniListId = null,
     int? AniListEpisode = null);
 
+/// <summary>A run of absolute episodes, both ends included.</summary>
+public sealed record EpisodeRange(int From, int To)
+{
+    public bool Contains(int absolute) => absolute >= From && absolute <= To;
+}
+
 /// <param name="Source">Where the episode list came from: tmdb, tvmaze or anilist.</param>
 /// <param name="ShowTitle">For an anime sequel entry numbered as its show: the show's English name, the folder its files land in.</param>
 /// <param name="ShowYear">That show's first year.</param>
-/// <param name="Provisional">The anime numbering came from a franchise walk AniList cut short; it may change on the next ask.</param>
+/// <param name="Provisional">The anime numbering came from a franchise walk AniList cut short, or the show listing did not answer; it may change on the next ask.</param>
 /// <param name="Chained">The anime numbering is the show's (sequel chain or show listing), not an entry's own Season 1 kept for lack of one.</param>
+/// <param name="ShowId">That show's first AniList entry, which names its folder.</param>
 public sealed record SeasonShape(int Season, IReadOnlyList<SeasonShapeEpisode> Episodes, string Source, string? ShowTitle = null,
-    int? ShowYear = null, bool Provisional = false, bool Chained = false)
+    int? ShowYear = null, bool Provisional = false, bool Chained = false, string? ShowId = null)
 {
     public IReadOnlyList<int> AiredEpisodes => Episodes.Where(e => e.Aired).Select(e => e.Episode).Distinct().Order().ToArray();
 }
 
 /// <summary>
 /// One episode of an anime work as numbered now (<see cref="Season"/>, <see cref="Episode"/>) and as the title page
-/// numbered it before seasons followed the sequel chain (<see cref="LegacySeason"/>, <see cref="LegacyEpisode"/>).
+/// numbered it before seasons followed the sequel chain (<see cref="LegacySeason"/>, <see cref="LegacyEpisode"/>), with the
+/// AniList entry that numbers it as its own episode (<see cref="Entry"/>, <see cref="EntryEpisode"/>) when one does.
 /// </summary>
-public sealed record NumberedEpisode(int Absolute, int Season, int Episode, int LegacySeason, int LegacyEpisode);
+public sealed record NumberedEpisode(int Absolute, int Season, int Episode, int LegacySeason, int LegacyEpisode, string? Entry = null,
+    int? EntryEpisode = null);
 
-/// <param name="Provisional">AniList cut the franchise walk short: nothing should be renumbered from it.</param>
+/// <param name="Provisional">AniList cut the franchise walk short, or the show listing did not answer: nothing should be renumbered or moved from it.</param>
 /// <param name="ShowTitle">The root show's title when the work is a later entry of it (its episodes are filed under it); null for the root itself.</param>
-public sealed record AnimeNumbering(IReadOnlyList<NumberedEpisode> Episodes, bool Provisional, string? ShowTitle = null, int? ShowYear = null);
+/// <param name="ShowId">That root show's first AniList entry.</param>
+/// <param name="Listing">The show listing the numbering was laid over ("tvmaze:1905", "tmdb:37854"), or "none".</param>
+/// <param name="Uncertain">Absolute episodes whose AniList entry is not certain (the listing and AniList count an episode
+/// differently there): rows are never moved across them.</param>
+public sealed record AnimeNumbering(IReadOnlyList<NumberedEpisode> Episodes, bool Provisional, string? ShowTitle = null, int? ShowYear = null,
+    string? ShowId = null, string Listing = "none", IReadOnlyList<EpisodeRange>? Uncertain = null);
 
 /// <summary>
 /// The one server-side answer to "which episodes does this season have": the season download, requests and the episode

@@ -15,7 +15,7 @@ public sealed class SeasonShapeService(AnimeFranchiseService franchises, TitleEx
                 .ConfigureAwait(false) is { } view)
             return new(q.Season, view.EpisodesOf(q.Season)
                 .Select(e => new SeasonShapeEpisode(e.Season, e.Episode, e.Aired, e.Absolute, e.AniListId, e.AniListEpisode)).ToList(), view.Source,
-                view.Show?.Title, view.Show?.Year, view.Provisional, view.Chained);
+                view.Show?.Title, view.Show?.Year, view.Provisional, view.Chained, view.Show?.AniListId);
         var payload = await extras.GetAsync(new(q.WorkKey, q.Title, q.Year, q.MediaType, q.Season, q.Provider, q.ProviderId, null,
             SeriesHint: true), cancellationToken).ConfigureAwait(false);
         if (!payload.Resolved || payload.Season != q.Season) return null;
@@ -33,7 +33,7 @@ public sealed class SeasonShapeService(AnimeFranchiseService franchises, TitleEx
         // page its own Season 1.
         return new(view.Episodes.Where(e => e.Absolute is not null).Select(e => new NumberedEpisode(e.Absolute!.Value, e.Season, e.Episode,
             view.Show is not null ? 1 : e.ListedSeason ?? e.Season,
-            view.Show is not null ? e.AniListEpisode ?? e.Episode : e.ListedEpisode ?? e.Episode)).ToList(), view.Provisional,
-            view.Show?.Title, view.Show?.Year);
+            view.Show is not null ? e.AniListEpisode ?? e.Episode : e.ListedEpisode ?? e.Episode, e.AniListId, e.AniListEpisode)).ToList(),
+            view.Provisional, view.Show?.Title, view.Show?.Year, view.Show?.AniListId, view.Listing, view.Uncertain ?? []);
     }
 }

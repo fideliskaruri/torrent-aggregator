@@ -13,8 +13,9 @@ namespace TorrentFlow.Library.Features.Grabs;
 public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShapeLookup? shapes = null)
 {
     /// <exception cref="SeasonListPendingException">
-    /// An AniList episode whose show numbering is not confidently known yet: AniList did not answer or cut the franchise
-    /// walk short, or a sequel entry could not be laid over its show. Sending it now would file it under the entry.
+    /// An AniList episode whose show numbering is not known because AniList (or the show listing) did not answer, or cut
+    /// the franchise walk short. Sending it now could file it under the wrong season. Anything AniList did answer is
+    /// used as it is: an OVA, special or TV short has no sequel chain and searches with its plain numbering, as before.
     /// </exception>
     public async Task<AnimeEpisodeMapping?> ForAsync(string? workKey, string title, int? year, string? mediaType, string? provider,
         string? providerId, EpisodeCursor cursor, CancellationToken ct)
@@ -27,36 +28,31 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
             System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0;
         workKey ??= aniList ? $"anilist-{providerId}" : null;
         var confident = aniList && shapes is not null and not DefaultSeasonShapeLookup;
-        SeasonShape? shape = null;
-        AnimeEpisodeMapping? mapping = null;
         try
         {
+            SeasonShape? shape = null;
             if (shapes != null && workKey != null)
                 shape = await shapes.GetSeasonAsync(new(workKey, title, year, mediaType, provider, providerId, cursor.Season), ct);
             if (confident && (shape is null || shape.Provisional))
                 throw new SeasonListPendingException("AniList has not answered with the show's season list.");
             if (shape?.Episodes.FirstOrDefault(e => e.Episode == cursor.Episode) is { AniListId: { } entry, AniListEpisode: { } local })
             {
-                mapping = await anime.GetEpisodeMappingAsync(entry, ct);
-                if (mapping is null)
-                    return confident ? throw new SeasonListPendingException("AniList has not answered with the entry's numbering.") : null;
-                if (confident && mapping.IsSequel && !shape.Chained)
-                    throw new SeasonListPendingException("The sequel could not be placed in its show's seasons yet.");
+                // No chain (an OVA, special or short): its plain numbering, as before seasons followed the chain.
+                if (await anime.GetEpisodeMappingAsync(entry, ct) is not { } mapping) return null;
                 return mapping with { TargetSeason = cursor.Season, EntryEpisodeOffset = cursor.Episode - local, ShowTitle = shape.ShowTitle,
-                    ShowYear = shape.ShowYear };
+                    ShowYear = shape.ShowYear, ShowId = shape.ShowId };
             }
             // A sequel entry's page knows only its own episodes as the show numbers them; any other number is stale.
             if (confident && shape!.ShowTitle != null)
                 throw new SeasonListPendingException($"Season {cursor.Season} episode {cursor.Episode} is not one of this entry's episodes.");
-            mapping = provider == "anilist" && providerId != null && cursor.Season == 1
+            return provider == "anilist" && providerId != null && cursor.Season == 1
                 ? await anime.GetEpisodeMappingAsync(providerId, ct) : null;
-            if (confident && mapping is { IsSequel: true })
-                throw new SeasonListPendingException("The sequel could not be placed in its show's seasons yet.");
-            return mapping;
         }
-        catch (Exception e) when (confident && e is not SeasonListPendingException && !ct.IsCancellationRequested)
+        catch (Exception e) when (e is not SeasonListPendingException && !ct.IsCancellationRequested)
         {
-            throw new SeasonListPendingException("AniList has not answered with the show's season list.", e);
+            // AniList failing mid-walk is no answer: an AniList episode waits for it; anything else searches unmapped.
+            if (confident) throw new SeasonListPendingException("AniList has not answered with the show's season list.", e);
+            return null;
         }
     }
 
