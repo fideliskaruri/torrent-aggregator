@@ -130,13 +130,18 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var cat = await catalog.FindByWorkKeyAsync(key, ct);
         // A link without an id still names a requestable title: the work's own id, else the chart row's, else the link's unverified claim.
         var work = await db.Works.AsNoTracking().Where(x => x.WorkKey == key)
-            .Select(x => new { x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.AliasesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
+            .Select(x => new { x.Id, x.Provider, x.ProviderId, x.CanonicalTitle, x.NamesJson, x.AliasesJson, x.IdsJson, x.Format, x.OriginalLanguage }).FirstOrDefaultAsync(ct);
         var identity = TitleIdentity.From(query.Provider?.Source, query.Provider?.ExternalId) ?? TitleIdentity.From(work?.Provider, work?.ProviderId)
             ?? TitleIdentity.From(cat?.Provider, cat?.ProviderId) ?? query.Claimed;
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var kind = TorrentFlow.Core.Text.WorkKeySlug.KindOf(key);
-        var watch = watches.FirstOrDefault(x => (kind is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) &&
-            ReleaseSelection.MatchesWork(key, x.Title));
+        // The row linked to this work; else an unlinked row saved from this page's identity; else an unlinked row of the
+        // name. A yearless "Doctor Who" row names every era, so a row linked to another work is never this one.
+        var named = watches.Where(x => (x.WorkId == null || x.WorkId == work?.Id) &&
+            (kind is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) && ReleaseSelection.MatchesWork(key, x.Title)).ToList();
+        var watch = (work != null ? watches.FirstOrDefault(x => x.WorkId == work.Id) : null)
+            ?? named.FirstOrDefault(x => x.ExternalId == identity?.ProviderId || x.ExternalId == $"work:{key}")
+            ?? named.FirstOrDefault(x => x.WorkId == null);
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var targets = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.WorkKey == key).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         // TS missingLinkedHashes: a linked torrent older than the scan window is still this work's torrent, not a lost one.

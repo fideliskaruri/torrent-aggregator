@@ -65,6 +65,7 @@ import {
 } from "@/lib/metadata/media-type";
 import {
   titleHrefForName,
+  titlePath,
 } from "@/components/title/work-key";
 import {
   automationStateCopy,
@@ -114,19 +115,24 @@ interface WatchItem {
   ready?: boolean;
   nextEpisodeHint: string | null;
   updatedAt: string;
+  /** The linked work's key; the row opens that page, not one rebuilt from its title. */
+  workKey?: string | null;
 }
 
 /**
  * Where a library row opens.
  *
- * The same funnel every other card surface uses, so a library row and the same
- * work's poster on the home board land on one page rather than two.
+ * A row linked to a work opens that work's page (`doctor-who-2005`, not the
+ * bare name every era shares). An unlinked row takes the same funnel every
+ * other card surface uses, so it and the same work's poster on the home board
+ * land on one page rather than two.
  */
 function libraryTitleHref(item: WatchItem): string | null {
-  return titleHrefForName(item.title, {
-    mediaType: item.mediaType,
-    season: item.cursorSeason ?? item.fromSeason ?? null,
-  });
+  const season = item.cursorSeason ?? item.fromSeason ?? null;
+  if (item.workKey) {
+    return titlePath(item.workKey, { title: item.title, mediaType: item.mediaType, season });
+  }
+  return titleHrefForName(item.title, { mediaType: item.mediaType, season });
 }
 
 /**

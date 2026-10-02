@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Data;
 using TorrentFlow.Metadata.Browse;
 using TorrentFlow.Metadata.Recommend;
@@ -7,7 +8,8 @@ using TorrentFlow.Metadata.Title;
 namespace TorrentFlow.Metadata.Controllers;
 
 [ApiController]
-public sealed class BrowseController(BrowseService browse, RecommendationService recommendations, TitleExtrasService extras) : ControllerBase
+public sealed class BrowseController(BrowseService browse, RecommendationService recommendations, TitleExtrasService extras,
+    IDbContextFactory<TorrentFlowDbContext>? works = null) : ControllerBase
 {
     /// <summary>
     /// GET /api/browse?type=all|films|series|anime&amp;genre=&lt;id&gt;: personal rails first on All, catalog rails beneath.
@@ -41,8 +43,20 @@ public sealed class BrowseController(BrowseService browse, RecommendationService
         string key;
         try { key = Uri.UnescapeDataString(workKey); } catch (UriFormatException) { key = workKey; }
         var p = Request.Query;
-        var query = new TitleExtrasQuery(key, p["t"].FirstOrDefault()?.Trim() ?? "", IntParam(p["y"].FirstOrDefault()),
-            p["type"].FirstOrDefault(), IntParam(p["s"].FirstOrDefault()), p["provider"].FirstOrDefault(), p["providerId"].FirstOrDefault(),
+        string? provider = p["provider"].FirstOrDefault(), providerId = p["providerId"].FirstOrDefault();
+        var year = IntParam(p["y"].FirstOrDefault());
+        // A link with no catalog claim (a library row, a download) opens a stored work: its own record names the page, so
+        // Doctor Who 1963 never shows the details of the best-known namesake.
+        if (string.IsNullOrEmpty(provider) && works is not null)
+        {
+            await using var db = await works.CreateDbContextAsync(ct);
+            var lower = key.Trim().ToLowerInvariant();
+            if (await db.Works.AsNoTracking().Where(w => w.WorkKey == lower && w.Provider != null && w.ProviderId != null)
+                    .Select(w => new { w.Provider, w.ProviderId, w.Year }).FirstOrDefaultAsync(ct) is { } stored)
+                (provider, providerId, year) = (stored.Provider, stored.ProviderId, year ?? stored.Year);
+        }
+        var query = new TitleExtrasQuery(key, p["t"].FirstOrDefault()?.Trim() ?? "", year,
+            p["type"].FirstOrDefault(), IntParam(p["s"].FirstOrDefault()), provider, providerId,
             p["poster"].FirstOrDefault(), p["series"].FirstOrDefault() == "1");
         return Ok(await extras.GetAsync(query, ct));
     }
