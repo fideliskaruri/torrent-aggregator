@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
 import { RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { useVisiblePoll } from "@/hooks/use-visible-poll";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -75,13 +75,14 @@ export function wantedRowMatches(row: WantedRow, t: WantedTarget): boolean {
 
 /**
  * The way out of "Looking for a release", the same on Downloads and the title
- * page: pick a release yourself, search again now, or remove it so TorrentFlow
- * stops looking (also after a restart, and also a search already running).
+ * page, also while it waits for an English release: pick a release yourself,
+ * search again now, or remove it so TorrentFlow stops looking (also after a
+ * restart, and also a search already running).
  */
 export function WantedActions({
   target,
   name,
-  pickLink,
+  pickTitle,
   looking,
   onChanged,
   onRemoved,
@@ -91,7 +92,8 @@ export function WantedActions({
   target: WantedTarget;
   /** How the toasts and dialog name it, e.g. "Amélie (2001)" or "Show S01E02". */
   name: string;
-  pickLink: string | null;
+  /** The title the release picker searches for and shows. */
+  pickTitle: string;
   /** A search is running right now: Try now has nothing to start. */
   looking: boolean;
   onChanged?: () => void | Promise<void>;
@@ -136,14 +138,25 @@ export function WantedActions({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} data-wanted-actions>
-      {pickLink ? (
-        <Button asChild variant="secondary" size={size} data-looking-pick>
-          <Link to={pickLink} aria-label={`Pick a release for ${name}`}>
-            <Search className="h-3.5 w-3.5" />
-            Pick a release
-          </Link>
-        </Button>
-      ) : null}
+      <Button
+        type="button"
+        variant="secondary"
+        size={size}
+        onClick={() =>
+          openReleasePicker({
+            workKey: target.workKey,
+            title: pickTitle,
+            season: target.season,
+            episode: target.episode,
+            onPicked: () => void onChanged?.(),
+          })
+        }
+        aria-label={`${PICK_RELEASE_LABEL} for ${name}`}
+        data-looking-pick
+      >
+        <Search className="h-3.5 w-3.5" />
+        Pick a release
+      </Button>
       <Button
         type="button"
         variant="secondary"

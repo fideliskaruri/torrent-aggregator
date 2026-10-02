@@ -9,6 +9,7 @@ import {
   wantedRowMatches,
   type WantedRow,
 } from "@/components/wanted/wanted-actions";
+import { useCapabilities } from "@/lib/capabilities";
 import { titleWithYear } from "./release-display";
 
 interface LookingGroup {
@@ -24,7 +25,8 @@ interface LookingGroup {
   waitingForEnglish: boolean;
   why: string | null;
   nextAttemptAt: string | null;
-  pickLink: string | null;
+  /** The catalog title alone, for the release picker. */
+  name: string;
 }
 
 /** One line per film or season, so a 38 episode season is one row, not 38. */
@@ -61,7 +63,7 @@ function groupRows(rows: WantedRow[]): LookingGroup[] {
       waitingForEnglish: items.some((i) => i.error?.startsWith(WAITING_FOR_ENGLISH_LABEL) ?? false),
       why: items.find((i) => i.why)?.why ?? items.find((i) => i.error)?.error ?? null,
       nextAttemptAt: next ?? null,
-      pickLink: (first.season != null && single == null ? first.seasonPickLink : first.pickLink) ?? null,
+      name,
     };
   });
 }
@@ -84,6 +86,7 @@ function groupName(g: LookingGroup): string {
  * Every row has a way out: pick a release yourself, try now, or remove it.
  */
 export function LookingSection() {
+  const { canManage } = useCapabilities();
   const { rows, setRows, reload } = useWantedRows();
 
   const groups = useMemo(
@@ -130,15 +133,17 @@ export function LookingSection() {
                 ) : null}
               </div>
             </div>
-            <WantedActions
-              target={g}
-              name={groupName(g)}
-              pickLink={g.pickLink}
-              looking={g.looking}
-              onChanged={reload}
-              onRemoved={() => setRows((current) => current.filter((r) => !wantedRowMatches(r, g)))}
-              className="pl-7 sm:pl-0 sm:shrink-0"
-            />
+            {canManage ? (
+              <WantedActions
+                target={g}
+                name={groupName(g)}
+                pickTitle={g.name}
+                looking={g.looking}
+                onChanged={reload}
+                onRemoved={() => setRows((current) => current.filter((r) => !wantedRowMatches(r, g)))}
+                className="pl-7 sm:pl-0 sm:shrink-0"
+              />
+            ) : null}
           </div>
         ))}
       </div>
