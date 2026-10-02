@@ -190,6 +190,13 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                         work?.WorkKey ?? input.WorkKey, work?.CanonicalTitle ?? input.Title, input.Year ?? work?.Year, input.MediaType,
                         provider, providerId, input.Cursor.Value, ct) };
                 }
+                catch (SeasonListPendingException pending) when (!ct.IsCancellationRequested)
+                {
+                    // Sent now, the episode would land in the entry's own folder under the wrong season; it waits instead.
+                    logger?.LogInformation(pending, "Holding {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, pending.Message);
+                    return (input, settings, null, new(false, GrabFailure.SeasonListPending.Sentence) { Query = query, Skipped = true,
+                        Failure = GrabFailure.SeasonListPending });
+                }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
             }
             var saved = input.Aliases;
@@ -562,7 +569,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 if (watch.LatestReleaseMagnet == candidate.Magnet && candidate.Magnet != null ||
                     await db.EngineTorrents.AnyAsync(x => x.UserId == LocalUser.Id && x.Hash == identity && x.Status != "removed" && x.Status != "error", ct))
                 {
-                    if (input.Cursor != null) await Advance(db, watch.Id, input.Cursor.Value, candidate.Title, ct);
+                    if (input.Cursor != null) await Advance(db, watch.Id, input.Cursor.Value, await NextAsync(db, input, input.Cursor.Value, ct), candidate.Title, ct);
                     await LogSkip(db, input, query, "Already sent this release", ct);
                     return new(false, "Already sent this release") { Query = query, Skipped = true };
                 }
@@ -623,6 +630,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (result.Ok && result.Fresh && hash != null) input.Admitted?.Invoke(hash);
         var queued = result.Details?.Action == EngineAddDetails.Queued;
         var logged = EngineAddMessages.Outcome(result);
+        // The episode after this one, as the show numbers it (Frieren S01E28 is followed by S02E01).
+        var next = result.Ok && input.Cursor is { } sent ? await NextAsync(db, input, sent, ct) : (EpisodeCursor?)null;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var now = DateTime.UtcNow;
         db.GrabJobs.Add(new GrabJob { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Query = query,
@@ -635,7 +644,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;
         if (result.Ok && input.WatchListItemId != null && input.Cursor != null)
-            advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, candidate.Title, ct);
+            advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, next!.Value, candidate.Title, ct);
         if (result.Ok && input.Background && input.WatchListItemId != null)
             await db.WatchListItems.Where(x => x.Id == input.WatchListItemId).ExecuteUpdateAsync(x =>
                 x.SetProperty(w => w.LatestReleaseMagnet, candidate.Magnet).SetProperty(w => w.CursorMisses, 0)
@@ -666,7 +675,6 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var notes = new List<string>();
         if (advanced && !input.Background) notes.Add($"advanced past {input.Cursor?.Label}");
         if (relaxed) notes.Add("low-seed release");
-        var next = input.Cursor?.Next();
         // The engine picks the smart target on add; report where the transfer actually lives.
         var savePath = hash == null ? null : (await engine.GetAsync(hash, ct))?.SavePath;
         return new(true, notes.Count == 0 ? result.Message : $"{result.Message} · {string.Join(" · ", notes)}") { Query = query, Title = candidate.Title,
@@ -709,11 +717,20 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             .ThenBy(r => r.SizeBytes is > 0 ? r.SizeBytes : long.MaxValue)
             .ThenByDescending(r => r.Seeders);
 
-    internal static async Task<bool> Advance(TorrentFlowDbContext db, string id, EpisodeCursor grabbed, string title, CancellationToken ct)
+    /// <summary>The episode after <paramref name="grabbed"/> as the work's season shape numbers it (<see cref="AnimeEpisodeMappings.NextAsync"/>).</summary>
+    private async Task<EpisodeCursor> NextAsync(TorrentFlowDbContext db, GrabInput input, EpisodeCursor grabbed, CancellationToken ct)
+    {
+        if (episodeMappings == null) return grabbed.Next();
+        var work = input.WorkId == null ? null : await db.Works.AsNoTracking().Where(w => w.Id == input.WorkId)
+            .Select(w => new { w.WorkKey, w.CanonicalTitle, w.Year, w.Provider, w.ProviderId }).FirstOrDefaultAsync(ct);
+        return await episodeMappings.NextAsync(work?.WorkKey ?? input.WorkKey, work?.CanonicalTitle ?? input.Title, input.Year ?? work?.Year,
+            input.MediaType, input.Provider ?? work?.Provider, input.ProviderId ?? work?.ProviderId, grabbed, ct);
+    }
+
+    internal static async Task<bool> Advance(TorrentFlowDbContext db, string id, EpisodeCursor grabbed, EpisodeCursor next, string title, CancellationToken ct)
     {
         var item = await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.UserId == LocalUser.Id, ct);
         if (item == null || EpisodeCursor.Resolve(item) != grabbed) return false;
-        var next = grabbed.Next();
         var now = DateTime.UtcNow;
         var moved = await db.WatchListItems.Where(x => x.Id == id && x.CursorSeason == item.CursorSeason && x.CursorEpisode == item.CursorEpisode)
             .ExecuteUpdateAsync(x => x.SetProperty(w => w.CursorSeason, next.Season).SetProperty(w => w.CursorEpisode, next.Episode)

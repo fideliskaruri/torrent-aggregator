@@ -19,7 +19,7 @@ namespace TorrentFlow.Library.Features.Watchlist;
 [ApiController, Route("api/watchlist"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> factory,
     IMetadataResolver metadata, ITorrentSearchService search, AutomationWake wake, IAirDateLookup airDates, WorkNamesRefresh names,
-    ILogger<WatchlistController>? logger = null) : ControllerBase
+    ILogger<WatchlistController>? logger = null, AnimeEpisodeMappings? episodeMappings = null) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
@@ -359,12 +359,12 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     public async Task<IActionResult> Check(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var items = await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && (x.Status == "watching" || x.Status == "planned")).ToListAsync(ct);
+        var items = await db.WatchListItems.Include(x => x.Work).Where(x => x.UserId == LocalUser.Id && (x.Status == "watching" || x.Status == "planned")).ToListAsync(ct);
         var global = SettingsDefaults.ResolutionOrDefault(await db.ClientSettings.Where(x => x.UserId == LocalUser.Id).Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct));
         var updates = new List<object>();
         foreach (var item in items)
         {
-            var next = EpisodeCursor.Parse(item.LastEpisode)?.Next();
+            var next = EpisodeCursor.Parse(item.LastEpisode) is { } last ? await NextAsync(item, last, ct) : (EpisodeCursor?)null;
             var query = next?.Query(item.Title) ?? item.Title;
             string? latest = null;
             try
@@ -380,7 +380,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
                     item.LatestReleaseMagnet = best.Magnet;
                     item.LatestReleaseAt = DateTime.TryParse(best.PublishedAt, out var published) ? published.ToUniversalTime() : DateTime.UtcNow;
                     item.LastChecked = item.UpdatedAt = DateTime.UtcNow;
-                    item.NextEpisodeHint = ep?.Next().Query(item.Title) ?? query;
+                    item.NextEpisodeHint = ep is { } found ? (await NextAsync(item, found, ct)).Query(item.Title) : query;
                     query = item.NextEpisodeHint;
                 }
             }
@@ -390,4 +390,9 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         await db.SaveChangesAsync(ct);
         return Ok(new { updates });
     }
+
+    /// <summary>The episode after <paramref name="episode"/> as the show numbers it, the same answer the grab gives (<see cref="AnimeEpisodeMappings.NextAsync"/>).</summary>
+    private Task<EpisodeCursor> NextAsync(WatchListItem item, EpisodeCursor episode, CancellationToken ct) =>
+        episodeMappings?.NextAsync(item.Work?.WorkKey, item.Work?.CanonicalTitle ?? item.Title, item.Work?.Year, item.Work?.MediaType ?? item.MediaType,
+            item.Work?.Provider, item.Work?.ProviderId, episode, ct) ?? Task.FromResult(episode.Next());
 }

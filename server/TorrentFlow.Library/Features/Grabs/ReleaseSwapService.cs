@@ -102,8 +102,17 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
                 row.Work?.Provider, row.Work?.ProviderId);
         TorrentFlow.Core.Contracts.Library.AnimeEpisodeMapping? mapping = null;
         if (cursor is { } mappedCursor && anime != null)
-            mapping = await (episodeMappings ?? new AnimeEpisodeMappings(anime)).ForAsync(workKey, title, row.Work?.Year, mediaType,
-                row.Work?.Provider, row.Work?.ProviderId, mappedCursor, ct);
+        {
+            try
+            {
+                mapping = await (episodeMappings ?? new AnimeEpisodeMappings(anime)).ForAsync(workKey, title, row.Work?.Year, mediaType,
+                    row.Work?.Provider, row.Work?.ProviderId, mappedCursor, ct);
+            }
+            catch (SeasonListPendingException)
+            {
+                throw new InvalidOperationException("Waiting for the show's season list. Try again in a minute.");
+            }
+        }
         var query = cursor?.Query(title) ?? (scope.StartsWith("season:", StringComparison.Ordinal) ? $"{title} S{episode.Season:00}" : title);
         var rungs = cursor is { } targetEpisode ? EpisodeLadder.BuildEpisodeRungs(title, targetEpisode, mediaType, aliases, floor, mapping, preferRequestedQuality: true)
             : [new LadderRung("exact", query, EpisodeLadder.SearchCategory(mediaType) ?? "all",
