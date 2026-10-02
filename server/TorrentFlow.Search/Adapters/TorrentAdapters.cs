@@ -70,12 +70,14 @@ public abstract class TorrentAdapter(IndexerHttp http, IOptions<SearchModuleOpti
 
 public sealed class ApiBayAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
+    /// <summary>The shipped base URL (sources.default.json), shared with the language hints' file lists.</summary>
+    public const string DefaultBaseUrl = "https://apibay.org";
     public override string Id => "apibay";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(o.Query)) return [];
         var cat = o.Category switch { "music" => "101", "games" => "401", "apps" => "301", _ => "0" };
-        var json = await Http.GetAsync($"{Setting("APIBAY_BASE_URL") ?? "https://apibay.org"}/q.php?q={EncodeUriComponent(o.Query.Trim())}&cat={cat}", IndexerHttp.BrowserAgent, accept: "application/json, text/plain, */*", cancellationToken: cancellationToken);
+        var json = await Http.GetAsync($"{Setting("APIBAY_BASE_URL") ?? DefaultBaseUrl}/q.php?q={EncodeUriComponent(o.Query.Trim())}&cat={cat}", IndexerHttp.BrowserAgent, accept: "application/json, text/plain, */*", cancellationToken: cancellationToken);
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
         var rows = doc.RootElement.EnumerateArray().Where(r => !(S(r, "id") == "0" && S(r, "name") == "No results returned"))
@@ -85,7 +87,8 @@ public sealed class ApiBayAdapter(IndexerHttp http, IOptions<SearchModuleOptions
             var title = S(r, "name"); var hash = S(r, "info_hash").ToLowerInvariant();
             return new TorrentResult { Id = $"apibay-{(S(r, "id") is { Length: > 0 } id ? id : hash.Length > 0 ? hash : i.ToString())}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true),
                 SizeBytes = L(r, "size") is > 0 and var size ? size : null, Seeders = I(r, "seeders"), Leechers = I(r, "leechers"), Category = S(r, "category"),
-                Source = Id, SourceUrl = $"https://thepiratebay.org/description.php?id={S(r, "id")}", PublishedAt = Unix(L(r, "added")), Tags = ReleaseQuality.ExtractTags(title) };
+                Source = Id, SourceUrl = $"https://thepiratebay.org/description.php?id={S(r, "id")}", PublishedAt = Unix(L(r, "added")), Tags = ReleaseQuality.ExtractTags(title),
+                SiteId = S(r, "id") is { Length: > 0 } tpb && tpb != "0" ? tpb : null };
         }).ToArray();
     }
 }

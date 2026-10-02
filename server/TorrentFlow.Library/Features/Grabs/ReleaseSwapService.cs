@@ -29,8 +29,10 @@ public sealed record RankedRelease(TorrentResult Result, double Score, string Wh
 /// <param name="Confidence">high, medium or low.</param>
 /// <param name="English">The English rule: pass, unknown or fail (docs/release-language.md).</param>
 /// <param name="EnglishReason">What decided it, in plain words ("English subtitles", "French subtitles only").</param>
+/// <param name="Hint">Where facts from before the download came from: animetosho (its track lists) or filelist (the site's file
+/// list); null when only the name and site category spoke.</param>
 public sealed record ReleaseLanguageInfo(IReadOnlyList<string> Audio, IReadOnlyList<string> Subtitles, string SubtitleState,
-    string Fit, string Basis, string Confidence, string Label, string English = "unknown", string? EnglishReason = null)
+    string Fit, string Basis, string Confidence, string Label, string English = "unknown", string? EnglishReason = null, string? Hint = null)
 {
     public static ReleaseLanguageInfo From(LanguageVerdict verdict) => new(
         verdict.Audio.Select(ReleaseLanguage.LanguageName).Distinct().ToArray(),
@@ -43,7 +45,7 @@ public sealed record ReleaseLanguageInfo(IReadOnlyList<string> Audio, IReadOnlyL
             _ => "unknown"
         },
         verdict.Fit.ToString().ToLowerInvariant(), verdict.Basis, verdict.Confidence, verdict.Label,
-        verdict.English.Verdict.ToString().ToLowerInvariant(), verdict.English.Reason);
+        verdict.English.Verdict.ToString().ToLowerInvariant(), verdict.English.Reason, verdict.Hint);
 }
 
 /// <summary>Manual selection today; a future recovery policy can consume the same alternatives and swap command.</summary>
@@ -151,8 +153,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         // The English rule orders the list like the picker and the automatic picks (Pass, then unknown, then fail), then the
         // score. Blocked releases go last whatever their score: listed for "Use it anyway", never recommended or picked as best.
         var verdicts = open.Concat(held).DistinctBy(CandidateHash)
-            .ToDictionary(CandidateHash, r => KnownLanguage.Judge(want, r.Title, r.Category, null, header.GetValueOrDefault(CandidateHash(r))),
-                StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(CandidateHash, r => KnownLanguage.Judge(want, r.Title, r.Category, null, header.GetValueOrDefault(CandidateHash(r)),
+                r.LanguageHint), StringComparer.OrdinalIgnoreCase);
         int English(TorrentResult r) => ReleaseLanguage.Order(verdicts[CandidateHash(r)]);
         var listed = Rank(open, currentQuality, currentSize, English).Take(20)
             .Concat(Rank(held, currentQuality, currentSize, English).Select(r => r with { Why = Describe(r.Result) }));

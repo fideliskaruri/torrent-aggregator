@@ -140,9 +140,10 @@ A file named for another video, or for another video's episode, is never its own
 A selected episode is judged with its own closure only, so an unselected episode's English sidecar can no longer pass a
 foreign selected one. A season pack's selection (`GrabService.SeasonPack`) adds each claimed episode's closure, so its own
 subtitles and external audio download and are kept with it; the layout already moves subtitles next to their video. Once
-a pack's episode files are mapped, the pack's call is the worst of its episodes, each judged with its own closure; the
-name alone decides only when no file maps (a `VOSTFR` pack whose episodes carry English sidecars passes). The search
-still never probes a pack whose name alone fails.
+a pack's episode files are mapped, the pack's call is the worst of its episodes, each judged with its own closure (and the
+tracks an index listed for it); the name alone decides only when no file maps (a `VOSTFR` pack whose episodes carry
+English sidecars passes). The search never probes a pack whose name fails, or whose mapped episodes fail in an index's
+file list ("Hints before download").
 
 **The picker and the swap dialog** label each release with the same judge, reading the header tracks the engine kept for
 that release (`MediaProbeTracks`, the MediaProbe table), and the transfer's own files (each main video with its closure)
@@ -247,7 +248,7 @@ Each claim has a confidence, strongest first:
 
 | Confidence | Comes from | Example |
 | --- | --- | --- |
-| HeaderFact | the file's own audio and subtitle tracks (the header probe after add) | `jpn`, `eng` tracks |
+| HeaderFact | the file's own audio and subtitle tracks (the header probe after add), or the same tracks as an index read them before download (AnimeTosho, "Hints before download") | `jpn`, `eng` tracks |
 | ExplicitAudio | an audio marker in the name or file names | `TRUEFRENCH`, `VF`, `German DL`, `[English Dub]`, `国语`, `JPN AAC2.0`, `Greek Audio`, `MVO` |
 | ExplicitSubs | a subtitle marker | `VOSTFR`, `SUBFRENCH`, `CHS`, `CHT`, `BIG5`, `简繁`, `内封`, `Baha`, `Multi-Subs`, `MSubs`, `ESub`, `nlsubs`, `Subs.Ita.Eng`, `.en.srt` |
 | ProviderCategory | the site's category | nyaa `Anime - English-translated` (1_2), `Non-English-translated` (1_3), `Raw` (1_4) |
@@ -337,6 +338,96 @@ EMBER and Judas (Japanese audio, English subtitles) are Backup, and the Tsundere
 Known misses, ordering only: a lowercase language word in an all-lowercase name (`Stuart little german 1999 dvdrip
 xvid`) reads as not stated, and a mixed-case code (`Dragon Ball Z [TV] [01-210] Rus (rus, eng. sub.)`) reads as English
 subtitles only, so the Russian audio sorts as Preferred.
+
+## Hints before download
+
+What an index says about a release's files, before anything downloads (`docs/english-gates-plan.md`, section 3). A hint
+feeds the one judge through `ReleaseLanguage.Verdict(want, name, category, hint)`: the index's file list goes through
+`JudgeRelease`, so each main video is judged with only its own sidecars (`VideoSidecars.Of`) and the tracks the index
+listed for it, exactly as the engine's file-list and header checks judge the same files; the worst video counts. A batch
+of Japanese-audio MKVs whose English is in `Show - 01.en.ass`, `Show - 01.eng.ass` or an English `Show - 01.en.mka` dub
+passes, as the engine passes it. A hint only orders releases and lets an automatic pick skip one that clearly has no
+English. It never passes a release at the files' own check: the engine's file-list and header checks (and the coming
+gate on the finished files) run as before.
+
+- A hint Fail is a language hold like a name Fail (`subs_tr` for Turkish-only subtitles, `no_subs`, ...): never sent
+  automatically, counted for "Waiting for an English release". A hint Pass moves an Unknown name up to Pass, so it is
+  sent before Unknown releases. No hint: the name verdict, as before.
+- Held Unknown releases are judged again before the ladder sends them: a hint that arrived meanwhile (a later rung's
+  search found it cached) keeps a no-English one back.
+- The grab ladder, the release picker, Find another source (`ReleaseSwapService`) and the search page order all read it.
+  The picker and the swap dialog judge a release on its own header tracks once the engine has read them
+  (`KnownLanguage`); the hint counts only before that. The activity log's language column names the index:
+  `pass (English subtitles): English subtitles (preferred, indexer, animetosho)`.
+- A season pack is judged only on its files that map to missing episodes (`SeasonPackFiles.Map`), each with its own
+  sidecars and the tracks the index listed for it (`LanguageHint.TracksFor`, by its path in the torrent): before
+  inspection from the index's file list, after inspection from the torrent's own. Unmapped files never count, so a
+  creditless OP or an extra subbed in another language never fails the pack, and the whole-torrent hint never
+  overrides the episodes' verdict. A pack whose index lists no file for a missing episode is judged on its hint, else
+  its name.
+- The release picker and Find another source show the language label plus "from AnimeTosho" or "from file list"
+  (`ReleaseLanguageInfo.Hint`). Requesters never see release rows.
+
+| Source | Lookup | Evidence | Applies to |
+| --- | --- | --- | --- |
+| AnimeTosho | `<animetosho base URL>/json?show=torrent&btih=<hash>` (default `feed.animetosho.xyz`, Anime Tosho NEW) | each file's tracks, judged as `TrackFact`s with source `indexer` (`LanguageHint.TracksOf`). First choice: the file's `info.mediainfo` text (Video, Audio and Text sections, each with Title, Language, Default and Forced). Only when that lists no subtitle track: the subtitle attachments, in the original feed's per-file shape (`{codec, lang, name, default, enabled, forced, tracknum}`) or Anime Tosho NEW's per-file or torrent-wide shape (`{default, forced, format, language, language_code}`, no name; a label like "English (SDH)" or "Latin American" becomes the name). Languages read through `LanguageTag.Normalize`, then `ReleaseLanguage.NameLanguage` | releases AnimeTosho or nyaa (English-translated, 1_2) listed; a cached answer counts for any site that lists the same hash |
+| apibay | `<apibay base URL>/f.php?id=<TPB id>` | file names: `.en.srt`, `Subs/English.srt`, `2_English.srt`, each file with its own video's closure, as the engine's file-list check reads them | releases TPB listed (the adapter keeps the TPB id as `SiteId`, even when another site's listing of the same hash was kept) |
+
+Evidence tiers, strongest first: a file's own header (the header probe after add, then the gate on the finished files);
+an index's MediaInfo track list (names, languages, default and forced flags, audio included); an index's subtitle
+attachments (no audio, and no names in Anime Tosho NEW's shape); a file list's subtitle file names; the release name.
+Only the files themselves pass a release at the gate.
+
+Track names and forced and default flags are kept on every track built from MediaInfo or attachments (`MediaTrack.Name`,
+`Forced`, `Default`, then `TrackFact`), so the track-roles rule decides with names: SubsPlease's lone English track
+flagged forced is full English subtitles (the flag read as a display hint), EMBER's `Dialogue` passes beside its `Signs`
+track, and a release whose only English track is named `Signs` or `Forced` has no English subtitles. There is no second
+judge here. Index tracks are a step below the file's own header: they never set `HeaderRead`, so a release name's
+subtitle claims survive them unless the index lists the file's subtitle tracks.
+
+Fetching (`LanguageHints`, `server/TorrentFlow.Search/LanguageHints.cs`):
+
+- Runs beside the tracker scrape, for the top 8 candidates per source by the current ranking. A search waits at most
+  3 seconds for them; an interactive search with no anime candidates waits only while the scrape runs, so film searches
+  don't get slower. A missing or slow hint is no hint; lookups still running finish in the background and fill the cache
+  for the next search (the ladder's next rung, the wanted queue's retry, the picker).
+- The hosts are the source's registry entry (Settings, Sources): its base URL, then its mirrors, the same ones its search
+  uses. AnimeTosho ships as `https://feed.animetosho.xyz` (Anime Tosho NEW, which answers with a 308 to
+  `feed.animetosho.net`, also listed as a mirror); `animetosho.org` is retired, so a saved entry naming it moves to the
+  shipped URL. Any answer from a host, a 404 included, is that host's answer; a host that fails moves the lookup to the
+  next one.
+- One cache, the `ReleaseHint` table (source, key, state, files, attempts, retryAt, host), read by (source, key) so its
+  unique index answers every lookup. `complete` answers are kept and count whichever host gave them: a hash's files
+  never change. An item AnimeTosho is still processing, or a lookup where every host failed after it was sent, is
+  `pending` and asked again after 2 minutes; one it doesn't have (404), one it skipped (it never processes those) or
+  apibay's "Filelist not found" is `missing` and asked again after 10 minutes; each answer in a row doubles the wait, up
+  to a day. A miss or pending answer holds only for the host that gave it: when the owner moves the source to another
+  host, the new host is asked afresh. A lookup still waiting in the site's line when its time ran out records nothing.
+- A malformed answer (not an object or a list, a value of the wrong type that can't be skipped) is the host's failure:
+  it counts toward the breaker, the next host is asked, and when every host fails the lookup is `pending` with the
+  doubling wait, so a bad answer is never fetched again on every search. Entries that aren't objects and sizes that
+  aren't numbers are skipped or read as unknown.
+- Pruning: at most once a day, a lookup's background save drops answers fetched more than 90 days ago (searches never
+  wait for it); permanent misses stay. A release still searched for is simply asked again.
+- Old releases: a `missing` answer for a release out for more than 30 days (by the earliest date any site gave it) is
+  kept for good (no `retryAt`); the index won't add it now. An unfinished answer for such a release (Anime Tosho NEW
+  reports the batches the original skipped as `unknown`, with no files) counts as that miss.
+- Breaker per host: after 3 failures in a row (no connection, a timeout, a server error, or a page that isn't the
+  feed), the host gets no hint requests for 30 minutes, then one probe: an answer closes it, a failure rests it for
+  another 30 minutes. Lookups already queued for the host send nothing once it opens, and a search whose hosts all
+  rest doesn't wait for hints at all. It logs once when it opens ("Language hints: <host> failed 3 times in a row ...;
+  breaker open") and once when the host answers again. A 429, or a 503 with Retry-After (the site is cooling down in
+  `IndexerHttp`), is busy, not a failure: no hint this time. A plain 503 is a failure like any other server error: it
+  counts toward the breaker and the next host is asked.
+- Polite: one line per site for hint lookups, starts at least 1 s apart for AnimeTosho (up to 3 open, it answers in
+  about 2 s) and 2 s for apibay (one at a time). With the sites' own search pacing (1 s and 2 s) that stays at about
+  2 requests a second to AnimeTosho. Requests go through `IndexerHttp` with the adapters' user agent, so a 429 or a 503
+  with Retry-After cools the site for searches and hints alike; a lookup during a cool-down is simply no hint.
+- At most 16 lookups wait in one site's line (a place is taken and counted in one atomic step); past that a candidate
+  gets no hint this time. A source turned off in Settings is not asked.
+- The original AnimeTosho (`feed.animetosho.org`) stopped processing new items in May 2026 and its feed is going away.
+  Anime Tosho NEW, named on its shutdown notice, imported its archive (same ids) and processes new releases, usually
+  with MediaInfo for every file.
 
 ## The engine's check after add
 

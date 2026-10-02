@@ -23,6 +23,18 @@ export interface ReleaseLanguageInfo {
   english?: "pass" | "unknown" | "fail";
   /** What decided it, e.g. "French subtitles only". */
   englishReason?: string | null;
+  /** Facts read before the download: AnimeTosho's track lists or the site's file list. */
+  hint?: "animetosho" | "filelist" | null;
+}
+
+/** "from AnimeTosho" or "from file list": where facts read before the download came from. */
+const HINT_WORDS: Record<NonNullable<ReleaseLanguageInfo["hint"]>, string> = {
+  animetosho: "from AnimeTosho",
+  filelist: "from file list",
+};
+
+export function languageHintText(info: Pick<ReleaseLanguageInfo, "hint"> | null | undefined): string | null {
+  return info?.hint ? (HINT_WORDS[info.hint] ?? null) : null;
 }
 
 /** A release with no English audio or subtitles: never picked or recommended automatically, only by hand. */
@@ -74,7 +86,8 @@ export function ReleaseLanguages({
   // No English outranks the fit: it is the one thing that stops an automatic pick.
   const badge = noEnglish ? { label: "No English", variant: "danger" as const } : (FIT_BADGES[info.fit] ?? null);
   if (!label && !badge) return null;
-  const basis = [noEnglish && info.englishReason ? info.englishReason : null, languageBasisText(info)]
+  const hint = languageHintText(info);
+  const basis = [noEnglish && info.englishReason ? info.englishReason : null, hint ? null : languageBasisText(info)]
     .filter(Boolean)
     .join(". ") || null;
   return (
@@ -87,6 +100,14 @@ export function ReleaseLanguages({
 
     >
       {label ? <span className="min-w-0 break-words">{label}</span> : null}
+      {hint ? (
+        <>
+          <span aria-hidden>·</span>
+          <span className="min-w-0 break-words" data-language-hint={info.hint ?? undefined}>
+            {hint}
+          </span>
+        </>
+      ) : null}
       {basis ? <span className="sr-only">{`(${basis})`}</span> : null}
       {badge ? (
         <Badge variant={badge.variant} data-language-fit-badge>

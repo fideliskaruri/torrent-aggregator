@@ -290,6 +290,12 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         return false;
     }
 
+    /// <summary>The site of <paramref name="url"/> is cooling down after a real 429, or a 503 with Retry-After: busy, not down.</summary>
+    internal bool CoolingDown(string url)
+    {
+        lock (gate) return IsCoolingDown(HostKey(url));
+    }
+
     private static string HostKey(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.IdnHost.ToLowerInvariant() : "";
 

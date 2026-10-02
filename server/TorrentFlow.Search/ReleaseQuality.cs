@@ -155,7 +155,7 @@ public static class ReleaseQuality
         // Search page order only: the one language rule under the default want (docs/release-language.md).
         var anime = actual == "anime" || requested == "anime" || string.Equals(r.Metadata?.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
         var fit = TorrentFlow.Core.ReleaseLanguage.Verdict(TorrentFlow.Core.LanguageWant.For(TorrentFlow.Core.ReleaseLanguage.Auto,
-            anime ? "anime" : r.Metadata?.MediaType, r.Metadata?.OriginalLanguage), r.Title, r.Category).Fit;
+            anime ? "anime" : r.Metadata?.MediaType, r.Metadata?.OriginalLanguage), r.Title, r.Category, r.LanguageHint).Fit;
         var language = fit == TorrentFlow.Core.LanguageFit.Preferred ? 2 : fit == TorrentFlow.Core.LanguageFit.Clash ? 0 : 1;
         var resolution = ParseResolution(r.Title);
         return new(actual == null || requested == null ? 0 : actual == requested ? 1 : -1,
