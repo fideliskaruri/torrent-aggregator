@@ -44,6 +44,8 @@ public interface IWantedObserver
     Task NeedsOwnerAsync(WantedHelp help, CancellationToken ct);
     /// <summary>A run's counts: after a pass of the queue (<paramref name="create"/>), or a later find that only updates what was said.</summary>
     Task RunSummaryAsync(WantedRunSummary run, bool create, CancellationToken ct);
+    /// <summary>The owner stopped looking for a film, a season or one episode (<paramref name="episode"/>); nothing may bring it back.</summary>
+    Task StoppedAsync(string workKey, int? season, int? episode, CancellationToken ct) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -190,26 +192,65 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     /// <summary>
     /// Settles what one attempt did. A failure settles only a row still "queued"; a success settles "queued" or
-    /// "failed", so a later attempt that already succeeded is never overwritten.
+    /// "failed", so a later attempt that already succeeded is never overwritten. A queue run settles only rows still
+    /// without a release (<paramref name="unclaimedOnly"/>, compare-and-set on what it read): a release the owner picked
+    /// meanwhile wins, and the run's late result is dropped. Returns the target keys it settled.
     /// </summary>
-    public async Task SettleAsync(IReadOnlyDictionary<string, int?> tracked, string workId, IReadOnlyList<EpisodeTransfer> transfers, CancellationToken ct)
+    public async Task<HashSet<string>> SettleAsync(IReadOnlyDictionary<string, int?> tracked, string workId, IReadOnlyList<EpisodeTransfer> transfers,
+        CancellationToken ct, bool unclaimedOnly = false)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var now = time.GetUtcNow().UtcDateTime;
+        var settled = new HashSet<string>(StringComparer.Ordinal);
         foreach (var transfer in transfers)
             foreach (var key in tracked.Where(x => (x.Value ?? 0) == transfer.Episode).Select(x => x.Key))
             {
                 string[] open = transfer.Status == "failed" ? ["queued"] : ["queued", "failed"];
                 var miss = transfer.RealMiss ? 1 : 0;
                 // InfoHash == null keeps a season pack claim made meanwhile from being overwritten by a late miss.
-                await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key && open.Contains(x.Status) &&
-                        (transfer.InfoHash != null || x.InfoHash == null || x.FileIndex == null)).ExecuteUpdateAsync(s => s
+                var changed = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key && open.Contains(x.Status) &&
+                        (transfer.InfoHash != null || x.InfoHash == null || x.FileIndex == null) && (!unclaimedOnly || x.InfoHash == null)).ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, transfer.Status).SetProperty(t => t.Progress, 0)
                     .SetProperty(t => t.InfoHash, transfer.InfoHash).SetProperty(t => t.FilePath, (string?)null)
                     .SetProperty(t => t.RealMisses, t => t.RealMisses + miss)
                     .SetProperty(t => t.ClickedAt, t => transfer.InfoHash == null ? t.ClickedAt : null)
                     .SetProperty(t => t.Error, transfer.Error).SetProperty(t => t.UpdatedAt, now), ct);
+                if (changed > 0) settled.Add(key);
             }
+        return settled;
+    }
+
+    /// <summary>
+    /// A release the owner picked always wins: it claims its targets whatever a running search settled first, and a
+    /// release the app started for them that hasn't finished and nothing else wants is removed with its files.
+    /// </summary>
+    public async Task ClaimPickedAsync(IReadOnlyDictionary<string, int?> tracked, string workId, IReadOnlyList<EpisodeTransfer> transfers, CancellationToken ct)
+    {
+        var picked = transfers.Select(t => t.InfoHash).OfType<string>().Select(h => h.ToLowerInvariant()).ToHashSet();
+        var keys = tracked.Keys.ToList();
+        List<string> previous;
+        await using (var db = await factory.CreateDbContextAsync(ct))
+        {
+            previous = (await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && keys.Contains(t.TargetKey) && t.InfoHash != null)
+                .Select(t => t.InfoHash!).ToListAsync(ct)).Select(h => h.ToLowerInvariant()).Where(h => !picked.Contains(h)).Distinct().ToList();
+            var now = time.GetUtcNow().UtcDateTime;
+            foreach (var transfer in transfers)
+                foreach (var key in tracked.Where(x => (x.Value ?? 0) == transfer.Episode).Select(x => x.Key))
+                    await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key).ExecuteUpdateAsync(s => s
+                        .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, transfer.Status).SetProperty(t => t.Progress, 0)
+                        .SetProperty(t => t.InfoHash, transfer.InfoHash).SetProperty(t => t.FilePath, (string?)null)
+                        .SetProperty(t => t.ClickedAt, (DateTime?)null).SetProperty(t => t.Error, transfer.Error).SetProperty(t => t.UpdatedAt, now), ct);
+            if (previous.Count == 0) return;
+            var still = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.InfoHash != null && previous.Contains(t.InfoHash.ToLower()))
+                .Select(t => t.InfoHash!.ToLower()).Distinct().ToListAsync(ct);
+            previous = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && previous.Contains(t.Hash) && !still.Contains(t.Hash) && t.Progress < 1)
+                .Select(t => t.Hash).ToListAsync(ct);
+        }
+        foreach (var hash in previous)
+        {
+            var result = await engine.RemoveAsync(hash, true, ct);
+            logger.LogInformation("Removed {Hash}: the owner picked another release for it: {Message}", hash, result.Message);
+        }
     }
 
     /// <summary>Tells requests (and anything else watching) that transfers started for a work, from the queue or a hand pick.</summary>
@@ -410,20 +451,27 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true, Urgent: plan?.Single ?? false);
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
         var workId = work.Id;
+        var runStarted = inFlight.TryGetValue(unit, out var flight) ? flight.Started : time.GetUtcNow().UtcDateTime;
         // Each episode's row and reason update the moment that episode settles, so a found episode starts and shows at
         // once instead of waiting for the slowest episode in its season.
         async Task Settle(IReadOnlyList<EpisodeTransfer> settled)
         {
-            foreach (var row in rows)
+            // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
+            var done = await SettleAsync(tracked, workId, settled.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct,
+                unclaimedOnly: true);
+            var late = settled.SelectMany(t => tracked.Where(x => (x.Value ?? 0) == t.Episode).Select(x => x.Key)).Where(k => !done.Contains(k)).ToArray();
+            if (late.Length > 0)
+                logger.LogInformation("Wanted {WorkKey}: dropped this search's late result for {Targets}; they already have a release", unit.WorkKey, string.Join(", ", late));
+            foreach (var row in rows.Where(r => done.Contains(r.TargetKey)))
             {
                 var transfer = settled.FirstOrDefault(t => t.Episode == (row.Episode ?? 0));
                 if (transfer == null) continue;
                 if (transfer.InfoHash == null && transfer.Failure?.Detail is { } detail) why[row.TargetKey] = detail;
                 else why.TryRemove(row.TargetKey, out _);
             }
-            // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
-            await SettleAsync(tracked, workId, settled.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct);
             var started = settled.Select(t => t.InfoHash).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var stale = await DropStaleAsync(unit, runStarted, started, ct);
+            started = started.Except(stale, StringComparer.OrdinalIgnoreCase).ToArray();
             if (started.Length > 0) await ReportStartedAsync(unit.WorkKey, unit.Season, started, ct);
         }
         IReadOnlyList<EpisodeTransfer> transfers;
@@ -456,6 +504,31 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             missing.Select(t => t.Episode).Where(e => e > 0).ToArray());
         // A clicked episode's try is a later find for its season's run, never the pass that gives the run its notification.
         await ReportRunsAsync(runs, create: unit.Episode == null, ct);
+    }
+
+    /// <summary>
+    /// A run's result that lost to a release the owner picked meanwhile: what it started since it began and no target
+    /// wants is removed with its files, so a stale search never leaves a second download behind. Returns those hashes.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> DropStaleAsync(Unit unit, DateTime runStarted, IReadOnlyCollection<string> started, CancellationToken ct)
+    {
+        if (started.Count == 0) return [];
+        var hashes = started.Select(h => h.ToLowerInvariant()).ToList();
+        List<string> stale;
+        await using (var db = await factory.CreateDbContextAsync(ct))
+        {
+            var wanted = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.InfoHash != null && hashes.Contains(t.InfoHash.ToLower()))
+                .Select(t => t.InfoHash!.ToLower()).Distinct().ToListAsync(ct);
+            var unwanted = hashes.Except(wanted).ToList();
+            stale = unwanted.Count == 0 ? [] : await db.EngineTorrents.AsNoTracking()
+                .Where(t => t.UserId == LocalUser.Id && unwanted.Contains(t.Hash) && t.CreatedAt >= runStarted).Select(t => t.Hash).ToListAsync(ct);
+        }
+        foreach (var hash in stale)
+        {
+            var result = await engine.RemoveAsync(hash, true, ct);
+            logger.LogInformation("Removed {Hash} that {WorkKey}'s search started after a release was picked for it: {Message}", hash, unit.WorkKey, result.Message);
+        }
+        return stale;
     }
 
     /// <summary>
@@ -595,6 +668,11 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         {
             var result = await engine.RemoveAsync(hash, true, ct);
             logger.LogInformation("Removed {Hash} that {WorkKey}'s search started as it was removed: {Message}", hash, workKey, result.Message);
+        }
+        foreach (var observer in observers)
+        {
+            try { await observer.StoppedAsync(workKey, season, episode, ct); }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Wanted stop report failed"); }
         }
         return removed;
     }

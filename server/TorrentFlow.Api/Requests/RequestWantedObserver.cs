@@ -50,6 +50,25 @@ public sealed class RequestWantedObserver(IDbContextFactory<TorrentFlowDbContext
         notifications.UpsertAsync(LocalUser.Id, NotificationKind.DownloadSummary, run.Summary.Message,
             run.Summary.Action is { Length: > 0 } next ? next : null, run.Link, create, ct);
 
+    /// <summary>
+    /// Stop looking for a whole film or season ends the requests for it that never started anything: they are cancelled,
+    /// so the restart sweep, which re-grabs an approved request with nothing started, never brings the wanted rows back.
+    /// A request that already started something keeps it; stopping one episode leaves its season's request alone.
+    /// </summary>
+    public async Task StoppedAsync(string workKey, int? season, int? episode, CancellationToken ct)
+    {
+        if (episode != null) return;
+        var ids = await Covering(workKey, season, Live, ct);
+        if (ids.Count == 0) return;
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var now = DateTime.UtcNow;
+        await db.MediaRequests.Where(r => ids.Contains(r.Id) && Live.Contains(r.Status) && (r.GrabbedHashes == null || r.GrabbedHashes == ""))
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
+                .SetProperty(r => r.DecisionReason, StoppedReason).SetProperty(r => r.UpdatedAt, now), ct);
+    }
+
+    public const string StoppedReason = "The owner stopped looking for this.";
+
     /// <summary>Requests in <paramref name="statuses"/> for this title whose scope includes the season (or the film).</summary>
     private async Task<IReadOnlyList<string>> Covering(string workKey, int? season, string[] statuses, CancellationToken ct)
     {
