@@ -48,10 +48,8 @@ internal static class ContentLayoutPolicy
 
     private static readonly Regex EpisodeMarker = new(@"(?:^|[^a-z0-9])s(\d{1,3})[\s._-]*e(\d{1,4})(?![0-9])", JsI);
     private static readonly Regex CrossEpisodeMarker = new(@"(?:^|[^a-z0-9])(\d{1,2})x(\d{2,3})(?![0-9])", JsI);
-    private static readonly Regex SampleName = new(@"(?:^|[^a-z0-9])sample(?:[^a-z0-9]|$)", JsI);
     private static readonly Regex ExtrasFolder = new(
         @"^(?:samples?|extras?|featurettes?|bonus|trailers?|behind[\s._-]*the[\s._-]*scenes|deleted[\s._-]*scenes|interviews?)$", JsI);
-    private static readonly Regex SubsFolder = new(@"^(?:subs?|subtitles?)$", JsI);
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -76,7 +74,7 @@ internal static class ContentLayoutPolicy
         return keys.Count == 1 ? keys.First() : null;
     }
 
-    public static bool IsSubsFolder(string name) => SubsFolder.IsMatch(name);
+    public static bool IsSubsFolder(string name) => TorrentFlow.Core.VideoSidecars.IsSubsFolder(name);
 
     public static bool IsSeasonFolder(string name) => SeasonSegment.IsMatch(name);
 
@@ -90,7 +88,7 @@ internal static class ContentLayoutPolicy
         var ext = Path.GetExtension(name);
         if (SubtitleExtensions.Contains(ext)) return LayoutRole.Subtitle;
         if (!VideoExtensions.Contains(ext)) return LayoutRole.Extra;
-        if (SampleName.IsMatch(Path.GetFileNameWithoutExtension(name))) return LayoutRole.Extra;
+        if (TorrentFlow.Core.MediaFileRules.IsSample(name)) return LayoutRole.Extra;
         for (var i = 0; i < segments.Count - 1; i++)
             if (ExtrasFolder.IsMatch(segments[i])) return LayoutRole.Extra;
         return LayoutRole.Video;

@@ -168,10 +168,12 @@ internal sealed partial class TorrentEngineService
         var tracks = read.ToDictionary(f => f.Index, f => f.Scan.Tracks.Select(t => TrackFact.From(t, TrackFact.Header)).ToList());
         var verdict = read.Count == 0 ? null : ReleaseLanguage.JudgeRelease(state.Want, name, state.SourceCategory, list,
             tracks.Keys.ToHashSet(), index => tracks.GetValueOrDefault(index));
-        logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}): {Verdict} ({Reason}) from {Files} file(s): {Tracks}",
-            hash, name, verdict?.English.Verdict.ToString() ?? "unread", verdict?.English.Reason ?? result.Unchecked, read.Count,
-            string.Join("; ", tracks.Values.SelectMany(t => t).Where(t => t.Kind != MediaTrackKind.Video)
-                .Select(t => $"{t.Kind} {t.Language ?? "und"} {t.Name ?? "-"} {t.Role}")));
+        // The deciding video's tracks with their settled roles (a lone forced English track reads as full, ForcedHint).
+        logger.LogInformation("[builtin-engine] English header check {Hash} ({Name}): {Verdict} ({Reason}, {Evidence}) from {Files} file(s): {Tracks}",
+            hash, name, verdict?.English.Verdict.ToString() ?? "unread", verdict?.English.Reason ?? result.Unchecked,
+            verdict?.English.Evidence.ToString() ?? "none", read.Count,
+            string.Join("; ", (verdict?.Facts.Tracks ?? []).Where(t => t.Kind != MediaTrackKind.Video)
+                .Select(t => $"{t.Kind} {t.Language ?? "und"} {t.Name ?? "-"} {t.Role}{(t.Forced ? " forced" : "")}{(t.ForcedHint ? " hint" : "")}")));
         await SettleLanguageAsync(hash, verdict?.English.Verdict switch
         {
             EnglishVerdict.Fail => state with { State = EngineLanguageState.Failed, Reason = verdict.English.Reason },

@@ -13,8 +13,8 @@ engine's check after add all read this one verdict; nothing keeps a second copy.
 Evidence, strongest first: the video's own tracks (the header probe, or an indexer's track list), English sidecar files of
 that video (`.en.srt`, `.eng.ass`, `Subs/2_English.srt`), name markers (`Dual Audio` reads as Japanese and English audio
 for anime, English elsewhere), nyaa's English-translated category, then known groups. English subtitles always means a
-track that carries the dialogue: a "Signs", "Songs" or "Forced" English track never counts (see "Track roles and
-sidecars" below). In order:
+track that carries the dialogue: an English track named "Signs", "Songs" or "Forced" never counts, while a forced flag
+alone doesn't rule a track out (see "Track roles and sidecars" below). In order:
 
 1. Preference `any`: Pass.
 2. English audio (an English dub, dual audio): Pass. Once the header has listed audio tracks, only the header or the
@@ -67,27 +67,50 @@ alias form), the AniList mapping's entry and franchise names, and the franchise 
 
 Every audio and subtitle track the judge reads is kept on the verdict as a `TrackFact` (`LanguageFacts.Tracks`): kind,
 language (`LanguageTag.Normalize`), name, forced and default flags, the source (`header` for the header probe, `indexer`
-for a site's track list such as AnimeTosho, `file` for a sidecar) and, for subtitles, a role (`ReleaseLanguage.Role`):
+for a site's track list such as AnimeTosho, `file` for a sidecar) and, for subtitles, a role (`ReleaseLanguage.Role`).
+The name beats the forced flag:
 
-- **Forced**: the forced flag, or a name saying forced (`Forced`, `English (Forced)`, `Latin American (Forced)`, `Foreign
-  parts only`). MP4 tx3g tracks have no forced flag, so their name decides.
+- **Commentary**: a name saying commentary or audio description (`Commentary`, `Director's Commentary`, `English (Audio
+  Description)`), flagged or not, checked before every other role: a commentary track is never the dialogue. An audio
+  track (or an external audio file) so named makes no audio language claim either: an English commentary beside
+  Japanese audio is not English audio.
+- **Forced**: a name saying forced (`Forced`, `English (Forced)`, `Latin American (Forced)`, `Foreign parts only`),
+  flagged or not. MP4 tx3g tracks have no forced flag, so their name decides.
 - **SignsSongs**: a name saying signs or songs (`Signs`, `Songs`, `S&S`, `Signs & Songs`, `English[Signs]`, `English Signs
   [CR]`, `Lyrics`, `Karaoke`, `OP/ED`).
 - **Full**: a name saying dialogue, full or captions (`Dialogue`, `Full`, `Full Subtitles`, `English[CC]`, `SDH`, `English
-  Closed Captions [CR]`), which wins over signs words (`Dialogue & Signs`); and any other name: plain `English`,
-  `English / English(US)`, a source or group (Erai-raws names its English track `CR`, ASW `English subs`).
+  Closed Captions [CR]`), flagged or not, which wins over signs words (`Dialogue & Signs`); and any other name: plain
+  `English`, `English / English(US)`, a source or group (Erai-raws names its English track `CR`, ASW `English subs`).
 - **Unknown**: no name at all.
+- **The forced flag on a track whose name says nothing about its role** (plain `English`, or no name) only marks the
+  forced track when another track of its language carries the dialogue: two tracks named `English`, one forced, make the
+  forced one Forced and the other Full. With no such track beside it the flag is a display hint, since players show
+  forced tracks by default: SubsPlease flags its one English track forced. That track counts as Full at slightly lower
+  confidence (`TrackFact.ForcedHint`; the English check's evidence is `ExplicitSubs` instead of `HeaderFact`). The
+  video's sidecar files count as tracks beside it.
 
-English subtitles count only for a Full track, or an English-tagged track with no name that is not forced
-(`TrackFact.EnglishSubtitles`). A signs, songs or forced track is kept as a fact but never makes a subtitle language
-claim. A track tagged `und` or untagged takes its language from its name (`English`, `Eng`, `英語`, `Inglés`, `Anglais`,
-`Englisch`, `Español`, `Japanese (SDH)`; `ReleaseLanguage.NameLanguage`); with no telling name it stays unknown and keeps
-the verdict open. Once a file's subtitle tracks are listed (by its header, or by an indexer), each with a language, they
-replace whatever the name, the site category or a group says about subtitles; burned-in subtitles are the exception.
+English subtitles are an English track that carries the dialogue (`TrackFact.EnglishSubtitles`):
 
-Sidecar files get the same roles from the words after the base name: `.forced.` and `English (Forced).srt` are Forced,
-`.signs.` SignsSongs, `.sdh.` Full, and `Show - 05.en.ass` or `2_English.srt` (no role words) count as English
-subtitles.
+1. any English track that isn't flagged forced and isn't named signs, songs, S&S, forced or commentary counts as full;
+2. otherwise an English track whose name doesn't say signs, songs, S&S, forced or commentary counts as full, its forced
+   flag read as a display hint, at slightly lower confidence (this covers SubsPlease, and also a plain `English` flagged
+   forced next to a `Signs` track: the name beats the flag);
+3. otherwise, when every English track is named signs, songs, S&S, forced or commentary, there are no English subtitles
+   ("The file has Japanese audio and English commentary subtitles only").
+
+A signs, songs, forced or commentary track is kept as a fact but never makes a subtitle language claim. A track tagged `und` or
+untagged takes its language from its name (`English`, `Eng`, `英語`, `Inglés`, `Anglais`, `Englisch`, `Español`, `Japanese
+(SDH)`; `ReleaseLanguage.NameLanguage`); with no telling name it stays unknown and keeps the verdict open. Once a file's
+subtitle tracks are listed (by its header, or by an indexer), each with a language, they replace whatever the name, the
+site category or a group says about subtitles; burned-in subtitles are the exception. Burned-in means a hard-sub marker
+in the name (`Hardsub`, `HARDSUBS`, `HardSubbed`, `hardcoded subs`, `hard-subbed`, `HC`, `Baha`, `内嵌`; `LanguageFacts.HardSubbed`):
+no track list can show those subtitles, so the name's subtitle claims survive the header, and `English Hardsub` with
+Japanese audio and no subtitle track passes. A bare `Hardsub` names no language, so it only keeps a weak English guess
+that a header without English still fails.
+
+Sidecar files get the same roles from the words after the base name: `.commentary.` is Commentary, `.forced.` and
+`English (Forced).srt` are Forced, `.signs.` SignsSongs, `.sdh.` Full, and `Show - 05.en.ass` or `2_English.srt` (no role
+words) count as English subtitles.
 
 **One judge.** `ReleaseLanguage.Verdict(want, name, sourceCategory, files, tracks)` takes one video's path and its own
 sidecars (`files`) plus the tracks read from it, and returns the verdict with its English check. `JudgeRelease` runs it
@@ -96,37 +119,55 @@ its own sidecars and tracks; the worst counts. The engine's file-list check and 
 the picker, the swap dialog and the search order all come through it, and so will the gate on the finished files.
 
 **The sidecar closure.** `VideoSidecars.Of(video, files)` returns the subtitle and audio files that belong to one video in
-a torrent's file list, and nothing else:
+a torrent's file list, and nothing else (paths compare in Unicode NFC, so a name written decomposed still matches):
 
 - the same base name beside it or in a folder below it: `Show - 05.mkv` with `Show - 05.en.ass`, `Show - 05.eng.srt`,
-  `Show - 05.en.forced.srt` or the external audio `Show - 05.mka` (never `Show - 10.en.ass` for `Show - 1.mkv`);
-- a folder named after it: `Subs/Show.S01E05.1080p.WEBRip.x265-RARBG/2_English.srt`;
-- when it is the torrent's only main video, every other subtitle and audio file, wherever it sits: `Subs/2_English.srt`,
-  `Subs/3_English.srt` (RARBG and YTS films), unless a file is named for another video (a featurette's own subtitles).
+  `Show - 05.en.forced.srt` or the external audio `Show - 05.mka` (never `Show - 10.en.ass` for `Show - 1.mkv`); or the
+  same episode (`SeasonPackFiles.EpisodeKey`: S01E05, 1x05, or an absolute `- 05`, `[05]`, `E05`) when no other video is
+  that episode: `Show.S01E05.en.srt` for `Show.S01E05.1080p.WEB.mkv`, `[Grp] Show - 05.en.ass` for `[Grp] Show - 05
+  [1080p][CRC].mkv`;
+- a folder below it named after it or its episode: `Subs/Show.S01E05.1080p.WEBRip.x265-RARBG/2_English.srt`,
+  `Subs/S01E05/English.srt`;
+- when no other video sits in its folder or below it, every file in that folder or in a `Subs` folder right in it:
+  `Pack/01/Subs/English.srt` for `Pack/01/Show.S01E01.mkv`;
+- when it is the torrent's only video, every other subtitle and audio file, wherever it sits: `Subs/2_English.srt`,
+  `Subs/3_English.srt` (RARBG and YTS films). Every video counts, however small (a featurette, a second episode), so a
+  film with a featurette gets no top-level `Subs/English.srt`; only a sample (`MediaFileRules.IsSample`: `sample` in the
+  file name, or a `Sample` folder) is excepted.
+
+A file named for another video, or for another video's episode, is never its own.
 
 A selected episode is judged with its own closure only, so an unselected episode's English sidecar can no longer pass a
 foreign selected one. A season pack's selection (`GrabService.SeasonPack`) adds each claimed episode's closure, so its own
-subtitles and external audio download and are kept with it; the layout already moves subtitles next to their video.
+subtitles and external audio download and are kept with it; the layout already moves subtitles next to their video. Once
+a pack's episode files are mapped, the pack's call is the worst of its episodes, each judged with its own closure; the
+name alone decides only when no file maps (a `VOSTFR` pack whose episodes carry English sidecars passes). The search
+still never probes a pack whose name alone fails.
 
 **The picker and the swap dialog** label each release with the same judge, reading the header tracks the engine kept for
 that release (`MediaProbeTracks`, the MediaProbe table), and the transfer's own files (each main video with its closure)
 for the release being replaced.
 
-Real track lists (AnimeTosho `files[].attachments[]` of type subtitle, judged as indexer tracks for anime under `auto`;
-`main` is what main 7047530 decided from the same tracks):
+Real track lists, judged as indexer tracks for anime under `auto`: `org` is feed.animetosho.org (`files[].attachments[]`
+of type subtitle), `xyz` is feed.animetosho.xyz (`files[].info.mediainfo`, every audio and text track with its title,
+language, default and forced flags; the two sites number releases differently). `main` is what main 7047530 decided
+from the same tracks:
 
-| Release (AnimeTosho id) | English subtitle tracks: name, forced, role | main | Now |
+| Release (site id) | English subtitle tracks: name, forced flag, role | main | Now |
 | --- | --- | --- | --- |
-| `[EMBER] Frieren: Beyond Journey's End S02E01 [1080p] [Dual Audio HEVC WEBRip DDP]` (745796) | `Signs` SignsSongs (default); `Dialogue` Full | English subtitles | English subtitles (Dialogue) |
-| `Frieren Beyond Journeys End S02E01 ... MULTi AAC2.0 H 264-VARYG` (741310) | `Forced` forced, Forced; no name, Unknown (default) | English subtitles | English subtitles (the unnamed track) |
-| `[Judas] Hokuto no Ken (2026) - S01E07 [Dual-Audio][Multi-Subs]` (764685) | `English` forced, Forced; `English` Full | English subtitles | English subtitles |
-| `[Ironclad] Dorohedoro - S02E08 (WEB 1080p AV1) (Multi-Audio, Multi-Subs)` (763971) | `English (Forced)` forced, Forced; `English` Full; `English (SDH)` Full | English subtitles | English subtitles |
-| `[YukiSubs] Sousou no Frieren - 29 (S02E01) (WEB 1080p HEVC EAC-3)` (754053) | none; one Turkish track | no English | Fail: Turkish subtitles only |
-| `[Erai-raws] Snowball Earth - 06 [1080p CR WEBRip HEVC AAC][MultiSub]` (764673) | `CR` Full | English subtitles | English subtitles |
-| `[ToonsHub] KILL BLUE S01E04 1080p AMZN WEB-DL MULTi DDP2.0 H.264` (764608) | no name, Unknown; `SDH` Full | English subtitles | English subtitles |
-| `[ASW] Kamiina Botan, Yoeru Sugata wa Yuri no Hana - 05 [1080p HEVC x265 10Bit][AAC]` (764652) | `English subs` Full | English subtitles | English subtitles |
-| `[Yameii] SNOWBALL EARTH - S01E06 [English Dub] [CR WEB-DL 1080p H264 AAC]` (764549) | `English Signs [CR]` SignsSongs | English subtitles | Tracks alone: Fail, English signs and songs only; with the name: Pass, English dub |
-| `For Whom The Alchemist Exists 2019 SUBFRENCH 1080p CR WEB-DL ... -Tsundere-Raws` (761589) | `United States` Full | English subtitles | English subtitles |
+| `[EMBER] Frieren: Beyond Journey's End S02E01 [1080p] [Dual Audio HEVC WEBRip DDP]` (org 745796) | `Signs` SignsSongs (default); `Dialogue` Full | English subtitles | English subtitles (Dialogue) |
+| `Frieren Beyond Journeys End S02E01 ... MULTi AAC2.0 H 264-VARYG` (org 741310) | `Forced` forced, Forced; no name, Unknown (default) | English subtitles | English subtitles (the unnamed track) |
+| `[Judas] Sousou no Frieren (Season 02) [1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs] (Batch)`, `Frieren - S02E01v2.mkv` (xyz 603237) | `English` Full; `English[CC]` Full; `English[Signs]` SignsSongs | English subtitles | English subtitles (and English audio) |
+| `[Ironclad] Frieren: Beyond Journey's End - S02 (BD 1080p AV1)`, `S02E01` (xyz 630440) | `English (Forced)` forced, Forced; `English` Full (default); `English (Signs & Songs)` SignsSongs | English subtitles | English subtitles (and English audio) |
+| `[SubsPlease] Tensei Shitara Ken Deshita S2 - 01 (720p)` (xyz 693000) | `English` forced (default), the only English track and Japanese audio: Full, flag read as a display hint | English subtitles | English subtitles, evidence `ExplicitSubs` |
+| `[Judas] Hokuto no Ken (2026) - S01E07 [Dual-Audio][Multi-Subs]` (org 764685) | `English` forced, Forced; `English` Full | English subtitles | English subtitles |
+| `[Ironclad] Dorohedoro - S02E08 (WEB 1080p AV1) (Multi-Audio, Multi-Subs)` (org 763971) | `English (Forced)` forced, Forced; `English` Full; `English (SDH)` Full | English subtitles | English subtitles |
+| `[YukiSubs] Sousou no Frieren - 29 (S02E01) (WEB 1080p HEVC EAC-3)` (org 754053) | none; one Turkish track | no English | Fail: Turkish subtitles only |
+| `[Erai-raws] Snowball Earth - 06 [1080p CR WEBRip HEVC AAC][MultiSub]` (org 764673) | `CR` Full | English subtitles | English subtitles |
+| `[ToonsHub] KILL BLUE S01E04 1080p AMZN WEB-DL MULTi DDP2.0 H.264` (org 764608) | no name, Unknown; `SDH` Full | English subtitles | English subtitles |
+| `[ASW] Kamiina Botan, Yoeru Sugata wa Yuri no Hana - 05 [1080p HEVC x265 10Bit][AAC]` (org 764652) | `English subs` Full | English subtitles | English subtitles |
+| `[Yameii] SNOWBALL EARTH - S01E06 [English Dub] [CR WEB-DL 1080p H264 AAC]` (org 764549) | `English Signs [CR]` SignsSongs | English subtitles | Tracks alone: Fail, English signs and songs only; with the name: Pass, English dub |
+| `For Whom The Alchemist Exists 2019 SUBFRENCH 1080p CR WEB-DL ... -Tsundere-Raws` (org 761589) | `United States` Full | English subtitles | English subtitles |
 
 Header track lists (the header probe's shape; the name `[EMBER] ... [Multi-Subs]` claims English subtitles and is
 overridden once the tracks are listed):
@@ -135,9 +176,32 @@ overridden once the tracks are listed):
 | --- | --- | --- |
 | Japanese audio; English `Signs` only | English subtitles | Fail: The file has Japanese audio and English signs and songs only |
 | Japanese audio; English `Signs` and `Dialogue` (the real EMBER header also has English audio) | English subtitles | Pass: English subtitles |
-| Japanese audio; English `English (Forced)` forced only, or `Forced` in an MP4 with no flag | English subtitles | Fail: ... English forced subtitles only |
+| Japanese audio; only `English (Forced)`, flagged or not, or `Forced` in an MP4 with no flag | English subtitles | Fail: ... English forced subtitles only |
+| Japanese audio; only `English` (or an unnamed English track) flagged forced | English subtitles | Pass: English subtitles, evidence `ExplicitSubs` |
+| Japanese audio; two `English` tracks, one flagged forced | English subtitles | Pass: English subtitles (the unflagged one; the flagged one is Forced) |
+| Japanese audio; `Dialogue` flagged forced | English subtitles | Pass: English subtitles (the name says full) |
+| Japanese audio; `Signs` plus `English` flagged forced | English subtitles | Pass: English subtitles, evidence `ExplicitSubs` |
+| Japanese audio; `Signs & Songs` plus `English (Forced)` | English subtitles | Fail: ... English signs and forced subtitles only |
+| Japanese audio; `English` flagged forced plus a full French track | English subtitles | Pass: English subtitles, evidence `ExplicitSubs` |
 | Japanese audio; `und` subtitle named `English`, `英語` or `Inglés` | name decides | Pass: English subtitles |
 | Japanese audio; `und` subtitle, no name, plain release name | name decides | Unknown: English not stated |
+| Japanese audio; only `Commentary` (or `Director's Commentary`, `English (Audio Description)`, a `.en.commentary.srt` sidecar) | English subtitles | Fail: ... English commentary subtitles only |
+| Japanese audio; `Commentary` plus `English` | English subtitles | Pass: English subtitles |
+| Japanese audio plus an English audio track named `Commentary` | English audio | Fail: The file has Japanese audio and no English subtitles |
+| `[Group] Show - 01 [English Hardsub]` (or `ENG.HARDSUBS`, `English hardcoded subs`, `English hard-subbed`, `HC` with `ENGSUB`): Japanese audio, no subtitle track | English subtitles, then Fail once the header was read | Pass: English subtitles, evidence `ExplicitSubs` |
+| `[Group] Show - 01 [English Subs]` (soft): Japanese audio, no subtitle track | English subtitles, then Fail | Fail: The file has Japanese audio and no English subtitles |
+
+Closure cases (`VideoSidecars.Of`; b3decc8 is the first E1 commit):
+
+| Files | Video | b3decc8 | Now |
+| --- | --- | --- | --- |
+| `Movie.2020/Movie.2020.1080p.mkv` 8 GB, `Movie.2020/Featurettes/Making.Of.mkv` 300 MB, `Movie.2020/Subs/English.srt` | the film | `Subs/English.srt` | none (two videos) |
+| the same with `Sample/movie.2020.sample.mkv` instead of the featurette | the film | `Subs/English.srt` | `Subs/English.srt` (a sample is excepted) |
+| `Pack/01/Show.S01E01.mkv`, `Pack/01/Subs/English.srt`, `Pack/02/Show.S01E02.mkv`, `Pack/02/Subs/English.srt` | episode 1 | none | `Pack/01/Subs/English.srt` |
+| `Show.S01/Show.S01E0{1,2}.1080p.WEB.mkv`, `Show.S01/Subs/S01E0{1,2}/English.srt` | episode 2 | none | `Subs/S01E02/English.srt` |
+| `[Grp] Show - 0{1,2} [1080p][CRC].mkv`, `[Grp] Show - 0{1,2}.en.ass` | episode 2 | none | `[Grp] Show - 02.en.ass` |
+| `Pokémon - 01.mkv` (NFC), `Pokémon - 01.en.ass` (NFD), `Pokémon - 02.mkv`, `Pokémon - 02.en.ass` | episode 1 | none | `Pokémon - 01.en.ass` |
+| `[Grp] Show S01 VOSTFR 1080p`: each episode with `.en.srt` and `.fr.srt` (season pack check) | episodes 1, 2 | Fail: French subtitles only (the name) | Pass: English subtitles (each episode's closure) |
 
 ## Real misses, hunt misses and messages
 

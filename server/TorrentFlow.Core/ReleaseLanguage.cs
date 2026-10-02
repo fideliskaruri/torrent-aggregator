@@ -30,7 +30,8 @@ public sealed record LanguageFacts
     public LanguageClaim? Raw { get; init; }
     /// <summary>"English", "[ENG]" or 英語 alone: audio or subtitles, the name doesn't say which.</summary>
     public LanguageClaim? AmbiguousEnglish { get; init; }
-    /// <summary>Subtitles burned into the picture (内嵌, Baha).</summary>
+    /// <summary>Subtitles burned into the picture (内嵌, Baha, "Hardsub", "HC", "hardcoded subs"). No track list shows them,
+    /// so the name's subtitle claims survive the header (<see cref="ReleaseLanguage.WithTracks"/>).</summary>
     public bool HardSubbed { get; init; }
     /// <summary>The header probe read the file's own track list (<see cref="ReleaseLanguage.WithTracks"/>).</summary>
     public bool HeaderRead { get; init; }
@@ -204,7 +205,8 @@ public static partial class ReleaseLanguage
     /// subtitles, Fail when it shows it has neither (a raw, foreign subtitles only, a foreign dub, a header without English,
     /// or listed subtitles whose only English is signs, songs or forced), Unknown otherwise. An untagged release of a
     /// title made in English passes: its audio is the original. English subtitles are only a track that carries the
-    /// dialogue (<see cref="TrackFact.EnglishSubtitles"/>), never a "Signs" or "Forced" one.
+    /// dialogue (<see cref="TrackFact.EnglishSubtitles"/>), never one named "Signs" or "Forced". A forced flag alone is not
+    /// enough to rule a track out: the name beats the flag (<see cref="Role"/>).
     /// </summary>
     public static EnglishCheck EnglishRule(LanguageWant want, LanguageFacts f)
     {
@@ -225,7 +227,7 @@ public static partial class ReleaseLanguage
             return new(EnglishVerdict.Fail, $"The file has {Join(headerAudio.Select(c => LanguageName(c.Language)))} audio and " +
                 (partial ?? "no English subtitles"), LanguageConfidence.HeaderFact);
         if (subs == SubtitleState.KnownEnglish && englishSubs != null)
-            return new(EnglishVerdict.Pass, "English subtitles", englishSubs.Confidence);
+            return new(EnglishVerdict.Pass, "English subtitles", SubtitleEvidence(f, englishSubs.Confidence));
         if (f.AmbiguousEnglish != null && subs != SubtitleState.KnownNonEnglish)
             return new(EnglishVerdict.Pass, "English audio or subtitles", f.AmbiguousEnglish.Confidence);
         var original = want.Anime ? "ja" : LanguageTag.Normalize(want.OriginalLanguage);
@@ -501,7 +503,8 @@ public static partial class ReleaseLanguage
         {
             var track = SidecarTrack(stem, MediaTrackKind.Audio);
             into.Tracks.Add(track);
-            if (track.Language is not { } language) return;
+            // A commentary or audio description track is not the film's audio in that language.
+            if (track.Language is not { } language || track.Role == SubtitleRole.Commentary) return;
             into.Audio(language, LanguageConfidence.ExplicitAudio, "files");
             // An external audio track sits beside the video's own, so the release has at least two.
             var flag = new LanguageClaim(language == "en" ? "dual" : "multi", LanguageConfidence.ExplicitAudio, "files");
@@ -591,7 +594,7 @@ public static partial class ReleaseLanguage
         if (LeadingBracket().Match(blanked) is { Success: true } lead && !Anchor().IsMatch(lead.Value))
             Array.Fill(scan, ' ', lead.Index, lead.Length);
         var cyrillic = Cyrillic().IsMatch(text);
-        Walk(Tokenize(new string(scan)), basis, into, cyrillic ? "ru" : "en");
+        Walk(MergeHardSubs(Tokenize(new string(scan))), basis, into, cyrillic ? "ru" : "en");
         // Russian trackers: "Dub + Original + Sub" carries the original audio next to the Russian dub.
         if (cyrillic && into.Dub?.Language == "ru" && OriginalTrack().IsMatch(text))
             into.Multi = Collector.Pick(into.Multi, new("multi", LanguageConfidence.GroupHeuristic, basis));
@@ -658,6 +661,19 @@ public static partial class ReleaseLanguage
         return tokens;
     }
 
+    /// <summary>"hardcoded subs", "Hard Sub" and "hard-subbed" read as one hard-sub word, so the language beside them stays a
+    /// subtitle claim ("English hardcoded subs").</summary>
+    private static List<Token> MergeHardSubs(List<Token> tokens)
+    {
+        for (var i = tokens.Count - 2; i >= 0; i--)
+            if (tokens[i].Upper is "HARD" or "HARDCODED" or "HARDCODE" && tokens[i + 1].Start - tokens[i].End <= 3 && IsSubWord(tokens[i + 1].Upper))
+            {
+                tokens[i] = tokens[i] with { Text = tokens[i].Text + tokens[i + 1].Text, Upper = "HARDSUB", End = tokens[i + 1].End, After = tokens[i + 1].After };
+                tokens.RemoveAt(i + 1);
+            }
+        return tokens;
+    }
+
     private static void Walk(List<Token> tokens, string basis, Collector into, string bare = "en")
     {
         const LanguageConfidence audio = LanguageConfidence.ExplicitAudio, subs = LanguageConfidence.ExplicitSubs;
@@ -670,6 +686,8 @@ public static partial class ReleaseLanguage
             && tokens[j].Text.Skip(1).Any(char.IsLower) && !IsContextWord(tokens[j].Upper) && !Words.ContainsKey(tokens[j].Upper);
 
         // A multi-subtitle release ("Multi-Subs", "Multiple Subtitle", "MSubs", "Dual.Multi") carries English.
+        // Hard-sub words ("English Hardsub", "HARDSUBS", "HC", "hardcoded subs") mark burned-in subtitles: the language
+        // beside them stays a subtitle claim, and no track list can show them (WithTracks keeps it).
         var multiSubs = false;
         for (var i = 0; i < tokens.Count; i++)
         {
@@ -678,6 +696,7 @@ public static partial class ReleaseLanguage
                 || u is "MULTI" or "MULTIPLE" && IsSubWord(Next(i))
                 || u == "MULTI" && Previous(i) is "DUAL" or "2A")
                 multiSubs = true;
+            if ((tokens[i].Tail || tokens[i].Bracketed) && (IsHardSubWord(u) || u == "HC")) into.HardSubbed = true;
         }
         if (multiSubs) into.Subtitle("en", subs, basis);
 
@@ -859,7 +878,10 @@ public static partial class ReleaseLanguage
     }
 
     private static bool IsSubWord(string? u) => u is "SUB" or "SUBS" or "SUBBED" or "SUBTITLE" or "SUBTITLES" or "SUBTITLED" or "SOFTSUB"
-        or "SOFTSUBS" or "HARDSUB" or "HARDSUBS" or "SUBTITULADO" or "SUBTITULOS" or "LEGENDAS" or "LEGENDA" or "SOTTOTITOLI";
+        or "SOFTSUBS" or "SUBTITULADO" or "SUBTITULOS" or "LEGENDAS" or "LEGENDA" or "SOTTOTITOLI" || IsHardSubWord(u);
+
+    /// <summary>Burned-in subtitles: "Hardsub", "HARDSUBS", "HardSubbed", and "hardcoded subs" once merged (<see cref="MergeHardSubs"/>).</summary>
+    private static bool IsHardSubWord(string? u) => u is "HARDSUB" or "HARDSUBS" or "HARDSUBBED";
 
     private static bool IsDubWord(string? u) => u is "DUB" or "DUBS" or "DUBBED" or "DUBBING" or "DOPPIATO";
 

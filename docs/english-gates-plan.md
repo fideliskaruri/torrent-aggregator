@@ -3,10 +3,14 @@
 Status: approved with the recommended defaults (owner away, 2 Oct): files with no language tags are held for the owner, a no-English automatic pick is deleted and replaced, external subtitles are a later lane, T6 merged as the base. Research and critique: OPS-600.
 
 Progress: E1 (OPS-603) built the "what counts as English subtitles" part of P2: track roles (Full, SignsSongs, Forced,
-Unknown) kept on the verdict, `und` tracks named by language, one judge (`ReleaseLanguage.Verdict`, `JudgeRelease`) used by
-the file-list check, the header probe, the season pack check, the picker and the swap dialog, and the per-video sidecar
-closure (`VideoSidecars.Of`), which season pack selections now download with each episode. The gate on the finished
-files (P2) calls the same judge. Rules and real examples: docs/release-language.md, "Track roles and sidecars".
+Commentary, Unknown) kept on the verdict, the name beating the forced flag (a lone forced English track named for its
+language is full, as SubsPlease ships it), commentary and audio description tracks never counting as English, hard-sub
+markers (`English Hardsub`, `HC`, `hardcoded subs`) surviving the header, `und` tracks named by language, one judge
+(`ReleaseLanguage.Verdict`, `JudgeRelease`) used by the file-list check, the header probe, the season pack check (each
+mapped episode with its own closure, the name alone only when nothing maps), the picker and the swap dialog, and the
+per-video sidecar closure (`VideoSidecars.Of`: generic sidecars only for a torrent's one video, samples aside; per-episode
+folders and episode keys; NFC names), which season pack selections now download with each episode. The gate on the
+finished files (P2) calls the same judge. Rules and real examples: docs/release-language.md, "Track roles and sidecars".
 
 Owner rule: an automatic pick must have English audio or English subtitles. A hand pick always goes.
 
@@ -58,8 +62,9 @@ Facts behind the design (code on feat/english-rule, MonoTorrent 3.0.2, live chec
 ### 2. The gate: the finished files decide (every automatic pick)
 - On completion, read the real tracks from the staged files (local, no network, no race) plus their own sidecars.
 - Verdicts, per video file:
-  - Pass: an English audio track, or a full English subtitle track (en/eng or BCP-47 en, or named English; not forced;
-    not named Signs, Songs, S&S or Forced), or an English sidecar of that video (`.en.srt`, `.eng.ass`,
+  - Pass: an English audio track, or a full English subtitle track (en/eng or BCP-47 en, or named English; not named
+    Signs, Songs, S&S or Forced; a forced flag rules a track out only next to another English track that carries the
+    dialogue, otherwise it is a display hint, as SubsPlease uses it), or an English sidecar of that video (`.en.srt`, `.eng.ass`,
     `English.srt`, `2_English.srt`; not `.forced.`). Untagged audio counts as English only for a non-anime title
     whose original language is English.
   - Fail: tracks are tagged and none of them is English. Anime with no subtitle track, no sidecar and no

@@ -66,10 +66,13 @@ public sealed partial class GrabService
             if (map.Ok && input.Constraints?.MaxSizeBytes is { } max)
                 map = map with { Episodes = map.Episodes.Where(e => files[e.Value].Length <= max).ToDictionary() };
             // A pack stands in for every missing episode, so each mapped file is judged with only its own subtitle and audio
-            // files, and the worst one is the pack's call (docs/release-language.md).
+            // files, and the worst one is the pack's call (docs/release-language.md). The name alone decides only when no file
+            // maps: once the episodes' files are known, they speak for the pack (a VOSTFR-named pack whose episodes carry
+            // English sidecars passes).
             var list = files.Select(f => (f.Index, f.Path, f.Length)).ToList();
-            var call = map.Episodes.Values.Select(index => Judge(input, candidate, VideoSidecars.Paths(list.First(f => f.Index == index), list)))
-                .Prepend(Judge(input, candidate)).MaxBy(c => (c.Verdict, c.Fit))!;
+            var call = map.Episodes.Count == 0 ? Judge(input, candidate)
+                : map.Episodes.Values.Select(index => Judge(input, candidate, VideoSidecars.Paths(list.First(f => f.Index == index), list)))
+                    .MaxBy(c => (c.Verdict, c.Fit))!;
             logger?.LogInformation("Season pack {Title} ({Hash}): {Mapped} of {Missing} missing episodes map; {Language}; {Rejection} {Notes}",
                 candidate.Title, inspected.Hash, map.Episodes.Count, targets.Count, call.Label, map.Rejection ?? "", string.Join("; ", map.Notes.Take(8)));
             if (!map.Ok || map.Episodes.Count == 0) { notes.Add($"{candidate.Title}: {map.Rejection ?? "no_episodes"}"); continue; }
