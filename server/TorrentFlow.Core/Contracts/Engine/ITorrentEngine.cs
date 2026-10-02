@@ -56,6 +56,14 @@ public interface ITorrentEngine
     /// <summary>Bytes reserved by queued kept downloads that have not written anything yet.</summary>
     Task<long> QueuedReservedBytesAsync(CancellationToken ct = default);
 
+    /// <summary>The owner keeps a held transfer (docs/english-gates-plan.md): its files are promoted into the library.</summary>
+    Task<EngineActionResult> KeepAsync(string infoHash, CancellationToken ct = default) =>
+        Task.FromResult(new EngineActionResult(false, "This download isn't waiting for you."));
+
+    /// <summary>The owner turns a held transfer down: its staged files are deleted, the release is blocked, and the finder picks again.</summary>
+    Task<EngineActionResult> FindAnotherAsync(string infoHash, CancellationToken ct = default) =>
+        Task.FromResult(new EngineActionResult(false, "This download isn't waiting for you."));
+
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
     /// <summary>Raised when a transfer enters a failed state.</summary>
@@ -179,6 +187,8 @@ public sealed record EngineAddRequest
     /// before the first piece is requested; requires metadata (<see cref="RequireMetadata"/>).
     /// </summary>
     public IReadOnlyList<int>? SelectedFiles { get; init; }
+    /// <summary>Who chose the release (<see cref="EngineProvenance"/>). Every finder path is automatic; only the owner's own picks are hand.</summary>
+    public string Provenance { get; init; } = EngineProvenance.Automatic;
 }
 
 /// <summary>What the sender wants to hear and what the release name already said (docs/release-language.md).</summary>
@@ -203,8 +213,9 @@ public sealed record EngineInspectFile(int Index, string Path, long Length, long
 /// The owner picked this release by hand with "Use it anyway" although it is blocked: the swap may take a release
 /// already tried for this download, and lifts its block in the same commit.
 /// </param>
+/// <param name="ByHand">The owner chose this release in the list (provenance hand); Find the best one for me is automatic.</param>
 public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,
-    long? SizeBytes, string? Source = null, bool UseBlocked = false);
+    long? SizeBytes, string? Source = null, bool UseBlocked = false, bool ByHand = false);
 
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
 {
@@ -246,7 +257,8 @@ public sealed record EngineTorrentInfo
     public long SizeBytes { get; init; }
     public long Dlspeed { get; init; }
     public long Upspeed { get; init; }
-    /// <summary>downloaded | downloading | stalledDL | metaDL | checkingDL | paused | queued | error</summary>
+    /// <summary>downloaded | downloading | stalledDL | metaDL | checkingDL | paused | queued | error | finishing (the gate is
+    /// running or the files are moving into the library) | held (the owner decides: Keep or Find another)</summary>
     public required string State { get; init; }
     public long? Eta { get; init; }
     public int? Peers { get; init; }
@@ -273,6 +285,10 @@ public sealed record EngineTorrentInfo
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }
     /// <summary>"English not confirmed" when the check after add could not confirm English audio or subtitles; else null.</summary>
     public string? LanguageNote { get; init; }
+    /// <summary>While <see cref="State"/> is held: why the promotion gate wants the owner to decide (Keep or Find another).</summary>
+    public string? HeldReason { get; init; }
+    /// <summary>Who chose the release: automatic or hand (<see cref="EngineProvenance"/>).</summary>
+    public string? Provenance { get; init; }
     /// <summary>Shareable magnet built server-side: the transfer's own trackers plus the public list (never for private torrents).</summary>
     public string? Magnet { get; init; }
     /// <summary>A completed local file imported without torrent metadata; it has no shareable magnet.</summary>
@@ -285,6 +301,10 @@ public sealed record EngineTorrentInfo
     /// <summary>Payload bytes received from peers this session (live transfers only). Not part of the UI shape.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public long? BytesReceived { get; init; }
+
+    /// <summary>Downloaded the one way the engine counts it: promoted into the library (EngineTorrent.IsDownloaded).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsDownloaded => State == "downloaded";
 }
 
 public sealed record EngineFileInfo(int Index, string Path, long Length, bool Selected, double Progress, string? FullPath = null);

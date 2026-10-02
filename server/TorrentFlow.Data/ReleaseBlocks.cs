@@ -27,9 +27,13 @@ public static class ReleaseBlocks
     /// <summary>The check after add (its file list or its header) showed no English audio or subtitles (docs/release-language.md).</summary>
     public const string NoEnglish = "no_english";
 
+    /// <summary>Turned down before it reached the library: the promotion gate rejected it, or the owner chose Find another on a held release.</summary>
+    public const string Rejected = "rejected";
+
     public const string FromSwap = "swap";
     public const string FromLanguageCheck = "language_check";
     public const string FromVideoCheck = "video_check";
+    public const string FromPromotion = "promotion";
     public const string FromMigration = "migrated";
 
     /// <summary>The refusal when a blocked release is picked by hand without "Use it anyway".</summary>
@@ -41,6 +45,7 @@ public static class ReleaseBlocks
         Replaced => "You replaced this release before.",
         FailedVideoCheck => "This release failed the video check before.",
         NoEnglish => "This release had no English audio or subtitles.",
+        Rejected => "This release was turned down before it reached your library.",
         _ => "You blocked this release before.",
     };
 
