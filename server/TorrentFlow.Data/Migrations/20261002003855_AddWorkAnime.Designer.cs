@@ -10,7 +10,7 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Data.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261001231104_AddWorkAnime")]
+    [Migration("20261002003855_AddWorkAnime")]
     partial class AddWorkAnime
     {
         /// <inheritdoc />
@@ -1580,6 +1580,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<bool?>("Anime")
                         .HasColumnType("INTEGER")
                         .HasColumnName("anime");
+
+                    b.Property<string>("AnimeCheckedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("animeCheckedAt");
 
                     b.Property<string>("CanonicalTitle")
                         .IsRequired()

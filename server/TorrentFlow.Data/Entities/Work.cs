@@ -37,6 +37,9 @@ public partial class Work
     /// </summary>
     public bool? Anime { get; set; }
 
+    /// <summary>When the work's provider was last asked for its anime verdict and gave none (not found, no record); null when never. Backs off the backfill.</summary>
+    public DateTime? AnimeCheckedAt { get; set; }
+
     /// <summary>When names, ids, format, language and anime were last taken from the work's own provider; null when never.</summary>
     public DateTime? NamesRefreshedAt { get; set; }
 

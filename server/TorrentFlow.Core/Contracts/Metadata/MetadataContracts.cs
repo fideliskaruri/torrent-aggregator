@@ -33,6 +33,16 @@ public sealed record MediaMetadata
 /// <summary>One release to enrich. Only the raw release title participates in the TS logic.</summary>
 public sealed record MetadataEnrichmentInput(string Title);
 
+/// <summary>
+/// Whether a catalog provider is refusing requests right now (it answered 429 or its allowance is spent), so a lookup
+/// that came back empty is "rate-limited, ask later" rather than "not found".
+/// </summary>
+public interface IProviderPacing
+{
+    /// <summary>When <paramref name="provider"/> takes requests again; null when it takes them now.</summary>
+    DateTimeOffset? BlockedUntil(string provider);
+}
+
 /// <summary>Resolves catalog metadata for free-text / release titles. Implemented by the Metadata module.</summary>
 public interface IMetadataResolver
 {

@@ -1582,6 +1582,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("anime");
 
+                    b.Property<string>("AnimeCheckedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("animeCheckedAt");
+
                     b.Property<string>("CanonicalTitle")
                         .IsRequired()
                         .HasColumnType("TEXT")

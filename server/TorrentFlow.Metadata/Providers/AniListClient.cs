@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Text;
@@ -20,14 +21,24 @@ public sealed class AniListHttpException(int status) : HttpRequestException($"An
     public int Status { get; } = status;
 }
 
+/// <summary>How an AniList by-id lookup went.</summary>
+public enum AniListLookup { Found, NotFound, RateLimited, Failed }
+
 /// <summary>One scheduled airing of an AniList entry's episode, in UTC.</summary>
 public sealed record AniListAiring(int Episode, DateTime AiringAt);
 
 /// <summary>Port of src/lib/metadata/anilist.ts (search-latency version: single-flight + 60s memo).</summary>
-public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimeProvider time)
+public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimeProvider time, ILogger<AniListClient>? logger = null) : IProviderPacing
 {
     public const string Url = "https://graphql.anilist.co";
     private static readonly int[] RetryDelaysMs = [50, 100];
+    /// <summary>The longest a request waits for its turn at <see cref="Gate"/> before it is reported rate-limited.</summary>
+    private static readonly TimeSpan MaxTurnWait = TimeSpan.FromSeconds(8);
+
+    /// <summary>The one pace every AniList request of this process keeps.</summary>
+    public AniListRateGate Gate { get; } = new(time);
+
+    public DateTimeOffset? BlockedUntil(string provider) => provider == "anilist" ? Gate.BlockedUntil : null;
 
     private const string MediaFields = """
       id
@@ -134,7 +145,8 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
                 if (!response.IsSuccessStatusCode)
                 {
                     var status = (int)response.StatusCode;
-                    if ((status == 429 || status >= 500) && attempt < RetryDelaysMs.Length && time.GetUtcNow().AddMilliseconds(RetryDelaysMs[attempt]) < deadline)
+                    // A 429 is not retried here: the gate already holds every caller until AniList's Retry-After.
+                    if (status >= 500 && attempt < RetryDelaysMs.Length && time.GetUtcNow().AddMilliseconds(RetryDelaysMs[attempt]) < deadline)
                     {
                         await Task.Delay(TimeSpan.FromMilliseconds(RetryDelaysMs[attempt]), time, ct).ConfigureAwait(false);
                         continue;
@@ -172,15 +184,27 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             .OrderBy(x => x.tier).ThenBy(x => x.index).Select(x => x.item).Take(perPage).ToList();
     }
 
-    private async Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct)
+    /// <summary>Every AniList request goes out here, in its turn at <see cref="Gate"/>; one refused a turn is a synthetic 429.</summary>
+    internal async Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct, string? url = null)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, Url)
+        if (!await Gate.WaitTurnAsync(MaxTurnWait, ct).ConfigureAwait(false))
+        {
+            logger?.LogInformation("AniList request not sent: AniList is rate-limiting until {Until:HH:mm:ss}", Gate.BlockedUntil);
+            return Gate.Refused();
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Post, url ?? Url)
         {
             Content = JsonContent.Create(new JsonObject { ["query"] = query, ["variables"] = variables }),
         };
         request.Headers.Accept.ParseAdd("application/json");
         using var client = httpFactory.CreateClient(HttpClientName);
-        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (Gate.Observe(response) is { } until)
+            logger?.LogWarning("AniList answered {Status} (limit {Limit}, remaining {Remaining}); every AniList request waits until {Until:HH:mm:ss}",
+                (int)response.StatusCode, Header("X-RateLimit-Limit"), Header("X-RateLimit-Remaining"), until);
+        return response;
+
+        string? Header(string name) => response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
     }
 
     private static IEnumerable<string> Titles(JsonElement m)
@@ -206,26 +230,32 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
         return [.. WorkNames.Of(names).All];
     }
 
-    public async Task<AniListWork?> GetWorkByIdAsync(string id, CancellationToken ct = default)
+    /// <summary>The AniList entry with this id, or null when it is unknown or AniList could not answer (see <see cref="LookupWorkAsync"/>).</summary>
+    public async Task<AniListWork?> GetWorkByIdAsync(string id, CancellationToken ct = default) => (await LookupWorkAsync(id, ct).ConfigureAwait(false)).Work;
+
+    /// <summary>The AniList entry with this id and how the lookup went: a 429 is <see cref="AniListLookup.RateLimited"/>, never "not found".</summary>
+    public async Task<(AniListLookup Outcome, AniListWork? Work)> LookupWorkAsync(string id, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric) || numeric < 1) return null;
-        if (_works.TryGet(numeric.ToString(CultureInfo.InvariantCulture), out var cached)) return cached;
+        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric) || numeric < 1) return (AniListLookup.NotFound, null);
+        if (_works.TryGet(numeric.ToString(CultureInfo.InvariantCulture), out var cached)) return (AniListLookup.Found, cached);
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
             using var response = await PostAsync(ByIdQuery, new JsonObject { ["id"] = numeric }, cts.Token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests) return (AniListLookup.RateLimited, null);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return (AniListLookup.NotFound, null);
+            if (!response.IsSuccessStatusCode) return (AniListLookup.Failed, null);
             using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
             if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("Media", out var media) &&
                 media.ValueKind == JsonValueKind.Object && Int(media, "id") == numeric)
-                return RememberWork(media.Clone());
-            return null;
+                return (AniListLookup.Found, RememberWork(media.Clone()));
+            return (AniListLookup.NotFound, null);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
         {
-            return null;
+            return (AniListLookup.Failed, null);
         }
     }
 

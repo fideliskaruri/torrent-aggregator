@@ -133,6 +133,8 @@ export interface TitleLibraryState {
     workKey?: string;
     provider?: string | null;
     providerId?: string | null;
+    /** The work's stored format (Movie, Series, Special), when known. */
+    format?: string | null;
   };
 }
 

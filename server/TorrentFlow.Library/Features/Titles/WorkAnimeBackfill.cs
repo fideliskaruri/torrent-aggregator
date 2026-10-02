@@ -7,51 +7,78 @@ using TorrentFlow.Data;
 namespace TorrentFlow.Library.Features.Titles;
 
 /// <summary>
-/// Once per start, in the background and throttled, asks the provider of every catalog work whose anime verdict is
-/// unknown (<see cref="Data.Entities.Work.Anime"/> null: TMDB and Cinemeta works saved before it existed) through the one
-/// refresh owner, <see cref="WorkNamesRefresh"/>. A filled verdict is never asked again, so a restart with every verdict
-/// known loads nothing; a failed lookup stays unknown for the next start or the work's next grab.
+/// In the background, in small bounded passes, asks the provider of every catalog work whose anime verdict is unknown
+/// (<see cref="Data.Entities.Work.Anime"/> null: TMDB and Cinemeta works saved before it existed) through the one
+/// refresh owner, <see cref="WorkNamesRefresh"/>. A filled verdict is never asked again. A provider that answered
+/// without a verdict (not found, failed) is noted on the work (<see cref="Data.Entities.Work.AnimeCheckedAt"/>) and
+/// asked again a day later, so restarts resume where the last pass stopped instead of starting over. A rate-limited
+/// provider stops the pass, unnoted, until it takes requests again.
 /// </summary>
 public sealed class WorkAnimeBackfill(IDbContextFactory<TorrentFlowDbContext> factory, WorkNamesRefresh names, TimeProvider time,
-    ILogger<WorkAnimeBackfill> logger) : BackgroundService
+    ILogger<WorkAnimeBackfill> logger, IProviderPacing? pacing = null) : BackgroundService
 {
-    private static readonly TimeSpan Pause = TimeSpan.FromMilliseconds(500);
+    private const int PerPass = 40;
+    private static readonly TimeSpan Pause = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan PerWork = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan NextPass = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan Idle = TimeSpan.FromHours(6);
+    private static readonly TimeSpan Backoff = TimeSpan.FromDays(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(5), time, stoppingToken);
-            await PassAsync(stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+                await Task.Delay(await PassAsync(stoppingToken), time, stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
-    private async Task PassAsync(CancellationToken ct)
+    /// <summary>One bounded pass; returns how long to wait before the next.</summary>
+    private async Task<TimeSpan> PassAsync(CancellationToken ct)
     {
+        var due = time.GetUtcNow().UtcDateTime - Backoff;
         List<(string Key, string Provider)> works;
         await using (var db = await factory.CreateDbContextAsync(ct))
-            works = (await db.Works.AsNoTracking().Where(w => w.Anime == null && w.Provider != null && w.ProviderId != null)
-                .OrderBy(w => w.CreatedAt).Select(w => new { w.WorkKey, w.Provider }).ToListAsync(ct))
-                .Where(w => IMetadataResolver.SupportsProvider(w.Provider!)).Select(w => (w.WorkKey, w.Provider!)).ToList();
+            works = (await Unknown(db, due).OrderBy(w => w.AnimeCheckedAt).ThenBy(w => w.CreatedAt)
+                .Select(w => new { w.WorkKey, w.Provider }).Take(PerPass * 2).ToListAsync(ct))
+                .Where(w => IMetadataResolver.SupportsProvider(w.Provider!)).Select(w => (w.WorkKey, w.Provider!)).Take(PerPass).ToList();
         if (works.Count == 0)
         {
-            logger.LogInformation("Every catalog work already knows whether it is anime; nothing to backfill");
-            return;
+            logger.LogInformation("Every catalog work knows whether it is anime, or was asked within a day; nothing to backfill");
+            return Idle;
         }
-        logger.LogInformation("Asking the providers of {Count} works whether they are anime", works.Count);
-        foreach (var (key, _) in works)
+        logger.LogInformation("Asking the providers of {Count} works whether they are anime (at most {PerPass} a pass)", works.Count, PerPass);
+        var asked = 0;
+        foreach (var (key, provider) in works)
         {
+            if (Blocked(provider) is { } wait) return Stopped(provider, wait, asked);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(PerWork);
-            try { await names.RefreshAsync(key, null, fetch: true, budget.Token); }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { logger.LogInformation("Anime verdict of {WorkKey} ran out of time; it is tried again later", key); }
-            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Anime verdict of {WorkKey} failed", key); }
+            NamesRefresh outcome;
+            try { outcome = await names.RefreshAsync(key, null, fetch: true, budget.Token); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { outcome = NamesRefresh.Failed; logger.LogInformation("Anime verdict of {WorkKey} ran out of time; it is tried again later", key); }
+            if (outcome == NamesRefresh.RateLimited) return Stopped(provider, Blocked(provider) ?? TimeSpan.FromMinutes(1), asked);
+            if (outcome != NamesRefresh.Skipped) asked++;
             await Task.Delay(Pause, time, ct);
         }
+        int left;
         await using (var db = await factory.CreateDbContextAsync(ct))
-            logger.LogInformation("Finished the anime backfill; {Unknown} works still unknown",
-                await db.Works.CountAsync(w => w.Anime == null && w.Provider != null && w.ProviderId != null, ct));
+            left = await Unknown(db, time.GetUtcNow().UtcDateTime - Backoff).CountAsync(ct);
+        logger.LogInformation("Anime backfill pass asked {Asked} works; {Left} still due", asked, left);
+        return left > 0 && asked > 0 ? NextPass : Idle;
+    }
+
+    private static IQueryable<Data.Entities.Work> Unknown(TorrentFlowDbContext db, DateTime due) =>
+        db.Works.AsNoTracking().Where(w => w.Anime == null && w.Provider != null && w.ProviderId != null && (w.AnimeCheckedAt == null || w.AnimeCheckedAt < due));
+
+    private TimeSpan? Blocked(string provider) =>
+        pacing?.BlockedUntil(provider) is { } until && until - time.GetUtcNow() is var wait && wait > TimeSpan.Zero ? wait : null;
+
+    private TimeSpan Stopped(string provider, TimeSpan wait, int asked)
+    {
+        logger.LogInformation("{Provider} is rate-limiting; the anime backfill stops after {Asked} works and resumes in {Seconds:0} s", provider, asked, wait.TotalSeconds);
+        return wait + TimeSpan.FromSeconds(1);
     }
 }

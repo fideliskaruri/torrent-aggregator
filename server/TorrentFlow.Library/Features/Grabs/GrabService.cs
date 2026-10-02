@@ -132,7 +132,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
             Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
         var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
-        if (work is { Provider: not null, ProviderId: not null } && work.IsAnime() == null && names != null)
+        // A catalog work whose anime verdict or format is still unknown asks its provider first (one shared lookup per work).
+        if (work is { Provider: not null, ProviderId: not null } && (work.IsAnime() == null || work.Format == null) && names != null)
             work = await HydrateAnimeAsync(db, work, ct);
         // Anime is the work's own (WorkKinds), never a title search in the anime catalog. A grab without a catalog work
         // keeps only a positive call from its caller or its own anime source; null (unknown) lets the release's site
@@ -182,9 +183,10 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     /// <summary>
-    /// A catalog work whose anime verdict was never taken from its provider asks the provider now, within the same 2 s
-    /// budget the wanted queue gives its name refresh, before the grab decides its folder. A slow or failed lookup leaves
-    /// the verdict unknown (the release's site category then decides); it never fails the grab.
+    /// A catalog work whose anime verdict or format was never taken from its provider asks the provider now, within the
+    /// same 2 s budget the wanted queue gives its name refresh, before the grab decides its folder. Every episode of a
+    /// season grab waits on the same one lookup (<see cref="WorkNamesRefresh"/>). A slow or failed lookup leaves the
+    /// verdict unknown (the release's site category then decides); it never fails the grab.
     /// </summary>
     private async Task<Work> HydrateAnimeAsync(TorrentFlowDbContext db, Work work, CancellationToken ct)
     {

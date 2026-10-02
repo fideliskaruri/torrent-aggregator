@@ -268,7 +268,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating),
                 // The work this row belongs to: the watchlist links it so hunts and on-demand grabs carry its catalog identity.
-                ("workKey", key), ("provider", identity?.Provider), ("providerId", identity?.ProviderId))));
+                ("workKey", key), ("provider", identity?.Provider), ("providerId", identity?.ProviderId), ("format", format?.ToString()))));
         // The names and ids a grab of this title searches with: the saved work's, else the provider record's.
         var names = work != null ? WorkNames.Read(work.NamesJson, work.CanonicalTitle, work.AliasesJson, work.Provider)
             : query.Provider != null ? WorkNames.Of(query.Provider) : WorkNames.Legacy(title, null);

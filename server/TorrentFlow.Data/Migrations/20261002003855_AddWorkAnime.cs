@@ -16,6 +16,12 @@ namespace TorrentFlow.Data.Migrations
                 type: "INTEGER",
                 nullable: true);
 
+            migrationBuilder.AddColumn<string>(
+                name: "animeCheckedAt",
+                table: "Work",
+                type: "TEXT",
+                nullable: true);
+
             // An anime source is anime outright (AnimeIdentity); every other work learns it from its provider on its next refresh.
             migrationBuilder.Sql("""
                 UPDATE "Work" SET "anime" = 1
@@ -30,6 +36,10 @@ namespace TorrentFlow.Data.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "anime",
+                table: "Work");
+
+            migrationBuilder.DropColumn(
+                name: "animeCheckedAt",
                 table: "Work");
         }
     }

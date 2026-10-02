@@ -101,7 +101,8 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
     /// </summary>
     private async Task<bool?> AnimeAsync(Work work, string type, CancellationToken ct)
     {
-        if (AnimeIdentity.IsAnime(work.Provider, work.MediaType, work.ProviderId)) return true;
+        // The stored verdict (anime source, or the refresh owner's reading of the work's own record) is reused, not asked again.
+        if (work.IsAnime() is { } known) return known;
         if (work.Provider == null || work.ProviderId == null || !IMetadataResolver.SupportsProvider(work.Provider)) return false;
         try
         {
@@ -287,7 +288,7 @@ public sealed class WorkLinker(IDbContextFactory<TorrentFlowDbContext> factory, 
 /// work only when the map version changes. A restart with everything linked does nothing.
 /// </summary>
 public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> factory, AnimeListsMap map, IWorkLinker linker, TimeProvider time,
-    ILogger<WorkLinkBackfill> logger) : BackgroundService
+    ILogger<WorkLinkBackfill> logger, AniListClient? anilist = null) : BackgroundService
 {
     private static readonly TimeSpan Pause = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan PerWork = TimeSpan.FromSeconds(15);
@@ -322,6 +323,12 @@ public sealed class WorkLinkBackfill(IDbContextFactory<TorrentFlowDbContext> fac
         logger.LogInformation("Linking {Count} works against map {Version}", keys.Count, version);
         foreach (var key in keys)
         {
+            // AniList's pace is shared with every other lane: while it refuses requests, linking waits rather than adding to the 429s.
+            if (anilist?.Gate.BlockedUntil is { } until && until > time.GetUtcNow())
+            {
+                logger.LogInformation("AniList is rate-limiting; linking waits until {Until:HH:mm:ss}", until);
+                await Task.Delay(until - time.GetUtcNow() + TimeSpan.FromSeconds(1), time, ct);
+            }
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(PerWork);
             try { await linker.LinkAsync(key, budget.Token); }
