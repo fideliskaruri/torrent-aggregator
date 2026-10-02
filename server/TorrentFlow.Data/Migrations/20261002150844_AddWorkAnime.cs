@@ -41,11 +41,13 @@ namespace TorrentFlow.Data.Migrations
                    OR lower("providerId") LIKE 'anilist:%';
                 """);
 
-            // A row's catalog is its work's; an unlinked "anime" row's external id has always been an AniList id.
+            // A row's catalog is its work's when the work's own id is the row's; otherwise a numeric "anime" row's external
+            // id has always been an AniList id, whichever work the row is linked to.
             migrationBuilder.Sql("""
                 UPDATE "WatchListItem" SET "provider" = COALESCE(
                     (SELECT w."provider" FROM "Work" w WHERE w."id" = "WatchListItem"."workId" AND w."providerId" = "WatchListItem"."externalId"),
-                    CASE WHEN "WatchListItem"."mediaType" = 'anime' AND "WatchListItem"."workId" IS NULL THEN 'anilist' ELSE '' END,
+                    CASE WHEN "WatchListItem"."mediaType" = 'anime' AND "WatchListItem"."externalId" <> ''
+                          AND "WatchListItem"."externalId" NOT GLOB '*[^0-9]*' THEN 'anilist' ELSE '' END,
                     '');
                 """);
 

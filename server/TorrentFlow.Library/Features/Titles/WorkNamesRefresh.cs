@@ -35,15 +35,20 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         work.NamesRefreshedAt == null && work.Provider is "anilist" or "tmdb"
         || (work.Anime == null || work.Format == null || work.Year == null) && work.Provider != null && work.ProviderId != null && IMetadataResolver.SupportsProvider(work.Provider);
 
-    /// <summary>Claims this work's once-a-day lookup; only one caller wins a slot, however many race for it.</summary>
-    private static bool Claim(ConcurrentDictionary<string, DateTimeOffset> tried, TimeSpan interval, string workId, DateTimeOffset now)
+    /// <summary>
+    /// Claims this flight's lookup slot; only one caller wins a slot, however many race for it. Slots older than their
+    /// interval are dropped first, so the map holds only the claims that still count.
+    /// </summary>
+    private static bool Claim(ConcurrentDictionary<string, DateTimeOffset> tried, TimeSpan interval, string flight, DateTimeOffset now)
     {
+        foreach (var (key, at) in tried)
+            if (now - at >= interval) tried.TryRemove(KeyValuePair.Create(key, at));
         while (true)
         {
-            if (tried.TryAdd(workId, now)) return true;
-            if (!tried.TryGetValue(workId, out var last)) continue;
+            if (tried.TryAdd(flight, now)) return true;
+            if (!tried.TryGetValue(flight, out var last)) continue;
             if (now - last < interval) return false;
-            if (tried.TryUpdate(workId, now, last)) return true;
+            if (tried.TryUpdate(flight, now, last)) return true;
         }
     }
 
@@ -165,6 +170,16 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
     {
         MediaMetadata record = own;
         var changed = false;
+        // One library per show (WorkKinds.AnimeVerdict): where the work's downloads are filed is read only when this record
+        // would turn a work that reads as anime into a non-anime one.
+        string? filed = null;
+        if (!AnimeIdentity.IsAnime(record))
+        {
+            await using var read = await factory.CreateDbContextAsync(ct);
+            if (await read.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == workKey, ct) is { } before && before.IsAnime() == true)
+                filed = await AnimeFiling.PathAsync(read, before.Id, before.WorkKey, ct);
+        }
+        string? kept = null;
         LinkWrite? written;
         try
         {
@@ -181,7 +196,9 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
                 WorkLinks.Apply(current, links);
                 var format = WorkFormats.Of(record) ?? current.Format;
                 var language = WorkFormats.LanguageOf(record) ?? current.OriginalLanguage;
-                var anime = AnimeIdentity.IsAnime(record);
+                var verdict = AnimeIdentity.IsAnime(record);
+                var anime = WorkKinds.AnimeVerdict(verdict, current.IsAnime(), filed != null);
+                kept = anime && !verdict ? filed : null;
                 var year = current.Year ?? record.Year;
                 changed = current.NamesJson != priorNames || current.IdsJson != priorIds || format != current.Format || language != current.OriginalLanguage
                     || anime != current.Anime || year != current.Year;
@@ -201,6 +218,7 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
         }
         if (written is not { Saved: true } || !changed) return NamesRefresh.Unchanged;
         var saved = written.Work;
+        if (kept != null) AnimeFiling.LogKept(logger, workKey, own.Source, kept);
         var names = saved.ReadNames();
         logger?.LogInformation("Names of {WorkKey}: {Names}; ids {Ids}; format {Format}; original language {Language}; searched as anime: {AnimeSearch}; otherwise: {OtherSearch}; this work is {Kind}",
             workKey, string.Join(" | ", names.All.Select(n => $"{n.Kind}: {n.Text}")), saved.IdsJson, saved.Format, saved.OriginalLanguage,

@@ -70,9 +70,22 @@ public static class WorkFormats
 /// <para>Anime is null while unknown (a TMDB or Cinemeta work its provider was never asked about) and is never read
 /// as "not anime": a grab first asks the provider (bounded), and if the verdict is still unknown the release's own site
 /// category decides the folder, exactly as for a send with no catalog work. A known verdict is never overridden.</para>
+/// <para>One library per show (<see cref="AnimeVerdict"/>): when a work's provider is read again, its record decides,
+/// except that a work that reads as anime now (an anime source, a stored "anime", or the legacy "anime" media type the
+/// old title search gave donghua and Japanese co-productions) and already has downloads filed in an anime library
+/// ("Anime Series", "Anime Movies") stays anime, and the refresh logs a note saying so. Its next episodes then land beside the
+/// earlier ones instead of starting a second copy of the show under TV. Where a download landed never makes a work anime
+/// that did not read as anime: WALL·E, filed under Anime Movies by an old name heuristic, stays a film for Movies.</para>
 /// </summary>
 public static class WorkKinds
 {
+    /// <summary>
+    /// The anime verdict a work keeps when its provider's record is read: the record's own (<paramref name="provider"/>),
+    /// or true when the work reads as anime now (<paramref name="current"/>) and its downloads are filed in an anime library.
+    /// </summary>
+    public static bool AnimeVerdict(bool provider, bool? current, bool filedInAnimeLibrary) =>
+        provider || current == true && filedInAnimeLibrary;
+
     public static bool IsSeries(WorkFormat? format, string? mediaType) =>
         KnownSeries(format, mediaType) ?? string.Equals(mediaType?.Trim(), "anime", StringComparison.OrdinalIgnoreCase);
 

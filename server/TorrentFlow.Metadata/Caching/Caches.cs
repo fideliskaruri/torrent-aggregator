@@ -1,3 +1,5 @@
+using TorrentFlow.Core.Contracts.Metadata;
+
 namespace TorrentFlow.Metadata.Caching;
 
 /// <summary>Bounded LRU-ish TTL cache (insertion order eviction, like the TS Map-based caches). Thread-safe.</summary>
@@ -54,7 +56,10 @@ public sealed class BoundedTtlCache<TValue>(int maxEntries, TimeProvider? time =
     }
 }
 
-/// <summary>Port of src/lib/cache/single-flight.ts: identical concurrent calls share one in-flight task.</summary>
+/// <summary>
+/// Port of src/lib/cache/single-flight.ts: identical concurrent calls at the same priority (<see cref="ProviderPriority"/>)
+/// share one in-flight task.
+/// </summary>
 public sealed class SingleFlight<T>(int maxEntries = 64)
 {
     private readonly int _maxEntries = maxEntries > 0 ? maxEntries : throw new ArgumentOutOfRangeException(nameof(maxEntries));
@@ -66,6 +71,9 @@ public sealed class SingleFlight<T>(int maxEntries = 64)
 
     public async Task<T> RunAsync(string key, Func<Task<T>> work, CancellationToken cancellationToken = default)
     {
+        // A flight runs at its creator's priority (ProviderPriority), so callers share it only at the same priority: a
+        // foreground caller never joins a background flight, whose provider requests spend only the background share.
+        if (ProviderPriority.IsBackground) key += "\0background";
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();

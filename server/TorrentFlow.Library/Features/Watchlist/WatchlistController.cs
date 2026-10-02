@@ -85,18 +85,19 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         // The row's type is the work's kind: an AniList film is a film the hunter grabs once, not a series.
         var rowType = choice?.RowType ?? type;
         // A row is its catalog's: TMDB movie 123 and AniList film 123 are two rows. An existing row is reused only when
-        // it is this work's, has the same catalog and id, or is an unlinked row of no known catalog (saved before rows
-        // named one); it never keeps a different work.
+        // it is this work's, has the same catalog and id, or is an unlinked row saved before rows named their catalog that
+        // is this same title (LegacyRowAsync); it never keeps a different work.
         var rowProvider = choice?.Provider ?? "";
         var chosenId = choice?.Work?.Id;
         var item = patch
             ? await db.WatchListItems.FirstOrDefaultAsync(x => x.Id == id && x.UserId == LocalUser.Id, ct)
             : (chosenId != null ? await db.WatchListItems.FirstOrDefaultAsync(x => x.WorkId == chosenId && x.UserId == LocalUser.Id, ct) : null)
-              ?? await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && x.MediaType == rowType && x.ExternalId == externalId &&
-                      (x.Provider == rowProvider || x.Provider == "" && x.WorkId == null))
-                  .OrderByDescending(x => x.Provider == rowProvider).FirstOrDefaultAsync(ct);
-        if (!patch && item is { Provider: "" } && item.MediaType == rowType && item.ExternalId == externalId) item.Provider = rowProvider;
+              ?? await db.WatchListItems.FirstOrDefaultAsync(x => x.UserId == LocalUser.Id && x.MediaType == rowType && x.ExternalId == externalId &&
+                  x.Provider == rowProvider, ct)
+              ?? (rowProvider != "" ? await LegacyRowAsync(db, rowType!, externalId!, title!, ct) : null);
+        if (!patch && rowProvider != "" && item is { Provider: "" } && item.MediaType == rowType && item.ExternalId == externalId) item.Provider = rowProvider;
         if (patch && item == null) return NotFound(new { error = "Not found" });
+        var existed = item != null;
         if (!patch && string.IsNullOrEmpty(poster))
         {
             try
@@ -130,8 +131,18 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             if (chosenId != null) item.WorkId = chosenId;
             if (choice?.Work is { } w && w.PosterUrl == null && !string.IsNullOrEmpty(item.PosterUrl)) w.PosterUrl = item.PosterUrl;
         }
-        if (status != null) item.Status = status;
-        if (monitored != null) item.Monitored = monitored;
+        if (patch || !existed)
+        {
+            if (status != null) item.Status = status;
+            if (monitored != null) item.Monitored = monitored;
+        }
+        else
+        {
+            // An add never lowers a row that is already there: a rail's "planned, not monitored" (or one that reached the
+            // row through a crosswalk) leaves a show the owner watches as it is. It may only start watching or monitoring it.
+            if (status == "watching") item.Status = status;
+            if (monitored == true) item.Monitored = true;
+        }
         if (mode == null && fromSeason != null && HuntCursor.IsNewEpisodesOnly(item.MonitorMode)) mode = HuntCursor.OngoingMode;
         if (mode != null && mode != item.MonitorMode || mode == HuntCursor.NewEpisodesMode && item.NewEpisodesSince == null)
         {
@@ -225,6 +236,12 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         var mediaType = identity.Provider == "anilist" ? format == WorkFormat.Movie ? "movie" : "anime" : type;
         if (keyed != null)
         {
+            // One library per show (WorkKinds.AnimeVerdict), read before the identity is attached so the work reads as it did.
+            if (keyed.Anime == null && anime == false && keyed.IsAnime() == true && await AnimeFiling.PathAsync(db, keyed.Id, keyed.WorkKey, ct) is { } filed)
+            {
+                anime = WorkKinds.AnimeVerdict(false, true, filedInAnimeLibrary: true);
+                AnimeFiling.LogKept(logger, keyed.WorkKey, identity.Provider, filed);
+            }
             // A work with no catalog identity takes the one supplied: no other work holds it.
             keyed.Provider = identity.Provider;
             keyed.ProviderId = identity.ProviderId;
@@ -291,6 +308,19 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
 
     private static bool IsUniqueViolation(DbUpdateException error) =>
         error.InnerException is Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 2067 or 1555 };
+
+    /// <summary>
+    /// An unlinked row saved before rows named their catalog, reused only when it is this same title: the same type and id,
+    /// and the same title once normalized. TMDB movie 437 (Cube 2) is never taken over by AniList film 437 (Perfect Blue).
+    /// </summary>
+    private static async Task<WatchListItem?> LegacyRowAsync(TorrentFlowDbContext db, string type, string externalId, string title, CancellationToken ct)
+    {
+        var key = WorkKeySlug.WorkKeyFor(title);
+        if (key.Length == 0) return null;
+        var rows = await db.WatchListItems.Where(x => x.UserId == LocalUser.Id && x.MediaType == type && x.ExternalId == externalId &&
+            x.Provider == "" && x.WorkId == null).ToListAsync(ct);
+        return rows.FirstOrDefault(x => WorkKeySlug.SameKey(WorkKeySlug.WorkKeyFor(x.Title), key));
+    }
 
     [HttpDelete]
     public async Task<IActionResult> Delete(CancellationToken ct)
