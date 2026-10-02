@@ -95,7 +95,12 @@ public static class RequestEndpoints
             if (id.Length > 64) return Error(404, "Request not found.", "not_found");
             var (found, cancelled, request) = await service.CancelAsync(UserIdOf(http), id, http.RequestAborted);
             if (!found) return Error(404, "Request not found.", "not_found");
-            if (!cancelled) return Error(409, "Only a request that is still waiting can be cancelled.", "not_pending");
+            if (!cancelled) return Error(409, request?.Status switch
+            {
+                MediaRequestStatus.Cancelled => "This request is already cancelled.",
+                MediaRequestStatus.Declined => "The owner already declined this request.",
+                _ => "The owner already approved this request, so it can't be cancelled.",
+            }, "not_pending");
             return Results.Json(new { request });
         });
 

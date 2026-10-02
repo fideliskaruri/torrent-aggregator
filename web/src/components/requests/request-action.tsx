@@ -53,6 +53,11 @@ export function RequestAction({
           {view.label}
         </Badge>
       ) : null}
+      {view.note ? (
+        <p className="self-center text-sm text-subtle-foreground" data-request-note>
+          {view.note}
+        </p>
+      ) : null}
       {view.action && canAsk ? (
         <Button
           ref={buttonRef}

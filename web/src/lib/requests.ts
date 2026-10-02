@@ -67,7 +67,12 @@ export interface RequesterRequest {
   /** Episodes (or the film) on disk out of those wanted; counts only. */
   done: number;
   total: number;
+  /** A requested season is still airing: new episodes download as they air. */
+  airing: boolean;
 }
+
+/** Said beside "Available" while a requested season is still airing. */
+export const AIRING_NOTE = "New episodes download as they air";
 
 /** One title from `GET /api/requester/library`: identity and art only. */
 export interface RequesterLibraryTitle {
@@ -303,6 +308,7 @@ export function parseRequests(json: unknown): RequesterRequest[] {
       updatedAt: str(r.updatedAt) ?? "",
       done: count(r.done),
       total: count(r.total),
+      airing: r.airing === true,
     }];
   });
 }
@@ -500,6 +506,8 @@ export interface RequestState {
   availableSeasons?: number[];
   requestDone?: number;
   requestTotal?: number;
+  /** A requested season is still airing. */
+  requestAiring?: boolean;
 }
 
 /** Reads the requester fields the server adds to search and title payloads; absent fields mean "nothing known". */
@@ -513,6 +521,7 @@ export function parseRequestState(json: unknown): RequestState {
     availableSeasons: seasons,
     requestDone: count(r.requestDone),
     requestTotal: count(r.requestTotal),
+    requestAiring: r.requestAiring === true,
   };
 }
 
@@ -522,6 +531,8 @@ export interface RequestView {
   tone: StatusTone;
   /** The button beside it, or null when there is nothing to ask for. */
   action: "Request" | "Request again" | "Request more seasons" | null;
+  /** A line under the status, or null. */
+  note?: string | null;
 }
 
 /** What sits where the owner's Download would: a status, a Request button, or both. */
@@ -536,6 +547,7 @@ export function requestViewFor(state: RequestState, isSeries: boolean): RequestV
       label: seasons.length > 0 ? `${formatSeasons(seasons)} available` : "Available",
       tone: "success",
       action: "Request more seasons",
+      note: state.requestAiring ? AIRING_NOTE : null,
     };
   }
   switch (state.requestStatus) {

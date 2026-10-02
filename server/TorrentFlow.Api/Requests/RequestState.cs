@@ -13,10 +13,37 @@ namespace TorrentFlow.Api.Requests;
 /// share. <see cref="Phase"/> follows what was asked for (requested, approved, downloading, available) and only says
 /// available once the film's or every wanted episode's files are on disk. Counts only, never transfer stats.
 /// </summary>
-public sealed record RequestProgress(string Phase, int Done, int Total)
+/// <param name="Airing">A requested season still has episodes to come: "Available" then means every aired one is here,
+/// and new episodes download as they air.</param>
+public sealed record RequestProgress(string Phase, int Done, int Total, bool Airing = false)
 {
+    public const string AiringNote = "New episodes download as they air";
     public const string Downloading = "downloading";
     public const string Available = "available";
+}
+
+/// <summary>
+/// Whether the transfers a request tracks are still alive, by the one healthy-transfer predicate
+/// (<see cref="EngineTorrentStatus.IsHealthy"/>): a transfer that errored, lost its files or was removed is dead.
+/// </summary>
+public static class RequestHealth
+{
+    public static IReadOnlyList<string> Hashes(string? grabbed) =>
+        (grabbed ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(h => h.ToLowerInvariant()).Distinct().ToList();
+
+    public static string? Join(IEnumerable<string> hashes) => hashes.Any() ? string.Join(',', hashes) : null;
+
+    /// <summary>The healthy ones among <paramref name="hashes"/>, lowercased.</summary>
+    public static async Task<HashSet<string>> HealthyAsync(TorrentFlowDbContext db, IEnumerable<string> hashes, CancellationToken ct)
+    {
+        var wanted = hashes.Select(h => h.ToLowerInvariant()).Distinct().ToList();
+        if (wanted.Count == 0) return new(StringComparer.Ordinal);
+        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id)
+            .Select(t => new { t.Hash, t.Status }).ToListAsync(ct);
+        return rows.Where(t => EngineTorrentStatus.IsHealthy(t.Status)).Select(t => t.Hash.ToLowerInvariant())
+            .Where(wanted.Contains).ToHashSet(StringComparer.Ordinal);
+    }
 }
 
 /// <summary>
@@ -35,6 +62,7 @@ public sealed class LibraryOnDisk
     private readonly Dictionary<string, List<(int? Season, int? Episode, bool Ready)>> _wanted = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Work> _works = new(StringComparer.Ordinal);
     private readonly Dictionary<(string, int), IReadOnlyList<(int Season, int Episode)>?> _shapes = [];
+    private readonly HashSet<(string, int)> _airing = [];
     private readonly ISeasonShapeLookup _shapeLookup;
     private HashSet<string> _live = new(StringComparer.Ordinal);
 
@@ -138,6 +166,7 @@ public sealed class LibraryOnDisk
             var shape = work is null ? null : await ShapeAsync(work, season, ct);
             var aired = shape?.Where(e => e.Aired).Select(e => (season, e.Episode)).Distinct().ToList();
             required = aired is { Count: > 0 } ? aired : null;
+            if (shape?.Any(e => !e.Aired) == true) _airing.Add((workKey, season));
             _shapes[(workKey, season)] = required;
         }
         if (required != null) return required;
@@ -194,8 +223,9 @@ public sealed class LibraryOnDisk
             total += required.Count;
             done += required.Count(onDisk.Contains);
         }
-        if (total > 0 && done == total) return new(RequestProgress.Available, done, total);
-        if (started || done > 0) return new(RequestProgress.Downloading, done, total);
-        return new(status, done, total);
+        var airing = seasons.Any(s => _airing.Contains((row.WorkKey, s)));
+        if (total > 0 && done == total) return new(RequestProgress.Available, done, total, airing);
+        if (started || done > 0) return new(RequestProgress.Downloading, done, total, airing);
+        return new(status, done, total, airing);
     }
 }

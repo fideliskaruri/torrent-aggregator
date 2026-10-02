@@ -69,7 +69,8 @@ pending and the owner is not notified again; if it is already approved the joine
 they get the "Request approved" notification. A failed ask is never joined: the new request is pending
 and the owner is notified. The owner's inbox shows one card naming everyone who asked
 (`requesters`); approving or declining it decides every pending row of that ask in one transaction (decisions
-and joins are serialized), so racing decisions leave one outcome. Each requester is notified, one row (the
+and joins are serialized), so racing decisions leave one outcome. A requester's cancel takes the same lock.
+Each requester is notified, one row (the
 oldest) is elected to grab and the others take its outcome: its transfers, or its failure.
 
 ### Previewing as a requester
@@ -143,7 +144,8 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
 - `GET /library` — `{ titles }`: `key`, `title`, `year`, `mediaType`, `posterUrl` for the titles on the owner's
   Downloaded rail (finished, files on disk; at most 500). Nothing else.
 - `POST /requests/{id}/cancel` — only the caller's own request; 404 `not_found` otherwise. 409
-  `not_pending` unless it is still pending. Returns `{ request }` with status `cancelled`.
+  `not_pending` unless it is still pending, saying what happened first (already approved, declined or
+  cancelled). Returns `{ request }` with status `cancelled`.
 
 Title and season lookups are not rate-limited at the app level (trusted friends only). The owner's
 title-search box still has its own 60/minute per-client guard against keystroke spam.
@@ -178,8 +180,24 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   and skips an episode that already has a healthy transfer or is covered by a season pack. A transfer that
   errored, was removed or lost its files does not count, so the episode can be grabbed again. Transfers
   from before episode keys are matched by their name's season and episode.
-- Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request whose
-  grabbed transfers have all completed becomes `fulfilled`.
+- Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request becomes
+  `fulfilled` when nothing in its scope is still being looked for, no film or episode in scope lost its transfer
+  with nothing in its place, and its live transfers have all completed. Transfers that errored, lost their files
+  or were removed (the same `EngineTorrentStatus.IsHealthy` rule the grab guard uses) are otherwise ignored, so a
+  replaced release never holds a request open.
+- A season request is the whole season as it airs. Every 30 minutes (and at startup) open season requests queue
+  any aired episode the wanted queue has no target for. Fulfilled ones from the last year queue only episodes
+  that aired after the last one they had, so an episode the owner deleted stays deleted; a fulfilled one that
+  queues something is approved again and counts the new episode. While a requested season is still airing the
+  requester sees it as available once every aired episode is here, with the note "New episodes download as they
+  air".
+- Dead transfers: every minute (sooner when the engine reports a failure) an approved request that the queue is
+  not looking for anymore stops waiting when a transfer it tracked died with nothing in its place: `failed`
+  ("The download stopped. The owner can retry it or pick another release.") when every transfer died, `partial`
+  ("Part of the download stopped. ...") when some still live. The requester and the owner (once per ask) are
+  notified. Retry drops the dead hashes and reopens the targets they filled. A hand-picked release
+  (`POST /api/requests/{id}/pick`) fills the film's or episode's acquisition target, so it follows the same
+  path, and every row of the ask shares it. A new requester never joins an ask whose transfers all died.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).

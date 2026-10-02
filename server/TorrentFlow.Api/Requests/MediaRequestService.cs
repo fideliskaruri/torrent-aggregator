@@ -24,13 +24,13 @@ public sealed record RequesterTitle(
 /// only by its <see cref="AvailableSeasons"/>.
 /// </summary>
 public sealed record CatalogRequestState(bool InLibrary, string? RequestStatus, string? RequestId, IReadOnlyList<int>? AvailableSeasons = null,
-    int Done = 0, int Total = 0);
+    int Done = 0, int Total = 0, bool Airing = false);
 
 /// <summary>A requester's own request. <see cref="Status"/> is the derived phase; <see cref="Done"/> of <see cref="Total"/> counts episodes (or the film) on disk.</summary>
 public sealed record RequesterRequest(
     string Id, string Title, int? Year, string MediaType, string Provider, string? ProviderId, string? PosterUrl,
     string Scope, IReadOnlyList<int> Seasons, string? Note, string Status, string? DecisionReason,
-    DateTime? DecidedAt, DateTime CreatedAt, DateTime UpdatedAt, int Done = 0, int Total = 0);
+    DateTime? DecidedAt, DateTime CreatedAt, DateTime UpdatedAt, int Done = 0, int Total = 0, bool Airing = false);
 
 /// <summary>The owner's read-only view of a request.</summary>
 public sealed record OwnerRequest(
@@ -45,6 +45,8 @@ public sealed record OwnerRequest(
     public string Phase { get; init; } = "";
     public int Done { get; init; }
     public int Total { get; init; }
+    /// <summary>A requested season is still airing (<see cref="RequestProgress.Airing"/>).</summary>
+    public bool Airing { get; init; }
 }
 
 public enum CreateOutcome { Created, InLibrary, Duplicate, TooManyOpen }
@@ -89,7 +91,7 @@ public sealed class MediaRequestService(
         var outcome = await catalog.SearchAsync(scope, query, SearchTake, ct);
         await using var db = await factory.CreateDbContextAsync(ct);
         var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
-        var open = await OpenRequestsAsync(db, userId, ct);
+        var open = await OpenRequestsAsync(db, userId, ct, withFulfilled: true);
         var formats = await FormatsAsync(db, outcome.Results.Select(h => h.WorkKey), ct);
         var results = new List<RequesterTitle>();
         foreach (var hit in outcome.Results)
@@ -114,7 +116,7 @@ public sealed class MediaRequestService(
         if (items.Count == 0) return [];
         await using var db = await factory.CreateDbContextAsync(ct);
         var library = await LibraryOnDisk.LoadAsync(db, browse, shapes, ct);
-        var open = await OpenRequestsAsync(db, userId, ct);
+        var open = await OpenRequestsAsync(db, userId, ct, withFulfilled: true);
         var formats = await FormatsAsync(db, items.Select(i => i.WorkKey), ct);
         var states = new List<CatalogRequestState>();
         foreach (var i in items) states.Add(await StateForAsync(library, open, formats, i.WorkKey, i.MediaType, i.ProviderId, i.Provider, ct));
@@ -133,13 +135,19 @@ public sealed class MediaRequestService(
         string workKey, string mediaType, string? providerId, string provider, CancellationToken ct)
     {
         var identity = RequestRules.Identity(provider, providerId, mediaType, workKey);
+        bool Mine(OpenRequest r) => r.Identity == identity || string.Equals(r.Row.WorkKey, workKey, StringComparison.OrdinalIgnoreCase);
         // Prefer catalog identity; fall back to work key so title pages without provider ids still see the caller's request.
-        var request = open.FirstOrDefault(r => r.Identity == identity)
-            ?? open.FirstOrDefault(r => string.Equals(r.Row.WorkKey, workKey, StringComparison.OrdinalIgnoreCase));
+        var request = open.FirstOrDefault(r => r.Row.Status != MediaRequestStatus.Fulfilled && r.Identity == identity)
+            ?? open.FirstOrDefault(r => r.Row.Status != MediaRequestStatus.Fulfilled && Mine(r));
         var film = !RequestRules.IsSeries(formats.GetValueOrDefault(workKey), request?.Row.Scope, mediaType);
         var progress = request is null ? null : await library.ProgressAsync(request.Row, ct);
+        // A fulfilled season request no longer has a status here, but still says its season is airing.
+        var airing = progress?.Airing ?? false;
+        if (!film && request is null)
+            foreach (var done in open.Where(r => r.Row.Status == MediaRequestStatus.Fulfilled && Mine(r)))
+                if (airing = (await library.ProgressAsync(done.Row, ct)).Airing) break;
         return new CatalogRequestState(film && library.HasFilm(workKey), progress?.Phase, request?.Row.Id,
-            film ? [] : await library.AvailableSeasonsAsync(workKey, ct), progress?.Done ?? 0, progress?.Total ?? 0);
+            film ? [] : await library.AvailableSeasonsAsync(workKey, ct), progress?.Done ?? 0, progress?.Total ?? 0, airing);
     }
 
     public async Task<IReadOnlyList<int>> SeasonsAsync(RequestDraft work, CancellationToken ct)
@@ -184,7 +192,7 @@ public sealed class MediaRequestService(
                     lead.Row.CreatedAt, g.Max(x => x.Row.UpdatedAt), lead.Row.WatchListItemId, lead.Row.AcquisitionTargetId)
                 {
                     Requesters = g.OrderBy(x => x.Row.CreatedAt).Select(x => x.Email ?? "").Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                    Phase = progress.Phase, Done = progress.Done, Total = progress.Total,
+                    Phase = progress.Phase, Done = progress.Done, Total = progress.Total, Airing = progress.Airing,
                 });
         }
         return cards.OrderByDescending(r => r.CreatedAt).ToList();
@@ -235,17 +243,21 @@ public sealed class MediaRequestService(
             };
             // Someone else already asked for the same title and scope: this ask joins theirs. Pending, it waits on the
             // same card; approved, it is approved now and shares what is already downloading. Nothing is grabbed again.
-            // A failed ask is never joined: the new ask is pending again so the owner sees it.
+            // A failed ask, or one whose transfers have all died, is never joined: the new ask is pending again so the
+            // owner sees it. A joiner shares only the transfers that are still alive.
             var askKey = RequestRules.SameAskKey(row);
             var others = await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == row.WorkKey && r.RequestedByUserId != userId &&
                 MediaRequestStatus.Open.Contains(r.Status)).OrderBy(r => r.CreatedAt).ToListAsync(ct);
-            var joined = others.Where(r => RequestRules.SameAskKey(r) == askKey).OrderBy(r => r.Status == MediaRequestStatus.Pending).FirstOrDefault();
+            var healthy = await RequestHealth.HealthyAsync(db, others.SelectMany(r => RequestHealth.Hashes(r.GrabbedHashes)), ct);
+            var joined = others.Where(r => RequestRules.SameAskKey(r) == askKey &&
+                    (RequestHealth.Hashes(r.GrabbedHashes) is not { Count: > 0 } tracked || tracked.Any(healthy.Contains)))
+                .OrderBy(r => r.Status == MediaRequestStatus.Pending).FirstOrDefault();
             if (joined is { Status: not MediaRequestStatus.Pending })
             {
                 row.Status = joined.Status;
                 row.DecisionReason = joined.DecisionReason;
                 row.DecidedAt = now;
-                row.GrabbedHashes = joined.GrabbedHashes;
+                row.GrabbedHashes = RequestHealth.Join(RequestHealth.Hashes(joined.GrabbedHashes).Where(healthy.Contains));
             }
             db.MediaRequests.Add(row);
             await db.SaveChangesAsync(ct);
@@ -264,6 +276,14 @@ public sealed class MediaRequestService(
     /// <summary>Null when the request is not this user's (or does not exist); otherwise the row after the attempt.</summary>
     public async Task<(bool Found, bool Cancelled, RequesterRequest? Request)> CancelAsync(string userId, string id, CancellationToken ct)
     {
+        // The gate decisions take: a cancel racing an approve sees the settled outcome, never a half-decided ask.
+        await RequestRules.AskGate.WaitAsync(ct);
+        try { return await CancelCoreAsync(userId, id, ct); }
+        finally { RequestRules.AskGate.Release(); }
+    }
+
+    private async Task<(bool Found, bool Cancelled, RequesterRequest? Request)> CancelCoreAsync(string userId, string id, CancellationToken ct)
+    {
         await using var db = await factory.CreateDbContextAsync(ct);
         var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id && r.RequestedByUserId == userId, ct);
         if (row is null) return (false, false, null);
@@ -280,14 +300,17 @@ public sealed class MediaRequestService(
 
     private static RequesterRequest ToRequester(MediaRequest r, RequestProgress progress) => new(r.Id, r.Title, r.Year, r.MediaType, r.Provider,
         r.ProviderId, r.PosterUrl, r.Scope, RequestRules.ParseSeasons(r.Seasons), r.Note, progress.Phase, r.DecisionReason, r.DecidedAt,
-        r.CreatedAt, r.UpdatedAt, progress.Done, progress.Total);
+        r.CreatedAt, r.UpdatedAt, progress.Done, progress.Total, progress.Airing);
 
     private sealed record OpenRequest(MediaRequest Row, string Identity);
 
-    private static async Task<List<OpenRequest>> OpenRequestsAsync(TorrentFlowDbContext db, string userId, CancellationToken ct)
+    /// <param name="withFulfilled">Also the caller's fulfilled season requests, which say whether an available season still airs.</param>
+    private static async Task<List<OpenRequest>> OpenRequestsAsync(TorrentFlowDbContext db, string userId, CancellationToken ct,
+        bool withFulfilled = false)
     {
         var rows = await db.MediaRequests.AsNoTracking()
-            .Where(r => r.RequestedByUserId == userId && MediaRequestStatus.Open.Contains(r.Status)).ToListAsync(ct);
+            .Where(r => r.RequestedByUserId == userId && (MediaRequestStatus.Open.Contains(r.Status) ||
+                withFulfilled && r.Status == MediaRequestStatus.Fulfilled && r.Scope != MediaRequestScope.Movie)).ToListAsync(ct);
         // Newest first, so a title shows the caller's latest ask.
         rows = rows.OrderByDescending(r => r.CreatedAt).ToList();
         return rows.Select(r => new OpenRequest(r, RequestRules.Identity(r.Provider, r.ProviderId, r.MediaType, r.WorkKey))).ToList();

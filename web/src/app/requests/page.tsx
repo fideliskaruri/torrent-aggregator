@@ -26,6 +26,7 @@ import { useSessionInfo } from "@/lib/session";
 import { useCapabilities } from "@/lib/capabilities";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import {
+  AIRING_NOTE,
   autoApproveModeLabel,
   autoApproveRows,
   inboxRows,
@@ -326,6 +327,11 @@ export default function RequestsPage() {
                     {reviewing ? (
                       <p className="truncate text-xs text-subtle-foreground" title={from} data-request-from>
                         From {from || "someone"}
+                      </p>
+                    ) : null}
+                    {shown === "available" && request.airing ? (
+                      <p className="text-xs text-subtle-foreground" data-request-airing>
+                        {AIRING_NOTE}
                       </p>
                     ) : null}
                     {request.note ? <p className="line-clamp-3 text-xs text-muted-foreground">“{request.note}”</p> : null}

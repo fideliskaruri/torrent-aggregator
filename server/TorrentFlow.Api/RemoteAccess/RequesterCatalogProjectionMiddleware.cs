@@ -169,6 +169,7 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
         next["availableSeasons"] = new JsonArray((state.AvailableSeasons ?? []).Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
         next["requestDone"] = state.Done;
         next["requestTotal"] = state.Total;
+        next["requestAiring"] = state.Airing;
     }
 
     /// <summary>

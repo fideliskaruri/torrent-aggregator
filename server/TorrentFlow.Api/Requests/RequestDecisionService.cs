@@ -4,6 +4,7 @@ using TorrentFlow.Api.Notifications;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Library.Features.Grabs;
 
 namespace TorrentFlow.Api.Requests;
 
@@ -39,6 +40,10 @@ public sealed class RequestDecisionService(
     /// <summary>What a requester reads when nothing could be started; the indexer detail stays in the owner's log.</summary>
     public const string NoDownloadReason = "We couldn't find a download for this yet. We'll keep looking, and the owner can also pick one by hand.";
     public const string PartialReason = "Some episodes started. We're still looking for the rest.";
+    public const string StoppedReason = "The download stopped. The owner can retry it or pick another release.";
+    public const string PartStoppedReason = "Part of the download stopped. The owner can retry it or pick another release.";
+    /// <summary>A fulfilled season request is checked for newly aired episodes for this long after it was last touched.</summary>
+    private static readonly TimeSpan AiringWindow = TimeSpan.FromDays(365);
 
     /// <summary>The last grab an approval started; tests await it.</summary>
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
@@ -52,6 +57,8 @@ public sealed class RequestDecisionService(
         if (row.Status is not (MediaRequestStatus.Partial or MediaRequestStatus.Failed))
             return (DecisionOutcome.NotPending, row.Status);
         if (!activeGrabs.TryAdd(id, 0)) return (DecisionOutcome.Done, row.Status);
+        try { await DropDeadAsync(db, row, ct); }
+        catch { activeGrabs.TryRemove(id, out _); throw; }
         LastGrab = Task.Run(async () =>
         {
             try { await GrabCoreAsync(id, lifetime.ApplicationStopping, retry: true); }
@@ -134,11 +141,11 @@ public sealed class RequestDecisionService(
     {
         var key = RequestRules.SameAskKey(lead);
         var siblings = (await db.MediaRequests.AsNoTracking().Where(r => r.WorkKey == lead.WorkKey && r.Id != lead.Id &&
-                r.Status == MediaRequestStatus.Approved).ToListAsync(ct))
+                (r.Status == MediaRequestStatus.Approved || r.Status == MediaRequestStatus.Failed)).ToListAsync(ct))
             .Where(r => RequestRules.SameAskKey(r) == key && string.IsNullOrEmpty(r.GrabbedHashes)).ToList();
         if (siblings.Count == 0) return;
         var ids = siblings.Select(r => r.Id).ToList();
-        await db.MediaRequests.Where(r => ids.Contains(r.Id) && r.Status == MediaRequestStatus.Approved)
+        await db.MediaRequests.Where(r => ids.Contains(r.Id) && (r.Status == MediaRequestStatus.Approved || r.Status == MediaRequestStatus.Failed))
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, lead.Status).SetProperty(r => r.DecisionReason, lead.DecisionReason)
                 .SetProperty(r => r.GrabbedHashes, lead.GrabbedHashes).SetProperty(r => r.UpdatedAt, lead.UpdatedAt), ct);
         if (kind is { } k && heading != null)
@@ -228,8 +235,42 @@ public sealed class RequestDecisionService(
         if (row is null) return (DecisionOutcome.NotFound, null);
         if (row.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed))
             return (DecisionOutcome.NotPending, row.Status);
+        await TrackPickAsync(row, hash.ToLowerInvariant(), ct);
+        var key = RequestRules.SameAskKey(row);
+        var siblings = (await db.MediaRequests.Where(r => r.WorkKey == row.WorkKey && r.Id != row.Id &&
+                (r.Status == MediaRequestStatus.Approved || r.Status == MediaRequestStatus.Partial || r.Status == MediaRequestStatus.Failed))
+            .ToListAsync(ct)).Where(r => RequestRules.SameAskKey(r) == key).ToList();
         await AttachAsync(db, row, [hash], announce: true, ct);
+        // Everyone who shares the ask shares the pick.
+        foreach (var sibling in siblings) await AttachAsync(db, sibling, [hash], announce: sibling.Status != MediaRequestStatus.Approved, ct);
         return (DecisionOutcome.Done, row.Status);
+    }
+
+    /// <summary>
+    /// A hand pick is tracked like any queue find, through the acquisition target it fills (the film, or the episode its
+    /// queue key names): the queue stops looking for it, and when the transfer dies the target is what reopens on retry.
+    /// </summary>
+    private async Task TrackPickAsync(MediaRequest row, string hash, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var torrent = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Hash == hash)
+            .Select(t => new { t.QueueKey, t.WorkId }).FirstOrDefaultAsync(ct);
+        var workId = torrent?.WorkId ?? await db.Works.AsNoTracking().Where(w => w.WorkKey == row.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct);
+        var episode = TorrentFlow.Core.QueueKeys.Parse(torrent?.QueueKey);
+        if (workId is null || row.Scope != MediaRequestScope.Movie && episode is null) return;
+        var scope = row.Scope == MediaRequestScope.Movie ? "title" : "episode";
+        var key = WantedQueue.TargetKey(row.WorkKey, scope, episode?.Item1, episode?.Item2);
+        var now = time.GetUtcNow().UtcDateTime;
+        var target = await db.AcquisitionTargets.FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.TargetKey == key, ct);
+        if (target is null)
+        {
+            db.AcquisitionTargets.Add(target = new() { Id = Ids.New(), UserId = LocalUser.Id, TargetKey = key, WorkKey = row.WorkKey, WorkId = workId,
+                Scope = scope, Season = episode?.Item1, Episode = episode?.Item2, CreatedAt = now });
+        }
+        target.Status = "downloading"; target.InfoHash = hash; target.Progress = 0; target.FileIndex = null; target.FilePath = null;
+        target.Error = null; target.UpdatedAt = now;
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException error) { logger.LogWarning(error, "Could not track the pick {Hash} for request {Id}", hash, row.Id); }
     }
 
     /// <summary>Transfers the wanted queue (or a hand pick on the title page) started for this request's title join it.</summary>
@@ -307,20 +348,134 @@ public sealed class RequestDecisionService(
         }
     }
 
+    /// <summary>The acquisition targets in this request's scope: the film, or the episodes of the asked seasons.</summary>
+    private static IQueryable<AcquisitionTarget> ScopeTargets(TorrentFlowDbContext db, MediaRequest row)
+    {
+        var all = db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == row.WorkKey);
+        var seasons = RequestRules.ParseSeasons(row.Seasons).ToArray();
+        return row.Scope == MediaRequestScope.Movie ? all.Where(t => t.Scope == "title")
+            : row.Scope == MediaRequestScope.Series || seasons.Length == 0 ? all.Where(t => t.Scope == "episode")
+            : all.Where(t => t.Scope == "episode" && t.Season != null && seasons.Contains(t.Season.Value));
+    }
+
+    /// <summary>What the wanted queue is still looking for in this request's scope (queued, no transfer yet).</summary>
+    private static IQueryable<AcquisitionTarget> OpenTargets(TorrentFlowDbContext db, MediaRequest row) =>
+        ScopeTargets(db, row).Where(t => t.Status == "queued" && t.InfoHash == null);
+
+    /// <summary>
+    /// Whether the film or an episode in scope lost its transfer and nothing replaced it: its target was handed back as
+    /// failed, or still names a transfer that errored, lost its files or was removed. A replaced transfer has no target
+    /// naming it anymore, so it never counts.
+    /// </summary>
+    private static async Task<bool> AnyStoppedAsync(TorrentFlowDbContext db, MediaRequest row, CancellationToken ct)
+    {
+        var targets = await ScopeTargets(db, row).Where(t => t.Status == "failed" || t.Status != "downloaded" && t.InfoHash != null)
+            .Select(t => new { t.Status, t.InfoHash }).ToListAsync(ct);
+        if (targets.Any(t => t.Status == "failed")) return true;
+        var live = await RequestHealth.HealthyAsync(db, targets.Select(t => t.InfoHash!), ct);
+        return targets.Any(t => !live.Contains(t.InfoHash!.ToLowerInvariant()));
+    }
+
+    /// <summary>
+    /// Forgets the request's dead transfers and hands the targets they filled back as failed, so the next grab (retry,
+    /// or the queue) looks for them again. Returns the dead hashes.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> DropDeadAsync(TorrentFlowDbContext db, MediaRequest row, CancellationToken ct)
+    {
+        var tracked = RequestHealth.Hashes(row.GrabbedHashes);
+        if (tracked.Count == 0) return [];
+        var live = await RequestHealth.HealthyAsync(db, tracked, ct);
+        var dead = tracked.Where(h => !live.Contains(h)).ToList();
+        if (dead.Count == 0) return [];
+        var kept = RequestHealth.Join(tracked.Where(live.Contains));
+        var now = time.GetUtcNow().UtcDateTime;
+        await db.MediaRequests.Where(r => r.Id == row.Id && r.GrabbedHashes == row.GrabbedHashes)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.GrabbedHashes, kept).SetProperty(r => r.UpdatedAt, now), ct);
+        await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.WorkKey == row.WorkKey && t.InfoHash != null &&
+                dead.Contains(t.InfoHash) && t.Status != "downloaded")
+            .ExecuteUpdateAsync(u => u.SetProperty(t => t.Status, "failed").SetProperty(t => t.UpdatedAt, now), ct);
+        row.GrabbedHashes = kept;
+        return dead;
+    }
+
+    /// <summary>
+    /// An approved request that lost a transfer nothing replaced, and that the queue is not looking for anymore, stops
+    /// waiting: failed when every transfer it tracked died (errored, lost its files or removed), partial when some
+    /// still live. The owner hears once per ask and gets Retry or Pick a release; retry looks for the lost ones again.
+    /// </summary>
+    public async Task SettleDeadAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = await db.MediaRequests.AsNoTracking()
+            .Where(r => r.Status == MediaRequestStatus.Approved && r.GrabbedHashes != null && r.GrabbedHashes != "").ToListAsync(ct);
+        if (rows.Count == 0) return;
+        var live = await RequestHealth.HealthyAsync(db, rows.SelectMany(r => RequestHealth.Hashes(r.GrabbedHashes)), ct);
+        var told = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            var someLive = RequestHealth.Hashes(row.GrabbedHashes).Any(live.Contains);
+            if (someLive && !await AnyStoppedAsync(db, row, ct)) continue;
+            if (await OpenTargets(db, row).AnyAsync(ct)) continue;
+            var status = someLive ? MediaRequestStatus.Partial : MediaRequestStatus.Failed;
+            var reason = someLive ? PartStoppedReason : StoppedReason;
+            var now = time.GetUtcNow().UtcDateTime;
+            var changed = await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Approved &&
+                    r.GrabbedHashes == row.GrabbedHashes)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, status).SetProperty(r => r.DecisionReason, reason)
+                    .SetProperty(r => r.UpdatedAt, now), ct);
+            if (changed == 0) continue;
+            await DropDeadAsync(db, row, ct);
+            logger.LogInformation("Request {Id} {Status}: a transfer it tracked stopped", row.Id, status);
+            await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestFailed, "Request download stopped",
+                $"{row.Title}: {reason}", "/requests");
+            if (told.Add(RequestRules.SameAskKey(row)))
+                await notifications.TryPublishAsync(LocalUser.Id, NotificationKind.RequestFailed, "A request's download stopped",
+                    $"{row.Title}: retry it or pick another release.", "/requests");
+        }
+    }
+
+    /// <summary>
+    /// Season requests that are open, or fulfilled recently enough that their season may still be airing, queue every
+    /// episode aired since; a fulfilled one with a new episode is approved again until that episode is here too.
+    /// </summary>
+    public async Task ReconcileAiringAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var since = time.GetUtcNow().UtcDateTime - AiringWindow;
+        var rows = await db.MediaRequests.AsNoTracking().Where(r => r.Scope != MediaRequestScope.Movie &&
+            (r.Status == MediaRequestStatus.Approved || r.Status == MediaRequestStatus.Partial ||
+             r.Status == MediaRequestStatus.Fulfilled && r.UpdatedAt > since)).OrderBy(r => r.CreatedAt).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            int queued;
+            try { queued = await grabber.ReconcileAsync(row, ct); }
+            catch (Exception error) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(error, "Could not check request {Id} for newly aired episodes", row.Id);
+                continue;
+            }
+            if (queued == 0 || row.Status != MediaRequestStatus.Fulfilled) continue;
+            var now = time.GetUtcNow().UtcDateTime;
+            await db.MediaRequests.Where(r => r.Id == row.Id && r.Status == MediaRequestStatus.Fulfilled)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Approved).SetProperty(r => r.UpdatedAt, now), ct);
+            logger.LogInformation("Request {Id}: {Count} newly aired episodes queued", row.Id, queued);
+        }
+    }
+
     private async Task CheckFulfilledAsync(string id, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (row is null || row.Status != MediaRequestStatus.Approved || string.IsNullOrEmpty(row.GrabbedHashes)) return;
-        // Episodes (or the film) the wanted queue is still looking for keep the request open.
-        var wanted = db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == row.WorkKey &&
-            t.Status == "queued" && t.InfoHash == null);
-        var seasons = RequestRules.ParseSeasons(row.Seasons).ToArray();
-        wanted = row.Scope == MediaRequestScope.Movie ? wanted.Where(t => t.Scope == "title")
-            : row.Scope == MediaRequestScope.Series || seasons.Length == 0 ? wanted.Where(t => t.Scope == "episode")
-            : wanted.Where(t => t.Scope == "episode" && t.Season != null && seasons.Contains(t.Season.Value));
-        if (await wanted.AnyAsync(ct)) return;
-        foreach (var hash in row.GrabbedHashes.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        // A season request is the whole season as it airs: episodes aired since approval are queued first and count.
+        if (await grabber.ReconcileAsync(row, ct) > 0) return;
+        // Episodes (or the film) the wanted queue is still looking for keep the request open, and so does one whose
+        // transfer stopped with nothing in its place (the upkeep sweep offers Retry for it).
+        if (await OpenTargets(db, row).AnyAsync(ct) || await AnyStoppedAsync(db, row, ct)) return;
+        // Replaced, removed or failed transfers say nothing else about the request; only the live ones must have finished.
+        var live = await RequestHealth.HealthyAsync(db, RequestHealth.Hashes(row.GrabbedHashes), ct);
+        if (live.Count == 0) return;
+        foreach (var hash in live)
         {
             if (!await transfers.CompletedAsync(hash, ct)) return;
         }
@@ -334,10 +489,16 @@ public sealed class RequestDecisionService(
     }
 }
 
-/// <summary>Moves approved requests to fulfilled when the engine reports their transfers complete.</summary>
+/// <summary>Moves approved requests to fulfilled when the engine reports their transfers complete, fails requests whose
+/// transfers all died, and keeps season requests covering every episode as it airs.</summary>
 public sealed class RequestFulfillmentWatcher(ITorrentEngine engine, RequestDecisionService decisions, ILogger<RequestFulfillmentWatcher> logger)
     : BackgroundService
 {
+    /// <summary>How often dead transfers are looked for (sooner when the engine reports a failure).</summary>
+    private static readonly TimeSpan HealthCheck = TimeSpan.FromMinutes(1);
+    /// <summary>How often season requests look for newly aired episodes; the season shape refreshes every few hours.</summary>
+    private static readonly TimeSpan AiringCheck = TimeSpan.FromMinutes(30);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         void OnCompleted(object? sender, EngineTorrentCompletedEventArgs e) => _ = Task.Run(async () =>
@@ -346,17 +507,36 @@ public sealed class RequestFulfillmentWatcher(ITorrentEngine engine, RequestDeci
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(ex, "Request fulfillment check failed for {Hash}", e.Hash); }
         }, CancellationToken.None);
 
+        var wake = new SemaphoreSlim(0);
+        void OnFailed(object? sender, EngineTorrentFailedEventArgs e) => wake.Release();
+
         engine.TorrentCompleted += OnCompleted;
+        engine.TorrentFailed += OnFailed;
         try
         {
             try { await decisions.SweepAsync(stoppingToken); }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(ex, "Request fulfillment sweep failed"); }
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            var nextAiring = DateTime.MinValue;
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await decisions.SettleDeadAsync(stoppingToken);
+                    if (DateTime.UtcNow >= nextAiring)
+                    {
+                        await decisions.ReconcileAiringAsync(stoppingToken);
+                        nextAiring = DateTime.UtcNow + AiringCheck;
+                    }
+                }
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(ex, "Request upkeep failed"); }
+                await wake.WaitAsync(HealthCheck, stoppingToken);
+            }
         }
         catch (OperationCanceledException) { }
         finally
         {
             engine.TorrentCompleted -= OnCompleted;
+            engine.TorrentFailed -= OnFailed;
         }
     }
 }

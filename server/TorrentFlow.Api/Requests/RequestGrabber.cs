@@ -19,6 +19,9 @@ public sealed record RequestGrabOutcome(IReadOnlyList<string> Hashes, string? Pr
 public interface IRequestGrabber
 {
     Task<RequestGrabOutcome> GrabAsync(MediaRequest request, CancellationToken ct);
+
+    /// <summary>Queues the aired episodes of a season request that nothing wants yet; returns how many.</summary>
+    Task<int> ReconcileAsync(MediaRequest request, CancellationToken ct) => Task.FromResult(0);
 }
 
 /// <summary>
@@ -40,9 +43,7 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
             return new([], null, Queued: true);
         }
 
-        var seasons = RequestRules.ParseSeasons(request.Seasons);
-        if (request.Scope == MediaRequestScope.Series || seasons.Count == 0)
-            seasons = (await Extras(request, null, ct)).Seasons.Where(s => s >= 1).Distinct().Order().Take(MaxSeriesSeasons).ToList();
+        var seasons = await SeasonsAsync(request, ct);
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
         var queued = 0;
@@ -56,6 +57,48 @@ public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras
             queued += aired.Count;
         }
         return queued == 0 ? new([], "No aired episodes were found for those seasons.") : new([], null, Queued: true);
+    }
+
+    /// <summary>
+    /// A season request means the whole season as it airs. Approval queues the episodes aired then; this queues every
+    /// episode aired since that no target covers yet, on the same request lane, so status and fulfilment count one set.
+    /// </summary>
+    public async Task<int> ReconcileAsync(MediaRequest request, CancellationToken ct)
+    {
+        if (request.Scope == MediaRequestScope.Movie) return 0;
+        string? workId;
+        HashSet<(int, int)> known;
+        await using (var db = await factory.CreateDbContextAsync(ct))
+        {
+            workId = await db.Works.AsNoTracking().Where(w => w.WorkKey == request.WorkKey).Select(w => w.Id).FirstOrDefaultAsync(ct);
+            if (workId is null) return 0;
+            known = (await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == request.WorkKey &&
+                    t.Scope == "episode" && t.Season != null && t.Episode != null)
+                .Select(t => new { t.Season, t.Episode }).ToListAsync(ct)).Select(t => (t.Season!.Value, t.Episode!.Value)).ToHashSet();
+        }
+        var queued = 0;
+        foreach (var season in await SeasonsAsync(request, ct))
+        {
+            var shape = await seasonShapes.GetSeasonAsync(new(request.WorkKey, request.Title, request.Year, request.MediaType,
+                request.Provider, request.ProviderId, season), ct);
+            var have = known.Where(k => k.Item1 == season).Select(k => k.Item2).ToList();
+            // A fulfilled request takes only episodes that aired after everything it had, so one the owner deleted stays deleted.
+            var missing = request.Status == MediaRequestStatus.Fulfilled
+                ? have.Count == 0 ? [] : (shape?.AiredEpisodes ?? []).Where(e => e > have.Max()).ToList()
+                : (shape?.AiredEpisodes ?? []).Where(e => !have.Contains(e)).ToList();
+            if (missing.Count == 0) continue;
+            await wanted.EnqueueAsync(new(request.WorkKey, workId, season, missing, Lane: TorrentLane.Request), ct);
+            queued += missing.Count;
+        }
+        return queued;
+    }
+
+    private async Task<List<int>> SeasonsAsync(MediaRequest request, CancellationToken ct)
+    {
+        var seasons = RequestRules.ParseSeasons(request.Seasons).ToList();
+        if (request.Scope == MediaRequestScope.Series || seasons.Count == 0)
+            seasons = (await Extras(request, null, ct)).Seasons.Where(s => s >= 1).Distinct().Order().Take(MaxSeriesSeasons).ToList();
+        return seasons;
     }
 
     private Task<TitleExtrasPayload> Extras(MediaRequest r, int? season, CancellationToken ct) =>
