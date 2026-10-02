@@ -65,6 +65,8 @@ internal static partial class SearchRanking
         // same year in another catalog. Every hit claims its work key and ids for the card it folded into.
         var output = new List<WorkSearchHit>();
         var owners = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Which film keys each catalog returned, so a film a year off one of its films never joins that film's card.
+        var films = hits.Where(h => !h.IsSeries).Select(h => (h.Provider, h.WorkKey)).ToHashSet();
         foreach (var (hit, _, _, matches) in scored.OrderByDescending(x => x.Score).ThenBy(x => x.Index))
         {
             var key = "key:" + hit.WorkKey;
@@ -72,7 +74,7 @@ internal static partial class SearchRanking
             var slot = owners.GetValueOrDefault(key, -1);
             if (slot < 0) slot = ids.Select(id => owners.GetValueOrDefault(id, -1)).FirstOrDefault(s => s >= 0, -1);
             if (slot < 0) slot = SameAnimeSlot(output, hit);
-            if (slot < 0) slot = SameFilmSlot(output, hit);
+            if (slot < 0) slot = SameFilmSlot(output, hit, films);
             if (slot < 0)
             {
                 if (!matches) continue;
@@ -390,8 +392,9 @@ internal static partial class SearchRanking
 
     /// <summary>The card already showing this film from another catalog: the same name released the same year or the next,
     /// or a name one letter apart from the very same year (TMDB's "Se7en" is IMDb's "Seven", both 1995). "A Silent Voice:
-    /// The Movie" is "A Silent Voice".</summary>
-    private static int SameFilmSlot(List<WorkSearchHit> output, WorkSearchHit hit)
+    /// The Movie" is "A Silent Voice". A year apart is never the same film when the card's own catalog also lists a film
+    /// under the hit's key: TMDB's Little Women 2018 and 2019 are two films, so Cinemeta's 2018 never joins the 2019 card.</summary>
+    private static int SameFilmSlot(List<WorkSearchHit> output, WorkSearchHit hit, IReadOnlySet<(string Provider, string Key)> films)
     {
         if (hit.IsSeries || hit.Year is null) return -1;
         var names = hit.Aliases.Prepend(hit.Title).Select(FilmName).Where(n => n.Length > 0).ToList();
@@ -399,6 +402,7 @@ internal static partial class SearchRanking
         {
             var card = output[i];
             if (card.IsSeries || card.Provider == hit.Provider || card.Year is null || !SameEra(card.Year, hit.Year)) continue;
+            if (card.Year != hit.Year && films.Contains((card.Provider, hit.WorkKey))) continue;
             foreach (var name in card.Aliases.Prepend(card.Title).Select(FilmName))
                 if (names.Any(n => n == name || (card.Year == hit.Year && n.Length >= 5 && Relevance.BoundedDamerauLevenshtein(n, name, 1) != null)))
                     return i;

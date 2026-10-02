@@ -238,15 +238,12 @@ public sealed class TitleController(TitleService titles, ReleasePicker picker, W
         }
         // A verified provider record's names belong on the work, whether it was just created or already known.
         if (verified != null) await names.RefreshAsync(workKey, verified, fetch: false, ct);
-        if (watchId != null)
-        {
-            // The page's row joins this work only while unlinked, and only when it was saved from a page or with an id of this
-            // work or of the record the download claims: a row saved from another record stays as it was.
-            var ownIds = WorkIdentities.Of(work).Concat(claim).Select(WorkIdentities.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id && x.WorkId == null &&
-                    (x.ExternalId == "" || x.ExternalId.Contains(":") || ownIds.Contains(x.ExternalId)))
+        // A legacy unlinked row on the page joins this work only when it was saved from a page or with an id of this work or
+        // of the record the download claims (TitleService.SavedFor): a row saved from another record stays as it was.
+        if (watchId != null && await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == watchId && x.UserId == LocalUser.Id && x.WorkId == null, ct) is { } row
+            && (row.ExternalId.Contains(':') || TitleService.SavedFor(row, WorkIdentities.Of(work).Concat(claim).ToHashSet(StringComparer.OrdinalIgnoreCase), workKey)))
+            await db.WatchListItems.Where(x => x.Id == watchId && x.UserId == LocalUser.Id && x.WorkId == null)
                 .ExecuteUpdateAsync(x => x.SetProperty(w => w.WorkId, work.Id), ct);
-        }
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
         if (scope == "season")
         {

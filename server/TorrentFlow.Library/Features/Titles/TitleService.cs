@@ -31,14 +31,15 @@ public sealed record TitleIdentity(string Provider, string ProviderId)
     /// <summary>
     /// Whether a provider's own record is the title this work key names: it shares an id with the work stored at the key
     /// (<paramref name="stored"/>: that work's ids, when it is the record's kind), or one of its names and its year give
-    /// the key. A dated key may be a year off the record: catalogs date a show's start a year apart, and search keys a
-    /// series by the first year its records give (TVmaze's Doctor Who 2023 is TMDB's 2024).
+    /// the key. A series' dated key may be a year off the record: catalogs date a show's start a year apart, and search
+    /// keys a series by the first year its records give (TVmaze's Doctor Who 2023 is TMDB's 2024). A film's key always
+    /// carries its record's own year, so remakes a year apart (Little Women 2018 and 2019) stay apart.
     /// </summary>
     public static bool Matches(string workKey, MediaMetadata resolved, IReadOnlySet<string>? stored = null)
     {
         if (stored is { Count: > 0 } && WorkIdentities.Compare(stored, WorkIdentities.Of(resolved)) == IdentityMatch.Same) return true;
         var key = workKey.Trim().ToLowerInvariant();
-        int?[] years = resolved.Year is { } year ? [year, year - 1, year + 1] : [null];
+        int?[] years = resolved.Year is not { } year ? [null] : IsSeries(resolved) ? [year, year - 1, year + 1] : [year];
         return (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title => years.Any(y => ReleaseSelection.MatchesWork(key, title, y)));
     }
 
@@ -152,24 +153,12 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             (pageType is { Length: > 0 } known ? known != "movie" && TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(known) : null);
         var pageIds = (work != null ? WorkIdentities.Of(work) : []).Concat(query.Provider != null ? WorkIdentities.Of(query.Provider) : [])
             .Concat(identity != null ? [WorkIdentities.Id(identity.Provider, identity.ProviderId)] : [])
-            .Select(WorkIdentities.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        // A row saved with a catalog id names that record, so it is this page's only when the id is one of the page's; a row
-        // saved from a page names that page ("work:doctor-who-2005"), and one from a bare name ("work:doctor-who") no era.
-        bool SavedHere(WatchListItem row)
-        {
-            var saved = row.ExternalId?.Trim() ?? "";
-            var colon = saved.IndexOf(':');
-            if (saved.Length == 0) return true;
-            if (colon < 0) return pageIds.Contains(saved);
-            var page = saved[(colon + 1)..].ToLowerInvariant();
-            return saved[..colon] is "work" or "local" &&
-                (TorrentFlow.Core.Text.WorkKeySlug.SameKey(page, key) || TorrentFlow.Core.Text.WorkKeySlug.NameOf(page) == page);
-        }
-        // The row linked to this work; else an unlinked row of this page's kind and name that was saved from this page or
-        // one of its ids. A row saved from another work stays unlinked: a yearless "Doctor Who" row of the 2023 show never
-        // counts for the 2005 page, and the 1996 Fargo film's row never for the series.
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // The row linked to this work; else an unlinked (legacy) row of this page's kind and name that was saved from this
+        // page or with one of its ids (SavedFor). A row saved from another work stays unlinked: a yearless "Doctor Who" row of
+        // the 2023 show never counts for the 2005 page, and the 1996 Fargo film's row never for the series.
         var named = watches.Where(x => x.WorkId == null && (pageSeries is not { } series || TorrentFlow.Core.Scheduling.HuntCursor.IsSeries(x.MediaType) == series) &&
-            ReleaseSelection.MatchesWork(key, x.Title) && SavedHere(x)).ToList();
+            ReleaseSelection.MatchesWork(key, x.Title) && SavedFor(x, pageIds, key)).ToList();
         var watch = (work != null ? watches.FirstOrDefault(x => x.WorkId == work.Id) : null)
             ?? named.FirstOrDefault(x => x.ExternalId == identity?.ProviderId || x.ExternalId == $"work:{key}")
             ?? named.FirstOrDefault();
@@ -325,6 +314,24 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
     }
+    /// <summary>
+    /// Whether an unlinked watchlist row was saved for the work known by <paramref name="ids"/> ("provider:id") at
+    /// <paramref name="key"/>: with one of its catalog ids (a row that names its catalog by that catalog and id, a legacy row
+    /// by the id alone), from its page ("work:doctor-who-2005"), or from a bare name that names no era ("work:doctor-who").
+    /// </summary>
+    internal static bool SavedFor(WatchListItem row, IReadOnlySet<string> ids, string key)
+    {
+        var saved = row.ExternalId?.Trim() ?? "";
+        if (saved.Length == 0) return true;
+        var colon = saved.IndexOf(':');
+        if (colon < 0)
+            return row.Provider is { Length: > 0 } provider ? ids.Contains(WorkIdentities.Id(provider, saved))
+                : ids.Any(id => string.Equals(WorkIdentities.Value(id), saved, StringComparison.OrdinalIgnoreCase));
+        var page = saved[(colon + 1)..].ToLowerInvariant();
+        return saved[..colon] is "work" or "local" &&
+            (TorrentFlow.Core.Text.WorkKeySlug.SameKey(page, key) || TorrentFlow.Core.Text.WorkKeySlug.NameOf(page) == page);
+    }
+
     private static bool MultiSeason(string name) => Regex.IsMatch(name, @"(?i)\bS\d+\s*[-–]\s*S?\d+\b|\bcomplete\s+(?:series|collection)\b");
 
     /// <summary>
