@@ -195,7 +195,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 catch (SeasonListPendingException pending) when (!ct.IsCancellationRequested)
                 {
                     // Sent now, the episode would land in the entry's own folder under the wrong season; it waits instead.
-                    logger?.LogInformation(pending, "Holding {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, pending.Message);
+                    logger?.LogInformation("Holding {Title} {Episode}: {Reason}", input.Title, input.Cursor?.Label, pending.Message);
+                    if (pending.InnerException is { } cause) logger?.LogDebug(cause, "Why {Title} {Episode} is held", input.Title, input.Cursor?.Label);
                     return (input, settings, null, new(false, GrabFailure.SeasonListPending.Sentence) { Query = query, Skipped = true,
                         Failure = GrabFailure.SeasonListPending });
                 }

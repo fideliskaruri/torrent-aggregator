@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Caching;
 using static TorrentFlow.Metadata.Providers.TmdbClient;
 
@@ -95,8 +96,10 @@ public sealed partial class AniListClient
             // AniList refused the entry itself: no answer, rather than "this title has no franchise".
             if (result is null && walk.Interrupted) throw new HttpRequestException("AniList did not answer the franchise walk.");
             var settled = result?.Entries.All(e => e.Work.Status == "FINISHED") == true;
-            _franchises.Set(id, result, walk.Interrupted ? TimeSpan.FromMinutes(1) : settled ? TimeSpan.FromHours(12)
-                : result is null ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(30));
+            // A background walk the rate gate cut short (ProviderPriority) is no answer from AniList: a page or grab walks itself.
+            if (!(walk.Interrupted && ProviderPriority.IsBackground))
+                _franchises.Set(id, result, walk.Interrupted ? TimeSpan.FromMinutes(1) : settled ? TimeSpan.FromHours(12)
+                    : result is null ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(30));
             return result;
         }, ct).ConfigureAwait(false);
     }

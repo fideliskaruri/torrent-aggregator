@@ -34,8 +34,11 @@ namespace TorrentFlow.Library.Features.Grabs;
 public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbContext> factory, ISeasonShapeLookup shapes,
     TimeProvider time, ILogger<AnimeNumberingReconciler> logger, ITorrentEngine? engine = null) : BackgroundService
 {
-    private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(15);
+    /// <summary>Past the first minute after start, which the AniList rate gate keeps for foreground requests (ProviderPriority).</summary>
+    private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(75);
     private static readonly TimeSpan Every = TimeSpan.FromHours(1);
+    /// <summary>A pass that left a show unconfirmed (AniList's background share spent, an outage) comes back this soon, then backs off to <see cref="Every"/>.</summary>
+    private static readonly TimeSpan Soon = TimeSpan.FromMinutes(5);
     /// <summary>A work already brought to its shape is looked at again only this often (its franchise may have grown).</summary>
     private static readonly TimeSpan Recheck = TimeSpan.FromHours(12);
     /// <summary>The background pass spaces its AniList lookups so it never competes with pages and grabs for the rate limit.</summary>
@@ -90,17 +93,22 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     }
 
     /// <summary>What reconciling one work did.</summary>
-    private readonly record struct Outcome(bool Renumbered);
+    /// <param name="Unconfirmed">AniList or the show listing gave no confirmed numbering, so nothing was done; asked again soon.</param>
+    private readonly record struct Outcome(bool Renumbered, bool Unconfirmed = false);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try { await Task.Delay(StartDelay, time, stoppingToken); }
         catch (OperationCanceledException) { return; }
+        var unconfirmedPasses = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            try { await ReconcileDueAsync(stoppingToken); }
+            var again = false;
+            try { again = await ReconcileDueAsync(stoppingToken); }
             catch (Exception error) when (!stoppingToken.IsCancellationRequested) { logger.LogWarning(error, "Anime numbering check failed"); }
-            try { await Task.Delay(Every, time, stoppingToken); }
+            unconfirmedPasses = again ? unconfirmedPasses + 1 : 0;
+            var wait = again ? TimeSpan.FromTicks(Math.Min(Every.Ticks, Soon.Ticks << Math.Min(unconfirmedPasses - 1, 4))) : Every;
+            try { await Task.Delay(wait, time, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
     }
@@ -126,7 +134,8 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     /// <see cref="MovesPerPass"/> files. Grabs and the hunter renumber the work they are about to use themselves, so this
     /// pass is never waited on. It ends with one summary line.
     /// </summary>
-    public async Task ReconcileDueAsync(CancellationToken ct)
+    /// <returns>True when a show's numbering was not confirmed (AniList's background share spent, an outage): the next pass comes sooner.</returns>
+    public async Task<bool> ReconcileDueAsync(CancellationToken ct)
     {
         // Its AniList and listing lookups wait behind anything the owner pressed (ProviderPriority).
         using var priority = ProviderPriority.Background();
@@ -141,19 +150,25 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
                 now - checkedAt.GetValueOrDefault(w.Key, started) >= Recheck)
             .OrderBy(w => w.Applied).ThenBy(w => filesPending.ContainsKey(w.Key) ? 0 : 1)
             .ThenBy(w => checkedAt.GetValueOrDefault(w.Key, started)).Take(PerPass).Select(w => w.Key).ToList();
-        if (due.Count == 0) return;
+        if (due.Count == 0) return false;
         var budget = new MoveBudget(MovesPerPass);
-        var renumbered = 0;
+        var (renumbered, unconfirmed) = (0, 0);
         foreach (var key in due)
         {
-            try { if ((await ReconcileAsync(key, budget, ct)).Renumbered) renumbered++; }
+            try
+            {
+                var outcome = await ReconcileAsync(key, budget, ct);
+                if (outcome.Renumbered) renumbered++;
+                if (outcome.Unconfirmed) unconfirmed++;
+            }
             catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Anime numbering of {WorkKey} failed", key); }
             // Round robin: a work AniList did not answer for goes behind the others instead of being asked first again.
             checkedAt[key] = time.GetUtcNow().UtcDateTime;
             await Task.Delay(Pace, time, ct);
         }
-        logger.LogInformation("Anime numbering pass: {Works} shows checked, {Renumbered} renumbered, {Moved} files moved, {Waiting} waiting to move",
-            due.Count, renumbered, budget.Moved, budget.Waiting);
+        logger.LogInformation("Anime numbering pass: {Works} shows checked, {Renumbered} renumbered, {Moved} files moved, {Waiting} waiting to move, " +
+            "{Unconfirmed} not confirmed yet", due.Count, renumbered, budget.Moved, budget.Waiting, unconfirmed);
+        return unconfirmed > 0;
     }
 
     /// <summary>
@@ -184,7 +199,7 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
             if (numbering is { Provisional: true } && unconfirmedNoted.TryAdd(workKey, 0))
                 logger.LogInformation("Numbering of {WorkKey} is not confirmed (AniList or the show listing did not answer); nothing renumbered or moved",
                     workKey);
-            return default;
+            return new(false, Unconfirmed: numbering is { Provisional: true });
         }
         unconfirmedNoted.TryRemove(workKey, out _);
         checkedAt[workKey] = time.GetUtcNow().UtcDateTime;

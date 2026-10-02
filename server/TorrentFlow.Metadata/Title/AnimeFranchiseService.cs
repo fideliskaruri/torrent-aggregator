@@ -66,8 +66,11 @@ public sealed partial class AnimeFranchiseService(AniListClient anilist, TmdbCli
     private const int MaxSeasons = 40;
     /// <summary>A listing season start this close to the chain's is the same start.</summary>
     private const int Snap = 2;
-    private readonly BoundedTtlCache<FranchiseView?> _views = new(200, time);
-    private readonly SingleFlight<FranchiseView?> _flight = new();
+    private readonly BoundedTtlCache<Lookup> _views = new(200, time);
+    private readonly SingleFlight<Lookup> _flight = new();
+
+    /// <param name="Failed">AniList (or the listing) gave no answer at all, so there is no view: never "this entry has no chain".</param>
+    private sealed record Lookup(FranchiseView? View, bool Failed);
 
     /// <param name="Id">Which listing it is ("tvmaze:1905", "tmdb:37854"): a numbering keeps the listing it was laid over.</param>
     private sealed record Show(string Source, string Id, IReadOnlyList<FranchiseEpisode> Episodes);
@@ -95,27 +98,38 @@ public sealed partial class AnimeFranchiseService(AniListClient anilist, TmdbCli
         }
     }
 
-    public async Task<FranchiseView?> ResolveAsync(FranchiseQuery q, CancellationToken ct)
+    public async Task<FranchiseView?> ResolveAsync(FranchiseQuery q, CancellationToken ct) => (await LookupAsync(q, ct).ConfigureAwait(false)).View;
+
+    /// <summary>
+    /// The view (<see cref="ResolveAsync"/>), and whether AniList or the listing failed to give one (a rate limit, an
+    /// outage). A failure is never read as "this entry has no chain": its seasons are not known yet.
+    /// </summary>
+    public async Task<(FranchiseView? View, bool Failed)> LookupAsync(FranchiseQuery q, CancellationToken ct)
     {
-        if (!AnimeIdentity.IsAnime(q.Provider, MediaTypes.Normalize(q.MediaType), q.ProviderId) || q.Provider == "anilist" && q.ProviderId is null) return null;
+        if (!AnimeIdentity.IsAnime(q.Provider, MediaTypes.Normalize(q.MediaType), q.ProviderId) || q.Provider == "anilist" && q.ProviderId is null)
+            return (null, false);
         var key = string.Join('\u0000', tmdb.CredentialRevision, tmdb.HasKey, q.Provider, q.ProviderId, q.Title, q.Year);
-        if (_views.TryGet(key, out var cached)) return cached;
-        return await _flight.RunAsync(key, async () =>
-        {
-            FranchiseView? view = null;
-            var partial = false;
-            try { (view, partial) = await BuildAsync(q, CancellationToken.None).ConfigureAwait(false); }
-            catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+        if (!_views.TryGet(key, out var found))
+            found = await _flight.RunAsync(key, async () =>
             {
-                logger.LogDebug(e, "Anime season shape unavailable for {Title}", q.Title);
-                partial = true;
-            }
-            // A walk AniList cut short (a rate limit) or a listing that did not answer would number the seasons wrong for an
-            // hour; it is asked again soon.
-            if (partial && view is not null) view = view with { Provisional = true };
-            _views.Set(key, view, partial ? TimeSpan.FromMinutes(1) : view is { Source: not "anilist" } ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5));
-            return view;
-        }, ct).ConfigureAwait(false);
+                FranchiseView? view = null;
+                var partial = false;
+                try { (view, partial) = await BuildAsync(q, CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+                {
+                    logger.LogDebug(e, "Anime season shape unavailable for {Title}", q.Title);
+                    partial = true;
+                }
+                // A walk AniList cut short (a rate limit) or a listing that did not answer would number the seasons wrong for an
+                // hour; it is asked again soon.
+                if (partial && view is not null) view = view with { Provisional = true };
+                var lookup = new Lookup(view, partial && view is null);
+                // A background lookup the rate gate held back (ProviderPriority) is no answer from AniList: a page or grab asks itself.
+                if (!(partial && ProviderPriority.IsBackground))
+                    _views.Set(key, lookup, partial ? TimeSpan.FromMinutes(1) : view is { Source: not "anilist" } ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5));
+                return lookup;
+            }, ct).ConfigureAwait(false);
+        return (found.View, found.Failed);
     }
 
     private async Task<(FranchiseView? View, bool Partial)> BuildAsync(FranchiseQuery q, CancellationToken ct)
