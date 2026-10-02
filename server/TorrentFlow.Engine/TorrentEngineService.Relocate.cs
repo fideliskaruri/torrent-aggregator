@@ -176,7 +176,8 @@ internal sealed partial class TorrentEngineService
 
     /// <summary>
     /// Records a move whose files all reached the new folder: the row takes the new save path and verified files and drops
-    /// the journal in one save, then the layout manifest follows the files and the emptied old folders go.
+    /// the journal in one save, with the wanted items it fills pointing at their files' new paths, so neither a crash nor a
+    /// startup recovery leaves one at the old folder. Then the layout manifest follows the files and the emptied old folders go.
     /// </summary>
     private async Task FinishRelocationAsync(TorrentFlowDbContext db, EngineTorrent row, RelocationJournal journal)
     {
@@ -185,6 +186,14 @@ internal sealed partial class TorrentEngineService
         row.VerifiedFilesJson = JsonSerializer.Serialize(VerifiedFiles(row).Select(f => f with { FullPath = journal.Moved(f.FullPath) }).ToList(), JsonOptions);
         row.RelocationJson = null;
         row.UpdatedAt = Now;
+        var (lower, upper) = (row.Hash.ToLowerInvariant(), row.Hash.ToUpperInvariant());
+        foreach (var target in await db.AcquisitionTargets.Where(t => t.UserId == row.UserId && (t.InfoHash == lower || t.InfoHash == upper) &&
+                     t.FilePath != null).ToListAsync(CancellationToken.None))
+            if (journal.Moved(target.FilePath) is { } moved && !Same(moved, target.FilePath!))
+            {
+                target.FilePath = moved;
+                target.UpdatedAt = Now;
+            }
         await db.SaveChangesAsync(CancellationToken.None);
         _layoutManifest.Forget(row.Hash, journal.From);
         if (indexed is not null) _layoutManifest.Remember(row.Hash, journal.SavePath, indexed.Select(journal.Moved).ToList());
