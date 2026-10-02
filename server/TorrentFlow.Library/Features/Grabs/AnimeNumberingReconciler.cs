@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
@@ -127,6 +128,8 @@ public sealed class AnimeNumberingReconciler(IDbContextFactory<TorrentFlowDbCont
     /// </summary>
     public async Task ReconcileDueAsync(CancellationToken ct)
     {
+        // Its AniList and listing lookups wait behind anything the owner pressed (ProviderPriority).
+        using var priority = ProviderPriority.Background();
         List<(string Key, bool Applied)> works;
         await using (var db = await factory.CreateDbContextAsync(ct))
             works = (await db.Works.AsNoTracking().Where(w => w.Provider == "anilist" && w.ProviderId != null &&
