@@ -78,6 +78,14 @@ public interface ITorrentEngine
     Task<EngineActionResult> FindAnotherAsync(string infoHash, CancellationToken ct = default) =>
         Task.FromResult(new EngineActionResult(false, "This download isn't waiting for you."));
 
+    /// <summary>
+    /// Moves a finished transfer's files to the folder its work places it in now (a show or season folder that changed
+    /// inside the same library), as one rename per file that never overwrites. Only a transfer the client has let go
+    /// of (parked) moves; anything else is left where it is and says why.
+    /// </summary>
+    Task<EngineRelocation> RelocateAsync(string infoHash, WorkPlacement placement, CancellationToken ct = default) =>
+        Task.FromResult(new EngineRelocation(false, EngineRelocation.NotSupported, null, null));
+
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
     /// <summary>Raised when a transfer enters a failed state.</summary>
@@ -143,6 +151,23 @@ public static class QueueWaitReason
     public const string LowerLane = "lower-lane";
     /// <summary>Every downloads-at-once slot is taken.</summary>
     public const string QueueFull = "queue-full";
+}
+
+/// <summary>
+/// What <see cref="ITorrentEngine.RelocateAsync"/> did. <see cref="Moved"/> with the old and new folder; otherwise
+/// <see cref="Problem"/> says why the files stayed (null: already in place).
+/// </summary>
+public sealed record EngineRelocation(bool Moved, string? Problem, string? From, string? To)
+{
+    public const string NotSupported = "not_supported";
+    public const string NotFound = "not_found";
+    /// <summary>Still in the client (seeding) or not finished: tried again later.</summary>
+    public const string NotParked = "not_parked";
+    /// <summary>Not a show or season folder change inside one library under the download root: never moved.</summary>
+    public const string OutsideLibrary = "outside_library";
+    public const string Clash = "clash";
+    public const string MoveFailed = "move_failed";
+    public string? Detail { get; init; }
 }
 
 /// <summary>EngineTorrent.status values written by the engine.</summary>

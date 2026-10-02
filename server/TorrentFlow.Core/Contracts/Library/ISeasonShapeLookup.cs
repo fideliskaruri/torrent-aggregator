@@ -30,7 +30,8 @@ public sealed record SeasonShape(int Season, IReadOnlyList<SeasonShapeEpisode> E
 public sealed record NumberedEpisode(int Absolute, int Season, int Episode, int LegacySeason, int LegacyEpisode);
 
 /// <param name="Provisional">AniList cut the franchise walk short: nothing should be renumbered from it.</param>
-public sealed record AnimeNumbering(IReadOnlyList<NumberedEpisode> Episodes, bool Provisional);
+/// <param name="ShowTitle">The root show's title when the work is a later entry of it (its episodes are filed under it); null for the root itself.</param>
+public sealed record AnimeNumbering(IReadOnlyList<NumberedEpisode> Episodes, bool Provisional, string? ShowTitle = null, int? ShowYear = null);
 
 /// <summary>
 /// The one server-side answer to "which episodes does this season have": the season download, requests and the episode

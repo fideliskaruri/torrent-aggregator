@@ -33,6 +33,7 @@ public sealed class SeasonShapeService(AnimeFranchiseService franchises, TitleEx
         // page its own Season 1.
         return new(view.Episodes.Where(e => e.Absolute is not null).Select(e => new NumberedEpisode(e.Absolute!.Value, e.Season, e.Episode,
             view.Show is not null ? 1 : e.ListedSeason ?? e.Season,
-            view.Show is not null ? e.AniListEpisode ?? e.Episode : e.ListedEpisode ?? e.Episode)).ToList(), view.Provisional);
+            view.Show is not null ? e.AniListEpisode ?? e.Episode : e.ListedEpisode ?? e.Episode)).ToList(), view.Provisional,
+            view.Show?.Title, view.Show?.Year);
     }
 }
