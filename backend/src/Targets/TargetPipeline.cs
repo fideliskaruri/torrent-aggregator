@@ -15,7 +15,10 @@ public sealed record TargetActionReply(bool Accepted, int Queued, int Owned,
     ImmutableArray<string> TargetIds, string Message);
 public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
     ImmutableArray<DownloadRow> Downloads, ImmutableArray<EngineSnapshot> Live,
-    ImmutableArray<AttemptRow> History, ImmutableArray<ScopeIntentRow> Scopes);
+    ImmutableArray<AttemptRow> History, ImmutableArray<ScopeIntentRow> Scopes)
+{
+    public ImmutableArray<EngineQueueOrder> Queue { get; init; } = [];
+}
 
 public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
     IEngine engine, ILogger<TargetPipeline> logger)
@@ -136,8 +139,9 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                     TargetState.Checking or TargetState.Planning => TargetState.Wanted,
                 _ => old.State,
             };
-            if (old.State is TargetState.Done or TargetState.Removed ||
-                state == old.State && action != TargetAction.DownloadNow)
+            if (old.State == TargetState.Done && action != TargetAction.Remove || old.State == TargetState.Removed ||
+                state == old.State && action != TargetAction.DownloadNow &&
+                    !(action == TargetAction.TryNow && state == TargetState.Wanted))
                 return new(true, 0, 0, [id], state.ToString());
             var next = old with { State = state, ResumeState = state == TargetState.Paused ? old.State : null,
                 ReasonCode = null, ReasonText = null, NextTryAt = null, LeaseToken = null, LeaseUntil = null,
@@ -216,10 +220,13 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
     {
         await using var scope = scopes.CreateAsyncScope();
         var catalog = new CatalogState(scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"));
-        return new(await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
+        var result = new TargetSnapshot(await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
             await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct), await engine.SnapshotAsync(ct),
             [.. (await catalog.ReadAsync<AttemptRow>(CatalogState.Query(), ct)).Where(a => a.TargetId is not null)],
             await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(), ct));
+        return result with { Queue = [.. TargetScheduling.Queue(result.Downloads,
+            await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct), result.Targets, DateTimeOffset.UtcNow)
+            .OrderBy(q => q.Priority).ThenBy(q => q.Rank).ThenBy(q => q.DownloadId, StringComparer.Ordinal)] };
     }
 
     internal async Task RecoverAsync(CancellationToken ct)

@@ -58,3 +58,18 @@ and one day as the release ages. File/drive/cap retries retain their short recov
 
 Targeted real HTTP evidence is in gitignored `tools\.targets-proof\finish-summary.json`.
 No unit tests or full hard-set reruns are required for this slice.
+
+## Downloads HTTP adapter (4.5)
+
+`Api/DownloadEndpoints.cs` projects the persisted downloads and per-file Engine snapshots
+onto `/api/client/torrents`, `/api/wanted`, and `/api/settings/client`. Progress includes
+already-filed files and never copies live counters into Store. `TargetSnapshot.Queue`
+exposes the Targets-owned ordering for truthful queue positions. Target actions permit
+removing completed intent while retaining Library files, and Try now dispatches a Wanted
+target immediately. The cap update calls Engine directly and applies in both directions.
+
+The first slice does not implement raw magnet submission, raw-intent actions, deletion
+of media files, pending unresolved-scope wanted rows, tidy, promotion answers, or external
+client import. External recovery import explicitly returns 501 rather than claiming success.
+Download recovery restores persisted Engine bindings; it does not import another client's
+storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\`.

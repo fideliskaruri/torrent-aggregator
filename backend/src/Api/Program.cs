@@ -54,6 +54,7 @@ TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
     builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
+builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddDevLibrary();
 builder.Services.AddLocalFiles();
 builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,
@@ -81,6 +82,7 @@ try
     app.MapDevPlan();
     app.MapDevDiscoveryPlan();
     app.MapTargets();
+    app.MapDownloads();
     app.MapDevCheck();
     await app.MapDevLibraryAsync();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
