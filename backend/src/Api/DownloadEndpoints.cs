@@ -153,8 +153,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 live?.Complete == true || target?.State == TargetState.Filing ? "finishing" :
                 live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
                     live.StalledProgress ? "stalledDL" : "downloading" :
-                live?.Intent == DownloadIntent.Queued && full ? "queued" :
-                live?.MetadataAvailable == false ? "metaDL" : "stalledDL";
+                live?.Intent == DownloadIntent.Queued ? "queued" :
+                live?.MetadataAvailable == false ? "metaDL" :
+                live?.StalledProgress == true || live?.StalledMetadata == true ? "stalledDL" : "queued";
             var selected = files.Where(f => f.DownloadId == download.Id && f.Role != FileRole.Unwanted).ToArray();
             var size = selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
                 live?.SelectedBytes ?? release?.TotalBytes ?? 0;
@@ -179,9 +180,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 retentionState = "kept", lane = target?.Origin == IntentOrigin.Request ? "request" : "owner",
                 forced = target?.NowAt is not null || rawIntent?.NowAt is not null,
                 queuePosition = state == "queued" ? (int?)++queuePosition : null,
-                waitReason = state == "queued" && live is not null ? "queue-full" : null,
-                waitingReason = target?.ReasonText ?? (state == "queued" ? "Waiting for a download slot." :
-                    live?.StalledProgress == true ? "Waiting for peers to send data." : null),
+                waitReason = state == "queued" && full ? "queue-full" : null,
+                waitingReason = target?.ReasonText ?? (state == "queued" ? full ?
+                    "Waiting for a download slot." : "Waiting to start." :
+                    live?.StalledProgress == true ? "Waiting for peers to send data." :
+                    live?.StalledMetadata == true ? "Waiting for peers to share the torrent's file list." : null),
                 verified = done, provenance = rawIntent is null ? "automatic" : "hand",
                 magnet = release?.Magnet, imported = false, addedAt = download.AddedAt,
                 filesMissing = done && selected.Any(f => media.Any(m => m.Id == f.MediaFileId && m.MissingSince is not null)),
