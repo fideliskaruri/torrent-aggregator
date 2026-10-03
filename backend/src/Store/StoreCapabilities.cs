@@ -8,7 +8,8 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
 
-internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owner, string[] writable) : IStore
+internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owner, string[] writable,
+    ITargetEvents? events = null) : IStore
 {
     public async Task<ImmutableArray<TRow>> ReadAsync<TRow>(StoreQuery query, CancellationToken ct) where TRow : StoreRow
     {
@@ -110,6 +111,7 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
+            events?.Publish([.. commit.Writes.Select(w => w.Row)]);
             return new(true, false, []);
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 })
@@ -173,10 +175,10 @@ internal sealed class MetadataStoreCapability(TorrentFlowDbContext db) : StoreCa
     ["Work", "WorkName", "WorkLink", "Season", "Episode", "MetadataCache"]);
 internal sealed class FindStoreCapability(TorrentFlowDbContext db) : StoreCapability(db, StoreOwner.Find,
     ["Release", "ReleaseObservation", "SearchCache"]);
-internal sealed class TargetsStoreCapability(TorrentFlowDbContext db) : StoreCapability(db, StoreOwner.Targets,
+internal sealed class TargetsStoreCapability(TorrentFlowDbContext db, ITargetEvents events) : StoreCapability(db, StoreOwner.Targets,
     ["WorkPreference", "Target", "ScopeIntent", "RawIntent", "Request", "RequestItem", "AutoApproveRule",
      "Follow", "WatchItem", "UpgradeEvidence", "AutoRule", "Attempt", "Block", "Download", "DownloadTarget",
-     "DownloadFile", "User", "Notification", "PushSubscription", "Setting"]);
+     "DownloadFile", "User", "Notification", "PushSubscription", "Setting"], events);
 
 internal sealed class AccessStoreCapability(TorrentFlowDbContext db) : StoreCapability(db, StoreOwner.Targets,
     ["User", "Setting", "Attempt"]);

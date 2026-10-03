@@ -336,3 +336,30 @@ runner executes the old `MediaFolders` and `ContentLayoutPlanner` against real 3
 catalog/release/manifest inputs. TV and film comparisons include actual old disk
 paths; the 3930 installation has no Anime Series/Anime Movies disk folders, so
 anime comparisons are labelled **old-code output, not actual old disk evidence**.
+
+## Notifications, push and activity (OPS-770)
+
+The existing `/api/notifications` list, `/read/{id}`, `/read-all` and push
+public-key/subscription routes retain their web shapes. `POST /unread/{id}` and
+`DELETE /api/notifications` also support marking unread and clearing the caller's
+inbox. All notification and subscription mutations are scoped to the authenticated
+recipient. Repeated read operations preserve the original read timestamp.
+
+`ITargetEvents` carries committed target/download changes from Store, after a
+successful transaction; no Targets internals need a notification dependency.
+One notification worker records completion and owner-pick-required news, dedupes
+updates without resetting read state, and retries persisted pending push delivery.
+VAPID keys stay in the private `push-vapid.json` data-directory file, protected by
+the current user's ACL on Windows (0600 elsewhere). Private keys never enter an
+API response. Push destinations are browser-provider HTTPS endpoints only;
+redirects are disabled and 404/410 subscriptions are removed.
+
+`/api/activity` and `/api/activity/unread` project existing Attempt/Download facts,
+with newest-first cursor pagination. `/api/timeline` projects queue and release
+dates, without provider I/O; unavailable cached air dates are flagged.
+`/api/title/{workKey}/timeline` exposes the title's paged activity to the owner.
+Proof: ignored `tools\.notify-proof\`, port 3951, isolated data and build output.
+The completion proof uses a real public-domain Alice torrent, admitted paused,
+then hash-checked against its real content: engine completion produces both a
+notification and activity row. Browser push receipt still needs a real browser
+subscription; subscription persistence and input protections are HTTP-verified.

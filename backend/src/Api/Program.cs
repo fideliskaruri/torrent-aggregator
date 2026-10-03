@@ -8,6 +8,7 @@ using TorrentFlow.Api;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
 using TorrentFlow.Api.Desktop;
+using TorrentFlow.Api.Notifications;
 using TorrentFlow.Store;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -45,6 +46,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
+builder.Services.AddNotifications(dataDirectory);
 builder.Services.AddDevSources();
 builder.Services.AddCatalog();
 builder.Services.AddDevEngine(dataDirectory);
@@ -67,6 +69,8 @@ try
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
     await app.UseAccessAsync();
+    app.MapNotifications();
+    app.MapActivity();
     await app.Services.GetRequiredService<DesktopSettingsStore>().InitializeAsync();
     app.MapDesktopEndpoints();
     app.MapLocalFiles();

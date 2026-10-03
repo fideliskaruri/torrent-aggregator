@@ -22,6 +22,8 @@ public static class StoreModule
         services.AddKeyedScoped<IStore, FindStoreCapability>("find");
         services.AddKeyedScoped<IStore, TargetsStoreCapability>("targets");
         services.AddKeyedScoped<IStore, AccessStoreCapability>("access");
+        services.AddSingleton<ITargetEvents, TargetEvents>();
+        services.AddScoped<NotificationRepository>(sp => new NotificationRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddSingleton<ICheckRepository, CheckRepository>();
         services.AddScoped<ILibraryRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddScoped<ILibraryImportRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
