@@ -29,6 +29,22 @@ rotation and release cleanup as a full probe. Observation duration excludes the
 final disk flush. A late integrity failure drains the remaining window before
 returning, so it cannot create an early Weak or Dead result.
 
+## Swarm and transfer diagnostics (OPS-836)
+
+The development engine snapshot reports the physical client's download limit,
+piece length, pending requests and per-connection payload bytes. Lifetime event
+counters show established/failed connections and newly added peers by DHT, PEX,
+local discovery or tracker URI. These are discovery event totals, not unique
+seeder counts. Tracker state/failure and last DHT announce accompany the sample;
+`TierLastAnnounceSucceeded` describes the tier, not every tracker in it.
+
+Use connected seeders and actual payload delivery rather than advertised seeds
+when diagnosing viability. Zero hash-valid bytes does not mean zero transport
+bytes: an 8 MiB piece cannot verify until all its blocks arrive, and a globally
+throttled multi-peer transfer can have several incomplete pieces. Sparse file
+allocation does not measure received data. See `tools\.enghealth-proof\report.md`
+for the isolated native Sintel/Bunny controls and the 128 KiB/s reproduction.
+
 ## Per-file download publication (OPS-749)
 
 Library supplies every absolute binding before payload: selected files use the final

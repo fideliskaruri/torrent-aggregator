@@ -20,6 +20,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
         public TorrentManager Manager { get; } = manager;
+        public NetworkObservation Network { get; } = new(manager);
         public string Id { get; set; } = id;
         public bool Probe { get; set; } = probe;
         public bool Run { get; set; }
@@ -97,6 +98,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     public object PhysicalStatus => new
     {
         listenPort = settings.ListenPort,
+        maximumDownloadBytesPerSecond = client.Settings.MaximumDownloadRate,
         dhtState = client.Dht.State.ToString(),
         dhtNodes = client.Dht.NodeCount,
         dhtCacheBytes = dht?.CacheBytes ?? 0,
@@ -1201,6 +1203,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         if (entry.Manager.HasMetadata) await client.DiskManager.FlushAsync(entry.Manager);
         if (keepResume && !entry.Probe) await SaveResumeAsync(entry.Manager);
         await client.RemoveAsync(entry.Manager, keepResume ? RemoveMode.KeepAllData : RemoveMode.CacheDataOnly);
+        entry.Network.Dispose();
         probeIO.Invalidate(entry.Manager);
         Interlocked.Add(ref reservedProbeBytes, -entry.ProbeReservation);
         entry.ProbeReservation = 0;
@@ -1379,14 +1382,34 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         await gate.WaitAsync(ct);
         try
         {
-            return [.. entries.Values.Select(e => new EngineDiagnostics(e.Id, Hash(e.Manager), e.Probe,
+            var diagnostics = ImmutableArray.CreateBuilder<EngineDiagnostics>();
+            foreach (var e in entries.Values)
+            {
+                var peers = await e.Manager.GetPeersAsync();
+                var network = e.Network.Snapshot();
+                diagnostics.Add(new EngineDiagnostics(e.Id, Hash(e.Manager), e.Probe,
                 e.Manager.State.ToString(), e.Manager.PartialProgress, e.Manager.Monitor.UploadRate,
                 UpdateReceived(e), e.Manager.Monitor.ProtocolBytesReceived,
                 e.Manager.HashChecked, e.Manager.HashFails, e.Manager.Bitfield.TrueCount,
                 e.Manager.HasMetadata ? e.Manager.Torrent!.PieceCount : 0,
                 e.Manager.TrackerManager.Tiers.Sum(t => t.Trackers.Count),
                 includePieces && e.Manager.HasMetadata
-                    ? Enumerable.Range(0, e.Manager.Torrent!.PieceCount).Where(p => e.Manager.Bitfield[p]).ToArray() : null))];
+                    ? Enumerable.Range(0, e.Manager.Torrent!.PieceCount).Where(p => e.Manager.Bitfield[p]).ToArray() : null)
+                {
+                    AvailablePeers = e.Manager.Peers.Available,
+                    ConnectionsEstablished = network.Connected,
+                    ConnectionFailures = network.Failed,
+                    DiscoveredPeers = network.Discoveries,
+                    LastDhtAnnounce = e.Manager.LastDhtAnnounce,
+                    PieceLength = e.Manager.Torrent?.PieceLength,
+                    ConnectedPeers = [.. peers.Select(p => new PeerDiagnostics(p.Uri.ToString(), p.IsSeeder,
+                        p.IsChoking, p.AmInterested, p.AmRequestingPiecesCount, p.Monitor.DataBytesReceived))],
+                    Trackers = [.. e.Manager.TrackerManager.Tiers.SelectMany(t => t.Trackers.Select(tracker =>
+                        new TrackerDiagnostics(tracker.Uri.ToString(), tracker.Status.ToString(),
+                            t.LastAnnounceSucceeded, tracker.FailureMessage, tracker.TimeSinceLastAnnounce)))],
+                });
+            }
+            return diagnostics.ToImmutable();
         }
         finally { gate.Release(); }
     }
@@ -1446,7 +1469,21 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
 
     public sealed record EngineDiagnostics(string DownloadId, string Hash, bool Probe, string State, double Progress,
         long UploadBytesPerSecond, long PayloadBytesReceived, long ProtocolBytesReceived, bool HashChecked,
-        int HashFails, int VerifiedPieces, int TotalPieces, int TrackerCount, int[]? VerifiedPieceIndices);
+        int HashFails, int VerifiedPieces, int TotalPieces, int TrackerCount, int[]? VerifiedPieceIndices)
+    {
+        public int AvailablePeers { get; init; }
+        public int ConnectionsEstablished { get; init; }
+        public int ConnectionFailures { get; init; }
+        public ImmutableDictionary<string, int> DiscoveredPeers { get; init; } = ImmutableDictionary<string, int>.Empty;
+        public DateTime LastDhtAnnounce { get; init; }
+        public int? PieceLength { get; init; }
+        public ImmutableArray<PeerDiagnostics> ConnectedPeers { get; init; } = [];
+        public ImmutableArray<TrackerDiagnostics> Trackers { get; init; } = [];
+    }
+    public sealed record PeerDiagnostics(string Uri, bool Seeder, bool Choking, bool Interested,
+        int OutstandingRequests, long PayloadBytesReceived);
+    public sealed record TrackerDiagnostics(string Uri, string Status, bool TierLastAnnounceSucceeded,
+        string Failure, TimeSpan TimeSinceLastAnnounce);
     public sealed record MetadataProbeMeasurement(SwarmEvidence Evidence, long ProtocolBytesDelivered, int TrackerCount);
 
     private static long UpdateReceived(Entry entry)
@@ -1497,6 +1534,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                     if (entries.TryGetValue(Hash(manager), out var entry) && !entry.Probe)
                         await SaveResumeAsync(manager);
                 }
+                foreach (var entry in entries.Values) entry.Network.Dispose();
                 client.Dispose();
                 File.Delete(Path.Combine(directory, "session.active"));
             }

@@ -68,3 +68,19 @@ lengths are not a substitute for the torrent's piece hashes. Both bulk cache rea
 and individual probe requests apply this check; missing information sends the
 candidate through the existing bounded check rather than repeatedly admitting an
 unbound magnet. Engine retains this information when releasing a successful probe.
+
+## Uncovered warm plans (OPS-751)
+
+A completed, persisted verdict is reused by hash before Check queues a flight,
+including Unknown within its configured lifetime. The isolated HTTP controls in
+`tools\.enghealth-proof\report.md` measure this independently of discovery:
+repeat checks must retain `checkedAt`/`expiresAt`, report `fromCache`, and add
+no physical probes. Good/Weak/Dead use the six-hour lifetime; wanted Unknown uses
+45 minutes. These are verdict lifetimes, not a completed-plan cache.
+
+Targets' planning deadline can cancel unfinished flights. Cancellation deliberately
+does not persist an unmeasured verdict, so those hashes remain eligible next time.
+Reusing an uncovered scope's prior bounded decision and retry/stopping budget is
+Targets' responsibility. Check must not turn a canceled partial observation into
+Good, Dead or a six-hour refusal to measure. A warm planning-window timeout alone
+is not evidence that Check bypassed a valid cached verdict.
