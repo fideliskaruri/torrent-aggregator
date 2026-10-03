@@ -169,9 +169,9 @@ internal static class NotificationReadModels
                     future ? expected : t.NextTryAt, null),
                 work.WorkKey, t.Id, state, release, followSet.Contains(work.Id), t.NowAt is not null,
                 t.PreferredResolution ?? t.ResolutionFloor, work.Kind == WorkKind.Film ? "movie" : "tv");
-            if (future) entries.Add(Entry("airs", expected));
-            if (t.State == TargetState.Waiting && checksEnabled) entries.Add(Entry("check", t.NextTryAt));
-            else if (queued.Contains(t)) entries.Add(Entry("queued", t.NextTryAt));
+            // One row per item, always dated by its release so every role sees the same date.
+            entries.Add(Entry(future ? "airs" : t.State == TargetState.Waiting && checksEnabled ? "check" :
+                queued.Contains(t) ? "queued" : "airs", expected));
         }
         var followed = (await db.AllAsync<FollowRow>(ct)).Where(f => f.Enabled).Select(f => f.WorkId);
         var watched = (await db.AllAsync<WatchItemRow>(ct)).Where(w => w.UserId == "local" &&

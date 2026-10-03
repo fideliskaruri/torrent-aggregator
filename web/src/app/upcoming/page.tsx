@@ -111,9 +111,18 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
     finally { setBusy(false); }
   }
   const canGrab = entry.targetId && !entry.grabNow && (entry.state === "expected" || entry.state === "searching");
-  if (!canGrab && !entry.grabNow) return null;
+  const series = entry.mediaType === "tv" && entry.workKey;
+  if (!series && !canGrab && !entry.grabNow) return null;
   return (
     <div className="flex flex-wrap items-center gap-2" data-calendar-actions>
+      {series ? (
+        <Button size="sm" variant={entry.followed ? "secondary" : "outline"} disabled={busy}
+          className="max-md:min-h-11" data-calendar-follow={entry.followed ? "on" : "off"}
+          onClick={() => void run(`/api/follows/${encodeURIComponent(entry.workKey!)}`,
+            { method: "PUT", body: JSON.stringify({ enabled: !entry.followed }) })}>
+          {entry.followed ? "Unfollow" : "Follow"}
+        </Button>
+      ) : null}
       {canGrab ? (
         <Button size="sm" variant="outline" disabled={busy} className="max-md:min-h-11" data-calendar-grab
           onClick={() => void run(`/api/timeline/${encodeURIComponent(entry.targetId!)}/grab-now`, { method: "POST" })}>
