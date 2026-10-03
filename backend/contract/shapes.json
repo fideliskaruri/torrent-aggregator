@@ -2237,6 +2237,124 @@
       "captures": [
         "captures\\search\\releases.json"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/imports/scan",
+      "expectedResponse": {
+        "type": "object",
+        "properties": {
+          "scanId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scanId",
+          "state"
+        ],
+        "additionalProperties": true
+      },
+      "evidence": "Real HTTP response from isolated rebuild on 3966; not a legacy capture."
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/roots",
+      "expectedResponse": {
+        "type": "object",
+        "properties": {
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "kinds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "priority": {
+                  "type": "number"
+                },
+                "reserveBytes": {
+                  "type": "number"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "online": {
+                  "type": "boolean"
+                },
+                "reviewRequired": {
+                  "type": "boolean"
+                },
+                "lastCheckedAt": {
+                  "type": "null"
+                },
+                "lastError": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "freeBytes": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "kinds",
+                "priority",
+                "reserveBytes",
+                "enabled",
+                "online",
+                "reviewRequired",
+                "lastCheckedAt",
+                "lastError",
+                "version",
+                "freeBytes"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "roots"
+        ],
+        "additionalProperties": true
+      },
+      "evidence": "Real HTTP response from isolated rebuild on 3966; not a legacy capture."
+    },
+    {
+      "method": "GET",
+      "path": "/api/requester/calendar",
+      "expectedResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "code"
+        ],
+        "additionalProperties": true
+      },
+      "evidence": "Real HTTP response from isolated rebuild on 3966; not a legacy capture."
     }
   ],
   "captures": [
@@ -11102,6 +11220,127 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "capture": "captures\\library\\imports-scan.json",
+      "method": "POST",
+      "path": "/api/library/imports/scan",
+      "status": 202,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "scanId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scanId",
+          "state"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "capture": "captures\\library\\roots.json",
+      "method": "GET",
+      "path": "/api/library/roots",
+      "status": 200,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "kinds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "priority": {
+                  "type": "number"
+                },
+                "reserveBytes": {
+                  "type": "number"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "online": {
+                  "type": "boolean"
+                },
+                "reviewRequired": {
+                  "type": "boolean"
+                },
+                "lastCheckedAt": {
+                  "type": "null"
+                },
+                "lastError": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "number"
+                },
+                "freeBytes": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "kinds",
+                "priority",
+                "reserveBytes",
+                "enabled",
+                "online",
+                "reviewRequired",
+                "lastCheckedAt",
+                "lastError",
+                "version",
+                "freeBytes"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "roots"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "capture": "captures\\requester\\calendar-owner-denied.json",
+      "method": "GET",
+      "path": "/api/requester/calendar",
+      "status": 403,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "code"
         ],
         "additionalProperties": true
       }

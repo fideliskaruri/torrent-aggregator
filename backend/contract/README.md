@@ -9,6 +9,25 @@ route patterns**, **63 response captures/schemas**, and **48 source-only mutatio
 routes**. Five distinct TS field mismatches are tracked as **OPS-648**.
 `verification.json` records the artifact checks, not a claim of full behavioural QA.
 
+### Isolated rebuild coverage extension (OPS-842)
+
+Three previously unlisted web routes now have real HTTP captures from port 3966:
+`POST /api/library/imports/scan` (202, an owned empty folder, without confirmation),
+`GET /api/library/roots` (200), and `GET /api/requester/calendar` (403, owner-local).
+These are explicitly labelled **rebuild responses**, not legacy baseline evidence.
+The calendar capture proves owner refusal only, not requester success. Existing
+capture bodies and schemas are unchanged. Reproduce these additions with
+`python tools\.apicontract2-proof\capture-missing.py` against the isolated proof
+server; never point the script at the live instance.
+
+The API repair runner in `tools/.apicontract2-proof/measure.py` corrects synthetic
+mutation fixtures against the stored legacy handlers. It resolves TypeScript
+inheritance and the Downloads-specific `ClientTorrent` nullability without changing
+the captured contract or web types. A missing notification/download/link is not a
+successful mutation; missing notifications/links return 404, invalid download IDs
+return 400, and notification writes return 204. See its report for before/after
+counts and the remaining Targets/Library and Metadata failures.
+
 ## Files
 
 - `routes.md`: one row per method/path, including server-only endpoints.

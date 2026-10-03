@@ -1,0 +1,14 @@
+{
+  "method": "POST",
+  "path": "/api/library/imports/scan",
+  "status": 202,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "scanId": "ee102f602c074c329715ebf30cfee1fb",
+    "state": "queued"
+  },
+  "requestBody": {
+    "path": "D:\\code\\memtest\\apic2\\empty-import"
+  },
+  "evidence": "Real HTTP response from isolated rebuild on 3966; not a legacy capture."
+}

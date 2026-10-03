@@ -1408,5 +1408,62 @@
     "captures": [
       "captures\\search\\releases.json"
     ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/library/imports/scan",
+    "scope": "web",
+    "family": "library",
+    "parameters": "JSON path",
+    "expectedType": "{scanId:string,state:string}",
+    "typeSource": "web\\src\\components\\library\\folder-import.tsx",
+    "consumer": "imports-scan",
+    "mutates": true,
+    "evidence": "captured (isolated rebuild, not legacy)",
+    "captures": [
+      "captures\\library\\imports-scan.json"
+    ],
+    "webSources": [
+      "web\\src\\components\\library\\folder-import.tsx"
+    ],
+    "serverSource": "backend\\src\\Api\\ImportEndpoints.cs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/library/roots",
+    "scope": "web",
+    "family": "library",
+    "parameters": "none",
+    "expectedType": "{roots:StorageRoot[]}",
+    "typeSource": "web\\src\\components\\library\\storage-roots.tsx",
+    "consumer": "roots",
+    "mutates": false,
+    "evidence": "captured (isolated rebuild, not legacy)",
+    "captures": [
+      "captures\\library\\roots.json"
+    ],
+    "webSources": [
+      "web\\src\\components\\library\\storage-roots.tsx"
+    ],
+    "serverSource": "backend\\src\\Api\\ImportEndpoints.cs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/requester/calendar",
+    "scope": "web",
+    "family": "requester",
+    "parameters": "none",
+    "expectedType": "{entries:unknown[]}",
+    "typeSource": "web\\src\\app\\upcoming\\page.tsx",
+    "consumer": "calendar-owner-denied",
+    "mutates": false,
+    "evidence": "captured (isolated rebuild, not legacy)",
+    "captures": [
+      "captures\\requester\\calendar-owner-denied.json"
+    ],
+    "webSources": [
+      "web\\src\\app\\upcoming\\page.tsx"
+    ],
+    "serverSource": "backend\\src\\Api\\Requests\\RequestEndpoints.cs"
   }
 ]

@@ -1,0 +1,30 @@
+{
+  "method": "GET",
+  "path": "/api/library/roots",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "roots": [
+      {
+        "id": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+        "path": "D:\\code\\memtest\\apic2\\data\\unmapped-library",
+        "kinds": [
+          "Movies",
+          "TV",
+          "Anime",
+          "AnimeMovies"
+        ],
+        "priority": 0,
+        "reserveBytes": 0,
+        "enabled": true,
+        "online": false,
+        "reviewRequired": true,
+        "lastCheckedAt": null,
+        "lastError": "Legacy root has no approved copied-payload mapping.",
+        "version": 1,
+        "freeBytes": null
+      }
+    ]
+  },
+  "evidence": "Real HTTP response from isolated rebuild on 3966; not a legacy capture."
+}

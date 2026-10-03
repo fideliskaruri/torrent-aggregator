@@ -1,0 +1,1288 @@
+{
+  "routes": 83,
+  "passingRoutes": 75,
+  "samples": 101,
+  "categories": {
+    "pass": 90,
+    "shape mismatch": 3,
+    "404": 5,
+    "transport failure": 2,
+    "status mismatch": 1
+  },
+  "rows": [
+    {
+      "method": "GET",
+      "route": "/api/me",
+      "request": "/api/me",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.211,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/features",
+      "request": "/api/features",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.215,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/remote-access",
+      "request": "/api/settings/remote-access",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.177,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/notifications/push/public-key",
+      "request": "/api/notifications/push/public-key",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.221,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/remote-access/check",
+      "request": "/api/settings/remote-access/check",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.01,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/requester/seasons",
+      "request": "/api/requester/seasons?source=tmdb&sourceId=1399&mediaType=tv",
+      "expectedStatus": 403,
+      "status": 403,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/desktop",
+      "request": "/api/desktop",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.224,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/requester/requests",
+      "request": "/api/requester/requests",
+      "expectedStatus": 403,
+      "status": 403,
+      "category": "pass",
+      "seconds": 0.016,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/requester/library",
+      "request": "/api/requester/library",
+      "expectedStatus": 403,
+      "status": 403,
+      "category": "pass",
+      "seconds": 0.014,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/requests",
+      "request": "/api/requests",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.024,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/download-recovery/sources",
+      "request": "/api/settings/download-recovery/sources",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.016,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/requests/auto-approve",
+      "request": "/api/requests/auto-approve",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.047,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/browse-folders",
+      "request": "/api/settings/browse-folders?path=D%3A%5Ccode%5Cmemtest%5Crebuild-baseline",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.034,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/notifications",
+      "request": "/api/notifications",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "shape mismatch",
+      "seconds": 0.381,
+      "missingOrTypeChanged": [
+        "$.items[].posterUrl missing"
+      ],
+      "notes": [
+        "$.items[].readAt declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/download-recovery",
+      "request": "/api/settings/download-recovery",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.168,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/client/torrents/{hash}/alternatives",
+      "request": "/api/client/torrents/9c2b1060984884a46355f817ce621ca622d92ece/alternatives",
+      "expectedStatus": 200,
+      "status": 404,
+      "category": "404",
+      "seconds": 0.005,
+      "missingOrTypeChanged": [
+        "$.alternatives missing",
+        "$.current missing",
+        "$.health missing",
+        "$.recommendedToken missing",
+        "$.sources missing"
+      ],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/client",
+      "request": "/api/settings/client",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.189,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.settings.pathWarnings empty; element shape unverified",
+        "$.settings.storageUsage.items empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/rules",
+      "request": "/api/rules",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.036,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/timeline",
+      "request": "/api/timeline",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.532,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/library/delete",
+      "request": "/api/library/delete?watchListItemId=cmurpw4f8busyf2ap08vz5313&scope=show",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.254,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/library/delete",
+      "request": "/api/library/delete?watchListItemId=cmurnijn4burek4bdlif7w2jo&scope=show",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.029,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/library/delete",
+      "request": "/api/library/delete?watchListItemId=cmurr0f2vgcdsu9p3vv2ylgn7&scope=show",
+      "expectedStatus": 200,
+      "status": 404,
+      "category": "404",
+      "seconds": 0.019,
+      "missingOrTypeChanged": [
+        "$.ok missing",
+        "$.plan missing",
+        "$.title missing"
+      ],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/activity/unread",
+      "request": "/api/activity/unread",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.76,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/progress",
+      "request": "/api/title/family-guy/progress?session=contract-capture",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.022,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/progress",
+      "request": "/api/title/rick-and-morty-2013/progress?session=contract-capture",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.003,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/progress",
+      "request": "/api/title/sintel-2010/progress?session=contract-capture",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.006,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/client/torrents",
+      "request": "/api/client/torrents",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "shape mismatch",
+      "seconds": 1.221,
+      "missingOrTypeChanged": [
+        "$.host missing"
+      ],
+      "notes": [
+        "$.torrents[].episode declared state variant",
+        "$.torrents[].error declared state variant",
+        "$.torrents[].posterUrl declared state variant",
+        "$.torrents[].savePath declared state variant",
+        "$.torrents[].season declared state variant",
+        "$.torrents[].workId declared state variant",
+        "$.torrents[].workKey declared state variant",
+        "$.torrents[].workMediaType declared state variant",
+        "$.torrents[].workTitle declared state variant",
+        "$.torrents[].workYear declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/wanted",
+      "request": "/api/wanted",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 1.25,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.queue[] schema unproven",
+        "$.wanted[] schema unproven"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/activity",
+      "request": "/api/activity?limit=100",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.873,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.items[].category declared state variant",
+        "$.items[].context declared state variant",
+        "$.items[].query declared state variant",
+        "$.items[].savePath declared state variant",
+        "$.items[].sendKind declared state variant",
+        "$.items[].source declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/activity",
+      "request": "/api/activity?filter=sent&limit=20",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.489,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.items[].context declared state variant",
+        "$.items[].sendKind declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/recommendations",
+      "request": "/api/recommendations",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 6.099,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.rail.items[].format null-only baseline; non-null type unproven"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/watchlist",
+      "request": "/api/watchlist",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 8.768,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.items[].fromEpisode declared state variant",
+        "$.items[].latestReleaseAt declared state variant",
+        "$.items[].latestReleaseMagnet declared state variant",
+        "$.items[].rating declared state variant",
+        "$.items[].synopsis declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}",
+      "request": "/api/title/family-guy?t=Family%20Guy&type=tv",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 6.717,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.availability declared state variant",
+        "$.episodes[].availability declared state variant",
+        "$.episodes[].infoHash declared state variant",
+        "$.episodes[].transfer declared state variant",
+        "$.infoHash declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}",
+      "request": "/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 2.717,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.availability declared state variant",
+        "$.infoHash declared state variant",
+        "$.originalLanguage declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}",
+      "request": "/api/title/sintel-2010?t=Sintel&type=movie",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 1.683,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.availability declared state variant",
+        "$.backdropUrl declared state variant",
+        "$.library.addPayload.rating declared state variant",
+        "$.library.addPayload.synopsis declared state variant",
+        "$.library.status declared state variant",
+        "$.library.watchListItemId declared state variant",
+        "$.overview declared state variant",
+        "$.rating declared state variant",
+        "$.ratingSource declared state variant",
+        "$.ratingSource schema unproven",
+        "$.releaseDate declared state variant",
+        "$.transfer declared state variant",
+        "$.year declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}",
+      "request": "/api/title/sintel-2010?t=Sintel&y=2010&type=movie",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.139,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.availability declared state variant",
+        "$.backdropUrl declared state variant",
+        "$.library.addPayload.rating declared state variant",
+        "$.library.addPayload.synopsis declared state variant",
+        "$.library.status declared state variant",
+        "$.library.watchListItemId declared state variant",
+        "$.overview declared state variant",
+        "$.rating declared state variant",
+        "$.ratingSource declared state variant",
+        "$.ratingSource schema unproven",
+        "$.releaseDate declared state variant",
+        "$.transfer declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/sources",
+      "request": "/api/settings/sources",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.024,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.sources[].mirrors empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/settings/tmdb",
+      "request": "/api/settings/tmdb",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.015,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/search/titles",
+      "request": "/api/search/titles?q=Sintel",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 2.005,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.results[].releaseDate declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/links",
+      "request": "/api/title/family-guy/links",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 6.417,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/links",
+      "request": "/api/title/rick-and-morty-2013/links",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 2.97,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.links[].mediaType declared state variant",
+        "$.links[].names empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/links",
+      "request": "/api/title/sintel-2010/links",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 2.142,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/releases",
+      "request": "/api/title/family-guy/releases?season=1&episode=1",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 10.429,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.releases[].languages declared state variant",
+        "$.releases[].quality declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/releases",
+      "request": "/api/title/rick-and-morty-2013/releases?season=1&episode=1",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 3.177,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.releases[].languages declared state variant",
+        "$.releases[].quality declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/releases",
+      "request": "/api/title/sintel-2010/releases?season=1&episode=1",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.066,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.releases empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/extras",
+      "request": "/api/title/family-guy/extras?t=Family%20Guy&type=tv&s=1",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 8.955,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.certification declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/extras",
+      "request": "/api/title/rick-and-morty-2013/extras?t=Rick%20and%20Morty&type=tv&s=1",
+      "expectedStatus": 200,
+      "status": 0,
+      "category": "transport failure",
+      "seconds": 45.005,
+      "missingOrTypeChanged": [
+        "$.airedEpisodes missing",
+        "$.certification missing",
+        "$.episodes missing",
+        "$.generatedAt missing",
+        "$.genres missing",
+        "$.inTheatricalWindow missing",
+        "$.moreLikeThis missing",
+        "$.nextHomeReleaseAt missing",
+        "$.originalLanguage missing",
+        "$.overview missing",
+        "$.rating missing",
+        "$.ratingSource missing",
+        "$.releaseDate missing",
+        "$.resolved missing",
+        "$.season missing",
+        "$.seasonCount missing",
+        "$.seasons missing",
+        "$.voteCount missing",
+        "$.workKey missing"
+      ],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/extras",
+      "request": "/api/title/sintel-2010/extras?t=Sintel&type=movie&s=1",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 6.26,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/title/{workKey}/extras",
+      "request": "/api/title/sintel-2010/extras?t=Sintel&y=2010&type=movie",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 5.491,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/browse",
+      "request": "/api/browse",
+      "expectedStatus": 200,
+      "status": 0,
+      "category": "transport failure",
+      "seconds": 45.003,
+      "missingOrTypeChanged": [
+        "$.generatedAt missing",
+        "$.genre missing",
+        "$.genres missing",
+        "$.rails missing",
+        "$.view missing"
+      ],
+      "notes": []
+    },
+    {
+      "method": "GET",
+      "route": "/api/browse",
+      "request": "/api/browse?type=anime",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 34.407,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.rails[].genre declared state variant",
+        "$.rails[].items[].releaseDate declared state variant",
+        "$.rails[].items[].subtitle declared state variant",
+        "$.rails[].items[].year declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/browse",
+      "request": "/api/browse?type=films",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 42.486,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.rails[].genre declared state variant"
+      ]
+    },
+    {
+      "method": "GET",
+      "route": "/api/browse",
+      "request": "/api/browse?type=series",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 42.81,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.rails[].genre declared state variant"
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/api/desktop/settings",
+      "request": "/api/desktop/settings",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.015,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/desktop/update/check",
+      "request": "/api/desktop/update/check",
+      "expectedStatus": 409,
+      "status": 409,
+      "category": "pass",
+      "seconds": 0.005,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/desktop/update/install",
+      "request": "/api/desktop/update/install",
+      "expectedStatus": 409,
+      "status": 409,
+      "category": "pass",
+      "seconds": 0.005,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/notifications/read/{id}",
+      "request": "/api/notifications/read/contract-harmless-missing",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.045,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$ schema unproven"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/notifications/read-all",
+      "request": "/api/notifications/read-all",
+      "expectedStatus": 204,
+      "status": 204,
+      "category": "pass",
+      "seconds": 0.007,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$ schema unproven"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/notifications/push/subscription",
+      "request": "/api/notifications/push/subscription",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.01,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/notifications/push/subscription",
+      "request": "/api/notifications/push/subscription",
+      "expectedStatus": 204,
+      "status": 204,
+      "category": "pass",
+      "seconds": 0.004,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$ schema unproven"
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/api/settings/remote-access",
+      "request": "/api/settings/remote-access",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.011,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.ownerEmails empty; element shape unverified",
+        "$.warnings empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/requester/requests",
+      "request": "/api/requester/requests",
+      "expectedStatus": 403,
+      "status": 403,
+      "category": "pass",
+      "seconds": 0.002,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/requester/requests/{id}/cancel",
+      "request": "/api/requester/requests/contract-harmless-missing/cancel",
+      "expectedStatus": 403,
+      "status": 403,
+      "category": "pass",
+      "seconds": 0.002,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/requests/{id}/approve",
+      "request": "/api/requests/contract-harmless-missing/approve",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.012,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/requests/{id}/retry",
+      "request": "/api/requests/contract-harmless-missing/retry",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.004,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/requests/{id}/pick",
+      "request": "/api/requests/contract-harmless-missing/pick",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.018,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/requests/{id}/decline",
+      "request": "/api/requests/contract-harmless-missing/decline",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "PUT",
+      "route": "/api/requests/auto-approve",
+      "request": "/api/requests/auto-approve",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.015,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.knownEmails empty; element shape unverified",
+        "$.rules empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/client/torrents",
+      "request": "/api/client/torrents",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.047,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/downloads/{transferId}/open",
+      "request": "/api/downloads/builtin:0000000000000000000000000000000000000000/open",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.014,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/downloads/{transferId}/keep",
+      "request": "/api/downloads/builtin:0000000000000000000000000000000000000000/keep",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.054,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/downloads/{transferId}/find-another",
+      "request": "/api/downloads/builtin:0000000000000000000000000000000000000000/find-another",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "404",
+      "seconds": 0.002,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/settings/download-recovery",
+      "request": "/api/settings/download-recovery",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.031,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/settings/download-recovery/sources",
+      "request": "/api/settings/download-recovery/sources",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.007,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/settings/open-folder",
+      "request": "/api/settings/open-folder",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.02,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/client/torrents/tidy",
+      "request": "/api/client/torrents/tidy",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.072,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "PUT",
+      "route": "/api/settings/client",
+      "request": "/api/settings/client",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.027,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.settings.downloadWindows empty; element shape unverified",
+        "$.settings.externalClientType schema unproven"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/torrent/send",
+      "request": "/api/torrent/send",
+      "expectedStatus": 400,
+      "status": 404,
+      "category": "404",
+      "seconds": 0.002,
+      "missingOrTypeChanged": [
+        "$.ok missing"
+      ],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/automation/run",
+      "request": "/api/automation/run",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.079,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/library/ondemand",
+      "request": "/api/library/ondemand",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/client/torrents/{hash}/alternatives",
+      "request": "/api/client/torrents/0000000000000000000000000000000000000000/alternatives",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "404",
+      "seconds": 0.003,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/wanted",
+      "request": "/api/wanted?workKey=tmdb-movie-45745",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.371,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/wanted/try",
+      "request": "/api/wanted/try?workKey=tmdb-movie-45745",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.283,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/rules",
+      "request": "/api/rules",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.084,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "PATCH",
+      "route": "/api/rules",
+      "request": "/api/rules",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.029,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/rules",
+      "request": "/api/rules?id=9e944a4c185341e0835cd36bbe8a5fb3",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.012,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/rules/run",
+      "request": "/api/rules/run",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.103,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/library/delete",
+      "request": "/api/library/delete",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.006,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/title/{workKey}/links/{provider}/{externalId}",
+      "request": "/api/title/tmdb-movie-45745/links/tmdb/contract-missing",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "pass",
+      "seconds": 0.085,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/title/{workKey}",
+      "request": "/api/title/tmdb-movie-45745",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.346,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$ schema unproven"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/title/{workKey}/releases",
+      "request": "/api/title/tmdb-movie-45745/releases",
+      "expectedStatus": 400,
+      "status": 409,
+      "category": "status mismatch",
+      "seconds": 0.009,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/watchlist",
+      "request": "/api/watchlist",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.219,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "PATCH",
+      "route": "/api/watchlist",
+      "request": "/api/watchlist",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.024,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/watchlist",
+      "request": "/api/watchlist?id=7e47c17359268c86dd7bbf2a9be891f9c99e8f336a87cb30673707fdbf092d5c",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.009,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/artwork",
+      "request": "/api/artwork",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.01,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "PUT",
+      "route": "/api/settings/sources/{id}",
+      "request": "/api/settings/sources/contract-missing-source",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/settings/sources/{id}",
+      "request": "/api/settings/sources/contract-missing-source",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.009,
+      "missingOrTypeChanged": [],
+      "notes": [
+        "$.sources[].mirrors empty; element shape unverified"
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/settings/sources/{id}/test",
+      "request": "/api/settings/sources/contract-missing-source/test",
+      "expectedStatus": 404,
+      "status": 404,
+      "category": "shape mismatch",
+      "seconds": 0.006,
+      "missingOrTypeChanged": [
+        "$ type changed: expected ['object'], actual null"
+      ],
+      "notes": []
+    },
+    {
+      "method": "PUT",
+      "route": "/api/settings/tmdb",
+      "request": "/api/settings/tmdb",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.005,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/settings/tmdb",
+      "request": "/api/settings/tmdb",
+      "expectedStatus": 200,
+      "status": 200,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    },
+    {
+      "method": "POST",
+      "route": "/api/settings/tmdb/test",
+      "request": "/api/settings/tmdb/test",
+      "expectedStatus": 400,
+      "status": 400,
+      "category": "pass",
+      "seconds": 0.008,
+      "missingOrTypeChanged": [],
+      "notes": []
+    }
+  ]
+}

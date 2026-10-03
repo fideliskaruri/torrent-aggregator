@@ -1,11 +1,11 @@
 {
-  "routes": 93,
-  "webRoutes": 83,
+  "routes": 96,
+  "webRoutes": 86,
   "serverOnly": 10,
-  "capturedRoutePatterns": 45,
+  "capturedRoutePatterns": 48,
   "fromSourceOnly": 48,
-  "captures": 63,
-  "schemas": 63,
+  "captures": 66,
+  "schemas": 66,
   "uniqueTSMismatches": [
     "/api/title/{workKey} $.ids.anilist missing-required",
     "/api/title/{workKey} $.ids.mal missing-required",
@@ -18,7 +18,7 @@
     "All bodies recursively capped at 20",
     "All non-mutating route patterns covered",
     "No duplicate method/path",
-    "No mutating capture methods",
+    "Only allowlisted read probes and isolated empty-folder scans captured",
     "Every capture has a schema"
   ],
   "success": true

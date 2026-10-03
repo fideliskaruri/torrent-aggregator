@@ -17,7 +17,10 @@ foreach($file in $files){
         if(!$c.ContainsKey($key)){throw "$($file.Name) missing $key"}
     }
     Check-Arrays $c.body
-    if($c.method -ne 'GET' -and $c.path -ne '/api/artwork' -and $c.path -ne '/api/library/backfill-estimate' -and $c.path -ne '/api/settings/tmdb/test' -and $c.path -notmatch '^/api/settings/sources/[^/]+/test$'){
+    $isolatedScan = $c.method -eq 'POST' -and $c.path -eq '/api/library/imports/scan' -and
+        $c.evidence -eq 'Real HTTP response from isolated rebuild on 3966; not a legacy capture.' -and
+        $c.requestBody.path -eq 'D:\code\memtest\apic2\empty-import'
+    if(!$isolatedScan -and $c.method -ne 'GET' -and $c.path -ne '/api/artwork' -and $c.path -ne '/api/library/backfill-estimate' -and $c.path -ne '/api/settings/tmdb/test' -and $c.path -notmatch '^/api/settings/sources/[^/]+/test$'){
         throw "Unexpected mutation in captures: $($c.method) $($c.path)"
     }
 }
@@ -33,10 +36,10 @@ $unique=@($findings|ForEach-Object{foreach($finding in $_.findings){$_.route+' '
 $report=[ordered]@{
     routes=$routes.Count;webRoutes=@($routes|Where-Object scope -eq 'web').Count
     serverOnly=@($routes|Where-Object scope -eq 'server only').Count
-    capturedRoutePatterns=@($routes|Where-Object evidence -eq 'captured').Count
-    fromSourceOnly=@($routes|Where-Object evidence -ne 'captured').Count
+    capturedRoutePatterns=@($routes|Where-Object evidence -like 'captured*').Count
+    fromSourceOnly=@($routes|Where-Object evidence -notlike 'captured*').Count
     captures=$files.Count;schemas=$shapes.captures.Count;uniqueTSMismatches=$unique
-    checks=@('All capture JSON parsed','All bodies recursively capped at 20','All non-mutating route patterns covered','No duplicate method/path','No mutating capture methods','Every capture has a schema')
+    checks=@('All capture JSON parsed','All bodies recursively capped at 20','All non-mutating route patterns covered','No duplicate method/path','Only allowlisted read probes and isolated empty-folder scans captured','Every capture has a schema')
     success=$true
 }
 $report|ConvertTo-Json -Depth 20|Set-Content "$out\verification.json" -Encoding utf8
