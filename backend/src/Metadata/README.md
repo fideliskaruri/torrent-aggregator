@@ -23,6 +23,10 @@ payload file writes, or additional hosted service.
 - Work IDs survive verified-link enrichment and refresh. Ordered names retain English,
   original, romaji, native and synonym labels with link provenance. Equal names supplied
   by different providers may retain separate provenance, as the data model specifies.
+  Refresh stays anchored to the requested verified identity, including converted works.
+  An enrichment identity already claimed by another work remains suggested, rather
+  than failing the refresh or silently moving targets between works. A conflicted
+  commit is re-read and merged once before a refresh failure is returned.
 - Season/episode snapshots include provider identifiers, runtime, nullable air times and
   day/instant precision. Specials have no absolute number. Anime sequel/cour chains
   overlay listing names/stills; incomplete walks and unknown counts are provisional.

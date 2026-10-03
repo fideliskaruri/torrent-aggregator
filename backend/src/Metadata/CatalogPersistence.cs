@@ -5,7 +5,8 @@ namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
-    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct, bool listing = false)
+    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct, bool listing = false,
+        string? anchorWorkId = null)
     {
         await commits.WaitAsync(ct);
         try
@@ -15,8 +16,13 @@ internal sealed partial class MetadataService
                 proposed.Links.Any(p => p.Status == LinkStatus.Verified && l.Provider == p.Provider &&
                     l.ExternalId == p.ExternalId && l.ProviderKind == p.ProviderKind))
                 .Select(l => l.WorkId).Distinct().ToArray();
-            if (matchingWorkIds.Length > 1) return null;
-            var previous = matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
+            var primary = proposed.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified);
+            anchorWorkId ??= primary is null ? null : existingLinks.FirstOrDefault(l =>
+                l.Status == LinkStatus.Verified && SameId(l,
+                    new(primary.Provider, primary.ExternalId, primary.ProviderKind)))?.WorkId;
+            if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
+            var previous = anchorWorkId is not null ? await store.SnapshotAsync(anchorWorkId, ct) :
+                matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
             if (listing && previous is not null) return previous;
             if (previous is null)
             {
@@ -42,8 +48,12 @@ internal sealed partial class MetadataService
                     l.ProviderKind == link.ProviderKind && l.ExternalId == link.ExternalId);
                 var id = old?.Id ?? ProviderHttp.Id(work.Id + ":" + link.Provider + ":" + link.ProviderKind + ":" + link.ExternalId);
                 linkMap[link.Id] = id;
+                var claimedElsewhere = existingLinks.Any(l => l.WorkId != work.Id &&
+                    l.Status == LinkStatus.Verified && l.Provider == link.Provider &&
+                    l.ProviderKind == link.ProviderKind && l.ExternalId == link.ExternalId);
                 links.Add(link with { Id = id, WorkId = work.Id, SeasonId = null,
-                    Status = old?.Status == LinkStatus.Rejected ? LinkStatus.Rejected : link.Status,
+                    Status = old?.Status == LinkStatus.Rejected ? LinkStatus.Rejected :
+                        claimedElsewhere ? LinkStatus.Suggested : link.Status,
                     IsPrimary = oldPrimary is null ? link.IsPrimary : oldPrimary.Id == id,
                     CreatedAt = old?.CreatedAt ?? now });
             }

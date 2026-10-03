@@ -307,7 +307,10 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         await SuggestLinksAsync(builder, ct);
         builder.Work = builder.Work with { NumberingVersion = map.Version,
             RefreshedAt = builder.Complete ? builder.Now : builder.Now.AddHours(-1) };
-        var persisted = await PersistAsync(builder.Build(), ct);
+        var proposal = builder.Build();
+        var persisted = await PersistAsync(proposal, ct, anchorWorkId: known?.WorkId);
+        if (persisted is null)
+            persisted = await PersistAsync(proposal, ct, anchorWorkId: known?.WorkId);
         if (persisted is null) return Missing("catalog_conflict", "This title changed while it was being refreshed. Try again.", false);
         return new(await WithPremiereAsync(persisted, ct), answer.Failure,
             builder.Complete && persisted.Work.RefreshedAt is not null, builder.Stale);
