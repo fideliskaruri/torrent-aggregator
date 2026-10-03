@@ -929,8 +929,6 @@ export default function WatchlistPage() {
                       className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
                     />
                   ) : null}
-                  <WatchStateChip state={item.watchState} nextUp={item.jellyfinNextUp}
-                    className="absolute bottom-1 left-1 z-[2] max-w-[calc(100%-0.5rem)] truncate" />
                 </MediaPoster>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-2.5">
@@ -974,6 +972,8 @@ export default function WatchlistPage() {
                           </p>
                         </>
                       )}
+                      {/* Beside the poster, not on it: a 72px poster clips the label. */}
+                      <WatchStateChip state={item.watchState} nextUp={item.jellyfinNextUp} className="mt-1.5" />
                     </div>
                     {readOnly ? null : <Button
                       type="button"
