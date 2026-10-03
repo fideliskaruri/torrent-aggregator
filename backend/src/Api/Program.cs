@@ -41,6 +41,7 @@ TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory)
 builder.Services.AddAccess();
 builder.Services.AddDevSources();
 builder.Services.AddCatalog();
+builder.Services.AddDevEngine(dataDirectory);
 var app = builder.Build();
 try
 {
@@ -52,6 +53,7 @@ try
     await app.UseAccessAsync();
     app.MapDevSources();
     app.MapCatalog();
+    app.MapDevEngine();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>

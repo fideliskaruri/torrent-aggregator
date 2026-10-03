@@ -1,0 +1,951 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
+using MonoTorrent;
+using MonoTorrent.BEncoding;
+using MonoTorrent.Client;
+using MonoTorrent.Connections;
+using TorrentFlow.Domain;
+using Settings = TorrentFlow.Domain.EngineSettings;
+using TorrentFile = TorrentFlow.Domain.TorrentFile;
+
+namespace TorrentFlow.Engine;
+
+/// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
+public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
+{
+    private sealed class Entry(TorrentManager manager, string id, bool probe)
+    {
+        public TorrentManager Manager { get; } = manager;
+        public string Id { get; set; } = id;
+        public bool Probe { get; set; } = probe;
+        public bool Run { get; set; }
+    }
+
+    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly Dictionary<string, Entry> entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProbeHandle> handles = [];
+    private readonly Dictionary<string, MetadataWaitRequest> waits = [];
+    private readonly Dictionary<string, int> waitReservations = [];
+    private readonly Dictionary<string, EngineAdmissionClaim> claims = [];
+    private readonly Dictionary<string, string> registered = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, EngineFilingPermit> permits = [];
+    private readonly Action<string> log;
+    private readonly string directory;
+    private readonly int probeSlots;
+    private Settings settings = null!;
+    private ClientEngine client = null!;
+    private bool shuttingDown;
+
+    // 3.0.2 exposes metadata-only start only internally. This is the same entry point
+    // DownloadMetadataAsync uses, but retains our visible manager for peer measurement.
+    private static readonly MethodInfo MetadataStart = typeof(TorrentManager).GetMethod("StartAsync",
+        BindingFlags.Instance | BindingFlags.NonPublic, [typeof(bool)])
+        ?? throw new NotSupportedException("MonoTorrent metadata-only API changed. Refuse payload-capable probes.");
+    private static readonly PropertyInfo InfoMetadata = typeof(Torrent).GetProperty("InfoMetadata",
+        BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new NotSupportedException("MonoTorrent metadata cache API changed.");
+
+    public MonoTorrentEngine(string dataDirectory, Action<string> log, int probeSlots = 10)
+    {
+        directory = Path.Combine(dataDirectory, "engine");
+        this.log = log;
+        this.probeSlots = Math.Clamp(probeSlots, 1, 10);
+    }
+
+    public int ListenPort => settings.ListenPort;
+    public string CacheDirectory => directory;
+    public object PhysicalStatus => new
+    {
+        listenPort = settings.ListenPort, dhtState = client.Dht.State.ToString(), dhtNodes = client.Dht.NodeCount,
+        globalConnections = settings.GlobalPeers, payloadConnections = settings.PerTorrentPeers,
+        probeConnections = Math.Min(12, settings.ProbePeers), probeSlots,
+        localDiscovery = settings.LocalDiscovery, portForwarding = settings.Upnp,
+    };
+
+    public async Task InitializeAsync(Settings configuration, Func<int, CancellationToken, Task> persistPort,
+        bool restoreDevState, CancellationToken ct)
+    {
+        Directory.CreateDirectory(directory);
+        var port = configuration.ListenPort;
+        if (port == 0 || !PortAvailable(port))
+        {
+            var old = port;
+            do { port = FreePort(); } while (!PortAvailable(port));
+            log($"Engine listen port {old} {(old == 0 ? "unassigned" : "unavailable")}; using and persisting {port}.");
+            await persistPort(port, ct);
+        }
+        settings = configuration with { ListenPort = port };
+        var factories = Factories.Default.WithHttpClientCreator(family =>
+        {
+            var http = Factories.Default.CreateHttpClient(family);
+            http.MaxResponseContentBufferSize = 32 * 1024 * 1024;
+            return http;
+        });
+        var statePath = Path.Combine(directory, "dev-engine.state");
+        var devRuns = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (restoreDevState && File.Exists(statePath))
+        {
+            var saved = BEncodedDictionary.Decode<BEncodedDictionary>(await File.ReadAllBytesAsync(statePath, ct));
+            foreach (var torrent in ((BEncodedList)saved["Torrents"]).Cast<BEncodedDictionary>())
+                devRuns[NormalizeHash(((BEncodedString)torrent["MagnetLink"]).Text)] =
+                    !torrent.TryGetValue("DevRun", out var run) || ((BEncodedNumber)run).Number != 0;
+        }
+        client = restoreDevState && File.Exists(statePath)
+            ? await ClientEngine.RestoreStateAsync(statePath, factories)
+            : new ClientEngine(BuildSettings(), factories);
+        await client.UpdateSettingsAsync(BuildSettings());
+        foreach (var manager in client.Torrents.ToArray())
+        {
+            var hash = Hash(manager);
+            var entry = new Entry(manager, hash, false) { Run = devRuns.GetValueOrDefault(hash, true) };
+            entries.Add(hash, entry);
+            registered[hash] = hash;
+            WatchCompletion(manager);
+            if (entry.Run)
+            {
+                if (!manager.HasMetadata) await StartMetadataAsync(manager);
+                else await manager.StartAsync();
+            }
+            log($"Restored engine artifact for {hash}, verified progress {manager.PartialProgress:F2}%.");
+        }
+        log($"Engine ready on {port}; global peers {settings.GlobalPeers}, payload peers {settings.PerTorrentPeers}, probe slots {probeSlots}.");
+    }
+
+    private MonoTorrent.Client.EngineSettings BuildSettings() => new EngineSettingsBuilder
+    {
+        CacheDirectory = directory,
+        AutoSaveLoadDhtCache = settings.Dht,
+        AutoSaveLoadFastResume = true,
+        AutoSaveLoadMagnetLinkMetadata = true,
+        AllowPortForwarding = settings.Upnp,
+        AllowLocalPeerDiscovery = settings.LocalDiscovery,
+        MaximumConnections = settings.GlobalPeers,
+        MaximumHalfOpenConnections = settings.HalfOpenConnections,
+        MaximumOpenFiles = settings.OpenFiles,
+        DiskCacheBytes = checked((int)Math.Min(int.MaxValue, settings.DiskCacheBytes)),
+        DiskCachePolicy = MonoTorrent.PieceWriter.CachePolicy.WritesOnly,
+        AllowedEncryption = [EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText],
+        ListenEndPoints = new() { ["ipv4"] = new(IPAddress.Any, settings.ListenPort) },
+        DhtEndPoint = settings.Dht ? new(IPAddress.Any, settings.ListenPort) : null,
+        WebSeedDelay = TimeSpan.FromSeconds(2),
+        WebSeedSpeedTrigger = 512 * 1024,
+        UsePartialFiles = false,
+    }.ToSettings();
+
+    private TorrentSettings TorrentSettings(bool probe) => new TorrentSettingsBuilder
+    {
+        MaximumConnections = probe ? Math.Min(12, settings.ProbePeers) : settings.PerTorrentPeers,
+        AllowDht = settings.Dht, AllowPeerExchange = settings.Pex,
+        AllowInitialSeeding = false, CreateContainingDirectory = false,
+    }.ToSettings();
+
+    public static string NormalizeHash(string magnetOrHash)
+    {
+        var link = Link(magnetOrHash);
+        return link.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+    }
+
+    private static MagnetLink Link(string value) => MagnetLink.Parse(
+        value.Length == 40 && value.All(Uri.IsHexDigit) ? $"magnet:?xt=urn:btih:{value}" : value);
+    private static string Hash(TorrentManager manager) => manager.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+    private static Task StartMetadataAsync(TorrentManager manager) => (Task)MetadataStart.Invoke(manager, [true])!;
+    private static Failure Fail(string code, string message) => new(code, message, null, false);
+    private static EngineResult Rejected(string code, string message) => new(false, null, Fail(code, message));
+    private static ImmutableArray<TorrentFile>? Files(TorrentManager manager) => !manager.HasMetadata ? null :
+        [.. manager.Files.Select((f, i) => new TorrentFile(i, f.Path, f.Length, f.OffsetInTorrent))];
+
+    public Task<ProbeAttachment> AttachProbeAsync(Candidate candidate, CancellationToken ct) =>
+        AttachAsync(candidate, DateTimeOffset.UtcNow.AddMinutes(2), ct);
+
+    private async Task<ProbeAttachment> AttachAsync(Candidate candidate, DateTimeOffset expiry, CancellationToken ct)
+    {
+        var link = Link(candidate.Release.Magnet ?? candidate.Release.Id);
+        var hash = link.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        // Network metadata fetch runs outside the lifecycle lock and never writes payload.
+        Torrent? torrent = null;
+        if (candidate.Release.TorrentUri is { } uri) torrent = await TorrentMetadata.LoadAsync(uri, hash, ct);
+        await gate.WaitAsync(ct);
+        try
+        {
+            ThrowIfStopped();
+            PruneClaims();
+            if (registered.ContainsKey(hash) || claims.Values.Any(c => c.Hash == hash))
+            {
+                if (!entries.TryGetValue(hash, out var live) || live.Probe)
+                    return new(null, null, Fail("owned_hash", "This hash is reserved by a download."));
+                var liveHandle = new ProbeHandle(Guid.NewGuid().ToString("N"), hash, false, true, expiry);
+                handles.Add(liveHandle.Token, liveHandle);
+                return new(liveHandle, Files(live.Manager), null);
+            }
+            if (!entries.TryGetValue(hash, out var entry))
+            {
+                if (entries.Values.Count(e => e.Probe) >= probeSlots)
+                    return new(null, null, Fail("probe_capacity", "All metadata inspection slots are in use. Try again when one finishes."));
+                var path = Path.Combine(directory, "probes", hash);
+                Directory.CreateDirectory(path);
+                var manager = torrent is null ? await client.AddAsync(link, path, TorrentSettings(true))
+                    : await client.AddAsync(torrent, path, TorrentSettings(true));
+                entry = new(manager, hash, true);
+                entries.Add(hash, entry);
+                await ConfigureTrackersAsync(manager);
+                if (manager.HasMetadata)
+                {
+                    foreach (var file in manager.Files) await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+                    await manager.StartAsync();
+                }
+                else await StartMetadataAsync(manager);
+            }
+            var handle = new ProbeHandle(Guid.NewGuid().ToString("N"), hash, true, false, expiry);
+            handles.Add(handle.Token, handle);
+            return new(handle, Files(entry.Manager), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<SwarmEvidence> ObserveProbeAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct) =>
+        (await ObserveMetadataProbeAsync(handle, window, ct)).Evidence;
+
+    public async Task<MetadataProbeMeasurement> ObserveMetadataProbeAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct)
+    {
+        if (window <= TimeSpan.Zero || window > TimeSpan.FromSeconds(60)) throw new ArgumentOutOfRangeException(nameof(window));
+        var clock = Stopwatch.StartNew();
+        var firstSample = true;
+        var peerBytes = new Dictionary<string, long>();
+        var sendingPeers = new HashSet<string>();
+        long baseline = 0, bytes = 0, protocolBaseline = 0, protocolBytes = 0;
+        int peers = 0, seeders = 0, senders = 0;
+        ImmutableArray<TorrentFile>? files = null;
+        while (clock.Elapsed < window)
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                if (!handles.TryGetValue(handle.Token, out var current) || current != handle ||
+                    !entries.TryGetValue(handle.Hash, out var entry) || handle.ExpiresAt <= DateTimeOffset.UtcNow)
+                    throw new InvalidOperationException("The probe handle expired or was consumed.");
+                var manager = entry.Manager;
+                if (firstSample)
+                {
+                    baseline = manager.Monitor.DataBytesReceived;
+                    protocolBaseline = manager.Monitor.ProtocolBytesReceived;
+                }
+                bytes = Math.Max(0, manager.Monitor.DataBytesReceived - baseline);
+                protocolBytes = Math.Max(0, manager.Monitor.ProtocolBytesReceived - protocolBaseline);
+                var connected = await manager.GetPeersAsync();
+                peers = Math.Max(peers, connected.Count);
+                seeders = Math.Max(seeders, connected.Count(p => p.IsSeeder));
+                foreach (var peer in connected)
+                {
+                    var key = peer.Uri.ToString();
+                    if (!firstSample && peer.Monitor.DataBytesReceived > peerBytes.GetValueOrDefault(key))
+                        sendingPeers.Add(key);
+                    peerBytes[key] = peer.Monitor.DataBytesReceived;
+                }
+                senders = sendingPeers.Count;
+                firstSample = false;
+                files = Files(manager);
+                if (entry.Probe && manager.HasMetadata)
+                    foreach (var file in manager.Files.Where(f => f.Priority != Priority.DoNotDownload))
+                        await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+            }
+            finally { gate.Release(); }
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(250, Math.Max(1, (window - clock.Elapsed).TotalMilliseconds))), ct);
+        }
+        var now = DateTimeOffset.UtcNow;
+        // Metadata-only cannot establish payload health. Zero deliberately requested bytes is NOT Dead.
+        var evidence = new SwarmEvidence(handle.Hash, HealthBand.Unknown, files, peers, seeders, senders, bytes, clock.Elapsed,
+            null, handle.ObservesLiveTransfer ? "Live transfer sampled without changing its selection." :
+                files is null ? "No metadata in the observation window." : "Metadata obtained; no payload requested.",
+            now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, handle);
+        return new(evidence, protocolBytes);
+    }
+
+    public async Task ReleaseProbeAsync(ProbeHandle handle, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle) return;
+            handles.Remove(handle.Token);
+            waits.Remove(handle.Token);
+            if (owned.CreatedByProbe && !handles.Values.Any(h => h.Hash == owned.Hash) &&
+                entries.TryGetValue(owned.Hash, out var entry) && entry.Probe)
+            {
+                await RemoveManagerAsync(entry, false);
+                entries.Remove(owned.Hash);
+                var path = Path.Combine(directory, "probes", owned.Hash);
+                if (Directory.Exists(path)) Directory.Delete(path, true);
+            }
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> ClaimAdmissionAsync(EngineAdmissionClaim claim, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            PruneClaims();
+            if (claim.ExpiresAt <= DateTimeOffset.UtcNow || claim.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(90))
+                return Rejected("claim_expired", "Admission reservations last at most 90 seconds.");
+            if (registered.TryGetValue(claim.Hash, out var id) && id != claim.DownloadId ||
+                claims.Values.Any(c => c.Hash == claim.Hash && c.Token != claim.Token) ||
+                entries.TryGetValue(claim.Hash, out var entry) && entry.Probe &&
+                    (claim.FromProbe is null || !handles.TryGetValue(claim.FromProbe.Token, out var owned) || owned != claim.FromProbe))
+                return Rejected("owned_hash", "This hash already has another owner.");
+            claims[claim.Token] = claim;
+            return new(true, null, null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task ReleaseAdmissionClaimAsync(string token, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try { claims.Remove(token); }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> AdmitFromProbeAsync(ProbeHandle handle, EngineAdmission admission, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (admission.Download.Hash != handle.Hash ||
+                NormalizeHash(admission.Candidate.Release.Magnet ?? admission.Candidate.Release.Id) != handle.Hash)
+                return Rejected("hash_mismatch", "The metadata capability does not match this download.");
+            if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle || !owned.CreatedByProbe ||
+                !entries.TryGetValue(handle.Hash, out var entry) || !entry.Probe || !entry.Manager.HasMetadata)
+                return Rejected("invalid_handle", "The metadata capability is no longer available.");
+            var claimFailure = ValidateAdmission(admission);
+            if (claimFailure is not null) return new(false, null, claimFailure);
+            if (claims.TryGetValue(admission.AdmissionToken, out var reserved) && reserved.FromProbe != handle)
+                return Rejected("claim_mismatch", "The admission reservation belongs to another metadata capability.");
+            // Transfer the SAME manager, drain and force a full recheck. No cache-invalidating second manager.
+            await entry.Manager.StopAsync(TimeSpan.Zero);
+            await CacheMetadataAsync(entry.Manager);
+            try { await BindAsync(entry.Manager, admission.Files); }
+            catch
+            {
+                await RemoveManagerAsync(entry, false);
+                entries.Remove(handle.Hash);
+                foreach (var token in handles.Values.Where(h => h.Hash == handle.Hash).Select(h => h.Token).ToArray())
+                { handles.Remove(token); waits.Remove(token); }
+                throw;
+            }
+            await entry.Manager.SetNeedsHashCheckAsync();
+            entry.Probe = false;
+            entry.Id = admission.Download.Id;
+            WatchCompletion(entry.Manager);
+            registered[handle.Hash] = entry.Id;
+            foreach (var token in handles.Values.Where(h => h.Hash == handle.Hash).Select(h => h.Token).ToArray())
+            { handles.Remove(token); waits.Remove(token); }
+            claims.Remove(admission.AdmissionToken);
+            entry.Run = admission.Download.Intent == DownloadIntent.Run;
+            await entry.Manager.UpdateSettingsAsync(TorrentSettings(false));
+            if (entry.Run) await entry.Manager.StartAsync();
+            return new(true, await SnapshotAsync(entry), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> StartAsync(EngineAdmission admission, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            ThrowIfStopped();
+            var failure = ValidateAdmission(admission);
+            if (failure is not null) return new(false, null, failure);
+            var hash = NormalizeHash(admission.Candidate.Release.Magnet ?? admission.Download.Hash);
+            if (hash != admission.Download.Hash) return Rejected("hash_mismatch", "The magnet does not match the admitted hash.");
+            if (entries.TryGetValue(hash, out var existing))
+                return existing.Probe ? Rejected("probe_owned", "Transfer the metadata capability before starting payload.")
+                    : new(true, await SnapshotAsync(existing), null);
+            var magnet = Link(admission.Candidate.Release.Magnet ?? hash);
+            var metadata = Path.Combine(directory, $"{hash}.torrent");
+            TorrentManager manager;
+            if (File.Exists(metadata))
+                manager = await client.AddAsync(await Torrent.LoadAsync(metadata), Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            else if (admission.Candidate.Release.TorrentUri is { } uri)
+                manager = await client.AddAsync(await TorrentMetadata.LoadAsync(uri, hash, ct), Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            else
+                manager = await client.AddAsync(magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            var entry = new Entry(manager, admission.Download.Id, false) { Run = admission.Download.Intent == DownloadIntent.Run };
+            entries.Add(hash, entry);
+            WatchCompletion(manager);
+            registered[hash] = entry.Id;
+            claims.Remove(admission.AdmissionToken);
+            await ConfigureTrackersAsync(manager);
+            if (manager.HasMetadata)
+            {
+                await CacheMetadataAsync(manager);
+                try { await BindAsync(manager, admission.Files); }
+                catch
+                {
+                    await RemoveManagerAsync(entry, true);
+                    entries.Remove(hash);
+                    throw;
+                }
+                if (entry.Run) await manager.StartAsync();
+            }
+            else
+            {
+                // Without metadata there is no safe index-to-path binding. Do not admit payload.
+                await RemoveManagerAsync(entry, true);
+                entries.Remove(hash);
+                return Rejected("metadata_required", "Obtain the file list before binding a download.");
+            }
+            return new(true, await SnapshotAsync(entry), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    private Failure? ValidateAdmission(EngineAdmission admission)
+    {
+        PruneClaims();
+        var hash = admission.Download.Hash;
+        if (admission.Download.AdmissionToken != admission.AdmissionToken)
+            return Fail("claim_mismatch", "The admission token does not match the durable download.");
+        if (permits.Values.Any(p => p.DownloadId == admission.Download.Id))
+            return Fail("filing", "File publication is in progress.");
+        if (registered.TryGetValue(hash, out var id))
+            return id == admission.Download.Id ? null : Fail("owned_hash", "This hash belongs to another download.");
+        if (!claims.TryGetValue(admission.AdmissionToken, out var claim) || claim.Hash != hash ||
+            claim.DownloadId != admission.Download.Id)
+            return Fail("claim_required", "Reserve this hash before committing admission.");
+        return null;
+    }
+
+    private async Task BindAsync(TorrentManager manager, ImmutableArray<FileBinding> bindings)
+    {
+        if (bindings.Length != manager.Files.Count || bindings.Select(b => b.FileIndex).Distinct().Count() != bindings.Length ||
+            bindings.Select(b => Path.GetFullPath(b.AbsolutePath)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != bindings.Length ||
+            bindings.Any(b => b.FileIndex < 0 || b.FileIndex >= manager.Files.Count || !Path.IsPathFullyQualified(b.AbsolutePath)))
+            throw new ArgumentException("Bind every torrent file once to an absolute Library path.");
+        var occupied = entries.Values.Where(e => !ReferenceEquals(e.Manager, manager))
+            .SelectMany(e => e.Manager.Files).Select(f => Path.GetFullPath(f.FullPath))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (bindings.Any(b => occupied.Contains(Path.GetFullPath(b.AbsolutePath))))
+            throw new ArgumentException("A payload path is already bound to another torrent.");
+        foreach (var binding in bindings)
+        {
+            var file = manager.Files[binding.FileIndex];
+            await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+            if (!string.Equals(file.FullPath, binding.AbsolutePath, StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(binding.AbsolutePath)!);
+                await manager.MoveFileAsync(file, binding.AbsolutePath);
+            }
+        }
+        foreach (var binding in bindings.Where(b => b.Selected))
+            await manager.SetFilePriorityAsync(manager.Files[binding.FileIndex], Priority.Normal);
+        PhysicalFiles.PrepareBoundaries(manager);
+    }
+
+    public async Task<EngineResult> SetIntentAsync(string downloadId, bool run, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == downloadId);
+            if (entry is null) return Rejected("not_attached", "The download is not attached. Recover its bindings before resuming.");
+            entry.Run = run;
+            if (!run) await entry.Manager.StopAsync(TimeSpan.Zero);
+            else if (!SelectedComplete(entry.Manager)) await entry.Manager.StartAsync();
+            return new(true, await SnapshotAsync(entry), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> SelectAsync(string downloadId, ImmutableArray<FileBinding> files, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == downloadId);
+            if (entry is null) return Rejected("not_attached", "Recover the download before changing its selection.");
+            if (permits.Values.Any(p => p.DownloadId == downloadId)) return Rejected("filing", "File publication is in progress.");
+            await entry.Manager.StopAsync(TimeSpan.Zero);
+            await BindAsync(entry.Manager, files);
+            if (entry.Run && !SelectedComplete(entry.Manager)) await entry.Manager.StartAsync();
+            return new(true, await SnapshotAsync(entry), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineDrainResult> DetachAsync(string downloadId, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == downloadId);
+            if (pair.Value is not null)
+            {
+                await RemoveManagerAsync(pair.Value, true);
+                entries.Remove(pair.Key);
+            }
+            return new(downloadId, true, true, null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var snapshots = ImmutableArray.CreateBuilder<EngineSnapshot>();
+            foreach (var entry in entries.Values.Where(e => !e.Probe))
+            {
+                if (entry.Run && SelectedComplete(entry.Manager))
+                {
+                    await entry.Manager.StopAsync(TimeSpan.Zero);
+                    entry.Run = false;
+                }
+                snapshots.Add(await SnapshotAsync(entry));
+            }
+            return snapshots.ToImmutable();
+        }
+        finally { gate.Release(); }
+    }
+
+    private static bool SelectedComplete(TorrentManager manager) => manager.HasMetadata &&
+        manager.Files.Any(f => f.Priority != Priority.DoNotDownload) &&
+        manager.Files.Where(f => f.Priority != Priority.DoNotDownload).All(f => f.BitField.AllTrue);
+
+    private static async Task<EngineSnapshot> SnapshotAsync(Entry entry)
+    {
+        var manager = entry.Manager;
+        var peers = await manager.GetPeersAsync();
+        var files = manager.Files.Select((f, i) => new EngineFileSnapshot(i, f.Length,
+            CompletedFileBytes(manager, f),
+            PhysicalFiles.AllocatedBytes(f.FullPath),
+            f.Priority != Priority.DoNotDownload, f.FullPath, f.BitField.AllTrue)).ToImmutableArray();
+        var selected = files.Where(f => f.Selected).ToArray();
+        return new(entry.Id, Hash(manager), manager.HasMetadata, true, SelectedComplete(manager),
+            !manager.HasMetadata, false, selected.Sum(f => f.Bytes), selected.Sum(f => f.CompletedBytes),
+            manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
+            DateTimeOffset.UtcNow, manager.Error is null ? null : Fail("engine_error", manager.Error.Exception.Message));
+    }
+
+    private static long CompletedFileBytes(TorrentManager manager, ITorrentManagerFile file)
+    {
+        if (!manager.HasMetadata || file.Length == 0) return 0;
+        var pieceLength = manager.Torrent!.PieceLength;
+        long complete = 0;
+        for (var piece = file.StartPieceIndex; piece <= file.EndPieceIndex; piece++)
+            if (manager.Bitfield[piece])
+                complete += Math.Max(0, Math.Min(file.OffsetInTorrent + file.Length, ((long)piece + 1) * pieceLength)
+                    - Math.Max(file.OffsetInTorrent, (long)piece * pieceLength));
+        return complete;
+    }
+
+    public async Task<MetadataWaitAttachment> AttachMetadataWaitAsync(MetadataWaitRequest request, CancellationToken ct)
+    {
+        var hash = NormalizeHash(request.Candidate.Release.Magnet ?? request.Candidate.Release.Id);
+        if (request.DeadlineAt <= DateTimeOffset.UtcNow)
+            return new(null, request.TargetId, hash, request.DeadlineAt, null, Fail("expired", "The metadata wait deadline already passed."));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var shared = waits.FirstOrDefault(w => w.Value.TargetId == request.TargetId &&
+                w.Value.Candidate.Release.Id == request.Candidate.Release.Id);
+            if (shared.Value is not null && handles.TryGetValue(shared.Key, out var existing) &&
+                existing.ExpiresAt > DateTimeOffset.UtcNow && entries.TryGetValue(hash, out var entry))
+                return new(existing, request.TargetId, hash, existing.ExpiresAt, Files(entry.Manager), null);
+            if (waits.Values.Count(w => w.TargetId == request.TargetId) + waitReservations.GetValueOrDefault(request.TargetId) >= 3)
+                return new(null, request.TargetId, request.Candidate.Release.Id, request.DeadlineAt, null,
+                    Fail("metadata_wait_capacity", "This target already has three metadata waits."));
+            waitReservations[request.TargetId] = waitReservations.GetValueOrDefault(request.TargetId) + 1;
+        }
+        finally { gate.Release(); }
+        var deadline = request.DeadlineAt < DateTimeOffset.UtcNow.AddMinutes(45) ? request.DeadlineAt : DateTimeOffset.UtcNow.AddMinutes(45);
+        try
+        {
+            var attachment = await AttachAsync(request.Candidate, deadline, ct);
+            if (attachment.Handle is { } handle)
+            {
+                await gate.WaitAsync(CancellationToken.None);
+                try { waits[handle.Token] = request with { DeadlineAt = deadline }; }
+                finally { gate.Release(); }
+            }
+            return new(attachment.Handle, request.TargetId, hash, deadline, attachment.Files, attachment.Failure);
+        }
+        finally
+        {
+            await gate.WaitAsync(CancellationToken.None);
+            try
+            {
+                var remaining = waitReservations[request.TargetId] - 1;
+                if (remaining == 0) waitReservations.Remove(request.TargetId);
+                else waitReservations[request.TargetId] = remaining;
+            }
+            finally { gate.Release(); }
+        }
+    }
+
+    public async Task<MetadataWaitAttachment> ObserveMetadataWaitAsync(string token, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!waits.TryGetValue(token, out var wait) || !handles.TryGetValue(token, out var handle) ||
+                handle.ExpiresAt <= DateTimeOffset.UtcNow || !entries.TryGetValue(handle.Hash, out var entry))
+                return new(null, "", "", DateTimeOffset.UtcNow, null, Fail("expired", "The metadata wait ended."));
+            return new(handle, wait.TargetId, handle.Hash, handle.ExpiresAt, Files(entry.Manager), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task ReleaseMetadataWaitAsync(string token, CancellationToken ct)
+    {
+        ProbeHandle? handle;
+        await gate.WaitAsync(ct);
+        try { handle = handles.GetValueOrDefault(token); }
+        finally { gate.Release(); }
+        if (handle is not null) await ReleaseProbeAsync(handle, ct);
+    }
+
+    // Phase 4.3 owns per-file rebind proof. Until then use the designed whole-selected-set fallback.
+    public async Task<EngineFilingPermit> PrepareFilingAsync(EngineFilingRequest request, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == request.DownloadId);
+            if (pair.Value is null || !SelectedComplete(pair.Value.Manager))
+                return new("", request.DownloadId, [], false, Fail("whole_set_required", "Wait until every selected file completes before filing."));
+            if (request.FinalBindings.IsDefaultOrEmpty || request.FinalBindings.Any(b =>
+                b.FileIndex < 0 || b.FileIndex >= pair.Value.Manager.Files.Count ||
+                !pair.Value.Manager.Files[b.FileIndex].BitField.AllTrue || !Path.IsPathFullyQualified(b.AbsolutePath)))
+                return new("", request.DownloadId, [], false, Fail("invalid_binding", "Every filing binding must name a complete torrent file and an absolute path."));
+            await RemoveManagerAsync(pair.Value, true);
+            entries.Remove(pair.Key);
+            var permit = new EngineFilingPermit(Guid.NewGuid().ToString("N"), request.DownloadId,
+                [.. request.FinalBindings.Select(b => b.FileIndex)], true, null);
+            permits[permit.Token] = permit;
+            return permit;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineFilingPermit> PrepareDeleteAsync(EngineDeleteRequest request, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == request.DownloadId);
+            if (pair.Value is not null)
+            {
+                var manager = pair.Value.Manager;
+                if (request.FileIndices.IsDefaultOrEmpty || request.FileIndices.Any(i => i < 0 || i >= manager.Files.Count))
+                    return new("", request.DownloadId, [], false, Fail("invalid_selection", "Provide valid file indices for deletion."));
+                if (!SelectedComplete(manager) && manager.Files.Select((f, i) => (f, i))
+                    .Any(f => f.f.Priority != Priority.DoNotDownload && !request.FileIndices.Contains(f.i)))
+                    return new("", request.DownloadId, request.FileIndices, false,
+                        Fail("shared_pack_busy", "Other selected files are still downloading. Disk deletion must wait."));
+                await RemoveManagerAsync(pair.Value, true);
+                entries.Remove(pair.Key);
+            }
+            var permit = new EngineFilingPermit(Guid.NewGuid().ToString("N"), request.DownloadId, request.FileIndices, true, null);
+            permits[permit.Token] = permit;
+            return permit;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> CompleteFilingAsync(EngineFilingPermit permit, bool published, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!permits.Remove(permit.Token, out var issued) || issued != permit)
+                return Rejected("invalid_permit", "The filing permit is no longer active.");
+            return new(true, null, null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task ApplyQueueAsync(EngineQueuePolicy policy, CancellationToken ct)
+    {
+        foreach (var admission in policy.Admissions) await SetIntentAsync(admission.DownloadId, admission.Run, ct);
+    }
+
+    public async Task RecoverAsync(ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> files, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            foreach (var download in downloads) registered[download.Hash] = download.Id;
+        }
+        finally { gate.Release(); }
+        foreach (var download in downloads.Where(d => d.Intent == DownloadIntent.Run))
+        {
+            var candidate = CandidateFor(download.Hash);
+            var bindings = files.Where(f => f.DownloadId == download.Id)
+                .Select(f => new FileBinding(f.FileIndex, f.EnginePath ?? f.PartialPath ??
+                    throw new InvalidDataException("A recovered file has no engine binding."), f.Selected)).ToImmutableArray();
+            await StartAsync(new(download, candidate, bindings, download.AdmissionToken), ct);
+        }
+    }
+
+    public static Candidate CandidateFor(string magnet, string? torrentUri = null)
+    {
+        var hash = NormalizeHash(magnet);
+        var name = Link(magnet).Name ?? hash;
+        var parsed = new ParsedRelease(name, name, null, [], [], [], [], false, false, null,
+            new(null, null, null, null), null, [], false, false, false);
+        var now = DateTimeOffset.UtcNow;
+        return new(new(hash, name, parsed, null, torrentUri, magnet, null, null, null, now, now), [], null);
+    }
+
+    private async Task ConfigureTrackersAsync(TorrentManager manager)
+    {
+        if (manager.TrackerManager.Private) return;
+        foreach (var tier in manager.TrackerManager.Tiers.ToArray())
+            foreach (var tracker in tier.Trackers.Skip(1).ToArray())
+                if (await manager.TrackerManager.RemoveTrackerAsync(tracker))
+                    await manager.TrackerManager.AddTrackerAsync(tracker);
+        var trackers = settings.Trackers.IsDefaultOrEmpty
+            ? ["udp://tracker.opentrackr.org:1337/announce", "udp://open.stealth.si:80/announce",
+                "udp://tracker.torrent.eu.org:451/announce", "https://tracker.gbitt.info/announce"]
+            : settings.Trackers;
+        foreach (var tracker in trackers)
+            if (Uri.TryCreate(tracker, UriKind.Absolute, out var uri)) await manager.TrackerManager.AddTrackerAsync(uri);
+    }
+
+    private async Task CacheMetadataAsync(TorrentManager manager)
+    {
+        if (manager.HasMetadata && manager.Torrent is { } torrent)
+        {
+            var info = (ReadOnlyMemory<byte>)InfoMetadata.GetValue(torrent)!;
+            var metadata = new BEncodedDictionary
+            {
+                ["info"] = BEncodedDictionary.Decode<BEncodedDictionary>(info.Span),
+                ["announce-list"] = new BEncodedList(torrent.AnnounceUrls.Select(tier =>
+                    new BEncodedList(tier.Select(uri => (BEncodedValue)new BEncodedString(uri))))),
+                ["url-list"] = new BEncodedList(torrent.HttpSeeds.Select(uri => (BEncodedValue)new BEncodedString(uri.AbsoluteUri))),
+            }.Encode();
+            await AtomicWriteAsync(Path.Combine(directory, $"{Hash(manager)}.torrent"), metadata);
+            if (manager.MetadataPath != Path.Combine(directory, $"{Hash(manager)}.torrent"))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(manager.MetadataPath)!);
+                await AtomicWriteAsync(manager.MetadataPath, metadata);
+            }
+        }
+    }
+
+    private async Task RemoveManagerAsync(Entry entry, bool keepResume)
+    {
+        await entry.Manager.StopAsync(TimeSpan.Zero);
+        await client.RemoveAsync(entry.Manager, keepResume ? RemoveMode.KeepAllData : RemoveMode.CacheDataOnly);
+    }
+
+    public async Task TickAsync(bool saveDevState, CancellationToken ct)
+    {
+        ProbeHandle[] expired;
+        await gate.WaitAsync(ct);
+        try { expired = handles.Values.Where(h => h.ExpiresAt <= DateTimeOffset.UtcNow).ToArray(); }
+        finally { gate.Release(); }
+        foreach (var handle in expired)
+            if (handle.ExpiresAt <= DateTimeOffset.UtcNow) await ReleaseProbeAsync(handle, ct);
+        await SnapshotAsync(ct);
+        if (saveDevState) await SaveDevStateAsync(ct);
+    }
+
+    public async Task SaveDevStateAsync(CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            byte[] encoded = [];
+            for (var attempt = 0; ; attempt++)
+            {
+                try { encoded = await client.SaveStateAsync(); break; }
+                catch (IOException) when (attempt < 5)
+                {
+                    // 3.0.2's hash-completion resume writer can briefly overlap SaveState.
+                    await Task.Delay(50 * (attempt + 1), ct);
+                }
+            }
+            var state = BEncodedDictionary.Decode<BEncodedDictionary>(encoded);
+            var torrents = (BEncodedList)state["Torrents"];
+            for (var i = torrents.Count - 1; i >= 0; i--)
+            {
+                var torrent = (BEncodedDictionary)torrents[i];
+                var hash = NormalizeHash(((BEncodedString)torrent["MagnetLink"]).Text);
+                if (!entries.TryGetValue(hash, out var entry) || entry.Probe) torrents.RemoveAt(i);
+                else torrent["DevRun"] = new BEncodedNumber(entry.Run ? 1 : 0);
+            }
+            await AtomicWriteAsync(Path.Combine(directory, "dev-engine.state"), state.Encode());
+        }
+        finally { gate.Release(); }
+    }
+
+    private static async Task AtomicWriteAsync(string path, byte[] bytes)
+    {
+        await File.WriteAllBytesAsync(path + ".new", bytes);
+        File.Move(path + ".new", path, true);
+    }
+
+    private void PruneClaims()
+    {
+        foreach (var token in claims.Where(c => c.Value.ExpiresAt <= DateTimeOffset.UtcNow).Select(c => c.Key).ToArray())
+            claims.Remove(token);
+    }
+
+    private void ThrowIfStopped()
+    {
+        if (shuttingDown || client is null) throw new InvalidOperationException("The engine is not running.");
+    }
+
+    private void WatchCompletion(TorrentManager manager)
+    {
+        manager.PieceHashed += (_, _) =>
+        {
+            if (SelectedComplete(manager)) _ = StopCompletedAsync(manager);
+        };
+        manager.TorrentStateChanged += (_, change) =>
+        {
+            if (change.NewState == TorrentState.Seeding)
+                _ = StopCompletedAsync(manager);
+        };
+    }
+
+    private async Task StopCompletedAsync(TorrentManager manager)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (!shuttingDown && entries.TryGetValue(Hash(manager), out var entry) &&
+                !entry.Probe && ReferenceEquals(entry.Manager, manager) && SelectedComplete(manager))
+            {
+                await manager.StopAsync(TimeSpan.Zero);
+                entry.Run = false;
+                log($"Selected files complete for {Hash(manager)}; seeding stopped.");
+            }
+        }
+        catch (Exception ex) { log($"Completion stop failed and will retry on tick: {ex.Message}"); }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ImmutableArray<TorrentFile>> WaitMetadataAsync(ProbeHandle handle, CancellationToken ct)
+    {
+        TorrentManager manager;
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle)
+                throw new InvalidOperationException("The metadata capability was consumed.");
+            manager = entries[handle.Hash].Manager;
+        }
+        finally { gate.Release(); }
+        await manager.WaitForMetadataAsync(ct);
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!handles.ContainsKey(handle.Token)) throw new InvalidOperationException("The metadata capability was consumed.");
+            foreach (var file in manager.Files) await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+            await CacheMetadataAsync(manager);
+            return Files(manager)!.Value;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ImmutableArray<EngineDiagnostics>> DiagnosticsAsync(CancellationToken ct)
+    {
+        await SnapshotAsync(ct);
+        await gate.WaitAsync(ct);
+        try
+        {
+            return [.. entries.Values.Select(e => new EngineDiagnostics(e.Id, Hash(e.Manager), e.Probe,
+                e.Manager.State.ToString(), e.Manager.PartialProgress, e.Manager.Monitor.UploadRate,
+                e.Manager.Monitor.DataBytesReceived, e.Manager.Monitor.ProtocolBytesReceived,
+                e.Manager.HashChecked, e.Manager.HashFails, e.Manager.Bitfield.TrueCount,
+                e.Manager.HasMetadata ? e.Manager.Torrent!.PieceCount : 0))];
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> RecheckAsync(string hash, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!entries.TryGetValue(hash, out var entry) || entry.Probe) return Rejected("not_found", "Download not found.");
+            await entry.Manager.StopAsync(TimeSpan.Zero);
+            await entry.Manager.SetNeedsHashCheckAsync();
+            await entry.Manager.HashCheckAsync(false);
+            entry.Run = false;
+            return new(true, await SnapshotAsync(entry), null);
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<ImmutableArray<string>> RemoveDevAsync(string hash, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!entries.TryGetValue(hash, out var entry))
+            {
+                registered.Remove(hash);
+                return [];
+            }
+            if (entry.Probe) return [];
+            var paths = entry.Manager.Files.Select(f => f.FullPath).ToImmutableArray();
+            await RemoveManagerAsync(entry, false);
+            entries.Remove(hash);
+            registered.Remove(hash);
+            foreach (var token in handles.Values.Where(h => h.Hash == hash).Select(h => h.Token).ToArray())
+            { handles.Remove(token); waits.Remove(token); }
+            return paths;
+        }
+        finally { gate.Release(); }
+    }
+
+    private static int FreePort()
+    {
+        using var tcp = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        tcp.Bind(new IPEndPoint(IPAddress.Any, 0));
+        return ((IPEndPoint)tcp.LocalEndPoint!).Port;
+    }
+
+    public sealed record EngineDiagnostics(string DownloadId, string Hash, bool Probe, string State, double Progress,
+        long UploadBytesPerSecond, long PayloadBytesReceived, long ProtocolBytesReceived, bool HashChecked,
+        int HashFails, int VerifiedPieces, int TotalPieces);
+public sealed record MetadataProbeMeasurement(SwarmEvidence Evidence, long ProtocolBytesDelivered);
+
+    private static bool PortAvailable(int port)
+    {
+        try
+        {
+            using var tcp = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ExclusiveAddressUse = true };
+            using var udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) { ExclusiveAddressUse = true };
+            tcp.Bind(new IPEndPoint(IPAddress.Any, port));
+            udp.Bind(new IPEndPoint(IPAddress.Any, port));
+            return true;
+        }
+        catch (SocketException) { return false; }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            if (client is not null)
+            {
+                await client.StopAllAsync(TimeSpan.Zero);
+                client.Dispose();
+            }
+        }
+        finally { gate.Release(); }
+    }
+}
