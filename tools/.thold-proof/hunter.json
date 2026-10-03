@@ -1,0 +1,99 @@
+{
+  "lane": "background",
+  "busy": false,
+  "items": [
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "7476412ac278a91c7ff3cb8acb150d26996f59581fa3450850c6da7d46caa508",
+      "season": 9,
+      "episode": 1,
+      "expectedAt": "2026-05-24T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "existing"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "6d2f3a3d794f54342acc471484ff4dfef11808edf152a850df13a45755bb9991",
+      "season": 9,
+      "episode": 2,
+      "expectedAt": "2026-05-31T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "da86d5bf55b9bdc63cb7498651f28665fd617de18b474104b05a482f069ee8af",
+      "season": 9,
+      "episode": 3,
+      "expectedAt": "2026-06-07T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "f3655828ceebafb0dfdd35d6e270b2309cb235977b54392eacd235683b33ca33",
+      "season": 9,
+      "episode": 4,
+      "expectedAt": "2026-06-14T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "90916308429fbc8e62dad0df4a7e87d61fde8d9244ab8996eea9bb6c446d4d42",
+      "season": 9,
+      "episode": 5,
+      "expectedAt": "2026-06-21T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "67e4a591a98d26d95d38d66aa9ec2767f8e7a9012cc4479294accc607865d8e8",
+      "season": 9,
+      "episode": 6,
+      "expectedAt": "2026-06-28T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "d6b4f0f1a8e56ae915b662e96a4c32f6d9ea55c13b8c9a2fbfee822b70c6bfd6",
+      "season": 9,
+      "episode": 7,
+      "expectedAt": "2026-07-05T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "3d5522e23b0ee06510d1640601f9190df26e5805db0a30b40c4aeb9996dd2cd9",
+      "season": 9,
+      "episode": 8,
+      "expectedAt": "2026-07-12T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "c4b73f54976a945fd3d78f55c8cbf3b0c44fd56d1f44913cdb06370dfdcbeba0",
+      "season": 9,
+      "episode": 9,
+      "expectedAt": "2026-07-19T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    },
+    {
+      "workKey": "series:rick and morty",
+      "episodeId": "b3d7ac7f2e80014c09583edff1194f2c24887bb75fbac35dd8e3baf54ca16c30",
+      "season": 9,
+      "episode": 10,
+      "expectedAt": "2026-07-26T03:00:00+03:00",
+      "origin": "Follow",
+      "status": "queued"
+    }
+  ],
+  "owned": 0,
+  "existing": 0,
+  "notifications": 0
+}
