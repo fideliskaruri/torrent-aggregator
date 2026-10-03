@@ -12,7 +12,6 @@ public interface ILibraryPlacement
     Task<LibraryRootResult> CheckRootAsync(string id, CancellationToken cancellationToken);
     Task<LibraryRootResult> ConfigureRootAsync(string id, LibraryRootConfiguration input, CancellationToken cancellationToken);
     Task<LibraryRootResult> RemoveRootAsync(string id, CancellationToken cancellationToken);
-    Task<LibraryRootResult> SeedAsync(LegacyLibrarySettings settings, CancellationToken cancellationToken);
     Task<Failure?> RecordAsync(MediaFileRow file, WorkFolderRow? folder, CancellationToken cancellationToken);
     Task<int> PruneMissingAsync(DateTimeOffset now, CancellationToken cancellationToken);
 }
@@ -37,8 +36,6 @@ public sealed record LibraryRootInput(string Path, ImmutableArray<LibraryKind> K
 public sealed record LibraryRootResult(StorageRootRow? Root, Failure? Failure);
 public sealed record LibraryRootConfiguration(int Priority, long ReserveBytes, bool Enabled,
     ImmutableArray<LibraryKind> Kinds, long ExpectedVersion, bool ConfirmIdentity = false);
-public sealed record LegacyLibrarySettings(string BaseDownloadPath,
-    ImmutableDictionary<string, string> PathRules, long? MaxStorageBytes);
 
 // Only this projection crosses HTTP. Origin is deliberately not part of the public contract.
 public sealed record LibraryMediaView(string Id, string WorkId, string? EpisodeId, string? RootId,

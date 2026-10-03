@@ -24,14 +24,10 @@ internal static class ImportEndpoints
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             { return Results.BadRequest(new { error = "import_failed", message = ex.Message }); }
         });
-        group.MapPost("/imports/scan", async (ImportScanInput input, ImportJobs jobs, ImportReviews reviews,
-            CancellationToken ct) =>
+        group.MapPost("/imports/scan", (ImportScanInput input, ImportJobs jobs) =>
         {
             var path = MediaImport.ValidateFolder(input.Path);
-            var pending = (await reviews.ListAsync(ct)).FirstOrDefault(s => s.Id.StartsWith("adoption:",
-                StringComparison.Ordinal) && s.Path.Equals(path,
-                StringComparison.OrdinalIgnoreCase) && s.State == "complete" && !s.Items.IsEmpty);
-            var scan = pending ?? jobs.Start(path);
+            var scan = jobs.Start(path);
             return Results.Json(new { scanId = scan.Id, state = scan.State }, Json, statusCode: 202);
         });
         group.MapGet("/imports/operations", async (ILibraryImportRepository repository, CancellationToken ct) =>
@@ -125,41 +121,6 @@ internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLi
         if (scans.TryGetValue(id, out var running) && running.State is "queued" or "scanning") return running;
         await using var scope = scopes.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<ImportReviews>().GetAsync(id, ct) ?? running;
-    }
-    internal async Task AdoptConvertedAsync(string dataDirectory, CancellationToken ct)
-    {
-        await using var scope = scopes.CreateAsyncScope();
-        var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
-        foreach (var interrupted in (await reviews.ListAsync(ct)).Where(s =>
-            !s.Id.StartsWith("adoption:", StringComparison.Ordinal) && s.State is "queued" or "scanning"))
-            await reviews.SaveAsync(interrupted with { State = "failed",
-                Error = "The scan was interrupted. Scan the folder again." }, ct);
-        if (!File.Exists(Path.Combine(dataDirectory, "conversion-complete.json"))) return;
-        var importer = scope.ServiceProvider.GetRequiredService<MediaImport>();
-        if (await reviews.GetAsync("adoption:complete", ct) is not null) return;
-        var complete = true;
-        foreach (var root in await scope.ServiceProvider.GetRequiredService<ILibraryPlacement>().RootsAsync(ct))
-        {
-            var id = "adoption:" + root.Id;
-            var scan = await reviews.GetAsync(id, ct);
-            if (scan?.State == "complete") continue;
-            if (scan is null || scan.State is "queued" or "failed" or "adopting")
-            {
-                scan = new(id, root.Path, "queued", 0, 0, [], null);
-                await reviews.SaveAsync(scan, ct);
-                try { await importer.ScanAsync(id, MediaImport.ValidateFolder(root.Path), update => scan = update, ct); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    await reviews.SaveAsync(scan with { State = "failed", Error = ex.Message }, ct);
-                    complete = false;
-                    continue;
-                }
-                scan = scan with { State = "adopting" };
-                await reviews.SaveAsync(scan, ct);
-            }
-            await importer.AdoptAsync(scan, reviews, ct);
-        }
-        if (complete) await reviews.SaveAsync(new("adoption:complete", dataDirectory, "complete", 0, 0, [], null), ct);
     }
     internal ImportScanView Start(string path)
     {

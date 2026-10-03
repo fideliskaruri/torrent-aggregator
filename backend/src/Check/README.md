@@ -49,15 +49,6 @@ three hashes per target, shared physical hash manager, ten global attachment slo
 chooses the top Unknowns after all eligible alternatives are exhausted and owns durable
 WaitingForSeeders/T39 transitions; Check does not autonomously create durable intent.
 
-Development-only owner/loopback routes:
-- `POST /api/dev/check`: `{ candidates: [{ hash?, magnet?, name?, listedSeeders?, torrentUri? }],
-  forceFresh?: boolean, background?: boolean, stream?: boolean }`.
-- `GET /api/dev/check?hashes=<comma-separated hashes>` or `?limit=100`: persisted evidence.
-- `GET /api/dev/check/status`: queue, shared-flight and physical-probe counters.
-- `POST /api/dev/check/metadata-wait`: `{ targetId, hash?, magnet? }` and
-  `GET`/`DELETE /api/dev/check/metadata-wait/{token}` expose the existing engine wait
-  capabilities for isolated diagnostics only; they do not create Target or Download rows.
-
 `python tools\bench\check-proof.py` checks the real sources and swarms on isolated port
 3948. Evidence is gitignored under `tools\.check-proof`; no unit tests or full downloads.
 # Cached file evidence and admission (OPS-806)

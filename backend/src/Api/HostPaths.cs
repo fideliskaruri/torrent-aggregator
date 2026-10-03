@@ -1,5 +1,4 @@
 using Microsoft.Extensions.FileProviders;
-using System.Text.Json;
 
 namespace TorrentFlow.Api;
 
@@ -20,25 +19,6 @@ internal static class HostPaths
             : portable ? Path.Combine(AppContext.BaseDirectory, "rebuild-data")
             : Path.Combine(defaultRoot, "TorrentFlow-Rebuild"));
         Directory.CreateDirectory(result);
-        if (File.Exists(Path.Combine(result, "conversion-started.json")) || Directory.Exists(Path.Combine(result, "legacy-backup")))
-        {
-            var complete = Path.Combine(result, "conversion-complete.json");
-            var valid = false;
-            try
-            {
-                if (File.Exists(complete))
-                {
-                    using var marker = JsonDocument.Parse(File.ReadAllText(complete));
-                    valid = marker.RootElement.TryGetProperty("completed", out var completed) &&
-                        completed.ValueKind == JsonValueKind.True &&
-                        File.Exists(Path.Combine(result, "torrentflow.db")) &&
-                        File.Exists(Path.Combine(result, "legacy-backup", "torrentflow.db"));
-                }
-            }
-            catch (JsonException) { }
-            if (!valid)
-                throw new InvalidOperationException("Conversion did not finish. Do not start this data directory. Preserve it and run the converter with a fresh destination and fresh payload copies, or start the old server on its untouched data.");
-        }
         configuration["TorrentFlow:DataDirectory"] = result;
         return result;
     }

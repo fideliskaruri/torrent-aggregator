@@ -7,25 +7,32 @@ namespace TorrentFlow.Targets;
 
 public sealed partial class TargetPipeline
 {
+    private readonly SemaphoreSlim libraryDeletionGate = new(1, 1);
+
     public Task DeleteDownloadFilesAsync(string hash, CancellationToken ct) =>
         transfers.DeleteFilesAsync(hash, null, stateGate, ct);
 
     public async Task<LibraryDeleteResult> DeleteLibraryAsync(LibraryDeletePreview preview, CancellationToken ct)
     {
-        var result = await LibraryRemoval.DeleteAsync(preview,
-            (item, token) => transfers.DeleteFilesAsync(item.Download.Hash, item.FileIndices, stateGate, token),
-            async (media, token) =>
-            {
-                var bound = preview.Items.SelectMany(i => i.TargetIds).ToHashSet();
-                foreach (var id in preview.TargetIds.Where(id => !bound.Contains(id)))
-                    await ActionAsync(id, TargetAction.Remove, token);
-                await using var scope = scopes.CreateAsyncScope();
-                await LibraryRemoval.DeleteUnboundAsync(media,
-                    (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>(), token);
-            }, ct);
-        if (result.Ok)
-            foreach (var id in preview.TargetIds) await ActionAsync(id, TargetAction.Remove, ct);
-        return result;
+        await libraryDeletionGate.WaitAsync(ct);
+        try
+        {
+            var result = await LibraryRemoval.DeleteAsync(preview,
+                (item, token) => transfers.DeleteFilesAsync(item.Download.Hash, item.FileIndices, stateGate, token),
+                async (media, token) =>
+                {
+                    var bound = preview.Items.SelectMany(i => i.TargetIds).ToHashSet();
+                    foreach (var id in preview.TargetIds.Where(id => !bound.Contains(id)))
+                        await ActionAsync(id, TargetAction.Remove, token);
+                    await using var scope = scopes.CreateAsyncScope();
+                    await LibraryRemoval.DeleteUnboundAsync(media,
+                        (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>(), token);
+                }, ct);
+            if (result.Ok)
+                foreach (var id in preview.TargetIds) await ActionAsync(id, TargetAction.Remove, ct);
+            return result;
+        }
+        finally { libraryDeletionGate.Release(); }
     }
 }
 

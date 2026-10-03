@@ -242,20 +242,6 @@ spend nearly two seconds waiting for the previous call's start-spacing window.
 EZTV/YTS defaults point directly at their live canonical API hosts; a short TorrentsCSV
 page ends its cursor traversal rather than fetching an unnecessary empty page.
 
-In **Development only**, the owner-only, loopback-only read hook is:
-
-```text
-GET /api/dev/sources/search?q=Sintel&source=apibay&lane=owner
-GET /api/dev/sources/search?q=Scorpion&source=eztv&imdb=tt3514324
-GET /api/dev/sources/search?q=Frieren&source=nyaa&stream=true
-```
-
-The last form returns NDJSON snapshots. Both projections redact sensitive URI query
-values (including nested tracker/webseed parameters), while internal raw releases
-remain unchanged. Optional category accepts the existing
-`tv`/`movies` names and the typed `series`/`films` names. The hook is registered
-through Targets -> Find -> Sources composition; Api adds no forbidden references.
-
 HTTP-only verification, using isolated output so another rebuild server isn't locked:
 
 ```powershell
@@ -327,23 +313,6 @@ remain their subsequent tasks.
   public projection says `In your library, 1080p` and **never includes origin**.
   Confirmed Missing rows expire after 30 days on an online, non-guarded root,
   except references retained by historical/active operations.
-
-Optional first-run migration input:
-`--TorrentFlow:Library:LegacyDatabase <old-db-copy>`. Store reads only
-`ClientSettings.baseDownloadPath/pathRules/maxStorageBytes`, in SQLite read-only
-mode, and seeds one root only when no roots exist. Existing Movies/TV rules become
-root-relative kind folders; the old base-root anime mapping stays flat. The seeded
-root is offline pending explicit identity confirmation: seeding never writes to
-the old drive. An old rule outside the base root returns a review failure rather
-than silently changing its path. A new installation with no configured legacy
-database starts with no roots.
-
-The captured web settings contract has **no root routes or root types** (only the
-old `/api/settings/client` form), so this slice adds no guessed production route.
-Development-only `/api/dev/library` provides roots add/list/configure/check/remove,
-placement, item/work ownership, internal inventory recording, expiry and naming
-proof. It requires a trusted loopback owner. Production has no proof endpoints.
-Only two additive host hooks register/map it; discovery composition is unchanged.
 
 HTTP evidence is saved to ignored `tools\.library-proof\summary.json`, using port
 3949 and `D:\code\memtest\rebuild-lib`, never either shared test server. The reference

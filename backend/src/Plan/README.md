@@ -53,22 +53,3 @@ torrent, not a potentially understated sum of selected bytes.
 All rejected candidates/items keep codes and plain text. Eligible alternatives not chosen
 receive `lower_ranked`/`healthier_alternative`; every uncovered item gets `uncovered_item`.
 Assignments explain measured health, quality fit, source and missing-item coverage.
-
-## Isolated developer API and proof
-
-In Development only, trusted loopback owners can:
-
-- `GET /api/dev/plan-eval/metadata?workKey=...`: fetch the actual Domain snapshot.
-- `POST /api/dev/plan-eval/`: `{ "workKey": "...", "input": <PlanInput> }`.
-  Omit workKey to use the supplied snapshot (or ExplicitRaw). Resolving workKey replaces
-  only `input.work`; target IDs must belong to the resolved snapshot.
-  File parsing is supplied by Targets, not trusted caller-provided parses.
-
-This is evaluation only, not task 3.6 Find/Check/Plan orchestration or admission.
-Start the isolated API on port 3949 with its own data directory, then run
-`python tools\bench\plan-proof.py`. Evidence lands in gitignored `tools\.plan-proof`.
-Recorded Find names/hashes/parses and fresh metadata are real; all file lists, verdicts,
-piece geometry and ownership are explicitly synthetic. Sintel and Big Buck Bunny's
-recorded pools lack labelled 1080p variants, so their filename-quality evidence is also
-explicitly synthesized. This proof establishes planning behaviour, not swarm health
-or actual payload quality.

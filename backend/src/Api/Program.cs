@@ -83,20 +83,13 @@ try
     await app.Services.GetRequiredService<DesktopSettingsStore>().InitializeAsync();
     app.MapDesktopEndpoints();
     app.MapLocalFiles();
-    app.MapDevSources();
     await app.MapSettingsAsync();
-    app.MapDevFind();
     app.MapCatalog();
     app.MapRequests();
     app.MapAutomation();
-    app.MapDevEngine();
-    app.MapDevPlan();
-    app.MapDevDiscoveryPlan();
     app.MapTargets();
     app.MapDownloads();
-    app.MapDevCheck();
     await app.MapDevLibraryAsync();
-    await app.Services.GetRequiredService<ImportJobs>().AdoptConvertedAsync(dataDirectory, CancellationToken.None);
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>

@@ -62,12 +62,6 @@ internal static class AutomationEndpoints
         });
         app.MapPut("/api/follows/{workKey}", SaveFollow);
         app.MapPut("/api/quality-watches/{workKey}", SaveQualityWatch);
-        app.MapPost("/api/dev/hunter", async (HttpContext http, Hunter hunter, CancellationToken ct) =>
-        {
-            if (AccessIdentity.Via(http) != "local" || AccessIdentity.Role(http) != "owner")
-                return Results.Json(new { error = "Run automatic checks on the computer running TorrentFlow." }, statusCode: 403);
-            return Results.Ok(await hunter.RunAsync(http.Request.Query["probe"] == "true", ct));
-        });
     }
 
     private static object Project(AutoRuleRow r) => new

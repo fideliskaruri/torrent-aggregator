@@ -13,8 +13,7 @@ notify once per matching hash, release probe handles, and never admit a download
 Series quality-watch execution remains unimplemented.
 
 The single nonoverlapping scheduler honors `TorrentFlow:Scheduler:Disabled` and
-`TorrentFlow:Scheduler:IntervalMinutes` (default 15). The local owner can manually
-`POST /api/dev/hunter`, even when disabled; `?probe=true` also checks film watches.
+`TorrentFlow:Scheduler:IntervalMinutes` (default 15).
 The default pass only reads Metadata and Library, enumerating confirmed aired,
 unowned episodes with exact air dates. It never calls Find or Engine.
 Hunter item `status` projects TargetAdmission as `queued`, `owned`, `held` or

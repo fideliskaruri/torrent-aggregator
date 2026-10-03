@@ -463,7 +463,7 @@ internal static class CatalogEndpoints
             (await state.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault());
     private static async Task<IResult> RemoveWatch(HttpContext h, CatalogState state,
         ILibraryRepository inventory, ILibraryPlacement library, TargetPipeline targets,
-        DevFiling filing, CancellationToken ct)
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(Param(h, "id"))) return Json(new { error = "Provide the item's id." }, 400);
         var item = (await LibraryRead.ItemsAsync(ActorId(h),
@@ -481,7 +481,7 @@ internal static class CatalogEndpoints
                 await state.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
                 await state.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                 await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
-            var deleted = await filing.DeleteLibraryAsync(targets, preview, ct);
+            var deleted = await targets.DeleteLibraryAsync(preview, ct);
             if (!deleted.Ok) return Json(deleted, 409);
             var work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).Single();
             await targets.ScopeActionAsync(work.WorkKey, null, null, TargetAction.Remove, ct);

@@ -89,25 +89,6 @@ another's HTTP work; the flight CTS is cancelled only after the last subscriber 
 Early-stopped source results remain explicitly partial. `CandidateBatch.Complete` means
 this caller's discovery is finished, not that all upstream sites returned completely.
 
-## Development HTTP
-
-Development-only, trusted loopback owner:
-
-`GET /api/dev/find?workKey=tvmaze:44&season=1&lane=owner`
-
-Use a saved work key or verified provider identity. Films omit season/episode; episode
-scopes require confirmed mapping. JSON includes candidates, parses, all observations,
-trusted seeds, requested-item coverage, rejections, query/source diagnostics, name/tier,
-timings, and per-query cache/in-flight flags. `stream=true` emits flushed NDJSON snapshots.
-No magnets, torrent URIs, credential references or engine handles are exposed.
-
-The GET deliberately does **not** invent health; it returns Unknown discovery pools.
-For coordinator protocol verification only, `stream=true&feedback=true` opens a feedback
-session. A trusted loopback owner can POST a Domain `SearchFeedback` JSON body to
-`/api/dev/find/{sessionId}/feedback`. Its coverage must come from Check/Plan in production;
-synthetic feedback tests prove cancellation/coverage semantics, not real swarm health.
-Completed or disconnected sessions are removed. Production exposes neither dev route.
-
 `python tools\bench\find-proof.py` captures the real hard-set responses twice, concurrent
 identical requests and Phase 0 CSV under gitignored `tools\.find-proof\`. It does not
 instantiate Find, replace providers, create downloads, or touch the stable installation.
