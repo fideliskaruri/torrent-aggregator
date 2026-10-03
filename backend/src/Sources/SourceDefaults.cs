@@ -11,6 +11,14 @@ internal static class SourceDefaults
         ["yts"] = "https://yts.gg/api/v2",
         ["torrentscsv"] = "https://torrents-csv.com/service/search",
         ["knaben"] = "https://api.knaben.org/v1",
-        ["animetosho"] = "https://feed.animetosho.net"
+        ["animetosho"] = "https://feed.animetosho.net",
+        ["therarbg"] = "https://therarbg.com",
+        ["bitsearch"] = "https://bitsearch.to",
+        ["limetorrents"] = "https://www.limetorrents.fun",
+        ["torrentdownloads"] = "https://www.torrentdownloads.pro",
+        ["torrentdownloadinfo"] = "https://www.torrentdownload.info",
+        ["1337x"] = "https://1337x.to",
+        ["subsplease"] = "https://subsplease.org",
+        ["archive"] = "https://archive.org"
     };
 }

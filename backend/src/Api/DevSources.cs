@@ -39,12 +39,43 @@ internal static class DevSources
                 http.Response.ContentType = "application/x-ndjson";
                 await foreach (var batch in sources.SearchStreamAsync(id, query, ct))
                 {
-                    await http.Response.WriteAsync(JsonSerializer.Serialize(batch, options) + "\n", ct);
+                    await http.Response.WriteAsync(JsonSerializer.Serialize(Public(batch), options) + "\n", ct);
                     await http.Response.Body.FlushAsync(ct);
                 }
                 return Results.Empty;
             }
-            return Results.Json(await sources.SearchAsync(id, query, ct), options);
+            return Results.Json(Public(await sources.SearchAsync(id, query, ct)), options);
         });
+    }
+
+    private static SourceResult Public(SourceResult result) => result with
+    {
+        Results = [.. result.Results.Select(release => release with
+        {
+            Magnet = Redact(release.Magnet), TorrentUri = Redact(release.TorrentUri),
+            SourceItemId = Redact(release.SourceItemId), WebSeeds = [.. release.WebSeeds.Select(s => Redact(s)!)]
+        })]
+    };
+
+    private static string? Redact(string? uri, int depth = 0)
+    {
+        if (uri is null) return null;
+        if (depth > 2) return "[redacted]";
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var parsed) && parsed.UserInfo.Length > 0)
+            uri = new UriBuilder(parsed) { UserName = "", Password = "" }.Uri.AbsoluteUri;
+        var start = uri.IndexOf('?');
+        if (start < 0) return uri;
+        var parts = uri[(start + 1)..].Split('&');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var split = parts[i].IndexOf('=');
+            if (split < 0) continue;
+            var key = Uri.UnescapeDataString(parts[i][..split]).ToLowerInvariant();
+            if (key is "apikey" or "api_key" or "passkey" or "password" or "token")
+                parts[i] = parts[i][..(split + 1)] + "%5Bredacted%5D";
+            else if (key is "tr" or "ws")
+                parts[i] = parts[i][..(split + 1)] + Uri.EscapeDataString(Redact(Uri.UnescapeDataString(parts[i][(split + 1)..]), depth + 1)!);
+        }
+        return uri[..(start + 1)] + string.Join('&', parts);
     }
 }

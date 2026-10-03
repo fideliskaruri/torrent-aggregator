@@ -20,15 +20,18 @@ QUERIES = [
     ("Big Buck Bunny", None, "film"),
 ]
 SOURCES = ["apibay", "nyaa", "eztv", "yts", "torrentscsv", "knaben", "animetosho"]
+FALLBACKS = ["therarbg", "bitsearch", "limetorrents", "torrentdownloads", "torrentdownloadinfo"]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:3945")
+    parser.add_argument("--tier", choices=["core", "fallback"], default="core")
     args = parser.parse_args()
     root = pathlib.Path(__file__).resolve().parent
     proof = root / ".sources-proof"
     proof.mkdir(exist_ok=True)
+    sources = SOURCES if args.tier == "core" else FALLBACKS
     audit = list(csv.DictReader((root.parent / "docs" / "source-audit.csv").open(encoding="utf-8-sig")))
 
     def lane(source):
@@ -64,17 +67,17 @@ def main():
         return results
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
-        all_results = [row for rows in executor.map(lane, SOURCES) for row in rows]
-    (proof / "core.json").write_text(json.dumps(all_results, indent=2), encoding="utf-8")
-    lines = ["| Query | " + " | ".join(SOURCES) + " |", "|---|" + "---|" * len(SOURCES)]
+        all_results = [row for rows in executor.map(lane, sources) for row in rows]
+    (proof / f"{args.tier}.json").write_text(json.dumps(all_results, indent=2), encoding="utf-8")
+    lines = ["| Query | " + " | ".join(sources) + " |", "|---|" + "---|" * len(sources)]
     for query, _, _ in QUERIES:
         cells = []
-        for source in SOURCES:
+        for source in sources:
             row = next((r for r in all_results if r["query"] == query and r["source"] == source), None)
             cells.append("n/a" if row is None else f'{row["count"]}/{row["maxListedSeeders"] or 0}/{round(row["latencyMs"])} {row["outcome"]}')
         lines.append("| " + query + " | " + " | ".join(cells) + " |")
     print("\n".join(lines))
-    (proof / "table.txt").write_text("\n".join(lines), encoding="utf-8")
+    (proof / f"{args.tier}-table.txt").write_text("\n".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":

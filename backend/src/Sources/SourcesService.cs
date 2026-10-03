@@ -75,9 +75,11 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
                 writer.TryWrite(Snapshot(SourceOutcome.Unsupported, "Disabled", "This source is disabled or unknown."));
                 return;
             }
-            if (!SourceDefaults.Endpoints.ContainsKey(id) || settings.BaseUrl is null)
+            if ((!SourceDefaults.Endpoints.ContainsKey(id) && id != "torznab") || settings.BaseUrl is null)
             {
-                writer.TryWrite(Snapshot(SourceOutcome.Unconfigured, "Unconfigured", "This adapter is not installed."));
+                writer.TryWrite(Snapshot(SourceOutcome.Unconfigured, "Unconfigured", id == "torznab"
+                    ? "Torznab needs a configured API endpoint. Set its BaseUrl before enabling it."
+                    : "This adapter is not installed."));
                 return;
             }
             var category = query.Category switch { "tv" => "series", "movies" => "films", _ => query.Category };
@@ -97,32 +99,22 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
                 return;
             }
             var truncated = false;
-            string? cursor = null;
-            for (var page = 1; page <= 4; page++)
+            await foreach (var parsed in PagesAsync(id, settings, query, limit, trace, ct))
             {
                 ct.ThrowIfCancellationRequested();
-                var request = CoreAdapters.Request(id, settings.BaseUrl, query, page, limit, cursor);
-                var content = await transport.ReadAsync(request.Uri, request.Body, settings, query, trace, ct).ConfigureAwait(false);
-                var parsed = CoreAdapters.Parse(id, content);
-                ct.ThrowIfCancellationRequested();
-                cursor = parsed.Cursor;
+                truncated = parsed.HasMore;
                 foreach (var release in parsed.Rows)
                 {
                     ct.ThrowIfCancellationRequested();
                     if (pool.Count == limit) { truncated = true; break; }
-                    if (!seen.Add(release.Hash)) continue;
+                    var identity = release.Hash.Length > 0 ? release.Hash : release.TorrentUri ?? release.Magnet ?? release.Name;
+                    if (!seen.Add(identity)) continue;
                     pool.Add(release);
                     if (pool.Count % 20 == 0)
                         writer.TryWrite(Snapshot(SourceOutcome.Partial, "Streaming"));
                 }
-                var more = parsed.HasMore || parsed.Rows.Count > limit;
-                if (!more) break;
-                if (!request.Paginates || pool.Count >= limit || page == 4)
-                {
-                    truncated = true;
-                    break;
-                }
                 writer.TryWrite(Snapshot(SourceOutcome.Partial, "Streaming"));
+                if (pool.Count >= limit) break;
             }
             ct.ThrowIfCancellationRequested();
             writer.TryWrite(Snapshot(truncated ? SourceOutcome.Partial : SourceOutcome.Success,
@@ -139,16 +131,53 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         }
         catch (SourceException ex)
         {
-            writer.TryWrite(Snapshot(ex.Code == "CoolingDown" ? SourceOutcome.CoolingDown : SourceOutcome.Failed,
+            writer.TryWrite(Snapshot(ex.Code switch
+                {
+                    "CoolingDown" => SourceOutcome.CoolingDown, "Unsupported" => SourceOutcome.Unsupported,
+                    "Unconfigured" => SourceOutcome.Unconfigured, _ => SourceOutcome.Failed
+                },
                 ex.Code, ex.Message, ex.RetryAt));
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or System.Xml.XmlException or
-            FormatException or InvalidOperationException or ArgumentException)
+        catch (System.Xml.XmlException ex)
+        {
+            writer.TryWrite(Snapshot(SourceOutcome.Failed, "SourceFailure",
+                $"The site returned invalid RSS/XML at line {ex.LineNumber}, column {ex.LinePosition}."));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or
+            FormatException or InvalidOperationException or ArgumentException or IOException or
+            NotSupportedException or
+            System.Text.RegularExpressions.RegexMatchTimeoutException)
         {
             writer.TryWrite(Snapshot(SourceOutcome.Failed, "SourceFailure",
                 ex is HttpRequestException ? "The source could not be reached securely." : "The source returned a malformed response."));
         }
         finally { writer.TryComplete(); }
+    }
+
+    private async IAsyncEnumerable<CoreAdapters.Page> PagesAsync(string id, SourceSettings settings, SourceQuery query,
+        int limit, CallTrace trace, [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (id is not ("apibay" or "nyaa" or "eztv" or "yts" or "torrentscsv" or "knaben" or "animetosho"))
+        {
+            await foreach (var page in AdditionalAdapters.SearchAsync(id, settings, query, limit, transport, trace, configuration, ct))
+                yield return page;
+            yield break;
+        }
+        string? cursor = null;
+        var hashes = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 1; page <= 4; page++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var request = CoreAdapters.Request(id, settings.BaseUrl!, query, page, limit, cursor);
+            var content = await transport.ReadAsync(request.Uri, request.Body, settings, query, trace, ct);
+            var parsed = CoreAdapters.Parse(id, content);
+            ct.ThrowIfCancellationRequested();
+            cursor = parsed.Cursor;
+            foreach (var release in parsed.Rows) hashes.Add(release.Hash);
+            var more = parsed.HasMore || parsed.Rows.Count > limit;
+            yield return parsed with { HasMore = more };
+            if (!more || !request.Paginates || hashes.Count >= limit || page == 4) yield break;
+        }
     }
 
     private async Task<SourceSettings?> SettingsAsync(string id, CancellationToken ct)

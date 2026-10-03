@@ -51,8 +51,12 @@ internal sealed class SourceTransport : IDisposable
             // A response can impose cooldown while this call is waiting for courtesy spacing.
             if (site.Cooldown is { } next) throw new SourceException("CoolingDown", "The site is cooling down.", next);
             using var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, uri);
-            request.Headers.UserAgent.ParseAdd("TorrentFlow/0.3 (+source-search)");
-            request.Headers.Accept.ParseAdd("application/json, application/rss+xml, application/xml;q=0.9, */*;q=0.5");
+            request.Headers.UserAgent.ParseAdd(settings.Id is "bitsearch" or "1337x"
+                ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+                : "TorrentFlow/0.3 (+source-search)");
+            request.Headers.Accept.ParseAdd(settings.Id is "bitsearch" or "1337x"
+                ? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                : "application/json, application/rss+xml, application/xml;q=0.9, */*;q=0.5");
             if (body is not null) request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
             trace.StartedAt ??= DateTimeOffset.UtcNow;
             trace.Requests++;
@@ -88,7 +92,13 @@ internal sealed class SourceTransport : IDisposable
                         throw new SourceException("SourceFailure", "The response exceeds the 8 MiB source limit.");
                     output.Write(buffer, 0, read);
                 }
-                return System.Text.Encoding.UTF8.GetString(output.GetBuffer(), 0, (int)output.Length);
+                var charset = response.Content.Headers.ContentType?.CharSet?.Trim('"');
+                var encoding = string.IsNullOrWhiteSpace(charset) ? System.Text.Encoding.UTF8 : System.Text.Encoding.GetEncoding(charset);
+                return encoding.GetString(output.GetBuffer(), 0, (int)output.Length).TrimStart('\uFEFF');
+            }
+            catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.SecureConnectionError)
+            {
+                throw new SourceException("TlsFailure", "The site failed TLS validation or negotiation. Certificate validation was not bypassed.");
             }
             finally { trace.UpstreamElapsed += Stopwatch.GetElapsedTime(upstream); }
         }

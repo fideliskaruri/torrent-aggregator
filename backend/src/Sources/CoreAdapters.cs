@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
-using System.Xml;
-using System.Xml.Linq;
+using System.Text.RegularExpressions;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Sources;
@@ -124,15 +123,9 @@ internal static class CoreAdapters
 
     private static Page Nyaa(string xml)
     {
-        using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 8 * 1024 * 1024
-        });
-        var document = XDocument.Load(reader);
-        if (document.Root?.Name.LocalName != "rss" || !document.Descendants("channel").Any())
-            throw new SourceException("SourceFailure", "The source did not return RSS.");
+        var document = FeedXml.Load(xml);
         var results = new List<RawRelease>();
-        var items = document.Descendants().Where(e => e.Name.LocalName == "item").ToArray();
+        var items = FeedXml.Items(document);
         foreach (var item in items)
         {
             string Value(string key) => item.Elements().FirstOrDefault(e => e.Name.LocalName == key)?.Value.Trim() ?? "";
@@ -144,21 +137,23 @@ internal static class CoreAdapters
         return new(results, items.Length >= 75);
     }
 
-    private static RawRelease? Raw(string source, string name, string hash, long? bytes, int? seeds,
-        int? leeches, string? itemId, string? magnet, string? torrent, DateTimeOffset? published)
+    internal static RawRelease? Raw(string source, string name, string hash, long? bytes, int? seeds,
+        int? leeches, string? itemId, string? magnet, string? torrent, DateTimeOffset? published,
+        bool allowHashless = false)
     {
         hash = hash.Trim().ToLowerInvariant();
         if (hash.Length != 40 || hash.Any(c => !char.IsAsciiHexDigit(c)))
             hash = MagnetHash(magnet) ?? "";
-        if (string.IsNullOrWhiteSpace(name) || hash.Length != 40) return null;
+        if (string.IsNullOrWhiteSpace(name) || hash.Length != 40 &&
+            !(allowHashless && Uri.TryCreate(torrent, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")) return null;
         magnet = Nonempty(magnet);
-        if (magnet is null || !magnet.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase))
+        if ((magnet is null || !magnet.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase)) && hash.Length == 40)
             magnet = $"magnet:?xt=urn:btih:{hash}&dn={Uri.EscapeDataString(name)}";
         return new(name, hash, bytes is >= 0 ? bytes : null, seeds, leeches, source,
             Nonempty(itemId), magnet, Nonempty(torrent), published, ImmutableArray<string>.Empty);
     }
 
-    private static string? MagnetHash(string? magnet)
+    internal static string? MagnetHash(string? magnet)
     {
         if (magnet is null) return null;
         foreach (var part in magnet.Split('&', '?'))
@@ -167,37 +162,62 @@ internal static class CoreAdapters
             if (!value.StartsWith("xt=urn:btih:", StringComparison.OrdinalIgnoreCase)) continue;
             var hash = value[12..].ToLowerInvariant();
             if (hash.Length == 40 && hash.All(char.IsAsciiHexDigit)) return hash;
+            if (hash.Length == 32)
+            {
+                var bytes = new byte[20];
+                var buffer = 0;
+                var bits = 0;
+                var index = 0;
+                foreach (var c in hash.ToUpperInvariant())
+                {
+                    var digit = c is >= 'A' and <= 'Z' ? c - 'A' : c is >= '2' and <= '7' ? c - '2' + 26 : -1;
+                    if (digit < 0) return null;
+                    buffer = (buffer << 5) | digit;
+                    bits += 5;
+                    if (bits < 8) continue;
+                    bits -= 8;
+                    bytes[index++] = (byte)(buffer >> bits);
+                    buffer &= (1 << bits) - 1;
+                }
+                return Convert.ToHexStringLower(bytes);
+            }
         }
         return null;
     }
 
-    private static IEnumerable<JsonElement> Array(JsonElement value) =>
+    internal static IEnumerable<JsonElement> Array(JsonElement value) =>
         value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() :
             throw new SourceException("SourceFailure", "The source returned an invalid list.");
-    private static JsonElement Property(JsonElement row, string key) =>
+    internal static JsonElement Property(JsonElement row, string key) =>
         row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) ? value :
             throw new SourceException("SourceFailure", $"The source response is missing {key}.");
-    private static string Text(JsonElement row, string key) =>
+    internal static string Text(JsonElement row, string key) =>
         row.ValueKind == JsonValueKind.Object && row.TryGetProperty(key, out var value) &&
         value.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined) ? value.ToString() : "";
-    private static long? Long(JsonElement row, string key) =>
+    internal static long? Long(JsonElement row, string key) =>
         long.TryParse(Text(row, key), CultureInfo.InvariantCulture, out var n) ? n : null;
-    private static int? Int(JsonElement row, string key) =>
+    internal static int? Int(JsonElement row, string key) =>
         Long(row, key) is >= 0 and <= int.MaxValue and var n ? (int)n : null;
     private static string? Nonempty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
-    private static DateTimeOffset? Unix(JsonElement row, string key) =>
+    internal static DateTimeOffset? Unix(JsonElement row, string key) =>
         Long(row, key) is > 0 and < 253402300800 and var n ? DateTimeOffset.FromUnixTimeSeconds(n) : null;
-    private static DateTimeOffset? Date(string value) =>
+    internal static DateTimeOffset? Date(string value) =>
+        Regex.IsMatch(value,
+            @"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[/.-]\d{1,2}[/.-]\d{4}|\d{1,2}\s+[a-z]{3,9}\s+\d{4}|[a-z]{3,9}\s+\d{1,2},?\s+\d{4}",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking) &&
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date)
             ? date.ToUniversalTime() : null;
-    private static long? Size(string value)
+    internal static long? Size(string value)
     {
-        var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 2 || !decimal.TryParse(parts[0].Replace(",", ""), CultureInfo.InvariantCulture, out var n) || n < 0) return null;
-        var unit = parts[1].ToLowerInvariant();
+        var match = Regex.Match(value.Trim(), @"^([\d.,]+)\s*([kmgt]?i?b)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+        if (!match.Success || !decimal.TryParse(match.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture, out var n) || n < 0) return null;
+        var unit = match.Groups[2].Value.ToLowerInvariant();
         var exponent = unit switch { "b" => 0, "kb" or "kib" => 1, "mb" or "mib" => 2, "gb" or "gib" => 3, "tb" or "tib" => 4, _ => -1 };
         if (exponent < 0) return null;
-        var bytes = n * (decimal)Math.Pow(unit.Contains('i') ? 1024 : 1000, exponent);
+        var factor = (decimal)Math.Pow(unit.Contains('i') ? 1024 : 1000, exponent);
+        if (n > long.MaxValue / factor) return null;
+        var bytes = n * factor;
         return bytes <= long.MaxValue ? (long)bytes : null;
     }
 }

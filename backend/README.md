@@ -162,7 +162,7 @@ signs test tokens in memory, proves a real non-loopback requester/owner connecti
 and restores saved remote settings. Evidence and public test JWKS remain under
 ignored `tools\.access-proof`. It never calls the old server or live installation.
 
-## Raw sources (OPS-680)
+## Raw sources (OPS-680 / OPS-686)
 
 `ISources` implements apibay, Nyaa, EZTV, YTS (films, provisional), TorrentsCSV,
 Knaben and AnimeTosho. It returns raw names/hashes, nullable listed counts/size/date,
@@ -173,9 +173,11 @@ Metadata/Find; Sources never does a second catalog lookup or trusts EZTV coordin
 The typed `Setting.sources` array is read on every call, in an independent short
 Store scope so concurrent calls on the singleton port never share an EF operation.
 Store remains the single owner of tier/enabled/concurrency/spacing defaults.
-Core and Fallback defaults are enabled; OptIn defaults are disabled. This slice
-implements only Core adapters: enabled but not-yet-installed fallback adapters report
-Unconfigured, not a successful empty result. Find, not Sources, selects the fallback tier.
+Core and Fallback defaults are enabled; OptIn defaults are disabled. Fallback adapters
+are TheRARBG JSON, BitSearch HTML, LimeTorrents RSS, TorrentDownloads RSS and
+TorrentDownloadInfo RSS. Opt-ins are 1337x, SubsPlease (anime), Internet Archive
+(explicit public-domain movies only) and configured Torznab endpoints.
+Find, not Sources, selects the fallback tier.
 Host configuration `TorrentFlow:Sources:<id>:BaseUrl` and `…:Enabled` can overlay
 settings for a local benchmark. HTTPS is required except for explicitly configured
 loopback HTTP stubs. No certificate validation bypass exists.
@@ -197,6 +199,16 @@ or cooldown is never Complete. The pool asks for at least 50 and retains at most
 80 unique hashes. TorrentsCSV follows `next` using `after`; AnimeTosho/EZTV/YTS have
 bounded pagination. Knaben's nested total and Nyaa's fixed RSS window keep truncation
 honest. RSS parsing prohibits DTDs/resolvers and malformed XML is SourceFailure.
+CDN scripts after a completed RSS document are ignored, not malformed interior XML.
+TorrentDownloads' known malformed `Prison Break S01` feed (OPS-653) remains a failure,
+with XML line/column diagnostics. HTML detail fanout and Torznab capability negotiation
+and pagination share the original enqueue deadline; no inline retry or TLS bypass.
+Torznab requires `BaseUrl` and negotiates advertised text-search capabilities before
+search. Its optional API key is host `…:ApiKey` configuration or an opaque
+`Credential.FileId` pointing to `DataDirectory\secrets\<id>.secret`, never saved
+as plaintext settings. Missing endpoints/credentials are Unconfigured.
+Public-domain Archive rows retain webseeds and unknown listed counts, never synthetic
+seeders. Human relative dates such as `6am` remain unknown, not guessed from today's date.
 Responses are bounded to 8 MiB. Diagnostics include queue wait, first start, request
 count, last HTTP status, returned count, truncation and `upstreamElapsed` (headers/body
 I/O including connection setup, excluding gate wait); listed seeders are not health.
@@ -213,7 +225,9 @@ GET /api/dev/sources/search?q=Scorpion&source=eztv&imdb=tt3514324
 GET /api/dev/sources/search?q=Frieren&source=nyaa&stream=true
 ```
 
-The last form returns NDJSON snapshots. Optional category accepts the existing
+The last form returns NDJSON snapshots. Both projections redact sensitive URI query
+values (including nested tracker/webseed parameters), while internal raw releases
+remain unchanged. Optional category accepts the existing
 `tv`/`movies` names and the typed `series`/`films` names. The hook is registered
 through Targets -> Find -> Sources composition; Api adds no forbidden references.
 
@@ -228,8 +242,10 @@ dotnet backend\.sources-build\bin\Api\debug\TorrentFlow.dll `
   --TorrentFlow:Scheduler:Disabled true --background --no-browser
 # From another shell while this server is running:
 python tools\sources-check.py
+python tools\sources-check.py --tier fallback
 # Stop that exact server PID before running the self-owned stub proof:
 python tools\sources-http-proof.py
+python tools\sources-fallback-proof.py
 # With 3945 free: one fresh host/gate per Core source, then a warm idle comparison:
 python tools\sources-cold-check.py
 ```
@@ -247,3 +263,10 @@ cooldown, queued cooldown release, 503-without-header, delay/date/default/expone
 `tools\.sources-proof\infrastructure.json`. Neither script calls 3930 or stable data.
 `sources-cold-check.py` records queue, upstream and HTTP elapsed time, request count,
 comparison with the queued matrix and owned PIDs in `tools\.sources-proof\cold.json`.
+The Fallback matrix is `fallback.json`. `sources-fallback-proof.py` exercises all nine
+new protocols against real loopback HTTP and the actual host, including Torznab
+caps/search and credential redaction, base32 magnets, nullable counts, public-domain
+filtering, charset/CDN trailers, malformed interior XML, streaming 1337x detail
+deadline and BitSearch 429/cooldown. Its process is stopped by PID; evidence is
+`tools\.sources-proof\fallback-infrastructure.json`. Live 1337x TLS failures are reported,
+not worked around; a Torznab endpoint must be explicitly configured to contact one.

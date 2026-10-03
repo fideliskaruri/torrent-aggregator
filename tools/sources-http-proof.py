@@ -57,7 +57,9 @@ class Site(http.server.BaseHTTPRequestHandler):
             self.send_header("Retry-After", email.utils.formatdate(time.time() + 12, usegmt=True))
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        if self.path.startswith("/nyaa"):
+        if self.path.startswith("/bitsearch"):
+            body = b'<html><input name="q"><p>No results</p></html>'
+        elif self.path.startswith("/nyaa"):
             body = (b'<!DOCTYPE rss [<!ENTITY external SYSTEM "http://localhost:3946/xxe">]>'
                     b'<rss><channel><title>&external;</title></channel></rss>') if query == "dtd" else (
                     b'<rss><channel><item><title>A & broken RSS</title></item></channel></rss>')
@@ -106,6 +108,7 @@ def main():
         "--TorrentFlow:Sources:nyaa:BaseUrl", "http://127.0.0.1:3946/nyaa",
         "--TorrentFlow:Sources:knaben:BaseUrl", "http://localhost:3946/knaben",
         "--TorrentFlow:Sources:torrentscsv:BaseUrl", "http://localhost:3946/csv",
+        "--TorrentFlow:Sources:bitsearch:BaseUrl", "http://127.0.0.1:3946/bitsearch",
         "--TorrentFlow:Sources:yts:Enabled", "false",
         "--background", "--no-browser"
     ], env=env, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
@@ -169,7 +172,8 @@ def main():
         evidence["checks"]["optInDefault"] = call("default-disabled", "archive")
         assert evidence["checks"]["optInDefault"]["answer"]["diagnostics"]["code"] == "Disabled"
         evidence["checks"]["fallbackDefault"] = call("fallback-enabled", "bitsearch")
-        assert evidence["checks"]["fallbackDefault"]["answer"]["outcome"] == "Unconfigured"
+        assert evidence["checks"]["fallbackDefault"]["answer"]["outcome"] == "Success"
+        assert evidence["checks"]["fallbackDefault"]["answer"]["diagnostics"]["requests"] == 1
         evidence["checks"]["insecureRedirect"] = call("insecure-redirect")
         assert evidence["checks"]["insecureRedirect"]["answer"]["diagnostics"]["code"] == "InvalidRedirect"
         assert not any(e["path"].startswith("/redirected") for e in EVENTS)

@@ -224,6 +224,7 @@
       "TorrentFlow.Sources": {
         "type": "Project",
         "dependencies": {
+          "AngleSharp": "[1.8.1, )",
           "TorrentFlow.Domain": "[1.0.0, )"
         }
       },
@@ -234,6 +235,12 @@
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.12, )",
           "TorrentFlow.Domain": "[1.0.0, )"
         }
+      },
+      "AngleSharp": {
+        "type": "CentralTransitive",
+        "requested": "[1.8.1, )",
+        "resolved": "1.8.1",
+        "contentHash": "fTLPBxwYK5zmt+ernY3GL1kFBDA/2Cl72hpNnMHeNceZNJ/AT7Km9CXFaMHybuEFhXDy2Dv7Bjkez5G0Z4Io4g=="
       },
       "Microsoft.Data.Sqlite": {
         "type": "CentralTransitive",
