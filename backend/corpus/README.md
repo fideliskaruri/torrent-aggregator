@@ -85,11 +85,11 @@ Unknown audio language, in contrast, must not trigger a foreign-language gate.
 
 | Kind | Rows |
 | --- | ---: |
-| episode | 1,917 |
-| movie | 951 |
+| episode | 1,933 |
+| movie | 942 |
 | season_pack | 383 |
-| other | 202 |
-| multi_season | 62 |
+| other | 193 |
+| multi_season | 64 |
 | special | 15 |
 | complete_series | 5 |
 | **Total** | **3,535** |
@@ -158,6 +158,27 @@ The full paths, not these shortened table labels, are stored in `origin`.
   admission decisions.
 
 ## Validation evidence
+
+### Parser label review (OPS-667 / OPS-669)
+
+`parser-label-corrections.tsv` records **287 field corrections across 180 rows**,
+with the one-based `names.tsv` line, original name, old/new value and per-field
+reason. Inputs, queries, row order and original provenance are unchanged: reviewing
+one field does not recertify an entire auto row as hand. Range notes were also
+updated to meet the existing structural validator.
+
+Examples: `[5.1]` and bitrate/size numbers are not absolute episodes; an episode
+range cannot swallow `480p`; explicit ordinal seasons and readable mojibake
+coordinates survive; subtitle-only tags do not prove foreign audio; archive and
+executable markers remain unsafe; a 1920-wide dimension is not a release year.
+The Kind counts above reflect this review, not the initial annotation totals.
+
+**Scope policy remains unresolved (OPS-671).** Some coordinate-free names are
+labelled movie or season_pack using known catalog identity; others with the same
+name-visible cues are labelled other. A pure parser cannot recover absent catalog
+facts. These disputed kind labels are left intact and their gate failures reported.
+The correction audit is not permission to alter uncertain labels merely to pass.
+Use `bench parse` for parser accuracy, separately from the structural validator.
 
 The initial external PowerShell validator checked encoding, schema and
 preservation plus 12 selected fields; that small set did not catch the

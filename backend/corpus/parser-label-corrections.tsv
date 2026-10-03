@@ -1,0 +1,288 @@
+line	name	field	previous	corrected	reason
+17	A Minecraft Movie (2025) [1080p] [WEBRip] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+17	A Minecraft Movie (2025) [1080p] [WEBRip] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+264	A Minecraft Movie (2025) [1080p] [WEBRip] [x265] [10bit] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+264	A Minecraft Movie (2025) [1080p] [WEBRip] [x265] [10bit] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+313	Backrooms (2026) [1080p] [WEBRip] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+313	Backrooms (2026) [1080p] [WEBRip] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+314	Backrooms (2026) [2160p] [4K] [WEB] [5.1] [YTS.GG - YTS.BZ]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+314	Backrooms (2026) [2160p] [4K] [WEB] [5.1] [YTS.GG - YTS.BZ]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+1168	Heat (1995) [2160p] [4K] [WEB] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+1168	Heat (1995) [2160p] [4K] [WEB] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+1336	Little Brother (2026) [1080p] [WEBRip] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+1336	Little Brother (2026) [1080p] [WEBRip] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+1766	Puss In Boots The Last Wish (2022) [2160p] [4K] [WEB] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+1766	Puss In Boots The Last Wish (2022) [2160p] [4K] [WEB] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+1780	Puss in Boots The Last Wish (2022) [1080p] [BluRay] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+1780	Puss in Boots The Last Wish (2022) [1080p] [BluRay] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+1781	Puss in Boots The Last Wish (2022) [1080p] [WEBRip] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+1781	Puss in Boots The Last Wish (2022) [1080p] [WEBRip] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+2986	Stuart Little 2 (2002) [1080p] [BluRay] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+2986	Stuart Little 2 (2002) [1080p] [BluRay] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+3048	The Flash (2023) [1080p] [BluRay] [5 1] [YTS MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+3048	The Flash (2023) [1080p] [BluRay] [5 1] [YTS MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+3049	The Flash (2023) [1080p] [BluRay] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+3049	The Flash (2023) [1080p] [BluRay] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+3115	The Flash (2023) [1080p] [WEBRip] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+3115	The Flash (2023) [1080p] [WEBRip] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+3116	The Flash (2023) [1080p] [WEBRip] [x265] [10bit] [5.1]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+3116	The Flash (2023) [1080p] [WEBRip] [x265] [10bit] [5.1]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+3216	Call Me By Your Name (2017) [REPACK] [1080p] [BluRay] [5.1] [YTS.MX]	episodes	a5		[5.1] or [5 1] is an audio-channel layout, not absolute episode 5.
+3216	Call Me By Your Name (2017) [REPACK] [1080p] [BluRay] [5.1] [YTS.MX]	kind	episode	movie	A named film release with an audio layout and no episode coordinates is not an episode.
+317	Backrooms (2026) English HQ HDRip - 1080p - x264 - (DD+5 1 - ATMOS 768Kbps & AAC 2 0) - 2 2GB	episodes	a2		The apparent dash/bracket number belongs to bitrate/audio/GB-size encoding information.
+317	Backrooms (2026) English HQ HDRip - 1080p - x264 - (DD+5 1 - ATMOS 768Kbps & AAC 2 0) - 2 2GB	kind	episode	movie	No episode coordinate is present; the numeric suffix is encoding information.
+1764	Puss In Boots The Last Wish (2022) 2160p HDR 5 1 - 2 0 x265 10bit Phun Psyz mkv	episodes	a2		The apparent dash/bracket number belongs to bitrate/audio/GB-size encoding information.
+1764	Puss In Boots The Last Wish (2022) 2160p HDR 5 1 - 2 0 x265 10bit Phun Psyz mkv	kind	episode	movie	No episode coordinate is present; the numeric suffix is encoding information.
+3234	[TorrentCounter to] Your Name 2016 English Dubbed [Kimi no Na wa] 1080p BluRay x264 [1 5GB] mp4	episodes	a1		The apparent dash/bracket number belongs to bitrate/audio/GB-size encoding information.
+3234	[TorrentCounter to] Your Name 2016 English Dubbed [Kimi no Na wa] 1080p BluRay x264 [1 5GB] mp4	kind	episode	movie	No episode coordinate is present; the numeric suffix is encoding information.
+1466	Little-Fires-Everywhere-S01E01-480p-x264-mSD[eztv]	episodes	1-480	1	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1470	Little-Fires-Everywhere-S01E02-480p-x264-mSD[eztv]	episodes	2-480	2	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1471	Little-Fires-Everywhere-S01E03-480p-x264-mSD[eztv]	episodes	3-480	3	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1472	Little-Fires-Everywhere-S01E03-720p-WEB-x265	episodes	3-720	3	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1474	Little-Fires-Everywhere-S01E08-1080p-WEB-H264	episodes	8-1080	8	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1475	Little-Fires-Everywhere-S01E08-720p-WEB-H264	episodes	8-720	8	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+1567	little-fires-everywhere-s01e02-720p-web-h264-xlf[eztv]	episodes	2-720	2	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+2825	Sousou no Frieren - S01E18 - 1080p WEB x264 -WeebGakuin (CR).mkv	episodes	18-1080	18	The trailing 480p/720p/1080p is resolution, not an episode-range endpoint.
+178	[KH] Overlord S1+S2+S3 (BD 1080p) [Dual-Audio]	seasons	1-2	1-3	S1+S2+S3 explicitly advertises three seasons.
+185	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP03 [WEBDL] [720p]	seasons		2	Season2 explicitly states season 2.
+185	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP03 [WEBDL] [720p]	episodes	a3	3	EP coordinates following Season2 are seasonal; EP05-EP08 is the whole explicit range.
+186	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP04 [WEBDL] [720p]	seasons		2	Season2 explicitly states season 2.
+186	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP04 [WEBDL] [720p]	episodes	a4	4	EP coordinates following Season2 are seasonal; EP05-EP08 is the whole explicit range.
+187	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP05-EP08 END [WEBDL] [720p]	seasons		2	Season2 explicitly states season 2.
+187	[MagicStar] Silent Voice Koudou Shinri Sousakan Tateoka Ema Season2 EP05-EP08 END [WEBDL] [720p]	episodes	a8	5-8	EP coordinates following Season2 are seasonal; EP05-EP08 is the whole explicit range.
+189	[MagicStar]-Silent-Voice-Koudou-Shinri-Sousakan-Tateoka-Ema-Season2-EP01-[WEBDL]-[720p]	seasons		2	Season2 explicitly states season 2.
+189	[MagicStar]-Silent-Voice-Koudou-Shinri-Sousakan-Tateoka-Ema-Season2-EP01-[WEBDL]-[720p]	episodes		1	EP coordinates following Season2 are seasonal; EP05-EP08 is the whole explicit range.
+189	[MagicStar]-Silent-Voice-Koudou-Shinri-Sousakan-Tateoka-Ema-Season2-EP01-[WEBDL]-[720p]	kind	other	episode	Season2-EP01 explicitly advertises an episode, regardless of whether it matches the film query.
+2225	Rick-and-Morty-Complete-S01-03-x265-HEVC	seasons	1-	1-3	S01-03 is an explicit season range; 1- is a truncated annotation.
+746	[NoobTracks] FRIEREN - Beyond Journey's End Season 2 ORIGINAL SOUNDTRACK [FLAC]	seasons		2	The soundtrack title explicitly states Season 2; kind remains other and no video coverage is inferred.
+747	[NoobTracks] FRIEREN - Beyond Journey's End Season 2 ORIGINAL SOUNDTRACK [MP3V0]	seasons		2	The soundtrack title explicitly states Season 2; kind remains other and no video coverage is inferred.
+1005	【高清剧集网发布 www.DDHDTV.com】葬送的芙莉莲[第08集][简繁英字幕].Sousou.no.Frieren.S01.2023.2160p.B-Global.WEB-DL.x264.AAC-DDHDTV	episodes		a8	第08集 is an explicit unqualified episode 8, alongside the independently stated S01.
+1005	【高清剧集网发布 www.DDHDTV.com】葬送的芙莉莲[第08集][简繁英字幕].Sousou.no.Frieren.S01.2023.2160p.B-Global.WEB-DL.x264.AAC-DDHDTV	kind	season_pack	episode	The Chinese episode coordinate must not be collapsed into a whole-season pack.
+2443	[Scorpion-Raws] Yu-Gi-Oh! SEVENS 01~10 (TX 1280x720 x264 AAC)	episodes		a1-a10	The explicit anime numeric range is retained even when the result is unrelated to its search query.
+2443	[Scorpion-Raws] Yu-Gi-Oh! SEVENS 01~10 (TX 1280x720 x264 AAC)	kind	other	episode	Query-work mismatch is not a release kind; the name explicitly advertises an anime episode range.
+2635	[ColdYawn] Yu-Gi-Oh! Duel Monsters GX 034-104 (English Sub)	episodes		a34-a104	The explicit anime numeric range is retained even when the result is unrelated to its search query.
+2635	[ColdYawn] Yu-Gi-Oh! Duel Monsters GX 034-104 (English Sub)	kind	other	episode	Query-work mismatch is not a release kind; the name explicitly advertises an anime episode range.
+2444	[The Scorpion] Shingeki no Kyojin S3 - 01v2 (Attack on Titan - 38) [WEB][720p][Multi-Sub][Dual Audio].mkv	episodes	1	1,a38	Both S3-01 and the parenthesized absolute Attack on Titan-38 numbering are explicit.
+2636	[The Scorpion] Shingeki no Kyojin S3 - 01v1 (Attack on Titan - 38) [WEB][720p][Multi-Sub][Dual Audio].mkv	episodes	1	1,a38	Both S3-01 and the parenthesized absolute Attack on Titan-38 numbering are explicit.
+1703	Money Heist S01 [Hindi AC3 - 2.0 + English AAC 2.0] NF WEB-DL 720p H265	episodes	2		AC3-2.0 is an audio channel layout, not seasonal episode 2.
+1703	Money Heist S01 [Hindi AC3 - 2.0 + English AAC 2.0] NF WEB-DL 720p H265	kind	episode	season_pack	Bare S01 advertises a season pack; the apparent episode belongs to AC3-2.0.
+539	[alfaHD] Bleach Sennen Kessen-hen S01E01 ( Bleach S17E01 - (367) ) 1080p DSNP WEB-DL AAC 2.0 x264 Multi-Subs (Thousand-Year Blood War) [EN][PT-BR][ES-LA] [F7298272]	seasons	1	1,17	Both S01E01 and alternate S17E01 are explicitly stated, without resolving metadata offsets.
+528	[ASW] Bleach Sennen Kessen Hen (Thousand-Year Blood War) - S01E01 (367) [1080p HEVC x265 10Bit][AAC]	episodes	1	1,a367	The seasonal episode and parenthesized absolute 367 are both explicit.
+532	[Gotei13]_Bleach_Thousand-Year_Blood_War_S01E01_(367)_1080P_x264_VOSTFR_V2.mp4	episodes	1	1,a367	The seasonal episode and parenthesized absolute 367 are both explicit.
+533	[Gotei13]_Bleach_Thousand-Year_Blood_War_S01E01_(367)_2160P_x264_VOSTFR.mp4	episodes	1	1,a367	The seasonal episode and parenthesized absolute 367 are both explicit.
+539	[alfaHD] Bleach Sennen Kessen-hen S01E01 ( Bleach S17E01 - (367) ) 1080p DSNP WEB-DL AAC 2.0 x264 Multi-Subs (Thousand-Year Blood War) [EN][PT-BR][ES-LA] [F7298272]	episodes	1	1,a367	The seasonal episode and parenthesized absolute 367 are both explicit.
+2741	Hawaii Five0 (2010) Season 4 Episode 14 Na Hala a ka makua (Sins of the Father) ESPANOL HD [ettv]	episodes	14,a14	14	One Episode-word coordinate after Season is seasonal, not a second unstated absolute coordinate.
+3184	Community Season 5 Episode 01 Repiloting HDTV XviD-ASAP[ettv][FR]	episodes	1,a1	1	One Episode-word coordinate after Season is seasonal, not a second unstated absolute coordinate.
+3185	Episodes Season 3 Episode 01 Episode one HDTV x264-ASAP[ettv]	episodes	1,a1	1	One Episode-word coordinate after Season is seasonal, not a second unstated absolute coordinate.
+3188	The Aquabats Super Show Season 3 Episode 01 Christmas With the Aquabats HDTV x264-2HD[ettv]	episodes	1,a1	1	One Episode-word coordinate after Season is seasonal, not a second unstated absolute coordinate.
+3145	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3145	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3145	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3146	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3146	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   LostFilm	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3146	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3147	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip 1080p   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3147	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip 1080p   LostFilm	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3147	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip 1080p   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3148	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3148	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3148	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3149	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3149	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3149	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 13] (2014) WEB-DLRip   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3150	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip 1080p   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3150	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip 1080p   LostFilm	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3150	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip 1080p   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3151	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3151	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3151	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3152	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DL 720p   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3152	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DL 720p   Kerob	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3152	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DL 720p   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3153	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DLRip   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3153	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DLRip   Kerob	episodes		1-3	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3153	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03] (2014) WEB-DLRip   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3154	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3154	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	episodes		1-4	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3154	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3155	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3155	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	episodes		1-4	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3155	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3156	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DL 720p   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3156	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DL 720p   Kerob	episodes		1-4	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3156	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DL 720p   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3157	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DLRip   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3157	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DLRip   Kerob	episodes		1-4	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3157	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04] (2014) WEB-DLRip   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3158	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3158	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	episodes		1-5	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3158	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 13] (2014) WEB-DL 1080p   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3159	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3159	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	episodes		1-5	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3159	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3160	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3160	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	episodes		1-5	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3160	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3161	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DL 720p   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3161	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DL 720p   Kerob	episodes		1-5	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3161	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DL 720p   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3162	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DLRip   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3162	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DLRip   Kerob	episodes		1-5	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3162	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05] (2014) WEB-DLRip   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3163	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3163	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	episodes		1-6	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3163	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip   BaibaKo	kind	movie	episode	The name states episode coordinates, not a film.
+3164	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3164	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	episodes		1-6	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3164	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3165	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DL 720p   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3165	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DL 720p   Kerob	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3165	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DL 720p   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3166	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DLRip   Kerob	seasons		1	The readable mojibake NxYY coordinate explicitly supplies a season.
+3166	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DLRip   Kerob	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3166	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01] (2014) WEB-DLRip   Kerob	kind	movie	episode	The name states episode coordinates, not a film.
+3167	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) HDTV 720p   Jaskier	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3167	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) HDTV 720p   Jaskier	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3167	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) HDTV 720p   Jaskier	kind	movie	episode	The name states episode coordinates, not a film.
+3168	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DL 720p   NewStudio	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3168	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DL 720p   NewStudio	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3168	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DL 720p   NewStudio	kind	movie	episode	The name states episode coordinates, not a film.
+3169	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   LostFilm	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3169	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   LostFilm	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3169	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3170	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   NewStudio	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3170	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   NewStudio	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3170	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   NewStudio	kind	movie	episode	The name states episode coordinates, not a film.
+3171	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3171	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3171	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3172	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) HDTVRip   Alternative Production	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3172	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) HDTVRip   Alternative Production	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3172	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) HDTVRip   Alternative Production	kind	movie	episode	The name states episode coordinates, not a film.
+3173	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   Alternative Production	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3173	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   Alternative Production	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3173	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   Alternative Production	kind	movie	episode	The name states episode coordinates, not a film.
+3174	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   LostFilm	seasons		2	The readable mojibake NxYY coordinate explicitly supplies a season.
+3174	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   LostFilm	episodes		1	The readable mojibake NxYY coordinate/range explicitly supplies seasonal episodes.
+3174	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   LostFilm	kind	movie	episode	The name states episode coordinates, not a film.
+3109	Flash - The Flash 2014-2023 [Sezon 01-08] [1080p.WEB-DL.H265-FT] [Lektor PL] [Alusia]	seasons		1-8	Sezon/Stagione explicitly advertises this season range.
+3109	Flash - The Flash 2014-2023 [Sezon 01-08] [1080p.WEB-DL.H265-FT] [Lektor PL] [Alusia]	kind	movie	multi_season	The explicit season range is not a film.
+3121	The Flash - Stagione 01-09 (2014-2023) [COMPLETA] 1080p H265 ITA AC3 2.0 ENG AC3 5.1 Sub Ita Eng - Raffyone iDN_CreW	seasons		1-9	Sezon/Stagione explicitly advertises this season range.
+3121	The Flash - Stagione 01-09 (2014-2023) [COMPLETA] 1080p H265 ITA AC3 2.0 ENG AC3 5.1 Sub Ita Eng - Raffyone iDN_CreW	kind	movie	multi_season	The explicit season range is not a film.
+3175	The Flash - Temporada 5 [HDTV 720p][Cap 521][AC3 5 1 Castellano][	seasons		5	Temporada 5 explicitly states season 5.
+3175	The Flash - Temporada 5 [HDTV 720p][Cap 521][AC3 5 1 Castellano][	episodes		21	Spanish Cap 521 states season 5 episode 21.
+3175	The Flash - Temporada 5 [HDTV 720p][Cap 521][AC3 5 1 Castellano][	kind	other	episode	Temporada/Cap coordinates establish episode intent, not unresolved scope.
+467	Big_Buck_Bunny_1080p_surround_FrostWire.com.avi	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+468	Big_Buck_Bunny_1080p_surround_frostclick com_frostwire com	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+518	big_buck_bunny_1080p_surround.avi	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+519	big_buck_bunny_480p_stereo ogg	resolution	unknown	480	The explicit resolution remains readable after underscore/separator normalization.
+520	big_buck_bunny_480p_surround avi	resolution	unknown	480	The explicit resolution remains readable after underscore/separator normalization.
+521	big_buck_bunny_720p_h264 mov	resolution	unknown	720	The explicit resolution remains readable after underscore/separator normalization.
+522	big_buck_bunny_720p_stereo ogg	resolution	unknown	720	The explicit resolution remains readable after underscore/separator normalization.
+523	big_buck_bunny_720p_surround avi	resolution	unknown	720	The explicit resolution remains readable after underscore/separator normalization.
+532	[Gotei13]_Bleach_Thousand-Year_Blood_War_S01E01_(367)_1080P_x264_VOSTFR_V2.mp4	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+533	[Gotei13]_Bleach_Thousand-Year_Blood_War_S01E01_(367)_2160P_x264_VOSTFR.mp4	resolution	unknown	2160	The explicit resolution remains readable after underscore/separator normalization.
+848	[千夏字幕組][葬送的芙莉蓮_Sousou no Frieren][第29-38話][1080p_AVC][繁體][合集]	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+849	[千夏字幕组][葬送的芙莉莲_Sousou no Frieren][第29-38话][1080p_HEVC][简繁内封][合集]	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+850	[千夏字幕组][葬送的芙莉莲_Sousou no Frieren][第39-38话][1080p_AVC][简体][合集]	resolution	unknown	1080	The explicit resolution remains readable after underscore/separator normalization.
+2300	_=Demonoid_www Demonoid pw=_-Rick_and_Morty_Complete_S01_03_720p_x265_HEVC	resolution	unknown	720	The explicit resolution remains readable after underscore/separator normalization.
+1707	Money Heist S01-S03 Part 1-5 1080i / 2160p BluRay REMUX NF WEBRi	resolution	2160	unknown	Both 1080i and 2160p encodes are advertised; there is no single unambiguous resolution.
+2728	[philosophy-raws][è¾›ç‰¹å°”][sintel][HI444PP FLAC][4096x1776][BT 2020+YCOGO][ç®€ç¹è‹±å­—å¹•]	resolution	unknown	2160	4096x1776 is an explicitly cropped 4K-width encode, analogous to cropped 1920-wide 1080-class encodes.
+363	Backrooms [2026] [LEKTOR-PL-[AI]	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+424	Big Buck Bunny 3D (2008)[BRRip 1080p x265 HEVC AC3][Dutch]	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+2571	Scorpion.2014-2018.S01-04.PL.1080p.iT.WEB-DL.DD2.0.H264-Ralf	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3027	Stuart.Little.3.Call.Of.The.Wild.2005.TURKiSH.DVDRip.x264-iGNHQ	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3146	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3147	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01 Ð¸Ð· 13] (2014) WEB-DLRip 1080p   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3150	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip 1080p   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3151	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-03 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3155	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-04 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3160	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-05 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3164	Ð¤Ð»ÑÑˆ / The Flash [01Ñ…01-06 Ð¸Ð· 23] (2014) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3169	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3171	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01 Ð¸Ð· 22] (2015) WEB-DLRip Ð¾Ñ‚ qqss44   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+3174	Ð¤Ð»ÑÑˆ / The Flash [02Ñ…01] (2015) WEB-DL 1080p   LostFilm	foreign	unknown	yes	Explicit PL/Lektor, Dutch, Turkish or LostFilm marker without ENG/English/dual/MULTi exemption.
+1262	[BBF] Dead Heat v2 [VHS AC3 SUB ITA][830754AB].mkv	foreign	yes	unknown	SUB ITA is subtitle-only evidence, not an Italian-audio claim.
+3054	The Flash 2014 S01E01 720p HDTV X264-DIMENSION Sub ITA(TeamPremiumCracking)	foreign	yes	unknown	SUB ITA is subtitle-only evidence, not an Italian-audio claim.
+2682	Sintel 95 pngs 7z	unsafe	no	yes	The name is an explicit 7z-only image archive; this is a name-visible archive flag.
+2682	Sintel 95 pngs 7z	kind	movie	other	A PNG image archive is not a film.
+2683	Sintel 95 pngs.7z	unsafe	no	yes	The name is an explicit 7z-only image archive; this is a name-visible archive flag.
+2683	Sintel 95 pngs.7z	kind	movie	other	A PNG image archive is not a film.
+119	The Moon Mistress - Silent Voice Inside (2012) [mp3@320]	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+443	Big Buck Bunny soundtracks - Stereo Extended mp3 (MP3 Surround)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1184	Heat x Beat - I May Be an Omega but I'm Going to Be an Idol (2023) (Digital) (1r0n)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1284	[Unpaid Intern] Heat x Beat: A Shut-In Omega Becomes an Idol! (2024) (Digital) (Norebe)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1287	[마신] [2021.12.24] TVアニメ「ゲッターロボ アーク」ED3テーマ「HEATS 2021」／影山ヒロノブ [MP3 320K]	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1295	ＨＥＡＴ－灼熱－ 第15巻 / Heat v15 (2003) (JPN) (Digital) (danke-Empire)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1296	ＨＥＡＴ－灼熱－ 第16巻 / Heat v16 (2004) (JPN) (Digital) (danke-Empire)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+1297	ＨＥＡＴ－灼熱－ 第17巻 / Heat v17 (2004) (JPN) (Digital) (danke-Empire)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+2403	Crimson Scorpion 01 (of 03) (2020) (digital) (The Seeker-Empire) cbr	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+2404	Drake - Scorpion (2018) Mp3 (320kbps) [Hunter]	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+3111	Justice League - Darkseid War - The Flash 01 (2015) (Webrip) (The Last Kryptonian-DCP) cbr	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+3113	The Flash (01,001-025)(2016-)(digital)(Minutemen-Slayer+Thoth)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+3119	The Flash - Rebirth 01 (2016) (2 covers) (digital) (F) (Minutemen-Slayer)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+3120	The Flash - Rebirth 01 (2016) (2 covers) (digital) (Minutemen-Slayer) cbr (- Nem -)	kind	movie	other	Explicit MP3/soundtrack/digital comic/CBR evidence is non-film content.
+288	Zlie Ptitsy The Movie 2O16 D CAMRip 14OOMB_KOSHERA avi	kind	other	movie	Movie is explicitly advertised; an unrelated work or CAM source is recorded by match/safety, not other kind.
+290	[Judas] Gekijouban Tensei Shitara Slime Datta Ken Soukai no Namida Hen (That Time I Got Reincarnated as a Slime the Movie Tears of the Azure Sea)	kind	other	movie	Movie is explicitly advertised; an unrelated work or CAM source is recorded by match/safety, not other kind.
+1308	[Arid] I Want to Eat Your Pancreas (BDRip 1080p HEVC OPUS) [BCB2E441].mkv	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+1309	[Judas] I Want to Eat Your Pancreas (Kimi no Suizou wo Tabetai) [BD 1080p][HEVC x265 10bit][Dual-Audio][Eng-Subs]	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+1312	[MTBB] I Want to Eat Your Pancreas [DA34C700].mkv	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+1314	[U3-Project] Kimi no Suizou wo Tabetai / 劇場アニメ「君の膵臓をたべたい」[BDMV][AVC 1080p DTS-HDMA_5.1][MOVIE][JP][完全生産限定版] (I Want to Eat Your Pancreas / Kimi ni Suizo o Tabetai)	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+1315	[Valenciano] I Want to Eat Your Pancreas [BD 1080p][AV1 10 bit][Opus][Multi-Audio][Multi-Sub].mkv	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+2996	Stuart Little 2 DVDRIP Spanish	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+2997	Stuart Little 2 [BD5 ITA ENG DEU ESP POR - Sub Multi ~ 1080p][Co	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+2998	Stuart Little 2 [DVD-Rip ITA ENG DEU ESP POR - Sub Multi][Colomb	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+2999	Stuart Little 2[dvdrip][spanish]	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3003	Stuart Little 3 Call Of The Wild [Dual Audio] [Hindi-English] DV	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3011	Stuart Little [BD-Rip XviD ~ ENG ITA + MULTI9 ~ 384p][Colombo-bt	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3012	Stuart Little [BD5 ITA ENG DEU ~ Sub Multi3][Colombo-BT.i2p]	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3024	Stuart.Little.2.DVDRip.XviD.AC3-OLFA	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3025	Stuart.Little.2.SWESUB.DVDrip.XviD-PiraKapten	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3128	The Flash BDRip XviD-COCAIN	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3129	The Flash DVDRIP Jaybob	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3130	The Flash TS LiNE [H264 MP4][RoB]	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3131	The Flash XviD AC3-ADTRG	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+3177	The Flash DVDRIP Jaybob [FR]	kind	other	movie	The release is a film encode; lack of a requested episode or wrong query identity is not other kind.
+1174	Heat Guy J (ヒートガイジェイ, Hīto Gai Jei) [8 x DVD9 PAL - FR & JAP VOSTFR 2.0]	episodes	a8		8 x DVD9 is an eight-disc count, not absolute episode 8.
+1314	[U3-Project] Kimi no Suizou wo Tabetai / 劇場アニメ「君の膵臓をたべたい」[BDMV][AVC 1080p DTS-HDMA_5.1][MOVIE][JP][完全生産限定版] (I Want to Eat Your Pancreas / Kimi ni Suizo o Tabetai)	foreign	unknown	yes	Standalone JP is an explicit non-English language marker, with no English/MULTi/dual exemption.
+398	Big Buck BUNNY EXE	unsafe	no	yes	The advertised bare EXE suffix is a name-visible executable flag.
+79	Koe no Katachi (A Silent Voice)『The Ultimate Enthusiast's Collected Edition』ITBD Remux 5xFLAC/Sub｜OST	source_type	unknown	bluray	ITBD explicitly denotes Italian BluRay disc provenance, not audio language.
+230	[hydes] A Silent Voice (Koe no Katachi) v2 [ITBD Remux][Dual-Audio]	source_type	unknown	bluray	ITBD explicitly denotes Italian BluRay disc provenance, not audio language.
+231	[hydes] A Silent Voice (Koe no Katachi) v2.1 [ITBD Remux][Dual-Audio]	source_type	unknown	bluray	ITBD explicitly denotes Italian BluRay disc provenance, not audio language.
+1704	Money Heist S01 [Hindi DDP 5 1 + English AAC 5 1] 1080p 10Bit NF WEBRip H264 HEVC	codec	h265	h264,h265	H264 and HEVC are both explicitly advertised; neither tag may be silently dropped.
+1789	Puss in Boots The Last Wish 2022 1080p BluRay DD 5 1 Atmos x266-TayTO	codec	unknown	h266	x266 explicitly advertises the H266/VVC video codec.
+84	Koe no Katachi [x265 10 bit 1920x1036 5.1 EAC3 + AAC].mkv	year	1920		1920-wide encode dimensions/width are not a release year.
+150	[Arid] A Silent Voice [Dual-Audio][BD 1920x1036 x264 FLAC DTS-HD MA]	year	1920		1920-wide encode dimensions/width are not a release year.
+151	[Arid] A Silent Voice v2 [Dual-Audio][BD 1920x1036 x264 FLAC DTS-HD MA]	year	1920		1920-wide encode dimensions/width are not a release year.
+152	[Asakura] Koe no Katachi [BDRip 1920x1036 x264 FLAC]	year	1920		1920-wide encode dimensions/width are not a release year.
+158	[BlurayDesuYo] Koe no Katachi - A Silent Voice (1920x1080 x265 10bit 2ch DTS-HPX 5.1ch FLAC 5.1 AAC) [7273A66D].mkv	year	1920		1920-wide encode dimensions/width are not a release year.
+212	[SAIO-Raws] 剧场版 声之形 聲の形 Koe no katachi/The Shape Of Voice/A Silent Voice Movie [BD 1920x1036 HEVC-10bit OPUSx2][简繁内封字幕]	year	1920		1920-wide encode dimensions/width are not a release year.
+223	[VFK] Koe no Katachi (A Silent Voice) Takarir Indonesia [ITA-BD 1920x1036 FLAC]	year	1920		1920-wide encode dimensions/width are not a release year.
+224	[VFK] Koe no Katachi (A Silent Voice) Takarir Indonesia [JP-BD 1920x1036 FLAC]	year	1920		1920-wide encode dimensions/width are not a release year.
+753	[ReinForce] Sousou no Frieren (BDRip 1920x1080 x264 FLAC)	year	1920		1920-wide encode dimensions/width are not a release year.
+756	[Shiniori-Raws] Sousou no Frieren S2 (BD 1920x1080 x265 10bit FLAC)	year	1920		1920-wide encode dimensions/width are not a release year.
+1272	[Koi-Raws] Oroka na Tenshi wa Akuma to Odoru - 04 「Heat limit」 (TX 1920x1080 x264 AAC).mp4	year	1920		1920-wide encode dimensions/width are not a release year.
+1311	[Kulot] I Want to Eat Your Pancreas v2 &#124; Kimi no Suizou wo Tabetai [Dual-Audio][BDRip 1920x1080 HEVC FLACx2] &#124; KimiSui	year	1920		1920-wide encode dimensions/width are not a release year.
+1338	Little Disasters S01 1080p WEB DL Feranki1980	year	1980		Digits attached to an uploader/scene-group word are not a separate year token.
+1700	Money Heist S01 SPANISH 1080p NF WEBRip DDP2 0 x264-Mooi1990[KCZ]	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1701	Money Heist S01 SPANISH 1080p NF WEBRip DDP2 0 x264-Mooi1990[rartv]	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1710	Money Heist S01E01 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1711	Money Heist S01E02 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1712	Money Heist S01E03 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1713	Money Heist S01E04 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1714	Money Heist S01E05 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1715	Money Heist S01E06 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1716	Money Heist S01E07 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1717	Money Heist S01E08 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1718	Money Heist S01E09 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1720	Money Heist S01E10 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1721	Money Heist S01E11 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1722	Money Heist S01E12 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1723	Money Heist S01E13 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV	year	1990		Digits attached to an uploader/scene-group word are not a separate year token.
+1884	Rick and Morty S01E01 Pilot (1920x1080) [Phr0stY].mkv	year	1920		1920-wide encode dimensions/width are not a release year.
+2240	Rick.and.Morty.S01.1080p.BluRay.DDP.5.1.x265-edge2020	year	2020		Digits attached to an uploader/scene-group word are not a separate year token.
+2642	1920.sintel.x264.4000kbits.AAC	year	1920		1920-wide encode dimensions/width are not a release year.
+2660	Sintel 1920 Anti Banding Edition x264	year	1920		1920-wide encode dimensions/width are not a release year.
+2661	Sintel 1920x816 x264 7000kbits ac3 5.1	year	1920		1920-wide encode dimensions/width are not a release year.
+3450	Solo Leveling S02E05 1920x1080	year	1920		1920-wide encode dimensions/width are not a release year.
+3452	Solo Leveling S02E05 1920×1080	year	1920		1920-wide encode dimensions/width are not a release year.
