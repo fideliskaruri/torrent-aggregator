@@ -42,7 +42,8 @@ internal static class CatalogProjection
     internal static object Card(WorkSnapshot w, bool inCinemas = false) => new
     {
         id = w.Work.Id, workId = w.Work.Id, w.Work.WorkKey, title = Title(w), w.Work.Year,
-        subtitle = (string?)null, w.Work.PosterUrl, w.Work.BackdropUrl, availability = (string?)null,
+        subtitle = w.Work.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        w.Work.PosterUrl, w.Work.BackdropUrl, availability = (string?)null,
         infoHash = (string?)null, filePath = (string?)null, watchListItemId = (string?)null, mediaType = TitleType(w),
         releaseDate = Release(w), overview = w.Work.Synopsis, season = (int?)null, episode = (int?)null,
         provider = Provider(w), providerId = Primary(w)?.ExternalId,

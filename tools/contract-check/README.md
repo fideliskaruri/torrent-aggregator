@@ -78,5 +78,7 @@ horizontal overflow. Browse headings match; the new home honestly omits
 Downloaded, and notifications are deferred. Search ranks the anime fourth
 rather than first (OPS-678). Title ownership/download controls differ because
 the scratch inventory is empty. The missing service-worker MIME is OPS-676.
-Startup readiness was 3.09 seconds; after the new-server walk, working set was
-255.7 MiB and private memory 180.1 MiB (`final-metrics.json`).
+Browse years were restored in the wire subtitle and verified in the final
+headless walk (OPS-683). Startup readiness was 2.35 seconds; after the new-server
+walk, working set was 298.6 MiB and private memory 222.9 MiB
+(`final-metrics.json`).
