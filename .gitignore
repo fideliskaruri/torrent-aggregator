@@ -102,4 +102,5 @@ tools/.download-proof/
 tools/.find-proof/
 tools/.check-proof/
 tools/.plan-proof/
+tools/.devplan-proof/
 tools/.library-proof/
