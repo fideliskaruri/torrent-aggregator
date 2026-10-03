@@ -385,7 +385,7 @@ internal static class CatalogEndpoints
             if (monitor.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return Json(new { error = "monitored must be true or false." }, 400);
             monitored = monitor.GetBoolean();
         }
-        var changeStart = body.TryGetProperty("fromSeason", out _) || body.TryGetProperty("fromEpisode", out _);
+        var changeStart = Text(body, "fromSeason") is not null || Text(body, "fromEpisode") is not null;
         string? fromId = null;
         if (changeStart)
         {

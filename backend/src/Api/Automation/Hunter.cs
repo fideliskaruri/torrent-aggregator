@@ -32,12 +32,16 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                 var result = await metadata.GetWorkAsync(follow.WorkId, true, ct);
                 if (result.Work is not { } work) continue;
                 var aired = work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed &&
-                    e.AirAt is { } air && air <= now && air >= follow.NewEpisodesSince).ToArray();
+                    e.AirAt is { } air && air <= now &&
+                    (follow.NewEpisodesSince == DateTimeOffset.UnixEpoch || air > follow.NewEpisodesSince)).ToArray();
                 if (follow.FromEpisodeId is { } from)
                 {
                     var start = work.Episodes.FirstOrDefault(e => e.Id == from);
-                    if (start?.AirAt is not { } startAt) continue;
-                    aired = aired.Where(e => e.AirAt >= startAt).ToArray();
+                    var startSeason = work.Seasons.FirstOrDefault(s => s.Id == start?.SeasonId);
+                    if (start is null || startSeason is null) continue;
+                    aired = aired.Where(e => work.Seasons.FirstOrDefault(s => s.Id == e.SeasonId) is { } season &&
+                        (season.Number > startSeason.Number ||
+                            season.Number == startSeason.Number && e.Number >= start.Number)).ToArray();
                 }
                 var owned = await library.OwnedAsync(new(work.Work.Id, [.. aired.Select(e => e.Id)], false), ct);
                 foreach (var episode in aired)

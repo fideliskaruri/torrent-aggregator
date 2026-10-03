@@ -740,10 +740,17 @@ public sealed class LegacyConverter
                 ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
             Add("WorkPreference", Values(("id", Id("preference/" + work)), ("workId", work),
                 ("resolutionFloor", N(row, "preferredResolution")), ("preferredResolution", N(row, "preferredResolution"))));
-            if (B(row, "monitored"))
-                Add("Follow", Values(("id", Id("follow/" + work)), ("workId", work), ("enabled", true),
-                    ("fromEpisodeId", Episode(work, (int?)N(row, "fromSeason"), (int?)N(row, "fromEpisode"))),
-                    ("newEpisodesSince", S(row, "newEpisodesSince") is null ? D(row) : D(row, "newEpisodesSince"))));
+            var newOnly = S(row, "monitorMode") == "new";
+            var cursorSeason = (int?)N(row, "cursorSeason");
+            var cursorEpisode = (int?)N(row, "cursorEpisode");
+            var hasCursor = cursorSeason is > 0 && cursorEpisode is > 0;
+            var startSeason = hasCursor ? cursorSeason : (int?)N(row, "fromSeason");
+            var startEpisode = hasCursor ? cursorEpisode : (int?)N(row, "fromEpisode") ?? 1;
+            Add("Follow", Values(("id", Id("follow/" + work)), ("workId", work), ("enabled", B(row, "monitored")),
+                ("fromEpisodeId", newOnly && !hasCursor ? null : Episode(work, startSeason, startEpisode)),
+                ("newEpisodesSince", newOnly ? S(row, "newEpisodesSince") is null ? D(row) : D(row, "newEpisodesSince")
+                    : DateTimeOffset.UnixEpoch),
+                ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
         }
         foreach (var row in Rows("MediaRequest"))
         {

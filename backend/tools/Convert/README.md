@@ -22,6 +22,10 @@ and first-scan/import-review gates stay disabled. Legacy public work keys remain
 unchanged. Catalog rows sharing a public key collapse to one Work; provider
 identity conflicts stay suggested. The report lists old/new table counts and
 explicitly retained/dropped facts, without credentials.
+Every watchlist follow, including disabled ones, retains its monitoring policy.
+New-only follows retain `newEpisodesSince` (falling back to creation time if absent);
+ongoing follows use the Unix epoch cutoff. A stored cursor takes precedence over the
+original start season/episode and becomes the stable `fromEpisodeId`.
 
 After a successful conversion, a repeat invocation checks the immutable backup
 digest and is a no-op. A durable start marker is written before backup/import;

@@ -44,13 +44,12 @@ public sealed class CatalogState(IStore store)
             if (monitored is not null || changeStart || monitorMode is not null)
             {
                 var follow = (await ReadAsync<FollowRow>(Query(workId: workId), ct)).FirstOrDefault();
-                var since = monitorMode == "new" ? now :
-                    monitorMode == "ongoing" ? DateTimeOffset.UnixEpoch : follow?.NewEpisodesSince ?? DateTimeOffset.UnixEpoch;
+                var (start, since) = FollowPolicy.Configure(follow, fromEpisodeId, changeStart, monitorMode, now);
                 var next = follow is null
-                    ? new FollowRow(Guid.CreateVersion7().ToString(), workId, monitored ?? false, fromEpisodeId,
+                    ? new FollowRow(Guid.CreateVersion7().ToString(), workId, monitored ?? false, start,
                         since, null, now, now, 0)
                     : follow with { Enabled = monitored ?? follow.Enabled,
-                        FromEpisodeId = changeStart ? fromEpisodeId : follow.FromEpisodeId,
+                        FromEpisodeId = start,
                         NewEpisodesSince = since, UpdatedAt = now, Version = follow.Version + 1 };
                 writes.Add(new(next, follow?.Version, null));
             }

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Automation;
 
@@ -116,13 +117,41 @@ internal static class AutomationEndpoints
         var result = await metadata.GetWorkAsync(workKey, true, ct);
         if (result.Work is not { } work || work.Work.Kind != WorkKind.Series)
             return Results.BadRequest(new { error = "Open a series before following it." });
-        if (!body.TryGetProperty("enabled", out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if ((!body.TryGetProperty("enabled", out var value) && !body.TryGetProperty("monitored", out value)) ||
+            value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return Results.BadRequest(new { error = "Choose whether to follow this series." });
         var old = (await db.ReadAsync<FollowRow>(ct)).FirstOrDefault(f => f.WorkId == work.Work.Id);
+        if (body.TryGetProperty("monitorMode", out var modeValue) &&
+            modeValue.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+            return Results.BadRequest(new { error = "Pick ongoing or new." });
+        var mode = Text(body, "monitorMode");
+        if (mode is not (null or "new" or "ongoing"))
+            return Results.BadRequest(new { error = "Pick ongoing or new." });
+        string? start = old?.FromEpisodeId;
+        var changeStart = false;
+        if (body.TryGetProperty("fromSeason", out var seasonValue) && seasonValue.ValueKind != JsonValueKind.Null)
+        {
+            if (seasonValue.ValueKind != JsonValueKind.Number ||
+                !seasonValue.TryGetInt32(out var seasonNumber) || seasonNumber < 1)
+                return Results.BadRequest(new { error = "Choose an existing start season." });
+            var episodeNumber = 1;
+            if (body.TryGetProperty("fromEpisode", out var episodeValue) && episodeValue.ValueKind != JsonValueKind.Null &&
+                (episodeValue.ValueKind != JsonValueKind.Number ||
+                    !episodeValue.TryGetInt32(out episodeNumber) || episodeNumber < 1))
+                return Results.BadRequest(new { error = "Choose an existing start episode." });
+            var season = work.Seasons.FirstOrDefault(s => s.Number == seasonNumber);
+            start = work.Episodes.FirstOrDefault(e => e.SeasonId == season?.Id && e.Number == episodeNumber)?.Id;
+            if (start is null) return Results.BadRequest(new { error = "That start episode is not in the catalog." });
+            changeStart = true;
+        }
         var now = DateTimeOffset.UtcNow;
+        var configured = FollowPolicy.Configure(old, start, changeStart, mode, now);
+        start = configured.Start;
+        var since = configured.Since;
         var row = old is null ? new FollowRow("follow:" + work.Work.Id, work.Work.Id, value.GetBoolean(),
-            null, DateTimeOffset.UnixEpoch, null, now, now, 1)
-            : old with { Enabled = value.GetBoolean(), UpdatedAt = now, Version = old.Version + 1 };
+            start, since, null, now, now, 1)
+            : old with { Enabled = value.GetBoolean(), FromEpisodeId = start, NewEpisodesSince = since,
+                UpdatedAt = now, Version = old.Version + 1 };
         await db.SaveAsync(row, old?.Version, ct);
         return Results.Ok(new { follow = row });
     }
