@@ -1,7 +1,7 @@
 # TorrentFlow backend skeleton
 
 Task 2.1, OPS-659 / FEAT-35. This is an isolated foundation, not a working replacement
-for the live backend. The other modules intentionally contain only placeholders.
+for the live backend. Modules not yet implemented still contain placeholders.
 No old project is referenced. The 93 captured routes remain the subsequent phases'
 contract. Health, the static SPA and users/access (OPS-662) are implemented here.
 
@@ -161,3 +161,80 @@ The script owns/stops its processes by PID, uses 3940 and a temporary dedicated
 signs test tokens in memory, proves a real non-loopback requester/owner connection,
 and restores saved remote settings. Evidence and public test JWKS remain under
 ignored `tools\.access-proof`. It never calls the old server or live installation.
+
+## Raw sources (OPS-680)
+
+`ISources` implements apibay, Nyaa, EZTV, YTS (films, provisional), TorrentsCSV,
+Knaben and AnimeTosho. It returns raw names/hashes, nullable listed counts/size/date,
+and magnets/torrent URLs, without work matching, episode parsing or health decisions.
+EZTV requires `SourceQuery.Identity = new("imdb", "tt…", "series")` supplied by
+Metadata/Find; Sources never does a second catalog lookup or trusts EZTV coordinates.
+
+The typed `Setting.sources` array is read on every call, in an independent short
+Store scope so concurrent calls on the singleton port never share an EF operation.
+Store remains the single owner of tier/enabled/concurrency/spacing defaults.
+Core and Fallback defaults are enabled; OptIn defaults are disabled. This slice
+implements only Core adapters: enabled but not-yet-installed fallback adapters report
+Unconfigured, not a successful empty result. Find, not Sources, selects the fallback tier.
+Host configuration `TorrentFlow:Sources:<id>:BaseUrl` and `…:Enabled` can overlay
+settings for a local benchmark. HTTPS is required except for explicitly configured
+loopback HTTP stubs. No certificate validation bypass exists.
+
+One host gate is shared across adapters and redirect hosts, with FIFO owner/background
+lanes, owner-first queued admission and the strictest registered host courtesy policy.
+Global adapter concurrency is 24 with at most eight background calls. Each logical
+call has at most six seconds **from enqueue**, including settings, admission, spacing,
+redirects and all pagination. There is no inline retry or mirror fallback after errors.
+429/503 Retry-After delays/dates are honored without a larger-delay cap; missing/invalid
+429 headers back off 30, 60, 120, 240, then 300 seconds. Success resets strikes.
+503 without Retry-After/transport failure invents no cooldown. Cooling sites skip
+immediately with RetryAt; queued calls are also released when cooldown is imposed.
+Other sites continue independently.
+
+`SearchStreamAsync` yields cumulative immutable snapshots while pages arrive;
+`SearchAsync` returns the final snapshot. A pool/window cap, deadline, failed page,
+or cooldown is never Complete. The pool asks for at least 50 and retains at most
+80 unique hashes. TorrentsCSV follows `next` using `after`; AnimeTosho/EZTV/YTS have
+bounded pagination. Knaben's nested total and Nyaa's fixed RSS window keep truncation
+honest. RSS parsing prohibits DTDs/resolvers and malformed XML is SourceFailure.
+Responses are bounded to 8 MiB. Diagnostics include queue wait, first start, request
+count, last HTTP status, returned count and truncation; listed seeders are not health.
+
+In **Development only**, the owner-only, loopback-only read hook is:
+
+```text
+GET /api/dev/sources/search?q=Sintel&source=apibay&lane=owner
+GET /api/dev/sources/search?q=Scorpion&source=eztv&imdb=tt3514324
+GET /api/dev/sources/search?q=Frieren&source=nyaa&stream=true
+```
+
+The last form returns NDJSON snapshots. Optional category accepts the existing
+`tv`/`movies` names and the typed `series`/`films` names. The hook is registered
+through Targets -> Find -> Sources composition; Api adds no forbidden references.
+
+HTTP-only verification, using isolated output so another rebuild server isn't locked:
+
+```powershell
+dotnet build backend\TorrentFlow.Backend.slnx --artifacts-path backend\.sources-build --nologo
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+dotnet backend\.sources-build\bin\Api\debug\TorrentFlow.dll `
+  --urls http://127.0.0.1:3945 `
+  --TorrentFlow:DataDirectory D:\code\memtest\rebuild-dev\data `
+  --TorrentFlow:Scheduler:Disabled true --background --no-browser
+# From another shell while this server is running:
+python tools\sources-check.py
+# Stop that exact server PID before running the self-owned stub proof:
+python tools\sources-http-proof.py
+```
+
+`sources-check.py` writes the applicable nine-title live matrix, raw snapshots,
+listed maxima, latency/diagnostics and comparable Phase 0 counts to ignored
+`tools\.sources-proof\core.json`. Audit limits/queries differed (50 vs 80, season
+filters/aliases), and audit medians excluded courtesy waiting; counts are only
+rough comparisons. `sources-http-proof.py` owns/stops its 3945 process by PID and
+uses a loopback site on 3946. It proves the enqueue deadline with zero-I/O expired
+waiters, owner queue priority, partial-page timeout/streaming, disabled/OptIn defaults,
+malformed RSS/DTD refusal, insecure redirect refusal, independent-site/shared-host
+cooldown, queued cooldown release, 503-without-header, delay/date/default/exponential
+429 cooldown and an uncapped 500-second Retry-After. Evidence is
+`tools\.sources-proof\infrastructure.json`. Neither script calls 3930 or stable data.

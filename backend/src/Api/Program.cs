@@ -39,6 +39,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
+builder.Services.AddDevSources();
 builder.Services.AddCatalog();
 var app = builder.Build();
 try
@@ -49,6 +50,7 @@ try
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
     await app.UseAccessAsync();
+    app.MapDevSources();
     app.MapCatalog();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.

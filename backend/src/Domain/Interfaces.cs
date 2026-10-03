@@ -33,6 +33,8 @@ public interface ISources
 {
     Task<SourceResult> SearchAsync(string sourceId, SourceQuery query, CancellationToken cancellationToken);
     Task<SourceResult> TestAsync(string sourceId, CancellationToken cancellationToken);
+    IAsyncEnumerable<SourceResult> SearchStreamAsync(string sourceId, SourceQuery query,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: judge swarm health, pick releases, call Engine or own Target state.</summary>
