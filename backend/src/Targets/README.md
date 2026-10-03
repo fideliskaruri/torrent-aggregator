@@ -191,21 +191,28 @@ Real HTTP verified-byte stop/resume and initially-paused admission evidence is i
 `tools\.tswap-proof\report.md` (OPS-769).
 
 Remaining: production raw magnet submission, pending unresolved-scope wanted rows,
-Find another promotion answers, and external client import. External recovery import
-explicitly returns 501 rather than claiming success.
+Find another promotion answers, and external client UI finishing/seeding controls. External recovery import
+adopts completed files or admits explicitly identified unfinished transfers.
 Download recovery restores persisted Engine bindings; it does not import another client's
 storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\finish\`.
 
-External unfinished handover (OPS-808) still needs an in-place Library filing
-capability. Original external paths must be both the Engine binding and the final
-path. Store's current `BeginFilingAsync` reserves source and destination as two
-distinct physical claims, so an identical-path handover cannot finish inventory
-commit. That must be fixed by the Library/Store owner, not by inventing a partial
-filename, moving the foreign payload, or writing inventory from Api.
-A truncated container can also lack its runtime metadata; catalog identity then
-requires an explicit Import pick before admission, not speculative ownership of
-an incomplete video. The isolated experiment, exact blocker and unshipped port
-source are preserved in `tools\.eadm-proof\report.md`.
+External unfinished handover (OPS-808) uses the public `AdmitExternalAsync` port:
+full hash-bound torrent metadata, original indexed paths, confirmed catalog picks
+and explicit paused/run intent. Engine caches verified metadata before admission
+is committed, then rechecks existing bytes. A Store-issued placement proposal
+commits original bindings, Download, Targets and Current associations atomically;
+the confirmed Import decisions commit in that transaction too, so restart cannot
+leave a handed-over transfer trapped behind its own review. Reservation failure
+leaves no admission rows. A subsequent Engine-open failure retains the accepted
+original bindings in Waiting (or Paused) for the existing recovery flow, without
+unlinking the foreign payload.
+Library/Store deduplicates identical source/final physical claims. Normal
+transfer filing therefore commits inventory and Done in one version-fenced
+transaction, with no second placement pipeline or synthetic watch intent.
+Pending in-place filing replays only after its recorded digest matches.
+A truncated container requires an explicit Import pick rather than speculative
+ownership. Fresh HTTP recheck, finish, interrupted-filing restart and ordinary
+Sintel regression evidence is in `tools\.eadm2-proof\report.md`.
 
 ## Library deletion
 

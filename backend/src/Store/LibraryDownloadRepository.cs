@@ -5,8 +5,41 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
 
-public sealed partial class LibraryRepository
+public interface ILibraryPlacementProposalRepository
 {
+    Task<LibraryWriteProposal?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
+        string? reviewId, ImmutableArray<string> reviewItemIds, CancellationToken ct);
+}
+
+public sealed partial class LibraryRepository : ILibraryPlacementProposalRepository
+{
+    public async Task<LibraryWriteProposal?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
+        string? reviewId, ImmutableArray<string> reviewItemIds, CancellationToken ct)
+    {
+        if (files.IsDefaultOrEmpty || files.Select(f => f.DownloadId).Distinct().Count() != 1 ||
+            files.Select(f => f.FileIndex).Distinct().Count() != files.Length ||
+            files.Select(f => f.PhysicalKey).Distinct().Count() != files.Length ||
+            files.Any(f => f.Filed || f.MediaFileId is not null || f.EnginePath is null ||
+                !System.IO.Path.IsPathFullyQualified(f.EnginePath) || f.Selected &&
+                (f.TargetId is null || f.PartialPath != f.EnginePath || f.FinalPath != f.EnginePath)))
+            throw new ArgumentException("External bindings must reserve their exact original paths before admission.");
+        var existing = await BindingsAsync(ct);
+        if (files.Any(f => existing.Any(b => b.Id == f.Id || b.PhysicalKey == f.PhysicalKey))) return null;
+        if (reviewId is not null)
+        {
+            var review = await new ImportReviewRepository(db).GetAsync(reviewId, ct);
+            if (review is null || reviewItemIds.IsDefaultOrEmpty ||
+                reviewItemIds.Distinct().Count() != reviewItemIds.Length ||
+                reviewItemIds.Any(id => !review.Items.Any(i => i.Id == id &&
+                    files.Any(f => f.Selected && f.EnginePath == i.Path))) ||
+                files.Any(f => f.Selected && !review.Items.Any(i => reviewItemIds.Contains(i.Id) && i.Path == f.EnginePath)))
+                throw new ArgumentException("The confirmed Import files no longer match this transfer. Review it again.");
+        }
+        return new PlacementWriteProposal(files[0].DownloadId,
+            [.. files.Where(f => f.Selected).Select(f => f.TargetId!).Distinct()],
+            [.. files.Select(f => new RowWrite(f, null, null))], reviewId, reviewItemIds);
+    }
+
     public Task<ImmutableArray<FileOperationRow>> FilingOperationsAsync(CancellationToken ct) =>
         ReadAsync<FileOperationRow>(null, ct);
 
@@ -23,10 +56,12 @@ public sealed partial class LibraryRepository
                 null, binding.PartialPath, binding.FinalPath, binding.ExpectedBytes, digest,
                 FileOperationState.Pending, false, 0, null, null, now, now, null, null, null, null);
             if (!await StageAsync(operation, null, ct)) return false;
+            var paths = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (label, path) in new[] { ("source", binding.PartialPath!), ("destination", binding.FinalPath!) })
             {
                 var key = System.IO.Path.GetFullPath(path);
                 if (OperatingSystem.IsWindows()) key = key.ToLowerInvariant();
+                if (!paths.Add(key)) continue;
                 if (!await StageAsync(new FilePathClaimRow(id + ":" + label, id, key, now), null, ct)) return false;
             }
             await db.SaveChangesAsync(ct);
@@ -106,7 +141,8 @@ public sealed partial class LibraryRepository
         var prior = (await MediaAsync(null, ct)).SingleOrDefault(m => m.PhysicalKey == media.PhysicalKey);
         if (prior is not null)
         {
-            if (prior.PhysicalKey != media.PhysicalKey || prior.ContentDigest != media.ContentDigest)
+            if (prior.PhysicalKey != media.PhysicalKey || prior.ContentDigest != media.ContentDigest ||
+                prior.WorkId != media.WorkId || prior.EpisodeId != media.EpisodeId)
                 throw new IOException("The previous library file differs from this download. Review the existing file.");
             media = media with { Id = prior.Id, Version = prior.Version + 1 };
             after = after with { MediaFileId = prior.Id };
@@ -152,10 +188,25 @@ public sealed partial class LibraryRepository
     }
 }
 
-internal sealed class FilingWriteProposal(string? targetId, ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
+internal abstract class LibraryTransactionProposal(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
     : LibraryWriteProposal
 {
-    internal string? TargetId { get; } = targetId;
     internal ImmutableArray<RowWrite> Writes { get; } = writes;
     internal ImmutableArray<RowDelete> Deletes { get; } = deletes;
+}
+
+internal sealed class FilingWriteProposal(string? targetId, ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
+    : LibraryTransactionProposal(writes, deletes)
+{
+    internal string? TargetId { get; } = targetId;
+}
+
+internal sealed class PlacementWriteProposal(string downloadId, ImmutableArray<string> targetIds, ImmutableArray<RowWrite> writes,
+    string? reviewId, ImmutableArray<string> reviewItemIds)
+    : LibraryTransactionProposal(writes, [])
+{
+    internal string DownloadId { get; } = downloadId;
+    internal ImmutableArray<string> TargetIds { get; } = targetIds;
+    internal string? ReviewId { get; } = reviewId;
+    internal ImmutableArray<string> ReviewItemIds { get; } = reviewItemIds;
 }

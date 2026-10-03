@@ -83,7 +83,8 @@ public sealed class DownloadFiling
                 var filed = file.Filed;
                 var operation = operations.SingleOrDefault(o => o.Id == $"file:{file.Id}");
                 if (!file.Filed && operation is not null && file.FinalPath is { } final &&
-                    !File.Exists(file.PartialPath) && File.Exists(final))
+                    (file.PartialPath is not null && LibraryPaths.PhysicalKey(file.PartialPath) ==
+                        LibraryPaths.PhysicalKey(final) || !File.Exists(file.PartialPath)) && File.Exists(final))
                 {
                     if (await DigestAsync(final, ct) != operation.ExpectedDigest)
                     {

@@ -92,7 +92,7 @@ internal static class DownloadEndpoints
         });
         group.MapPost("/settings/download-recovery/sources", async (RecoverySourcesInput input,
             IConfiguration configuration, MediaImport importer, ImportReviews reviews,
-            ILibraryRepository inventory, CancellationToken ct) =>
+            ILibraryRepository inventory, TargetPipeline targets, HttpContext http, CancellationToken ct) =>
         {
             if (!input.Acknowledged)
                 return Results.BadRequest(new { error = "Confirm that the other client will not write to these files." });
@@ -102,14 +102,45 @@ internal static class DownloadEndpoints
                 return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
             var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
             var adoption = new ExternalMediaAdoption(importer, reviews, inventory);
-            return Reply(await adoption.ImportAsync(input.Ids, [.. scan.Candidates.Select(c =>
-                new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))], ct));
+            var unfinished = scan.Candidates.Where(c => !c.Complete && input.Ids.Contains(c.Id)).ToArray();
+            var result = await adoption.ImportAsync(input.Ids.Where(id => unfinished.All(c => c.Id != id)),
+                [.. scan.Candidates.Select(c => new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))], ct);
+            foreach (var candidate in unfinished)
+            {
+                try
+                {
+                    if ((await targets.ReadAsync(ct)).Downloads.Any(d => d.Hash == candidate.Hash))
+                    {
+                        result = result with { Skipped = result.Skipped + 1 };
+                        continue;
+                    }
+                    var selected = input.Selections?.Where(s => s.SourceId == candidate.Id).ToArray() ?? [];
+                    var review = await adoption.ReviewTransferAsync(new(candidate.Id, candidate.Name,
+                        candidate.SavePath, candidate.Complete, candidate.Files),
+                        [.. selected.Select(s => new ExternalIdentityPick(s.FileIndex, s.WorkId, s.EpisodeId))], ct);
+                    var admitted = await targets.AdmitExternalAsync(new(candidate.Hash, candidate.Name,
+                        candidate.TorrentBytes, candidate.Files, [.. selected.Select(s =>
+                            new ExternalTransferItem(s.FileIndex, s.WorkId, s.EpisodeId))], input.Paused, review.Id,
+                        [.. review.Items.Where(i => selected.Any(s => i.Path == candidate.Files[s.FileIndex])).Select(i => i.Id)]),
+                        AccessIdentity.Actor(http).UserId, ct);
+                    if (!admitted.Accepted) throw new IOException(admitted.Failure?.Message);
+                    result = result with { Imported = result.Imported + 1, Paused = result.Paused + (input.Paused ? 1 : 0) };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+                {
+                    result = result with { Failed = result.Failed + 1,
+                        Errors = result.Errors.Add($"{candidate.Name}: {ex.Message}") };
+                }
+            }
+            return Reply(result);
         });
     }
 
     internal sealed record DownloadAction(string Action, string? Hash = null, string[]? Hashes = null,
         string? OwnerClientType = null, bool DeleteFiles = false);
-    internal sealed record RecoverySourcesInput(string[]? Ids, bool Acknowledged);
+    internal sealed record RecoverySourcesInput(string[]? Ids, bool Acknowledged,
+        ExternalSelection[]? Selections = null, bool Paused = false);
+    internal sealed record ExternalSelection(string SourceId, int FileIndex, string WorkId, string? EpisodeId = null);
     internal sealed record TitleDownload(int? Season = null, int? Episode = null, int? PreferredResolution = null,
         string? Provider = null, string? ProviderId = null, string? MediaType = null, string? Title = null, int? Year = null);
 }

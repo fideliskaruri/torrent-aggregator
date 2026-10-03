@@ -8,11 +8,36 @@ public sealed record ExternalAdoptionSource(string Id, string Name, string SaveP
     ImmutableArray<string> Files);
 public sealed record ExternalAdoptionBatch(int Imported, int Paused, int Skipped, int Failed,
     ImmutableArray<string> Errors);
+public sealed record ExternalIdentityPick(int FileIndex, string WorkId, string? EpisodeId);
 
 public sealed class ExternalMediaAdoption(MediaImport importer, ImportReviews reviews, ILibraryRepository inventory)
 {
     public const string ReviewPrefix = "adoption:external:";
     private static readonly SemaphoreSlim ImportGate = new(1, 1);
+
+    public async Task<ImportScanView> ReviewTransferAsync(ExternalAdoptionSource source,
+        ImmutableArray<ExternalIdentityPick> picks, CancellationToken ct)
+    {
+        await ImportGate.WaitAsync(ct);
+        try
+        {
+            var id = ReviewPrefix + source.Id;
+            var scan = await reviews.GetAsync(id, ct);
+            if (scan is null)
+            {
+                await importer.ScanFilesAsync(id, MediaImport.ValidateFolder(source.SavePath),
+                    source.Files, update => scan = update, ct);
+                await reviews.SaveAsync(scan!, ct);
+            }
+            if (picks.IsDefaultOrEmpty || picks.Select(p => p.FileIndex).Distinct().Count() != picks.Length ||
+                picks.Any(p => p.FileIndex < 0 || p.FileIndex >= source.Files.Length ||
+                    !scan!.Items.Any(i => LibraryPaths.PhysicalKey(i.Path) == LibraryPaths.PhysicalKey(source.Files[p.FileIndex]) &&
+                        i.Candidates.Any(c => c.WorkId == p.WorkId && c.EpisodeId == p.EpisodeId))))
+                throw new ArgumentException("Confirm the matching title in Import before handing over this torrent.");
+            return scan!;
+        }
+        finally { ImportGate.Release(); }
+    }
 
     public async Task<bool> AlreadyOwnedAsync(ImmutableArray<string> paths, CancellationToken ct)
     {

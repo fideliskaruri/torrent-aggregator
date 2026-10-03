@@ -23,6 +23,9 @@ Store's Library download capability persists bindings, pins, rename intent and
 source/destination claims. It commits a filed binding, downloaded inventory, item
 completion and operation completion together. A crash after rename but before
 inventory is recovered only when the final file matches the recorded digest.
+Identical source/final paths reserve one physical claim. Hash-verified external
+files publish without a move or rename; pending in-place publication is recovered
+from that same recorded digest before inventory and Targets completion commit.
 The rebound final is never turned back into a `.partial` or re-downloaded.
 Unselected shared boundary fragments remain in hidden `.unwanted/<hash>` with
 `.ignore`; they are not visible to the simulated Jellyfin scan.
@@ -122,19 +125,20 @@ MediaFile remains the ownership truth; no WatchItem or duplicate Download is cre
 Ambiguous matches enter the existing `adoption:external:*` review and acquisition hold.
 Empty acknowledged selections retain the 200 no-op response.
 
-**Missing Targets boundary:** there is no public external-transfer admission taking
-hash-bound torrent metadata, original per-file paths and an explicit finishing/seeding
-intent. `AcquireAsync` discovers a new release and cannot safely stand in for it;
-the internal `TargetTransfers.AdmitAsync` creates new placement bindings. Consequently
-unfinished transfers are reported individually as failed with guidance to finish in
-the original client. Completed payload adoption does not start or seed a transfer.
-Finishing/seeding handover is blocked on that owning-module interface, not implemented
-by direct Api Store writes or a second admission path.
-That port must accept full hash-bound torrent bytes (retained privately by the scanner),
-indexed original paths and Metadata-confirmed item IDs; persist/recover admission through
-Targets, hash-check original bytes without overwriting inventory, and support explicit
-finish/seed versus paused intent. A resume without full torrent metadata is reported
-as a scan warning with export guidance, never guessed from a release name.
+Unfinished handover uses Targets' public `AdmitExternalAsync` port with full
+hash-bound torrent bytes, indexed original paths and explicit Metadata-confirmed
+item picks. Library's existing Import review validates the picks, including
+truncated containers without readable duration. Targets atomically commits a
+Store-issued original-path placement proposal with Download, Target, Current
+associations and the existing confirmed Import decisions, then Engine rechecks the existing bytes before running or remaining
+paused. Filing consumes the normal Library proposal without moving, renaming or
+deleting the original payload. The recovery POST accepts optional `selections`
+(`sourceId`, `fileIndex`, `workId`, `episodeId`) and `paused`, retaining its existing
+count/error response. No inventory is created until bytes pass the real torrent
+hash check and filing completes. Repeated sources reuse the existing Download.
+Complete payload adoption still does not start or seed a transfer. Continued
+seeding and metadata-less handover are not supported; missing full metadata is
+reported as a scan warning with export guidance, never guessed from a release name.
 
 All new routes are owner-only, including reads containing paths:
 

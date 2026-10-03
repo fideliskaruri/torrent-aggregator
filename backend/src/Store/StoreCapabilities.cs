@@ -44,13 +44,21 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
     public async Task<CommitResult> CommitAsync(StoreCommit commit, CancellationToken ct)
     {
         if (commit.Owner != owner) throw new UnauthorizedAccessException("The caller cannot change its Store capability.");
-        var library = commit.LibraryProposal as FilingWriteProposal;
+        var library = commit.LibraryProposal as LibraryTransactionProposal;
         if (commit.LibraryProposal is not null && (owner != StoreOwner.Targets || library is null))
-            throw new UnauthorizedAccessException("A Library-issued filing proposal is required.");
-        if (library is not null && !commit.Writes.Any(w => w.Row is TargetRow target &&
-            target.Id == library.TargetId && target.State is TargetState.Filing or TargetState.Done &&
+            throw new UnauthorizedAccessException("A Library-issued proposal is required.");
+        if (library is FilingWriteProposal filing && !commit.Writes.Any(w => w.Row is TargetRow target &&
+            target.Id == filing.TargetId && target.State is TargetState.Filing or TargetState.Done &&
             w.ExpectedVersion is not null))
             throw new ArgumentException("Filing requires its associated Targets state CAS.");
+        if (library is PlacementWriteProposal placement &&
+            (!commit.Writes.Any(w => w.Row is DownloadRow download && download.Id == placement.DownloadId &&
+                w.ExpectedVersion is null && w.ExpectedRow is null) ||
+             placement.TargetIds.Any(id => !commit.Writes.Any(w => w.Row is TargetRow target && target.Id == id &&
+                target.State is TargetState.Fetching or TargetState.Paused) ||
+                !commit.Writes.Any(w => w.Row is DownloadTargetRow link && link.TargetId == id &&
+                    link.DownloadId == placement.DownloadId && link.Role == AssociationRole.Current))))
+            throw new ArgumentException("External placement requires its new Download and accepted Targets in the same commit.");
         if (library is not null)
             commit = commit with { Writes = commit.Writes.AddRange(library.Writes),
                 Deletes = commit.Deletes.AddRange(library.Deletes) };
@@ -77,7 +85,10 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                 expectedRow = d.ExpectedRow is null ? (JsonElement?)null : SerializeRow(d.ExpectedRow),
             }),
         };
-        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(digestPayload, Schema.Json))));
+        var digestJson = library is PlacementWriteProposal reviewPlacement
+            ? JsonSerializer.Serialize(new { commit = digestPayload, reviewPlacement.ReviewId, reviewPlacement.ReviewItemIds }, Schema.Json)
+            : JsonSerializer.Serialize(digestPayload, Schema.Json);
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(digestJson)));
         var persistedReceipt = receipt with
         {
             LegacyContext = JsonSerializer.SerializeToElement(new { receipt.LegacyContext, owner, digest }, Schema.Json),
@@ -120,6 +131,12 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                     $"UPDATE DownloadTarget SET role='retired' WHERE id={link.Id}", ct);
             }
             await db.SaveChangesAsync(ct);
+            if (library is PlacementWriteProposal { ReviewId: { } reviewId } admitted)
+            {
+                var reviews = new ImportReviewRepository(db);
+                foreach (var itemId in admitted.ReviewItemIds)
+                    await reviews.DecideAsync(reviewId, itemId, "handed-over", ct);
+            }
             await transaction.CommitAsync(ct);
             events?.Publish([.. commit.Writes.Select(w => w.Row)]);
             return new(true, false, []);

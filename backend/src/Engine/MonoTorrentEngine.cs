@@ -15,7 +15,7 @@ using TorrentFile = TorrentFlow.Domain.TorrentFile;
 namespace TorrentFlow.Engine;
 
 /// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
-public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IProgressiveProbeEngine, IEngineRetirement, IAsyncDisposable
+public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IProgressiveProbeEngine, IEngineRetirement, IExternalEngineAdmission, IAsyncDisposable
 {
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
@@ -668,7 +668,21 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     public Task<EngineResult> StartAsync(EngineAdmission admission, CancellationToken ct) =>
         StartAsync(admission, false, ct);
 
-    private async Task<EngineResult> StartAsync(EngineAdmission admission, bool recovery, CancellationToken ct)
+    public async Task<ImmutableArray<TorrentFile>> PrepareExternalAsync(byte[] torrentBytes, string hash, CancellationToken ct)
+    {
+        var torrent = Torrent.Load(torrentBytes);
+        if (torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant() != hash)
+            throw new ArgumentException("The exported torrent does not match this transfer.");
+        await gate.WaitAsync(ct);
+        try { await AtomicWriteAsync(Path.Combine(directory, $"{hash}.torrent"), torrentBytes); }
+        finally { gate.Release(); }
+        return [.. torrent.Files.Select((f, i) => new TorrentFile(i, f.Path, f.Length, f.OffsetInTorrent))];
+    }
+
+    public Task<EngineResult> AdmitExternalAsync(EngineAdmission admission, CancellationToken ct) =>
+        StartAsync(admission, true, ct, true);
+
+    private async Task<EngineResult> StartAsync(EngineAdmission admission, bool recovery, CancellationToken ct, bool forceCheck = false)
     {
         using var ownership = await hashMutex.LockAsync(admission.Download.Hash, ct);
         await gate.WaitAsync(ct);
@@ -741,7 +755,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 else
                     foreach (var file in manager.Files)
                         await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
-                if (entry.Bound && (recovery && uncleanRecovery || entry.Filed.Count > 0))
+                if (entry.Bound && (forceCheck || recovery && uncleanRecovery || entry.Filed.Count > 0))
                 {
                     await HashCheckBindingsAsync(entry);
                     log($"Unclean shutdown: rechecked {hash}; recovered {manager.Bitfield.TrueCount} verified pieces.");
