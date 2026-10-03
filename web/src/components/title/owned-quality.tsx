@@ -7,7 +7,7 @@ import { toast } from "@/lib/toast";
 import { qualityLabel } from "@/lib/torrents/quality";
 import { cn } from "@/lib/utils";
 import { ownedLabel } from "./owned-state";
-import type { TitleBestAvailable, TitleOwned, TitleUpgradeOffer } from "./types";
+import type { TitleBestAvailable, TitleOwned, TitleUpgradeOffer, TitleUpgradeQueued } from "./types";
 
 /** Which owned item an action is about: the film, a season, or one episode. */
 export interface OwnedScope {
@@ -50,6 +50,15 @@ export function upgradeLabel(offer: TitleUpgradeOffer): string {
   const quality = qualityLabel(offer.resolution) ?? `${offer.resolution}p`;
   const seeders = `${offer.seeders} seeder${offer.seeders === 1 ? "" : "s"}`;
   return `Upgrade to ${quality} (${seeders})`;
+}
+
+/** "Upgrade to 1080p queued" while waiting, "Upgrading to 1080p" once the download runs. */
+export function upgradeQueuedLabel(queued: TitleUpgradeQueued): string {
+  const quality = qualityLabel(queued.resolution);
+  if (queued.state === "fetching" || queued.state === "filing")
+    return quality ? `Upgrading to ${quality}` : "Upgrading";
+  if (queued.state === "paused") return quality ? `Upgrade to ${quality} paused` : "Upgrade paused";
+  return quality ? `Upgrade to ${quality} queued` : "Upgrade queued";
 }
 
 /** The honest one-line result of an Upgrade reply. */
@@ -143,6 +152,8 @@ export interface OwnedQualityProps {
   owned: TitleOwned;
   upgrade?: TitleUpgradeOffer | null;
   bestAvailable?: TitleBestAvailable | null;
+  /** An accepted upgrade in flight. Shown instead of the Upgrade button. */
+  upgradeQueued?: TitleUpgradeQueued | null;
   scope?: OwnedScope;
   /** Owner only. Requesters see what is owned and nothing to press. */
   canAct: boolean;
@@ -167,6 +178,7 @@ export function OwnedQuality({
   owned,
   upgrade,
   bestAvailable,
+  upgradeQueued,
   scope = {},
   canAct,
   onChanged,
@@ -175,13 +187,15 @@ export function OwnedQuality({
   className,
 }: OwnedQualityProps) {
   const actions = useOwnedQualityActions(workKey, scope, onChanged);
-  const offer = upgrade ?? null;
-  const best = offer ? null : bestAvailable ?? null;
+  const queued = upgradeQueued ?? null;
+  const offer = queued ? null : upgrade ?? null;
+  const best = offer || queued ? null : bestAvailable ?? null;
+  const queuedText = queued ? upgradeQueuedLabel(queued) : null;
   const ownedText = ownedLabel(owned) ?? "In your library";
   const bestText = best ? bestAvailableLabel(owned, best) : null;
   const checking = actions.pending === "check";
   const upgrading = actions.pending === "upgrade";
-  const state = offer ? "upgrade" : best ? "best" : "owned";
+  const state = queued ? "queued" : offer ? "upgrade" : best ? "best" : "owned";
 
   if (variant === "row") {
     const quality = qualityLabel(owned.resolution) ?? "In library";
@@ -200,7 +214,18 @@ export function OwnedQuality({
           <Check aria-hidden className="size-3.5 text-brand-foreground" />
           {quality}
         </Badge>
-        {canAct && offer ? (
+        {queued ? (
+          <span
+            data-owned-queued={queued.state}
+            role="status"
+            aria-label={`${queuedText}, ${name}`}
+            title={queuedText ?? undefined}
+            className={cn(pillClassName, "inline-flex items-center gap-1.5 border border-border px-3 text-[13px] text-foreground")}
+          >
+            <ArrowUpCircle aria-hidden className="size-3.5" />
+            {qualityLabel(queued.resolution) ? `${qualityLabel(queued.resolution)} queued` : "Queued"}
+          </span>
+        ) : canAct && offer ? (
           <Button
             type="button"
             variant="outline"
@@ -257,7 +282,16 @@ export function OwnedQuality({
         <CheckCircle2 aria-hidden className="size-4 shrink-0 text-brand-foreground" />
         <span data-owned-text>{checking ? "Checking for a better copy" : bestText ?? ownedText}</span>
       </p>
-      {canAct && offer ? (
+      {queuedText ? (
+        <p
+          data-owned-queued={queued?.state}
+          role="status"
+          className="flex min-h-10 min-w-0 items-center gap-2 text-[14px] text-muted-foreground"
+        >
+          <ArrowUpCircle aria-hidden className="size-4 shrink-0" />
+          {queuedText}
+        </p>
+      ) : canAct && offer ? (
         <Button
           type="button"
           size="lg"
@@ -289,7 +323,7 @@ export function OwnedQuality({
           </PendingBody>
         </Button>
       ) : null}
-      {actions.message ? (
+      {actions.message && !(actions.message.good && queued) ? (
         <p
           role="status"
           data-owned-message={actions.message.good ? "ok" : "refused"}

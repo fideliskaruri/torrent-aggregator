@@ -202,6 +202,7 @@ internal static class CatalogEndpoints
             owned = Owned(owned, null),
             upgrade = upgrades.FirstOrDefault(i => i.EpisodeId is null)?.Upgrade,
             bestAvailable = upgrades.FirstOrDefault(i => i.EpisodeId is null)?.BestAvailable,
+            upgradeQueued = upgrades.FirstOrDefault(i => i.EpisodeId is null)?.Queued,
             downloadFraction = (double?)null, transfer = (object?)null,
             watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
@@ -212,6 +213,8 @@ internal static class CatalogEndpoints
                 downloadingEpisodes = 0,
                 upgradeableEpisodes = w.Episodes.Count(e => e.SeasonId == s.Id &&
                     upgrades.Any(i => i.EpisodeId == e.Id && i.Upgrade is not null)),
+                upgradingEpisodes = w.Episodes.Count(e => e.SeasonId == s.Id &&
+                    upgrades.Any(i => i.EpisodeId == e.Id && i.Queued is not null)),
             }), season,
             episodes = episodes.Take(200).Select(e => new
             {
@@ -219,6 +222,7 @@ internal static class CatalogEndpoints
                 availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null, owned = Owned(owned, e.Id),
                 upgrade = upgrades.FirstOrDefault(i => i.EpisodeId == e.Id)?.Upgrade,
                 bestAvailable = upgrades.FirstOrDefault(i => i.EpisodeId == e.Id)?.BestAvailable,
+                upgradeQueued = upgrades.FirstOrDefault(i => i.EpisodeId == e.Id)?.Queued,
                 infoHash = (string?)null, filePath = (string?)null, downloadFraction = (double?)null,
                 nextUp = false, fromPack = false, transfer = (object?)null,
                 watchState = jellyfin?.Episodes.GetValueOrDefault(e.Id),

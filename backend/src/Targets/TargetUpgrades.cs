@@ -9,7 +9,10 @@ namespace TorrentFlow.Targets;
 
 public sealed record UpgradeOffer(int Resolution, int Seeders);
 public sealed record BestAvailable(int? Resolution, DateTimeOffset CheckedAt);
-public sealed record ItemUpgrade(string? EpisodeId, UpgradeOffer? Upgrade, BestAvailable? BestAvailable);
+// An accepted upgrade still in flight: the item's live Replace target, read at title-read time.
+public sealed record UpgradeQueued(int? Resolution, string State);
+public sealed record ItemUpgrade(string? EpisodeId, UpgradeOffer? Upgrade, BestAvailable? BestAvailable,
+    UpgradeQueued? Queued = null);
 
 public sealed partial class TargetPipeline
 {
@@ -73,9 +76,21 @@ public sealed partial class TargetPipeline
             .OwnedAsync(new(work.Work.Id, [], false), ct);
         var evidence = await catalog.ReadAsync<UpgradeEvidenceRow>(CatalogState.Query(workId: work.Work.Id), ct);
         var blocked = await ExcludedAsync(store, work.Work.Id, null, ct);
+        var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
         var result = ImmutableArray.CreateBuilder<ItemUpgrade>();
         foreach (var item in owned.Where(i => BelowPreferred(i, policy)))
         {
+            // An accepted upgrade replaces the offer until its Replace target finishes or is removed.
+            if (targets.FirstOrDefault(t => t.EpisodeId == item.EpisodeId && t.Kind == TargetKind.Replace &&
+                    t.ReplacementMode == ReplacementMode.Upgrade &&
+                    t.State is not (TargetState.Done or TargetState.Removed)) is { } live)
+            {
+                var picked = evidence.FirstOrDefault(e => e.EpisodeId == item.EpisodeId &&
+                    e.CandidateHash is not null && e.CandidateHash == live.PickedReleaseHash);
+                result.Add(new(item.EpisodeId, null, null,
+                    new(picked?.Resolution, live.State.ToString().ToLowerInvariant())));
+                continue;
+            }
             var row = evidence.FirstOrDefault(e => e.EpisodeId == item.EpisodeId && FreshQuality(e, item, changedAt));
             if (row is null) continue;
             UpgradeOffer? offer = null;
@@ -213,20 +228,20 @@ public sealed partial class TargetPipeline
             var evidence = await catalog.ReadAsync<UpgradeEvidenceRow>(CatalogState.Query(workId: work.Work.Id), ct);
             var current = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
             var ids = ImmutableArray.CreateBuilder<string>();
-            foreach (var offer in offers.Where(o => o.Upgrade is not null &&
+            foreach (var offer in offers.Where(o => (o.Upgrade is not null || o.Queued is not null) &&
                 (o.EpisodeId is null || episodes.Contains(o.EpisodeId))))
             {
                 var item = owned.FirstOrDefault(i => i.EpisodeId == offer.EpisodeId);
                 var proof = evidence.FirstOrDefault(e => e.EpisodeId == offer.EpisodeId && e.ExpiresAt > DateTimeOffset.UtcNow);
-                if (item is null || proof?.CandidateHash is null) continue;
-                var row = UpgradeTarget(work.Work, item, policy, actor);
-                var prior = current.FirstOrDefault(t => t.EpisodeId == item.EpisodeId);
-                if (prior is not null && prior.Kind == TargetKind.Replace &&
+                var prior = current.FirstOrDefault(t => t.EpisodeId == offer.EpisodeId);
+                if (item is not null && prior is not null && prior.Kind == TargetKind.Replace &&
                     prior.State is not (TargetState.Done or TargetState.Removed))
                 {
                     ids.Add(prior.Id);
                     continue;
                 }
+                if (item is null || proof?.CandidateHash is null) continue;
+                var row = UpgradeTarget(work.Work, item, policy, actor);
                 if (prior?.State is TargetState.Fetching or TargetState.Filing ||
                     prior?.ResumeState is TargetState.Fetching or TargetState.Filing) continue;
                 row = row with { Id = prior?.Id ?? row.Id, PickedReleaseHash = proof.CandidateHash, NowAt = DateTimeOffset.UtcNow,

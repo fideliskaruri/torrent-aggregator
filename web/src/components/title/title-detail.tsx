@@ -1394,6 +1394,7 @@ function TitleContent({
                     owned={payload.owned}
                     upgrade={payload.upgrade}
                     bestAvailable={payload.bestAvailable}
+                    upgradeQueued={payload.upgradeQueued}
                     canAct={caps.canDownload}
                     onChanged={onLibraryChanged}
                   />
@@ -1542,6 +1543,7 @@ function TitleContent({
                     releaseDate={payload.releaseDate}
                     title={title}
                     onChanged={onLibraryChanged}
+                    ownedShown={Boolean(ownedFilm) || seasons.some((s) => (s.downloadedEpisodes ?? 0) > 0)}
                   />
                 ) : null}
               </div>

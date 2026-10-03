@@ -280,8 +280,13 @@ export function EpisodeList({
       null,
     ),
   );
-  const upgradeText =
-    upgradeable > 0 ? `${upgradeable} can be upgraded${upgradeTo ? ` to ${upgradeTo}` : ""}` : null;
+  // Accepted upgrades leave the offer count and are said once, as queued.
+  const upgrading =
+    season != null ? seasons.find((s) => s.season === season)?.upgradingEpisodes ?? 0 : 0;
+  const upgradeText = [
+    upgradeable > 0 ? `${upgradeable} can be upgraded${upgradeTo ? ` to ${upgradeTo}` : ""}` : null,
+    upgrading > 0 ? `${upgrading} ${upgrading === 1 ? "upgrade" : "upgrades"} queued` : null,
+  ].filter(Boolean).join(", ") || null;
   const seasonLineLabel =
     activeProgressLabel && upgradeText ? `${activeProgressLabel}, ${upgradeText}` : activeProgressLabel;
   const seasonUpgrade = useOwnedQualityActions(workKey ?? "", { season: season ?? undefined }, onOwnedChanged);
@@ -1032,6 +1037,7 @@ function EpisodeCardImpl({
                 owned={episode.owned}
                 upgrade={workKey ? episode.upgrade : null}
                 bestAvailable={workKey ? episode.bestAvailable : null}
+                upgradeQueued={episode.upgradeQueued}
                 scope={{ season: episode.season, episode: episode.episode }}
                 canAct={canDownload && workKey != null}
                 onChanged={onOwnedChanged}

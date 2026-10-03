@@ -54,6 +54,7 @@ export interface TitleEpisode {
   owned?: TitleOwned | null;
   upgrade?: TitleUpgradeOffer | null;
   bestAvailable?: TitleBestAvailable | null;
+  upgradeQueued?: TitleUpgradeQueued | null;
 }
 
 /** An owned item: the best owned file's resolution, null when the file names none. */
@@ -67,6 +68,13 @@ export interface TitleUpgradeOffer {
   seeders: number;
 }
 
+/** An accepted upgrade still in flight: the item's live Replace target. Replaces the offer. */
+export interface TitleUpgradeQueued {
+  resolution: number | null;
+  /** Target state, e.g. `wanted`, `fetching`, `filing`. */
+  state: string;
+}
+
 /** A completed search found nothing better than what is owned. */
 export interface TitleBestAvailable {
   resolution: number | null;
@@ -77,6 +85,7 @@ export interface TitleBestAvailable {
 export interface TitleOwnedQuality {
   upgrade?: TitleUpgradeOffer | null;
   bestAvailable?: TitleBestAvailable | null;
+  upgradeQueued?: TitleUpgradeQueued | null;
 }
 
 /** Read-only progress from the owner's Jellyfin server. `inProgress` is 0 to 100. */
@@ -150,6 +159,8 @@ export interface TitleSeason {
   downloadingEpisodes?: number;
   /** Episodes of this season with a healthy upgrade offer, across the whole catalog season. */
   upgradeableEpisodes?: number;
+  /** Episodes of this season whose accepted upgrade is still in flight. */
+  upgradingEpisodes?: number;
 }
 
 /** Where this work stands in the user's library. */
@@ -263,6 +274,7 @@ export interface TitleDetailPayload {
   owned?: TitleOwned | null;
   upgrade?: TitleUpgradeOffer | null;
   bestAvailable?: TitleBestAvailable | null;
+  upgradeQueued?: TitleUpgradeQueued | null;
   /** Jellyfin progress for a film. Absent when Jellyfin is not connected or has no match. */
   watchState?: JellyfinWatchState;
   /** The episode Jellyfin would play next for a series. Absent when unknown. */
