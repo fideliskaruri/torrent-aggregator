@@ -636,6 +636,7 @@ export default function WatchlistPage() {
           { description: data.plan?.summary },
         );
         setPendingDelete(null);
+        load();
       } else {
         // A partial failure is not a success with an asterisk: some files are
         // still there, and the user has to know which.
@@ -1064,7 +1065,7 @@ export default function WatchlistPage() {
                     </Button>
 
                     {/* Secondary: season reset + space — not competing with primary */}
-                    {isSeries ? (
+                    {(
                       <Collapsible className="group/more w-full sm:w-auto" data-library-more>
                         <CollapsibleTrigger className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 py-1.5 text-xs text-subtle-foreground outline-none hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 pointer-coarse:min-h-11">
                           More options
@@ -1075,6 +1076,7 @@ export default function WatchlistPage() {
                         </CollapsibleTrigger>
                         <CollapsibleContent>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-border bg-background p-2">
+                          {isSeries ? (
                           <Label className="gap-1.5 text-xs font-normal text-subtle-foreground">
                             Jump to season
                             <Input
@@ -1097,6 +1099,7 @@ export default function WatchlistPage() {
                               }}
                             />
                           </Label>
+                          ) : null}
                           {item.latestReleaseMagnet ? (
                             <Button
                               type="button"
@@ -1152,7 +1155,7 @@ export default function WatchlistPage() {
                     </div>
                         </CollapsibleContent>
                       </Collapsible>
-                    ) : null}
+                    )}
                   </div>
 
                     {/* Two questions, two lines: where am I, and is anything

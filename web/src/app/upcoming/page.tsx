@@ -1,4 +1,4 @@
-import { CalendarClock, Info } from "lucide-react";
+import { CalendarClock, ChevronDown, Info } from "lucide-react";
 import { Link } from "react-router";
 import { useMemo, useState } from "react";
 import { useCapabilities } from "@/lib/capabilities";
@@ -8,6 +8,7 @@ import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { cn } from "@/lib/utils";
+import { QUALITY_CHOICES, QualityOptions } from "@/components/settings/quality-options";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -79,7 +80,7 @@ function RequesterCalendar() {
                         <div className="flex min-w-0 flex-1 flex-col gap-2">
                           <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>
                           <p className="text-xs text-muted-foreground">
-                            {entry.mediaType === "movie" ? "Film" : "Series"} · {releaseWording(entry.release, entry.mediaType)} · {entry.at ? timelineTime(entry.at, now) : "Date not known"}
+                            {entry.mediaType === "movie" ? "Film" : "Series"} · {releaseWording(entry.release, entry.mediaType)}{group.key === "due" ? "" : ` · ${entry.at ? timelineTime(entry.at, now) : "Date not known"}`}
                           </p>
                           <div className="self-start"><StateBadge state={entry.state} /></div>
                         </div>
@@ -112,7 +113,7 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
   }
   const canGrab = entry.targetId && !entry.grabNow && (entry.state === "expected" || entry.state === "searching");
   const series = entry.mediaType === "tv" && entry.workKey;
-  if (!series && !canGrab && !entry.grabNow) return null;
+  if (!series && !canGrab && !entry.grabNow && !entry.workKey) return null;
   return (
     <div className="flex flex-wrap items-center gap-2" data-calendar-actions>
       {series ? (
@@ -130,6 +131,48 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
         </Button>
       ) : entry.grabNow ? <span className="text-xs text-muted-foreground">Grabbing as soon as it appears</span> : null}
       {error ? <p role="alert" className="w-full text-xs text-destructive">{error}</p> : null}
+      {entry.workKey ? <TitleQuality workKey={entry.workKey} title={entry.title} quality={entry.quality ?? null} /> : null}
+    </div>
+  );
+}
+
+/** Per-title minimum quality, saved at once and put back if the server says no. */
+function TitleQuality({ workKey, title, quality }: { workKey: string; title: string; quality: number | null }) {
+  const [value, setValue] = useState<number | null>(quality);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [synced, setSynced] = useState(quality);
+  if (synced !== quality && !saving) { setSynced(quality); setValue(quality); }
+  const label = QUALITY_CHOICES.find((c) => c.value === value)?.label;
+  async function save(next: number) {
+    const previous = value;
+    setValue(next); setSaving(true); setError(null);
+    try {
+      const res = await sessionAwareFetch(`/api/title/${encodeURIComponent(workKey)}/quality`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolution: next }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+        setValue(previous);
+        setError(`Quality not changed. ${body?.message ?? body?.error ?? "Try again in a moment."}`);
+      }
+    } catch {
+      setValue(previous);
+      setError("Quality not changed. Check that TorrentFlow is running and try again.");
+    } finally { setSaving(false); }
+  }
+  return (
+    <div className="w-full" data-calendar-quality>
+      <Button size="sm" variant="ghost" aria-expanded={open} className="max-md:min-h-11 px-1 text-xs text-muted-foreground"
+        aria-label={`Minimum quality for ${title}: ${label ?? "your default"}`} onClick={() => setOpen((o) => !o)}>
+        Quality: {label ?? "your default"}
+        <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+      </Button>
+      {open ? (
+        <QualityOptions name={`quality-${workKey}`} value={value} disabled={saving} onChange={(v) => void save(v)} className="mt-1.5" />
+      ) : null}
+      {error ? <p role="alert" className="mt-1 text-xs text-destructive" data-calendar-quality-error>{error}</p> : null}
     </div>
   );
 }
@@ -212,7 +255,7 @@ function OwnerCalendar() {
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       <div className="flex min-w-0 flex-col gap-1 md:flex-row md:justify-between md:gap-4">
                         <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>
-                        {entry.at ? (
+                        {group.key === "due" ? null : entry.at ? (
                           <time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}
                             className="shrink-0 text-xs tabular-nums text-muted-foreground">
                             {timelineTime(entry.at, now)}

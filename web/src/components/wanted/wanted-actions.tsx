@@ -157,11 +157,12 @@ export function WantedActions({
   const tryBlocked = looking || busy;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)} data-wanted-actions>
+    <div className={cn("flex flex-nowrap items-center gap-2", className)} data-wanted-actions>
       <Button
         type="button"
         variant="secondary"
         size={size}
+        className="max-md:min-h-11"
         onClick={() =>
           openReleasePicker({
             workKey: target.workKey,
@@ -181,6 +182,7 @@ export function WantedActions({
         type="button"
         variant="secondary"
         size={size}
+        className="max-md:min-h-11"
         aria-disabled={tryBlocked}
         onClick={() => {
           if (!tryBlocked) void tryNow();
@@ -195,13 +197,15 @@ export function WantedActions({
         type="button"
         variant="ghost"
         size={size}
+        className="max-md:min-h-11"
         disabled={busy}
         onClick={() => setConfirming(true)}
         aria-label={`Remove ${name}`}
         data-looking-remove
+        title="Remove"
       >
         <Trash2 className="h-3.5 w-3.5" />
-        Remove
+        <span className="max-sm:sr-only">Remove</span>
       </Button>
       <ConfirmDialog
         open={confirming}

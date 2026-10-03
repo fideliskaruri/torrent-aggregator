@@ -1,3 +1,4 @@
+import { QualityOptions } from "@/components/settings/quality-options";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery, prefetchDownloadRecovery } from "@/components/settings/download-recovery";
@@ -93,13 +94,6 @@ interface DownloadPathWarning {
   reasons: UnsafeDownloadPathReason[];
   message: string;
 }
-
-const QUALITY_CHOICES = [
-  { value: 480, label: "480p", hint: "Small files" },
-  { value: 720, label: "720p", hint: "Balanced" },
-  { value: 1080, label: "1080p", hint: "Recommended" },
-  { value: 2160, label: "4K", hint: "Largest files" },
-] as const;
 
 const AUDIO_LANGUAGE_CHOICES: ReadonlyArray<{ value: AudioLanguage; label: string; hint: string }> = [
   {
@@ -850,36 +844,13 @@ export default function SettingsPage() {
               <legend className="mb-1.5 text-xs text-subtle-foreground">
                 Minimum download quality
               </legend>
-              <RadioGroup
+              <QualityOptions
                 name="preferred-quality"
-                aria-label="Minimum download quality"
-                value={String(form.preferredResolution)}
-                onValueChange={(value) =>
-                  updateForm((current) => ({
-                    ...current,
-                    preferredResolution: Number(value),
-                  }))
+                value={form.preferredResolution}
+                onChange={(value) =>
+                  updateForm((current) => ({ ...current, preferredResolution: value }))
                 }
-                className="grid grid-cols-2 gap-2 sm:grid-cols-4"
-              >
-                {QUALITY_CHOICES.map((choice) => (
-                  <Label
-                    key={choice.value}
-                    htmlFor={`preferred-quality-${choice.value}`}
-                    className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5 font-normal transition-colors hover:border-input has-data-checked:border-brand has-data-checked:bg-brand-dim"
-                  >
-                    <RadioGroupItem
-                      id={`preferred-quality-${choice.value}`}
-                      value={String(choice.value)}
-                      className="mt-0.5"
-                    />
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-[13px] font-medium text-foreground">{choice.label}</span>
-                      <span className="text-xs text-subtle-foreground">{choice.hint}</span>
-                    </span>
-                  </Label>
-                ))}
-              </RadioGroup>
+              />
             </fieldset>
 
             <fieldset className="min-w-0 space-y-1.5" data-audio-language>

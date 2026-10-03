@@ -137,7 +137,7 @@ export function LookingSection() {
                     : g.waitingForEnglish
                     ? `${WAITING_FOR_ENGLISH_LABEL}. ${g.looking ? "Looking again now" : nextTry(g.nextAttemptAt)}.`
                     : g.looking
-                      ? "Looking for a release"
+                      ? "Searching now"
                       : `Not found yet. ${nextTry(g.nextAttemptAt)}.`}
                 </p>
                 {!g.looking && !g.waitingForEnglish && !g.waitingForSeasonList && g.why ? (
