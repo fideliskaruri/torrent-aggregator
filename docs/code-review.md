@@ -191,8 +191,21 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 | Migrations | ~16k | ~3k | S3 |
 | Web | ~40k | ~22k | W1, W3, W4, W8, W10 |
 
-## Open questions for the owner
+## Owner decisions (4 Oct)
 
-1. **E1:** drop pre-download probing (~1,200 lines) for "start best-seeded, detect stall, Find another"?
-2. **E6:** continue other clients' partial downloads, or only import finished files from folders?
-3. **A3:** keep auto-download rules, or is following a show enough?
+1. **E1:** yes. Drop pre-download probing and Check. Start the best-seeded release, detect stalls, Find another.
+2. **E6:** keep both. Continue other clients' partial downloads and import finished files from folders. Both feed one track path (L3), not two.
+3. **A3:** keep the auto-download rules page. `Hunter` still becomes "create Wanted targets", and rules drive it.
+
+## Fix plan
+
+| Phase | Content | Gate |
+|---|---|---|
+| 1 Delete | S2 legacy converter, A2 Dev* pipelines and routes, E4 dev engine code, E1/E2 probing + Check, cut-v1 features (T1, T2, T3, T10, T11, T12, T15, L2, L4, L5, A4, E5, W8) | builds, app starts, request -> download -> file works |
+| 2 Store | S1 typed `DbContext` module by module, S4 named rows, then S3 one `InitialSchema` | same journeys on a fresh DB |
+| 3 Core backend | Targets 7 states + Download now (T4-T9, T13, T14); Library Scan/Match/Track/Place (L1, L3, L7, L8); E3 filing = stop, rename, record; F1 one cache + rate limiter; P1 split; M1/M2 split; A1 rename modules, A3 Hunter -> Wanted targets, A5 | per-module run, then journeys |
+| 4 Contract | Server sends resolved identity, quality, episode, state label and card action on every row (W3, W4, W7); types from the contract (W9) | contract tests against a real server |
+| 5 Web | `lib/api` + query hooks (W2, W6), generic `DataList<T>`/`FilterBar<T>`/`BulkBar`/`useSelection<T>` (W10), split god pages (W1), delete parsers and essays (W3, W5), Searching badge | Playwright headless at 375-1440 px per journey |
+| 6 Safety + ship | OPS-656, 655, 657, 651, 681; push to GitHub | full journey walk, critic pass |
+
+Rehearsal/switchover is dropped (no legacy data).
