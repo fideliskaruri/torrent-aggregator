@@ -90,8 +90,7 @@ separate hunter lane; this sweep never downloads automatically.
 Development, trusted loopback owner only:
 
 - `POST /api/dev/targets`: `{ "workKey": "tmdb:movie:45745" }`, or a series key
-  with `season` and optional `episode`; optional `quality` is a hard floor,
-  optional `rank` is persisted owner ordering.
+  with `season` and optional `episode`; optional `quality` is a hard floor.
 - `GET /api/dev/targets`: persisted targets, scopes, transition/plan history,
   downloads and exact Engine snapshots. Reads never Find or Check.
 - `DELETE /api/dev/targets/{escapedTargetId}`: durable removal accepted immediately;
@@ -101,9 +100,6 @@ Development, trusted loopback owner only:
   state actions. Try immediately dispatches the shared Find/Check/Plan in the owner lane.
 - `POST /api/dev/targets/{escapedTargetId}/now`: owner Download now, including
   request approval and the existing Engine concurrent-cap override.
-- `PUT /api/dev/targets/rank`: `{ "targetIds": ["first", "second"] }` ranks
-  those targets first, preserving the relative order of other ranked targets. The same
-  priority/rank order chooses discovery scopes and Engine slots.
 
 Open a title first so its identity is in Metadata's catalog. Acquire reads the Library
 have-it set and stores only missing film/episode targets, with counts. Repeated clicks
@@ -137,7 +133,8 @@ new-episode cutoff. The converter preserves mode, cutoff and the current cursor,
 including disabled follows.
 
 The worker admits at most `TorrentFlow:Targets:MaximumScopes` film/season scopes
-(default 8, maximum 8), preserving owner rank. Waiting targets retain their reason,
+(default 8, maximum 8), using FIFO target creation order with Download now first.
+Waiting targets retain their reason,
 retry time, chosen hash where applicable and immutable last plan history. They are not
 searched again until due or explicitly retried. Source/check retry timing follows the
 release-age schedule in design 1.4. There is no separate progress cache.
@@ -170,9 +167,8 @@ Library filing returns an opaque, Store-issued inventory proposal. Targets alone
 the target state and commits that proposal, the target version CAS and filing history in
 one Store transaction. The standalone Library filing harness no longer writes Target state.
 
-Dynamic priority is persisted and refreshed as dates age: owner now, owner rank, fresh
-episode (six hours before through 48 hours after air time), request, back catalogue,
-upgrade/watch. Rank orders targets within a priority. `ExpectedAt` comes from Metadata;
+The queue is FIFO by target creation time. Download now is the only override; those
+targets run first in the order Download now was pressed. `ExpectedAt` comes from Metadata;
 release retries run at five minutes around release, then 15 minutes, one hour, six hours
 and one day as the release ages. File/drive/cap retries retain their short recovery delay.
 

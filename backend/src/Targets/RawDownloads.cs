@@ -105,7 +105,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 await CommitAsync(findStore, StoreOwner.Find, [new(release, null, oldRelease)], [], ct);
                 var raw = new RawIntentRow(id, input.Actor, hash, null, [.. input.Files], null,
                     Path.GetFullPath(input.SavePath), null, input.Paused ? RawDownloadState.Paused : RawDownloadState.Fetching,
-                    null, null, null, null, input.Now ? now : null, true, input.Rank, null, null, token, now, now, 1);
+                    null, null, null, null, input.Now ? now : null, false, 0, null, null, token, now, now, 1);
                 await CommitAsync(store, StoreOwner.Targets, [new(raw, null, null)], [], ct);
                 var download = new DownloadRow(id, hash, input.Paused ? DownloadIntent.Paused : DownloadIntent.Run,
                     null, now, null, token, null, id, 1);
@@ -113,7 +113,8 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 await CommitAsync(store, StoreOwner.Targets, [new(raw with { DownloadId = id, Version = 2 }, 1, null)], [], ct);
                 await engine.ApplyQueueAsync(new([])
                 {
-                    Order = [new(id, input.Rank, input.Priority, input.Now, !input.Paused)],
+                    Order = [new(id, 0, input.Now ? TargetPriority.Now : TargetPriority.BackCatalogue,
+                        input.Now, !input.Paused)],
                 }, ct);
                 var admission = new EngineAdmission(download, candidate, bindings, token);
                 var result = handle is null ? await engine.StartAsync(admission, ct)
@@ -285,7 +286,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var old = (await store.ReadAsync<RawIntentRow>(CatalogState.Query(Prefix + hash), ct)).Single();
-            var next = old with { Rank = input.Rank ?? old.Rank, NowAt = input.Now is { } now
+            var next = old with { NowAt = input.Now is { } now
                 ? now ? DateTimeOffset.UtcNow : null : old.NowAt,
                 State = input.Paused is { } paused ? paused ? RawDownloadState.Paused : RawDownloadState.Fetching : old.State,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
@@ -300,12 +301,18 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         finally { gate.Release(); }
     }
 
-    private Task ApplyOrderAsync(RawIntentRow[] rows, CancellationToken ct) => engine.ApplyQueueAsync(new(
-        [.. rows.Select(r => new QueueAdmission(r.Id, r.State is not (RawDownloadState.Paused or RawDownloadState.Done)))])
+    private Task ApplyOrderAsync(RawIntentRow[] rows, CancellationToken ct)
     {
-        Order = [.. rows.Select(r => new EngineQueueOrder(r.Id, r.Rank, TargetPriority.OwnerRank,
-            r.NowAt is not null, r.State is not (RawDownloadState.Paused or RawDownloadState.Done)))],
-    }, ct);
+        var ordered = rows.OrderBy(r => r.NowAt is null).ThenBy(r => r.NowAt ?? r.CreatedAt)
+            .ThenBy(r => r.CreatedAt).ThenBy(r => r.Id, StringComparer.Ordinal).ToArray();
+        return engine.ApplyQueueAsync(new(
+            [.. ordered.Select(r => new QueueAdmission(r.Id, r.State is not (RawDownloadState.Paused or RawDownloadState.Done)))])
+        {
+            Order = [.. ordered.Select((r, index) => new EngineQueueOrder(r.Id, index,
+                r.NowAt is not null ? TargetPriority.Now : TargetPriority.BackCatalogue,
+                r.NowAt is not null, r.State is not (RawDownloadState.Paused or RawDownloadState.Done)))],
+        }, ct);
+    }
 
     public async Task<object> RemoveAsync(string hash, bool data, CancellationToken ct)
     {
@@ -350,10 +357,9 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
     }
 
     public sealed record Input(string SavePath, int[] Files, string? Magnet = null, string? Hash = null,
-        string? TorrentUri = null, string? ProbeToken = null, long Rank = 0,
-        TargetPriority Priority = TargetPriority.OwnerRank, bool Now = false, bool Paused = false,
+        string? TorrentUri = null, string? ProbeToken = null, bool Now = false, bool Paused = false,
         string Actor = "local", string? Name = null);
-    public sealed record OrderInput(long? Rank = null, bool? Now = null, bool? Paused = null);
+    public sealed record OrderInput(bool? Now = null, bool? Paused = null);
     public sealed record SettingsInput(int? Cap = null, int? MetadataStallSeconds = null,
         int? ProgressStallSeconds = null, long? ProgressStallBytes = null, int? DownloadBytesPerSecond = null);
 }

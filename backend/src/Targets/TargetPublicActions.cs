@@ -22,7 +22,6 @@ public sealed partial class TargetPipeline
             var catalog = new CatalogState(store);
             var target = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(targetId), ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This target no longer exists.");
-            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
             if (await TargetAdmission.HoldsAsync(scope.ServiceProvider, target, ct))
                 return new(false, 0, 0, [targetId], ImportReviews.HoldMessage) { Held = 1 };
             if (target.State is TargetState.Fetching or TargetState.Filing or TargetState.Done or TargetState.Removed ||
@@ -41,8 +40,6 @@ public sealed partial class TargetPipeline
                 State = TargetState.Wanted, ResumeState = null, ReasonCode = null, ReasonText = null,
                 NextTryAt = null, LeaseToken = null, LeaseUntil = null,
                 PolicyRevision = target.PolicyRevision + 1, UpdatedAt = now, Version = target.Version + 1 };
-            if (await reviews.HasSwitchoverAsync(ct))
-                next = next with { NowAt = now, Priority = TargetPriority.Now, Origin = IntentOrigin.Owner };
             await CommitAsync(store, [new(next, target.Version, null)], [], ct);
             if (cancellations.TryGetValue(targetId, out var cancellation)) cancellation.Cancel();
             return new(true, 1, 0, [targetId], "1 queued");

@@ -118,7 +118,7 @@ export interface TitleEpisodeTransfer {
   error: string | null;
   /** Owner only, while waiting for a download slot: 1 is next. */
   queuePosition?: number | null;
-  /** Owner only, while waiting for a download slot: `queue-full`, `lower-lane` or `outside-window`. */
+  /** Owner only, while waiting for a download slot: `queue-full` or `outside-window`. */
   waitReason?: string | null;
 }
 

@@ -6,9 +6,9 @@ automation call its public methods; request adapters only attach request items.
 - `AcceptAutomationAsync(AcquireInput, origin, ruleId, minSeeders, maxBytes, ct)` accepts
   confirmed missing films/episodes with Follow, Rule or Hunter attribution. It retains
   existing intent, including removed tombstones, and skips imported/downloaded ownership.
-  Automated accepts cannot acquire owner rank. Their first discovery uses the background
-  lane, and date-based priority remains BackCatalogue or FreshRelease. Upgrade watches
-  remain notification-only, with no automatic replacement of owned files.
+  Their first discovery uses the background lane. Queue order is FIFO, with Download now
+  as the only override. Upgrade watches remain notification-only, with no automatic
+  replacement of owned files.
 - `AcceptRequestAsync` creates request-attributed targets through the same acceptance path.
 - `PickAsync(targetId, releaseHash, ct)` persists an exact indexed release choice.
   Find rehydrates and structurally validates that release through its public `SelectAsync`;

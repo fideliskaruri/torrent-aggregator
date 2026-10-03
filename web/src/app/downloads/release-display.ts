@@ -210,7 +210,6 @@ export function canOpenFinishedFile(
 const WAIT_REASON_LABELS: Record<string, string> = {
   "outside-window": "Waiting for download hours",
   "queue-full": "Waiting for a free slot",
-  "lower-lane": "Waiting behind higher-priority downloads",
 };
 
 /** Why a queued built-in row has not started, in English; null when there is nothing to say. */

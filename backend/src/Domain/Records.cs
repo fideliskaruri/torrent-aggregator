@@ -372,7 +372,7 @@ public sealed record LibraryCommand(LibraryAction Action, Actor Actor, string? W
     ImmutableArray<string> EpisodeIds, string? Token, string? Path, string? RootId,
     bool Confirmed, bool DeleteFiles);
 public sealed record TargetCommand(string IdempotencyKey, TargetAction Action, Actor Actor,
-    TargetScope Scope, Policy Policy, ImmutableArray<string> TargetIds, long? Rank,
+    TargetScope Scope, Policy Policy, ImmutableArray<string> TargetIds,
     string? ChoiceToken, bool DeleteFiles, long? ExpectedVersion);
 public sealed record RawAddCommand(string IdempotencyKey, Actor Actor, RawRelease Release,
     ImmutableArray<int> SelectedFiles, string? RootId, string? ExplicitDirectory,

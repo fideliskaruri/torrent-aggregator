@@ -7,7 +7,7 @@
  * drifting apart.
  */
 
-export type QueueWaitReason = "outside-window" | "queue-full" | "lower-lane";
+export type QueueWaitReason = "outside-window" | "queue-full";
 
 export interface ClientTorrent {
   hash: string;
@@ -26,7 +26,7 @@ export interface ClientTorrent {
   queuePosition?: number;
   /** Why a queued built-in row is waiting (server-computed); absent otherwise. */
   waitReason?: QueueWaitReason | null;
-  /** Queue priority of a kept built-in download: owner > request > automation. */
+  /** Legacy owner/request provenance; it does not affect queue order. */
   lane?: "owner" | "request" | "automation" | null;
   /** Plain failure text when `state` is `error` (docs/dotnet-port.md, Downloads list JSON). */
   error?: string | null;

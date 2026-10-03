@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
@@ -58,9 +59,10 @@ internal static class DevDiscoveryPlan
                 return Results.Json(new { error = "numbering_unconfirmed",
                     message = "Refresh the catalog to confirm this season's episode numbering." }, statusCode: 409);
             var metadataMs = clock.Elapsed.TotalMilliseconds;
-            var preference = (await new CatalogState(store)
-                .ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Work.Id), ct)).FirstOrDefault();
-            var audioLanguage = await TargetAudioPolicy.ResolveAsync(store, work.Work, preference, ct);
+            var qualityRow = (await new CatalogState(store)
+                .ReadAsync<SettingRow>(CatalogState.Query("quality"), ct)).SingleOrDefault();
+            var audioLanguage = qualityRow is null ? "auto" :
+                SettingsCatalog.Read<QualitySettings>(qualityRow).AudioLanguage ?? "auto";
             var result = await discovery.RunAsync(work, new(work.Work.Id, [.. episodes.Select(e => e.Id)], film),
                 new(floor, quality, audioLanguage, null, null, 0),
                 lane == "background" ? PriorityLane.Background : PriorityLane.Owner, exhaust == "true", ct);

@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
@@ -31,7 +33,9 @@ internal static class DevPlan
             if (workKey.Length is < 1 or > 200) return Results.BadRequest();
             return Results.Json(await metadata.GetWorkAsync(workKey, false, ct), Json);
         });
-        group.MapPost("/", async (HttpContext http, IMetadata metadata, IPlan plan, CancellationToken ct) =>
+        group.MapPost("/", async (HttpContext http, IMetadata metadata, IPlan plan,
+            [Microsoft.Extensions.DependencyInjection.FromKeyedServices("targets")] IStore store,
+            CancellationToken ct) =>
         {
             if (http.Request.ContentLength is null or > 8 * 1024 * 1024) return Results.BadRequest();
             var request = await http.Request.ReadFromJsonAsync<Evaluation>(Json, ct);
@@ -56,6 +60,15 @@ internal static class DevPlan
                 if (resolved.Work is null) return Results.NotFound(resolved.Failure);
                 input = input with { Work = resolved.Work };
             }
+            var qualityRow = (await new CatalogState(store)
+                .ReadAsync<SettingRow>(CatalogState.Query("quality"), ct)).SingleOrDefault();
+            var audioLanguage = qualityRow is null ? "auto" :
+                SettingsCatalog.Read<QualitySettings>(qualityRow).AudioLanguage ?? "auto";
+            input = input with
+            {
+                Targets = [.. input.Targets.Select(t => t with { AudioLanguage = audioLanguage })],
+                Preference = input.Preference is { } preference ? preference with { AudioLanguage = null } : null,
+            };
             var clock = Stopwatch.StartNew();
             var result = plan.Choose(input);
             return Results.Json(new { result, elapsedMs = clock.Elapsed.TotalMilliseconds, work = input.Work }, Json);

@@ -94,11 +94,12 @@ public sealed partial class TargetPipeline
         ImmutableArray<TargetRow> rows, string current, string? chosen, string? source, CancellationToken ct)
     {
         var first = rows[0];
+        var audioLanguage = await AudioLanguageAsync(store, ct);
         return await discovery.RunAsync(work, new(first.WorkId,
             [.. rows.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)], first.EpisodeId is null),
-            new(first.ResolutionFloor, first.PreferredResolution, first.AudioLanguage, first.MaxBytes, null,
+            new(first.ResolutionFloor, first.PreferredResolution, audioLanguage, first.MaxBytes, null,
                 first.PolicyRevision), PriorityLane.Owner, false, ct,
-            actualTargets: [.. rows.Select(t => t with { PickedReleaseHash = chosen })],
+            actualTargets: [.. rows.Select(t => t with { AudioLanguage = audioLanguage, PickedReleaseHash = chosen })],
             excludedHashes: await ExcludedAsync(store, first.WorkId, current, ct),
             sourceIds: source is null ? [] : [source]);
     }

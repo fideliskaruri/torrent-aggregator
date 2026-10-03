@@ -58,12 +58,6 @@ internal static class DownloadEndpoints
                 input.PreferredResolution), AccessIdentity.Actor(http).UserId, ct);
             return Results.Ok(AdmissionProjection.Title(reply, resolvedKey));
         });
-        group.MapPut("/client/torrents/rank", async (TargetEndpoints.RankInput input,
-            TargetPipeline targets, CancellationToken ct) =>
-        {
-            await targets.RankAsync(input.TargetIds, ct);
-            return Results.Ok(new { ok = true, ranked = input.TargetIds.Length });
-        });
         group.MapGet("/wanted", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.WantedAsync(ct)));
         group.MapDelete("/wanted", async (string workKey, int? season, int? episode,
@@ -223,7 +217,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                 savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
                 retentionState = "kept", lane = target?.Origin == IntentOrigin.Request ? "request" : "owner",
-                forced = target?.NowAt is not null || rawIntent?.NowAt is not null,
+                forced = target?.Priority == TargetPriority.Now || rawIntent?.NowAt is not null,
                 queuePosition = state == "queued" ? (int?)++queuePosition : null,
                 waitReason = state == "queued" && full ? "queue-full" : null,
                 waitingReason = target?.ReasonText ?? (state == "queued" ? full ?

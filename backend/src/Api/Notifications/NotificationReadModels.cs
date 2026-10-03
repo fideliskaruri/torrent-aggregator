@@ -145,8 +145,9 @@ internal static class NotificationReadModels
         var checksEnabled = !configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled");
         var queued = targets.Where(t => t.State == TargetState.Wanted || t.State == TargetState.Fetching)
             .Where(t => live.All(s => s.Hash != t.ChosenReleaseHash || !s.Active && !s.Complete))
-            .OrderByDescending(t => t.NowAt is not null).ThenBy(t => t.Priority).ThenBy(t => t.Rank)
-            .ThenBy(t => t.CreatedAt).ToArray();
+            .OrderBy(t => t.Priority != TargetPriority.Now)
+            .ThenBy(t => t.Priority == TargetPriority.Now ? t.NowAt ?? t.CreatedAt : t.CreatedAt)
+            .ThenBy(t => t.CreatedAt).ThenBy(t => t.Id, StringComparer.Ordinal).ToArray();
         foreach (var t in targets)
         {
             var work = works.FirstOrDefault(w => w.Id == t.WorkId);
@@ -176,7 +177,7 @@ internal static class NotificationReadModels
                 kind == "queued" ? Array.IndexOf(queued, t) + 1 : null,
                 new(reason, future ? "Not aired yet" : t.ReasonText ?? "Ready",
                     future ? expected : t.NextTryAt, null),
-                work.WorkKey, t.Id, state, release, followSet.Contains(work.Id), t.NowAt is not null,
+                work.WorkKey, t.Id, state, release, followSet.Contains(work.Id), t.Priority == TargetPriority.Now,
                 t.PreferredResolution ?? t.ResolutionFloor, work.Kind == WorkKind.Film ? "movie" : "tv");
             // One row per item, always dated by its release so every role sees the same date.
             entries.Add(Entry(future ? "airs" : t.State == TargetState.Waiting && checksEnabled ? "check" :
