@@ -291,6 +291,9 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
             PruneClaims();
             if (claim.ExpiresAt <= DateTimeOffset.UtcNow || claim.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(90))
                 return Rejected("claim_expired", "Admission reservations last at most 90 seconds.");
+            if (claim.FromProbe is { } source && (source.Hash != claim.Hash || source.ExpiresAt <= DateTimeOffset.UtcNow ||
+                !handles.TryGetValue(source.Token, out var sourceOwner) || sourceOwner != source))
+                return Rejected("invalid_handle", "The metadata capability expired or belongs to another hash.");
             if (registered.TryGetValue(claim.Hash, out var id) && id != claim.DownloadId ||
                 claims.Values.Any(c => c.Hash == claim.Hash && c.Token != claim.Token) ||
                 entries.TryGetValue(claim.Hash, out var entry) && entry.Probe &&
@@ -318,6 +321,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
                 NormalizeHash(admission.Candidate.Release.Magnet ?? admission.Candidate.Release.Id) != handle.Hash)
                 return Rejected("hash_mismatch", "The metadata capability does not match this download.");
             if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle || !owned.CreatedByProbe ||
+                owned.ExpiresAt <= DateTimeOffset.UtcNow ||
                 !entries.TryGetValue(handle.Hash, out var entry) || !entry.Probe || !entry.Manager.HasMetadata)
                 return Rejected("invalid_handle", "The metadata capability is no longer available.");
             var claimFailure = ValidateAdmission(admission);
