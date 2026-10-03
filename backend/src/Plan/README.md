@@ -17,8 +17,11 @@ parses names, reads files, probes a swarm, downloads, or persists a choice. Targ
   selected. Check remains responsible for classification and validity windows.
 - Release-name quality takes precedence; when omitted, every selected video must have a
   known parsed resolution before the minimum selected-video resolution is used.
-- Unknown language passes without further work. Explicit incompatible language is
-  refused. Compatible original-language/audio-preference markers pass.
+- Unknown language and DUAL/MULTI releases pass without further work. Explicit
+  incompatible language is refused, including before file-list availability.
+  Target audio preferences override matching work preferences; missing/auto preferences
+  default to English, never the work's original language. Callers must resolve the
+  configured global setting into the target policy before invoking this pure planner.
 - Owned Acquire items, including offline and not-yet-confirmed-missing videos, are
   excluded and are not reported as uncovered. Replace targets alone may bypass their
   own ownership; Upgrade must increase known quality, Replace must retain it.

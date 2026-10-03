@@ -41,6 +41,13 @@ public sealed class ReleasePlanner : IPlan
             }
             if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other && !raw)
             { Refuse("junk_release", "This release is a sample, camera recording, or non-feature release."); continue; }
+            if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(t, input))))
+            {
+                foreach (var target in targets)
+                    Refuse("foreign_language", $"This release explicitly identifies audio other than {AudioLanguage(target, input)}.",
+                        target.Id);
+                continue;
+            }
             var evidence = input.Evidence.Where(e => e.Hash.Equals(release.Id, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(e => e.CheckedAt).FirstOrDefault();
             var files = evidence?.Files ?? release.Files;
@@ -140,9 +147,9 @@ public sealed class ReleasePlanner : IPlan
                         (target.ReplacementMode == ReplacementMode.Upgrade ? resolution <= best : resolution < best))
                     { Refuse("replacement_quality", "A replacement must retain the existing quality; an upgrade must improve it.", target.Id); continue; }
                 }
-                var language = target.AudioLanguage ?? preference?.AudioLanguage ?? input.Work.Work.OriginalLanguage;
+                var language = AudioLanguage(target, input);
                 if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
-                { Refuse("foreign_language", "This release clearly identifies a different audio language.", target.Id); continue; }
+                { Refuse("foreign_language", $"This release explicitly identifies audio other than {language}.", target.Id); continue; }
                 var runtime = episode?.RuntimeMinutes ?? input.Work.Work.RuntimeMinutes;
                 var cap = target.MaxBytes ?? preference?.MaxBytesPerItem;
                 var selection = SelectFiles(target.Id, kept, files.Value, metadata, input.Work);
@@ -334,12 +341,19 @@ public sealed class ReleasePlanner : IPlan
         var minimum = resolution >= 2160 ? 1 : resolution >= 1080 ? .5 : resolution >= 720 ? .3 : .1;
         return mbps >= minimum && mbps <= 100;
     }
+    private static string AudioLanguage(TargetRow target, PlanInput input)
+    {
+        var preference = input.Preference?.WorkId == target.WorkId ? input.Preference : null;
+        return new[] { target.AudioLanguage, preference?.AudioLanguage }.FirstOrDefault(value =>
+            !string.IsNullOrWhiteSpace(value) && !value.Equals("auto", StringComparison.OrdinalIgnoreCase)) ?? "en";
+    }
+
     private static bool LanguageAllowed(ParsedRelease parsed, string? desired)
     {
         if (!parsed.ClearlyForeign && parsed.Foreign != ForeignStatus.Yes) return true;
         var wanted = Language(desired ?? "en");
         var markers = parsed.LanguageMarkers.Select(Language).ToArray();
-        return markers.Contains(wanted) || markers.Contains("multi") && markers.Contains("en");
+        return markers.Contains(wanted) || markers.Contains("multi") || markers.Contains("dual");
     }
     private static string Language(string marker) => marker.Trim().ToLowerInvariant() switch
     {
