@@ -33,6 +33,15 @@ payload file writes, or additional hosted service.
   An enrichment identity already claimed by another work remains suggested, rather
   than failing the refresh or silently moving targets between works. A conflicted
   commit is re-read and merged once before a refresh failure is returned.
+  Suggested/conflicted enrichment does not replace the anchor provider's episode
+  listing: a TMDB listing claimed by another work cannot be copied into a TVmaze
+  work. Refresh reserves provider episode identities before matching legacy
+  coordinates, so a renumbering permutation never reuses a referenced row twice
+  or changes an established identity to another episode from the same provider.
+  Store atomically vacates moving coordinate slots before writing their final
+  permutation; episode IDs and their file/target references remain unchanged.
+  An obsolete referenced identity is retained as unavailable, outside the active
+  coordinate uniqueness slot, rather than rewritten to mean its replacement.
 - Season/episode snapshots include provider identifiers, runtime, nullable air times and
   day/instant precision. Specials have no absolute number. Anime sequel/cour chains
   overlay listing names/stills; incomplete walks and unknown counts are provisional.

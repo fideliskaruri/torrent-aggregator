@@ -211,7 +211,8 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 }
                 else builder.Complete = false;
             }
-            if (await tmdb.EnabledAsync(ct) && builder.Links.FirstOrDefault(l => l.Provider == "tmdb") is { } linked)
+            if (await tmdb.EnabledAsync(ct) && builder.Links.FirstOrDefault(l => l.Provider == "tmdb") is { } linked &&
+                CanUseListing(new("tmdb", linked.ExternalId, JsonFacts.Kind(builder.Work.Kind))))
             {
                 var detail = await tmdb.DetailAsync(linked.ExternalId, builder.Work.Kind, ct, refresh);
                 if (detail.Json is { ValueKind: JsonValueKind.Object } row)
@@ -276,7 +277,8 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 foreach (var name in names.Obj("akas").Obj("edges").Items())
                     builder.Name(name.Obj("node").Text("text"), NameLabel.Synonym, link);
             }
-            if (await tmdb.EnabledAsync(ct) && builder.Links.FirstOrDefault(l => l.Provider == "tmdb") is { } linked)
+            if (await tmdb.EnabledAsync(ct) && builder.Links.FirstOrDefault(l => l.Provider == "tmdb") is { } linked &&
+                CanUseListing(new("tmdb", linked.ExternalId, JsonFacts.Kind(kind))))
             {
                 var tmdbAnswer = await tmdb.DetailAsync(linked.ExternalId, kind, ct, refresh);
                 if (tmdbAnswer.Json is { ValueKind: JsonValueKind.Object } row)
@@ -326,6 +328,11 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 }
                 if (tmdbId is not null)
                 {
+                    builder.Link("tmdb", tmdbId, "tv");
+                    if (!CanUseListing(new("tmdb", tmdbId, "tv"))) tmdbId = null;
+                }
+                if (tmdbId is not null)
+                {
                     var detail = await tmdb.DetailAsync(tmdbId, WorkKind.Series, ct, refresh);
                     if (detail.Json is { ValueKind: JsonValueKind.Object } row)
                     {
@@ -361,6 +368,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         ImmutableArray<AnimeMapEntry> AllowedMap(ImmutableArray<AnimeMapEntry> entries) => [.. entries.Where(e =>
             !priorLinks.Any(l => l.WorkId == known?.WorkId && l.Status == LinkStatus.Rejected &&
                 l.Provider == "anilist" && l.ExternalId == e.AniList?.ToString()))];
+
+        bool CanUseListing(ProviderId listing) => !priorLinks.Any(l =>
+            l.Status == LinkStatus.Verified && SameId(l, listing) && l.WorkId != known?.WorkId);
     }
 
     private async Task SuggestLinksAsync(WorkBuilder builder, CancellationToken ct)

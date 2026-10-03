@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
@@ -129,6 +130,29 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                 var link = (DownloadTargetRow)write.Row;
                 await db.Database.ExecuteSqlInterpolatedAsync(
                     $"UPDATE DownloadTarget SET role='retired' WHERE id={link.Id}", ct);
+            }
+            // SQLite checks coordinate uniqueness after each statement. Vacate all
+            // moving episodes before EF writes a provider's renumbering permutation.
+            var movingEpisodes = commit.Writes.Where(w => w.Row is EpisodeRow && w.ExpectedVersion is not null)
+                .Select(w => (EpisodeRow)w.Row).Where(e =>
+                {
+                    var entry = db.ChangeTracker.Entries<Dictionary<string, object>>()
+                        .Single(x => x.Metadata.Name == "Episode" && (string)x.Entity["id"] == e.Id);
+                    return !Equals(entry.OriginalValues["seasonId"], e.SeasonId) ||
+                        !Equals(entry.OriginalValues["number"], e.Number);
+                }).ToArray();
+            if (movingEpisodes.Length > 0)
+            {
+                using var command = db.Database.GetDbConnection().CreateCommand();
+                command.Transaction = transaction.GetDbTransaction();
+                command.CommandText = "SELECT COALESCE(MAX(number),0) FROM Episode";
+                var temporaryNumber = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
+                foreach (var episode in movingEpisodes)
+                {
+                    temporaryNumber = checked(temporaryNumber + 1);
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"UPDATE Episode SET number={temporaryNumber} WHERE id={episode.Id}", ct);
+                }
             }
             await db.SaveChangesAsync(ct);
             if (library is PlacementWriteProposal { ReviewId: { } reviewId } admitted)

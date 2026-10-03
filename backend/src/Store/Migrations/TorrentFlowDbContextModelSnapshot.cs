@@ -500,8 +500,9 @@ namespace TorrentFlow.Store.Migrations
 
                     b.HasIndex(new[] { "seasonId", "absoluteNumber" }, "IX_Episode_seasonId_absoluteNumber_all");
 
-                    b.HasIndex(new[] { "seasonId", "number" }, "IX_Episode_seasonId_number_all")
-                        .IsUnique();
+                    b.HasIndex(new[] { "seasonId", "number" }, "IX_Episode_seasonId_number_mappingStatusunavailable")
+                        .IsUnique()
+                        .HasFilter("mappingStatus <> 'unavailable'");
 
                     b.ToTable("Episode", null, t =>
                         {

@@ -72,6 +72,10 @@ are never stored in the database or logged.
   operations. Open Attempt mutation and joint Library/Check proposal guards
   also **fail closed** until their implementing phases; Targets cannot forge
   inventory, root, release-enrichment or file-path changes.
+- Episode provider identities stay globally unique, including unavailable rows.
+  Only available/provisional episode mappings claim a unique season/number slot.
+  Metadata renumbering commits vacate all moving slots within the transaction
+  before applying the final coordinates, preserving file and target foreign keys.
 - Typed schema-v1 sections: engine, sources, metadata, remoteAccess, desktop,
   quality, requests, scheduler, jellyfin, migration. Defaults use design bounds
   (400/120/40 peers, 12 probe peers, 32 MiB write cache, 40 files, 20-second check,

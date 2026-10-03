@@ -83,6 +83,12 @@ internal sealed partial class MetadataService
             var linkMap = new Dictionary<string, string>();
             var links = new List<WorkLinkRow>();
             var oldPrimary = previous.Links.FirstOrDefault(l => l.IsPrimary);
+            if (proposed.Links.Any(link => link.Status == LinkStatus.Verified &&
+                proposed.Episodes.Any(e => e.Provider == link.Provider) &&
+                existingLinks.Any(l => l.WorkId != work.Id && l.Status == LinkStatus.Verified &&
+                    l.Provider == link.Provider && l.ProviderKind == link.ProviderKind &&
+                    l.ExternalId == link.ExternalId)))
+                return null;
             foreach (var link in proposed.Links)
             {
                 var old = previous.Links.FirstOrDefault(l => l.Provider == link.Provider &&
@@ -122,15 +128,21 @@ internal sealed partial class MetadataService
                 return s with { Id = id, WorkId = work.Id, CreatedAt = old?.CreatedAt ?? s.CreatedAt,
                     Version = old is null ? 0 : old.Version + 1 };
             }).ToList();
+            var identityMatches = proposed.Episodes.Where(e => e.ProviderEpisodeId is not null)
+                .ToDictionary(e => e.Id, e => previous.Episodes.FirstOrDefault(p =>
+                    p.Provider == e.Provider && p.ProviderEpisodeId == e.ProviderEpisodeId));
+            var usedEpisodeIds = identityMatches.Values.OfType<EpisodeRow>().Select(e => e.Id).ToHashSet();
             var episodes = proposed.Episodes.Select(e =>
             {
                 var seasonId = seasonMap[e.SeasonId];
-                var old = previous.Episodes.FirstOrDefault(p => e.ProviderEpisodeId is not null &&
-                    p.Provider == e.Provider && p.ProviderEpisodeId == e.ProviderEpisodeId)
+                var old = identityMatches.GetValueOrDefault(e.Id)
                     ?? (work.Anime == true && e.AbsoluteNumber is { } absolute &&
                         previous.Episodes.Count(p => p.AbsoluteNumber == absolute) == 1
-                        ? previous.Episodes.FirstOrDefault(p => p.AbsoluteNumber == absolute) : null)
-                    ?? previous.Episodes.FirstOrDefault(p => p.SeasonId == seasonId && p.Number == e.Number);
+                        ? previous.Episodes.FirstOrDefault(p => p.AbsoluteNumber == absolute &&
+                            CanRebind(p, e)) : null)
+                    ?? previous.Episodes.FirstOrDefault(p => p.SeasonId == seasonId && p.Number == e.Number &&
+                        CanRebind(p, e));
+                if (old is not null) usedEpisodeIds.Add(old.Id);
                 return e with { Id = old?.Id ?? ProviderHttp.Id(work.Id + ":episode:" + e.Provider + ":" +
                     (e.ProviderEpisodeId ?? seasonId + ":" + e.Number)), SeasonId = seasonId,
                     AirAt = e.AirAt ?? (old?.SeasonId == seasonId && old.Number == e.Number &&
@@ -140,6 +152,9 @@ internal sealed partial class MetadataService
                         old.AbsoluteNumber == e.AbsoluteNumber ? old.AirPrecision : DatePrecision.Unknown,
                     CreatedAt = old?.CreatedAt ?? e.CreatedAt, Version = old is null ? 0 : old.Version + 1 };
             }).ToList();
+
+            bool CanRebind(EpisodeRow old, EpisodeRow incoming) => !usedEpisodeIds.Contains(old.Id) &&
+                (old.ProviderEpisodeId is null || old.Provider != incoming.Provider);
             var changedCoordinates = episodes.Any(e => previous.Episodes.FirstOrDefault(p => p.Id == e.Id) is { } old &&
                 (old.SeasonId != e.SeasonId || old.Number != e.Number || old.AbsoluteNumber != e.AbsoluteNumber));
             if (changedCoordinates)
