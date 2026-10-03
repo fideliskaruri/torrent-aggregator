@@ -175,8 +175,7 @@ internal static class RequestEndpoints
         // Requesters have no mutation actions after creation, including the legacy cancel route.
         requester.MapPost("/requests/{id}/cancel", () => Results.Json(
             new { error = "Request details are read-only. Ask the owner to change this request.", code = "read_only" }, statusCode: 403));
-        owner.MapPost("/{id}/pick", () => Results.Json(new { ok = false,
-            message = "Manual release picking is not available in the target API yet. Retry automatic selection." }, statusCode: 409));
+        owner.MapPost("/{id}/pick", RequestPick.Handle);
     }
 
     private static async ValueTask<object?> Filter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)

@@ -87,6 +87,11 @@ public sealed class ReleasePlanner : IPlan
             { Refuse("other_season_file", "The pack contains videos from a different season."); continue; }
             foreach (var target in targets)
             {
+                if (target.PickedReleaseHash is { } picked && picked != release.Id)
+                { Refuse("owner_pick", "The owner chose a different release for this item.", target.Id); continue; }
+                if (target.MinListedSeeders is { } minimum &&
+                    (evidence?.ScrapedSeeders ?? candidate.TrustedSeeders ?? -1) < minimum)
+                { Refuse("minimum_seeders", "This release does not meet the rule's minimum seed count.", target.Id); continue; }
                 if (target.WorkId != input.Work!.Work.Id)
                 { Refuse("wrong_target_work", "The target belongs to a different title.", target.Id); continue; }
                 var owned = input.Owned.Where(o => o.WorkId == target.WorkId && o.EpisodeId == target.EpisodeId)

@@ -4,7 +4,7 @@ using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Requests;
 
-// Acquire has no request-origin argument. Keep this compatibility bridge outside Targets.
+// Request linkage is request-owned; target state and origin are authored by Targets.
 internal static class RequestTargetAdapter
 {
     internal static async Task Attach(IStore store, CatalogState catalog, RequestRow request,
@@ -18,9 +18,6 @@ internal static class RequestTargetAdapter
             var item = items.FirstOrDefault(i => i.EpisodeId == target.EpisodeId);
             var now = DateTimeOffset.UtcNow;
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
-            if (target.CreatedBy == request.Id && target.Origin != IntentOrigin.Request)
-                writes.Add(new(target with { Origin = IntentOrigin.Request, Priority = TargetPriority.Request,
-                    UpdatedAt = now, Version = target.Version + 1 }, target.Version, null));
             if (item is null)
                 writes.Add(new(new RequestItemRow(Guid.NewGuid().ToString("N"), request.Id, target.EpisodeId,
                     id, ItemSettlement.Open, null, now, now), null, null));

@@ -13,6 +13,20 @@ internal static class TargetEndpoints
 
     internal static void MapTargets(this WebApplication app)
     {
+        app.MapPut("/api/title/{workKey}/quality", async (string workKey, QualityInput input,
+            HttpContext http, TargetPipeline pipeline, CancellationToken ct) =>
+        {
+            if (AccessIdentity.Role(http) != "owner") return Results.StatusCode(403);
+            try { return Results.Json(await pipeline.SetQualityAsync(workKey, input.Resolution, ct), Json); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+        app.MapPut("/api/targets/{id}/quality", async (string id, QualityInput input,
+            HttpContext http, TargetPipeline pipeline, CancellationToken ct) =>
+        {
+            if (AccessIdentity.Role(http) != "owner") return Results.StatusCode(403);
+            try { return Results.Json(await pipeline.SetQualityAsync(id, input.Resolution, ct), Json); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
         if (!app.Environment.IsDevelopment()) return;
         var group = app.MapGroup("/api/dev/targets").AddEndpointFilter(async (context, next) =>
         {
@@ -51,4 +65,5 @@ internal static class TargetEndpoints
         });
     }
     internal sealed record RankInput(System.Collections.Immutable.ImmutableArray<string> TargetIds);
+    internal sealed record QualityInput(int? Resolution);
 }

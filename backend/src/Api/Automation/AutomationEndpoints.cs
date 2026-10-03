@@ -29,11 +29,11 @@ internal static class AutomationEndpoints
             if (row is not null) await db.DeleteAsync(row, ct);
             return Reply(new { ok = true });
         });
-        app.MapPost("/api/rules/run", async (AutomationRepository db, CancellationToken ct) =>
+        app.MapPost("/api/rules/run", async (Hunter hunter, CancellationToken ct) =>
         {
-            var rules = (await db.ReadAsync<AutoRuleRow>(ct)).Where(r => r.Enabled);
-            return Reply(new { ok = false, offline = false, message = "Automatic downloads are not available yet. Your rules are saved.",
-                summary = rules.Select(r => new { id = r.Id, name = r.Name, status = "skipped", message = Hunter.Boundary }) });
+            var pass = await hunter.RunAsync(false, ct);
+            return Reply(new { ok = !pass.Busy, offline = false, message = $"{pass.Items.Count(i => i.Status == "queued")} queued",
+                summary = pass.Items, pass.Owned, pass.Existing });
         });
         app.MapGet("/api/follows", async (AutomationRepository db, CancellationToken ct) =>
             Results.Ok(new { follows = await db.ReadAsync<FollowRow>(ct) }));

@@ -60,6 +60,8 @@ public sealed record TargetRow(string Id, string WorkId, string? EpisodeId, Targ
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Version) : StoreRow(Id)
 {
     public TargetPriority Priority { get; init; } = TargetPriority.BackCatalogue;
+    public int? MinListedSeeders { get; init; }
+    public string? PickedReleaseHash { get; init; }
 }
 public sealed record RequestScopeData(ImmutableArray<int> Seasons, bool FutureEpisodes);
 public sealed record ScopeIntentRow(string Id, string ActorUserId, string WorkId, RequestScope Scope,

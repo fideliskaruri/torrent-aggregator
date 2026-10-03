@@ -1708,6 +1708,9 @@ namespace TorrentFlow.Store.Migrations
                     b.Property<long?>("maxBytes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("minListedSeeders")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("nextTryAt")
                         .HasColumnType("TEXT");
 
@@ -1720,6 +1723,9 @@ namespace TorrentFlow.Store.Migrations
 
                     b.Property<bool>("ownerRanked")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("pickedReleaseHash")
+                        .HasColumnType("TEXT");
 
                     b.Property<long>("policyRevision")
                         .HasColumnType("INTEGER");
@@ -1799,7 +1805,9 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
 
-                            t.HasCheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade')");
+                            t.HasCheckConstraint("CK_Target_minListedSeeders", "\"minListedSeeders\" >= 0");
+
+                            t.HasCheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade','hunter')");
 
                             t.HasCheckConstraint("CK_Target_ownerRanked", "\"ownerRanked\" IN (0,1)");
 

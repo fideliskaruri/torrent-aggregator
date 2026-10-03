@@ -42,6 +42,7 @@ public interface ISources
 /// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: judge swarm health, pick releases, call Engine or own Target state.</summary>
 public interface IFind
 {
+    Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken);
     IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,
         IAsyncEnumerable<SearchFeedback> feedback, CancellationToken cancellationToken);
     Task<RawSearchResult> SearchRawAsync(RawSearchQuery query, CancellationToken cancellationToken);

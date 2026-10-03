@@ -10,7 +10,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Find;
 
-internal sealed class FindService(IParser parser, SourceFlights flights, SearchBudget budget,
+internal sealed partial class FindService(IParser parser, SourceFlights flights, SearchBudget budget,
     IServiceScopeFactory scopes, IConfiguration configuration) : IFind
 {
     private readonly object cacheSync = new();

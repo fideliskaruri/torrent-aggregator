@@ -14,7 +14,6 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> nextWatch = new();
-    internal const string Boundary = "Targets does not yet accept Follow/Rule origin or a background first attempt. No downloads were started.";
 
     internal async Task<HunterPass> RunAsync(bool probe, CancellationToken ct)
     {
@@ -48,9 +47,46 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                         t.State != TargetState.Removed)) { existingCount++; continue; }
                     var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
                     if (season is null || season.Number < 1) continue;
+                    var preference = (await repository.ReadAsync<WorkPreferenceRow>(ct)).FirstOrDefault(p => p.WorkId == work.Work.Id);
+                    var accepted = await targets.AcceptAutomationAsync(new(work.Work.Id, season.Number,
+                        episode.Number, preference?.ResolutionFloor ?? preference?.PreferredResolution),
+                        IntentOrigin.Follow, null, null, null, ct);
                     items.Add(new(work.Work.WorkKey, episode.Id, season.Number, episode.Number,
-                        episode.AirAt!.Value, "Follow", "blocked"));
+                        episode.AirAt!.Value, "Follow", accepted.Queued > 0 ? "queued" : "existing"));
                 }
+            }
+            foreach (var rule in (await repository.ReadAsync<AutoRuleRow>(ct)).Where(r => r.Enabled))
+            {
+                var matches = await metadata.SearchAsync(new(rule.Query, rule.Category == "movies" ? "films" : rule.Category, 20), ct);
+                var count = 0;
+                foreach (var match in matches.Works)
+                {
+                    var work = (await metadata.GetWorkAsync(match.Work.WorkKey, false, ct)).Work;
+                    if (work is null) continue;
+                    if (work.Work.Kind == WorkKind.Film)
+                    {
+                        var accepted = await targets.AcceptAutomationAsync(new(work.Work.Id, Quality: rule.ResolutionFloor),
+                            IntentOrigin.Rule, rule.Id, rule.MinListedSeeders, rule.MaxBytes, ct);
+                        count += accepted.Queued;
+                        ownedCount += accepted.Owned;
+                        items.Add(new(work.Work.WorkKey, "", 0, 0, work.Work.DigitalAt ?? now,
+                            "Rule", accepted.Queued > 0 ? "queued" : "existing"));
+                    }
+                    else foreach (var episode in work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed && e.AirAt <= now))
+                    {
+                        var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
+                        if (season is null || season.Number < 1) continue;
+                        var accepted = await targets.AcceptAutomationAsync(new(work.Work.Id, season.Number,
+                            episode.Number, rule.ResolutionFloor), IntentOrigin.Rule, rule.Id,
+                            rule.MinListedSeeders, rule.MaxBytes, ct);
+                        count += accepted.Queued;
+                        ownedCount += accepted.Owned;
+                        if (accepted.Queued > 0) items.Add(new(work.Work.WorkKey, episode.Id, season.Number,
+                            episode.Number, episode.AirAt!.Value, "Rule", "queued"));
+                    }
+                }
+                await repository.SaveAsync(rule with { LastRunAt = now, MatchCount = rule.MatchCount + count,
+                    UpdatedAt = now, Version = rule.Version + 1 }, rule.Version, ct);
             }
             var notifications = 0;
             if (probe)
@@ -88,7 +124,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                 }
             }
             return new("background", false, items.ToImmutable(), ownedCount, existingCount, notifications,
-                items.Count > 0 ? Boundary : null);
+                null);
         }
         finally { gate.Release(); }
     }

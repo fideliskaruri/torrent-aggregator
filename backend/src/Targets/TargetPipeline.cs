@@ -45,7 +45,24 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     }
 
     public async Task<TargetActionReply> AcquireAsync(AcquireInput input, string actor, CancellationToken ct)
+        => await AcceptAsync(input, actor, IntentOrigin.Owner, null, null, null, ct);
+
+    public Task<TargetActionReply> AcceptAutomationAsync(AcquireInput input, IntentOrigin origin,
+        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct)
     {
+        if (origin is not (IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter))
+            throw new ArgumentException("Choose a supported automatic origin.");
+        return AcceptAsync(input with { Rank = null }, "local", origin, ruleId, minSeeders, maxBytes, ct);
+    }
+
+    public Task<TargetActionReply> AcceptRequestAsync(AcquireInput input, string actor, CancellationToken ct) =>
+        AcceptAsync(input, actor, IntentOrigin.Request, null, null, null, ct);
+
+    private async Task<TargetActionReply> AcceptAsync(AcquireInput input, string actor, IntentOrigin origin,
+        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct)
+    {
+        if (input.Quality is < 1 or > 4320 || minSeeders is < 0 || maxBytes is <= 0)
+            throw new ArgumentException("Choose a valid quality, seed count and size.");
         await stateGate.WaitAsync(ct);
         try
         {
@@ -55,6 +72,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var work = (await catalog.ReadAsync<WorkRow>(CatalogState.Query(), ct))
                 .FirstOrDefault(w => w.Id == input.WorkKey || w.WorkKey == input.WorkKey)
                 ?? throw new ArgumentException("Open the title before downloading it.");
+            var preference = (await catalog.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Id), ct)).FirstOrDefault();
+            input = input with { Quality = input.Quality ?? preference?.ResolutionFloor ?? preference?.PreferredResolution };
             if (work.Kind == WorkKind.Series && input.Season is null ||
                 work.Kind == WorkKind.Film && (input.Season is not null || input.Episode is not null))
                 throw new ArgumentException("Choose a season for a series, or Download for a film.");
@@ -68,6 +87,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var now = DateTimeOffset.UtcNow;
             if (!film && selected.Length == 0)
             {
+                if (origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
+                    throw new ArgumentException("Automatic downloads need confirmed episodes. Try again after metadata refresh.");
                 var id = $"scope:{work.Id}:{input.Season}:{input.Episode}";
                 var prior = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(id), ct)).SingleOrDefault();
                 if (prior is null)
@@ -91,6 +112,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             {
                 if (owned.Any(o => o.EpisodeId == episodeId)) { ownedCount++; continue; }
                 var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId && t.Kind == TargetKind.Acquire);
+                if (old is not null && origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
+                    continue;
                 var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";
                 ids.Add(id);
                 if (old is not null && old.State is not (TargetState.Removed or TargetState.Done)) continue;
@@ -98,13 +121,14 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     ? new TargetRow(id, work.Id, episodeId, TargetKind.Acquire, TargetState.Wanted,
                         null, null, null, null, episodeId is null ? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt :
                             selected.FirstOrDefault(e => e.Id == episodeId)?.AirAt,
-                        input.Quality, input.Quality ?? 1080, null, null, input.Rank is not null, input.Rank ?? 0,
-                        null, actor, IntentOrigin.Owner, null, null, null, null, batch, now, 0, null, 0,
+                        input.Quality, input.Quality ?? 1080, null, maxBytes, input.Rank is not null, input.Rank ?? 0,
+                        null, actor, origin, ruleId, null, null, null, batch, now, 0, null, 0,
                         null, null, now, now, 1)
                     : old with { State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,
                         PolicyRevision = old.PolicyRevision + 1, UpdatedAt = now, Version = old.Version + 1 };
-                row = row with { Priority = TargetScheduling.Priority(row, now) };
+                row = row with { Priority = TargetScheduling.Priority(row, now),
+                    MinListedSeeders = minSeeders ?? row.MinListedSeeders };
                 writes.Add(new(row, old?.Version, null));
                 writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
                     AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
@@ -267,7 +291,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         var due = TargetScheduling.Order(snapshot.Targets.Where(t => t.State == TargetState.Wanted ||
             t.State == TargetState.Waiting && t.NextTryAt <= now &&
                 t.ResumeState is not (TargetState.Filing or TargetState.Fetching)), now)
-            .GroupBy(t => $"{t.WorkId}:{t.ResolutionFloor}:{t.PreferredResolution}:" +
+            .GroupBy(t => $"{t.WorkId}:{t.ResolutionFloor}:{t.PreferredResolution}:{t.MinListedSeeders}:{t.MaxBytes}:{t.PickedReleaseHash}:{t.Origin}:" +
                 (t.EpisodeId is null ? "film" : episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.SeasonId));
         foreach (var group in due)
         {
@@ -297,7 +321,12 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 ? number : (int?)null;
             if (work is not null)
             foreach (var season in intent.ScopeData.Seasons)
-                await AcquireAsync(new(work.Work.Id, season, episode, intent.Policy.ResolutionFloor), intent.ActorUserId, ct);
+            {
+                var intentStore = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+                var request = (await intentStore.ReadAsync<RequestRow>(CatalogState.Query(intent.ActorUserId), ct)).SingleOrDefault();
+                await AcceptAsync(new(work.Work.Id, season, episode, intent.Policy.ResolutionFloor),
+                    intent.ActorUserId, request is null ? IntentOrigin.Owner : IntentOrigin.Request, null, null, null, ct);
+            }
             var ready = work is not null && intent.ScopeData.Seasons.All(n => work.Seasons.Any(s => s.Number == n &&
                 s.MappingStatus == MappingStatus.Confirmed && work.Episodes.Any(e => e.SeasonId == s.Id &&
                     (episode is null || e.Number == episode) && e.MappingStatus == MappingStatus.Confirmed)));
@@ -348,7 +377,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             if (rows.IsEmpty) return;
             var policy = new Policy(rows[0].ResolutionFloor, rows[0].PreferredResolution, rows[0].AudioLanguage,
                 rows[0].MaxBytes, null, rows[0].PolicyRevision);
-            var lane = !forceOwner && rows.All(r => r.SubstantiveMisses > 0 && r.NowAt is null)
+            var lane = !forceOwner && rows.All(r => r.NowAt is null &&
+                (r.SubstantiveMisses > 0 || r.Origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter or IntentOrigin.Upgrade))
                 ? PriorityLane.Background : PriorityLane.Owner;
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var blocked = await ExcludedAsync(store, work.Work.Id, null, lifetime.Token);

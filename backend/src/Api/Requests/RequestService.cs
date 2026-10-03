@@ -159,7 +159,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         }
         foreach (var input in inputs)
         {
-            var result = await pipeline.AcquireAsync(input, request.Id, ct);
+            var result = await pipeline.AcceptRequestAsync(input, request.Id, ct);
             await RequestTargetAdapter.Attach(store, catalog, request, result.TargetIds, ct);
         }
     }

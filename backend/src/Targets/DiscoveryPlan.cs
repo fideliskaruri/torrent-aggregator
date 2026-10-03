@@ -58,7 +58,9 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                 {
                     case CandidateBatch batch:
                         batch = batch with { Candidates = [.. batch.Candidates.Where(c =>
-                            excludedHashes?.Contains(c.Release.Id) != true)] };
+                            excludedHashes?.Contains(c.Release.Id) != true &&
+                            targets.All(t => (t.MinListedSeeders is null || c.TrustedSeeders >= t.MinListedSeeders) &&
+                                (t.PickedReleaseHash is null || c.Release.Id == t.PickedReleaseHash)))] };
                         if (!batch.Candidates.IsEmpty && firstCandidate is null && onStage is not null)
                             await onStage(TargetState.Checking);
                         last = batch;
@@ -248,6 +250,11 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         {
             try
             {
+                if (targets[0].PickedReleaseHash is { } selectedHash)
+                {
+                    await events.Writer.WriteAsync(await find.SelectAsync(request, selectedHash, ct), ct);
+                    return;
+                }
                 await foreach (var batch in find.SearchAsync(request, feedback.Reader.ReadAllAsync(ct), ct))
                     await events.Writer.WriteAsync(batch, ct);
             }
