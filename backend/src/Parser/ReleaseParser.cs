@@ -17,10 +17,10 @@ public sealed class ReleaseParser : IParser
         if (latestReleaseYear is < 1900 or > 9999) throw new ArgumentOutOfRangeException(nameof(latestReleaseYear));
         this.latestReleaseYear = latestReleaseYear;
     }
-    // All keys are private constant grammar expressions, never release/user input.
+    // Constant grammars are compiled once; timeouts bound backtracking without retaining symbolic automata.
     private static readonly ConcurrentDictionary<string, Regex> Patterns = new(StringComparer.Ordinal);
     private static Regex R(string pattern) => Patterns.GetOrAdd(pattern, static p => new(p,
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
         TimeSpan.FromMilliseconds(100)));
 
     private static readonly Regex Spaces = R(@"\s+");

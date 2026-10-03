@@ -32,7 +32,6 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         PooledConnectionLifetime = TimeSpan.FromMinutes(10),
     }) { Timeout = Timeout.InfiniteTimeSpan };
     private readonly ConcurrentDictionary<string, Lazy<Task<ProviderAnswer>>> flights = new();
-    private readonly ConcurrentDictionary<string, MetadataCacheRow> memory = new();
     private readonly ConcurrentDictionary<string, (ProviderAnswer Answer, DateTimeOffset Until)> misses = new();
     private readonly Dictionary<string, Gate> gates = new(StringComparer.Ordinal)
     {
@@ -68,8 +67,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         var id = Id(provider + ":" + key);
         if (!force && misses.TryGetValue(id, out var missing) && missing.Until > DateTimeOffset.UtcNow)
             return missing.Answer;
-        var previous = memory.GetValueOrDefault(id)
-            ?? (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(id), ct)).FirstOrDefault();
+        var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(id), ct)).FirstOrDefault();
         if (!force && previous is { Complete: true } && previous.ExpiresAt > DateTimeOffset.UtcNow)
             return new(previous.Payload, false, true, null);
         var flight = flights.GetOrAdd(id, _ => new Lazy<Task<ProviderAnswer>>(
@@ -156,17 +154,8 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
                     return Failed("provider_failed", "The catalog did not answer. Try again later.", null);
                 if (response.Content.Headers.ContentLength > maxBytes) throw new InvalidDataException("Catalog response is too large.");
                 await using var stream = await response.Content.ReadAsStreamAsync(ct);
-                using var buffer = new MemoryStream();
-                var chunk = new byte[81920];
-                int count;
-                while ((count = await stream.ReadAsync(chunk, ct)) != 0)
-                {
-                    if (buffer.Length + count > maxBytes) throw new InvalidDataException("Catalog response is too large.");
-                    buffer.Write(chunk, 0, count);
-                }
-                buffer.Position = 0;
-                using var document = await JsonDocument.ParseAsync(buffer, cancellationToken: ct);
-                payload = document.RootElement.Clone();
+                await using var bounded = new BoundedReadStream(stream, maxBytes);
+                payload = await JsonSerializer.DeserializeAsync<JsonElement>(bounded, cancellationToken: ct);
                 if (validate is not null && !validate(payload))
                     return Failed("invalid_catalog", "The catalog returned incomplete data. Try again later.", null);
                 if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("errors", out var errors)
@@ -177,12 +166,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
             var row = new MetadataCacheRow(id, kind, provider + ":" + key, payload, now, now + ttl,
                 response.Headers.ETag?.ToString() ?? previous?.Etag,
                 response.Content.Headers.LastModified?.ToString("R") ?? previous?.LastModified, true, provider);
-            var commit = await store.CommitAsync([new(row, null, previous)], null, ct);
-            if (commit.Applied)
-            {
-                if (memory.Count >= 500) memory.TryRemove(memory.MinBy(p => p.Value.FetchedAt).Key, out _);
-                memory[id] = row;
-            }
+            await store.CommitAsync([new(row, null, previous)], null, ct);
             return new(payload, false, true, null);
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException
@@ -206,6 +190,37 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
     }
 
     internal static string Id(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private sealed class BoundedReadStream(Stream inner, long limit) : Stream
+    {
+        private long read;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => read; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var received = inner.Read(buffer, offset, count);
+            Account(received);
+            return received;
+        }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var received = await inner.ReadAsync(buffer, cancellationToken);
+            Account(received);
+            return received;
+        }
+        private void Account(int count)
+        {
+            read += count;
+            if (read > limit) throw new InvalidDataException("Catalog response is too large.");
+        }
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 
     public void Dispose()
     {

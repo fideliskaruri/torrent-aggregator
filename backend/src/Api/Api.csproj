@@ -3,10 +3,13 @@
     <AssemblyName>TorrentFlow</AssemblyName>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <Version>0.2.0</Version>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <ApplicationIcon>Desktop\TorrentFlow.ico</ApplicationIcon>
     <OutputType Condition="'$(PublishSingleFile)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">WinExe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
     <ProjectReference Include="..\Domain\Domain.csproj" />
     <ProjectReference Include="..\Targets\Targets.csproj" />
     <ProjectReference Include="..\Metadata\Metadata.csproj" />

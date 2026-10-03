@@ -11,9 +11,7 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
 {
     internal const string DefaultUrl = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json";
     private readonly SemaphoreSlim gate = new(1);
-    private ImmutableArray<AnimeMapEntry> entries = [];
-    private ImmutableDictionary<string, ImmutableArray<AnimeMapEntry>> index =
-        ImmutableDictionary<string, ImmutableArray<AnimeMapEntry>>.Empty;
+    private volatile Dictionary<string, ImmutableArray<AnimeMapEntry>> index = new(StringComparer.Ordinal);
     private DateTimeOffset checkedAt;
     private bool loaded;
     private Task? refreshing;
@@ -30,8 +28,7 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
             var cached = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(id), ct)).FirstOrDefault();
             if (cached is not null && Valid(cached.Payload))
             {
-                entries = Parse(cached.Payload);
-                Index();
+                Index(Parse(cached.Payload));
                 Version = ProviderHttp.Id(cached.Payload.GetRawText())[..12];
                 checkedAt = cached.FetchedAt;
             }
@@ -65,8 +62,7 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
             if (answer.Json is not { ValueKind: JsonValueKind.Array } payload) return;
             var parsed = Parse(payload);
             if (parsed.IsEmpty) return;
-            entries = parsed;
-            Index();
+            Index(parsed);
             Version = ProviderHttp.Id(payload.GetRawText())[..12];
         }
 
@@ -98,7 +94,7 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
         return result.ToImmutable();
     }
 
-    private void Index()
+    private void Index(ImmutableArray<AnimeMapEntry> entries)
     {
         var rows = new List<(string Key, AnimeMapEntry Entry)>();
         foreach (var entry in entries)
@@ -110,7 +106,8 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
             foreach (var movie in entry.TmdbMovies) rows.Add((Key("tmdb", movie.ToString(), "movie"), entry));
             foreach (var imdb in entry.Imdb) rows.Add((Key("imdb", imdb), entry));
         }
-        index = rows.GroupBy(r => r.Key).ToImmutableDictionary(g => g.Key, g => g.Select(r => r.Entry).ToImmutableArray());
+        index = rows.GroupBy(r => r.Key).ToDictionary(g => g.Key,
+            g => g.Select(r => r.Entry).ToImmutableArray(), StringComparer.Ordinal);
     }
 
     private static string Key(string provider, string id, string? kind = null) =>

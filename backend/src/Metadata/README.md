@@ -64,6 +64,17 @@ start at 30s and back off to 300s. AniList chains have a separate 12s total dead
 Shared `Lazy<Task>` flights prevent eager duplicate HTTP work; waiter cancellation
 does not cancel somebody else's lookup.
 
+Provider JSON is parsed directly from a byte-limited response stream, without an
+extra whole-response buffer. Fresh and last-good responses live in Store only:
+there is no second process-resident cache of raw JSON documents. The Fribb lookup
+index retains only its parsed ID/season columns in a dictionary, not an additional
+full entry collection or raw response. Refresh builds a replacement index before
+publishing it, so concurrent readers continue to see the previous complete map.
+The home-server host uses concurrent workstation GC and memory-conservation level
+9 to favor a smaller steady-state heap over peak throughput. No GC heap hard limit
+is imposed: accepted provider responses can still require substantial transient
+space during deserialization and persistence.
+
 Confirmed misses are memoized 3m, search 5m fresh/24h stale, AniList queries 60s, work
 details up to 7 days in Store, and season/airing answers 1h. Failed/partial answers
 are never stored as successful negative results. Search preserves usable last-good
