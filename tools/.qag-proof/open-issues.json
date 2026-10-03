@@ -1,0 +1,2607 @@
+[
+  {
+    "id": "OPS-857",
+    "title": "Quality sweep never writes UpgradeEvidence; title read cannot offer Upgrade or \"best available, checked\"",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-859",
+    "title": "Hunter HTTP projection labels a review-held item existing instead of held",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-845",
+    "title": "Dev filing intermittently returns 408 \"No file list arrived\" from a fully hashed local seeder",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-833",
+    "title": "Upcoming offers \"Grab as soon as it appears\" on films that are already released and searching",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-832",
+    "title": "Downloads shows \"No downloads yet / Open search\" empty state below active wanted rows",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-799",
+    "title": "Phase 6 contract gate: legacy web API adapters are absent",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-824",
+    "title": "Phase 7.2 switchover rehearsal",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-773",
+    "title": "4.5 Downloads API: downloads, wanted, actions, cap and recovery settings on the web contract",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-794",
+    "title": "Converter source-path fallback bypassed the read-only payload fence",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-772",
+    "title": "7.1 Converter: old 3930 database and side files to the new Store (idempotent, backup first, staging hash-check, orphans back to wanted)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-781",
+    "title": "6.3 AutoRules, follow series and the scheduled hunter on the background budget",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-763",
+    "title": "4.2b Targets: state-owner boundary (OPS-754), live proof of OPS-755/761, Try now, Download now, rank and priority scheduling",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-760",
+    "title": "Immutable fetch history foreign key prevents engine row removal",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-748",
+    "title": "Core pagination consumes the Find request cap before useful fallback sources can search",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-744",
+    "title": "Library proof reads cache name instead of title and fabricates fallback examples",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-745",
+    "title": "Plan benchmark reports rejected wrong-work candidates as surviving lookalikes",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-735",
+    "title": "Library Windows path splitting chooses char/count overload",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-730",
+    "title": "A background source retry invalidates unrelated completed Find scope caches",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-726",
+    "title": "Feedback-driven Find repeats restart source work and speculative probes despite a cached ready plan",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-725",
+    "title": "Verify OPS-719 block-level Engine probe isolation and metrics",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-721",
+    "title": "Find dev scope snapshot can outlive its source rows and miss retry-success invalidation",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-720",
+    "title": "Find background retry holds a shared background scope slot while sleeping until Retry-After",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-718",
+    "title": "Find caches one scope's RequestBudget refusal for 30 minutes as the shared source answer",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-717",
+    "title": "Find plan cap makes the anime absolute query and the original/romaji/synonym ladder unreachable under default sources",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-713",
+    "title": "Find exhausts hundreds of source queries and retries partial answers on repeats",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-716",
+    "title": "OPS-698 Find correction: read-only implementation critic review",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-707",
+    "title": "DHT plateaus at 50-70 nodes; engine cannot reach the 100+ node bar without active bucket-fill lookups",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-706",
+    "title": "Explicit DhtEngine.StartAsync(nodes) before first torrent start drops bootstrap responses: 15 s delay (MonoTorrent 3.0.2)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-704",
+    "title": "DHT cache unusable in MonoTorrent 3.0.2: saved as bencoded list, loaded as raw compact; empty table overwrites good cache with 2-byte \"le\"",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-705",
+    "title": "DHT never bootstraps: MonoTorrent 3.0.2 only uses dead router.bittorrent.com, engine passes no seeds",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-712",
+    "title": "Independent review of OPS-695 DHT, crash recovery and piece-probe isolation",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-714",
+    "title": "Crash recovery can load a stale fastresume for a download that was not rechecked in the unclean session",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-696",
+    "title": "MonoTorrent SaveState races automatic fast-resume write during add",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-710",
+    "title": "Unclean MonoTorrent restart trusts stale fast-resume flags and redownloads held pieces",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-711",
+    "title": "Serialize site promotion propagation with completed-flight cleanup",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-709",
+    "title": "Find observation writes must upsert the Store hash/source/query identity",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-708",
+    "title": "Find must commit release and observation facts before publishing candidates",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-703",
+    "title": "Find must wait for gated fallback feedback rather than advance on partial coverage",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-702",
+    "title": "Find dedupe must retain observations even when another listing name fails scope gates",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-701",
+    "title": "Find persistent cache lookup requested an unsupported Store ordering",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-699",
+    "title": "Rebuild development startup persists an environment-only TMDB credential",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-700",
+    "title": "Investigate OPS-695 DHT bootstrap: 0 nodes / 2-byte cache in MonoTorrent 3.0.2 engine",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-697",
+    "title": "Engine probe admission must assert capability hash matches durable admission",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-692",
+    "title": "Catalog home feed queries drift from legacy all-time and discovery rails",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-678",
+    "title": "Metadata unified search ranks the obscure 1996 Frieren film above the anime",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-694",
+    "title": "Unsupported source charset escapes typed failure handling",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-693",
+    "title": "Source relative dates fabricate today's publication timestamp",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-691",
+    "title": "Dev Sources response exposed credentials embedded in provider download URIs",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-690",
+    "title": "RSS source adapters rejected valid feeds with trailing CDN analytics",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-677",
+    "title": "Linked metadata cache can ignore explicit provider identity and keep incompatible season numbering",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-689",
+    "title": "Catalog recommendation and browse projections include posterless rows",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-688",
+    "title": "Catalog premiere date uses episode airings instead of provider premiere",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-687",
+    "title": "Catalog title projections expose empty future seasons",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-685",
+    "title": "Sources settings reads shared scoped EF context across concurrent same-port fanout",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-684",
+    "title": "Core sources ignored cursor and nested total, marking truncated windows complete",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-682",
+    "title": "Sources composition requested unkeyed Store capability and prevented Development startup",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-681",
+    "title": "7.1 Converter verification: preserve legacy workKey and linked identity resolution",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-683",
+    "title": "Catalog browse cards omit year subtitles in unchanged web app",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-679",
+    "title": "Audio codec tokens incorrectly classify video releases as music",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-675",
+    "title": "Corpus notes contain 1480 PowerShell List type names instead of annotations",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-673",
+    "title": "Parser group extraction treats an episode-range endpoint as a scene group",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-669",
+    "title": "Golden parser corpus includes audio channels as episodes and resolution as range endpoints",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-670",
+    "title": "Warm title resolution waits eight seconds on an unrelated catalog outage",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-668",
+    "title": "Announced anime sequel with unknown episode count reported complete",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-665",
+    "title": "IMDb primary identity loses series kind and Cinemeta returns unrelated movie",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-664",
+    "title": "Metadata snapshot requested unsupported Episode workId filter",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-666",
+    "title": "Direct LAN and Docker owner listeners incorrectly reject non-loopback clients",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-657",
+    "title": "Storage inventory can report complete while inaccessible subdirectories are silently skipped",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-656",
+    "title": "Layout finalizer can overwrite and delete unrelated unclaimed same-sized media",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-655",
+    "title": "Loose-file recovery marks extension-only media verified without content validation",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-651",
+    "title": "Delete-with-files leaves empty staging marker under sandbox library",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-641",
+    "title": "Opening some series stores them as a Movie with no provider, so Download season fails (Rome, The Pacific, DAN DA DAN S2)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-637",
+    "title": "Season packs first for finished seasons (pool packs with episodes, healthiest wins)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-640",
+    "title": "An AniList special's plain episode search takes another entry's release (Final Chapters Special 1 grabs The Final Season - 01)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-639",
+    "title": "Episode ladder reads \"S01E01 08\" (a whole-season range with the dash stripped) as episode 1",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-638",
+    "title": "Unmarked anime sequels chain or split by which listing answered first (Demon Slayer arcs split keyless; Bleach TYBW own show on TVmaze, S02 on TMDB)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-443",
+    "title": "[major] Search shows one card for same-name series from different years (One Piece 2023, The Office UK, Cowboy Bebop 2021 missing)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-623",
+    "title": "Merge risk: the airing reconcile in fix/requests-state would re-queue episodes the owner removed from an open request",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-631",
+    "title": "Re-sending a finished release whose row went to error or missingFiles says \"already complete\" and never recovers it",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-630",
+    "title": "Follow-ups from the film-or-series and anime owner review (lookup slots, rail refresh, refused walks, slow linking)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-629",
+    "title": "Works stored without a catalog provider get no anime verdict, so anime films can file under Movies",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-628",
+    "title": "Follow-ups from the staged downloads and language hints reviews",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-610",
+    "title": "Remove, a picked release and a late search could delete finished downloads and hand picks with their files (review of 7bfbd94..353d557)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-627",
+    "title": "Download on an AniList title page fails with \"Provider identity does not match this title.\" while AniList is rate-limiting",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-626",
+    "title": "Search lists one show twice when the TMDB record can't be paired with the TVmaze one (The Traitors, Hell's Kitchen Italy)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-611",
+    "title": "An unlinked \"Doctor Who\" watchlist row counts as In Library on every era's title page",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-602",
+    "title": "P1 Staged downloads and promotion into the library",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-608",
+    "title": "AnimeTosho stopped processing new items in May 2026 and says its feed will shut down",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-604",
+    "title": "H2 Language hints before download: AnimeTosho track lists and apibay file lists",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-625",
+    "title": "A video's own English sidecar ranks below an embedded foreign track: Spanish inside plus Show - 01.en.ass reads \"maybe English too\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-624",
+    "title": "A sidecar tagged \"[1080p] [eng].ass\" is not read as English: a batch whose English is in such files fails the header check",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-622",
+    "title": "A request keeps a dead release's hash after the wanted queue replaces it, so it never reaches fulfilled",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-621",
+    "title": "Track roles follow-ups: sidecar closure speed, untagged sidecars, foreign externals sinking packs, layout pairing",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-599",
+    "title": "A grab during an AniList rate limit can place a sequel episode by a provisional franchise view",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-571",
+    "title": "Anime sequel and second-cour entries file into their own show folder as Season 01 (Frieren Season 2, Spy x Family Cour 2)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-598",
+    "title": "Stale pre-fix targets (Frieren S1E29-38) and sequel-work cursors keep the old anime numbering",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-620",
+    "title": "Check for new episodes moves the next-up hint back to an older episode when the best hit is older than the last one",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-619",
+    "title": "Downloads still groups a sequel entry's episodes apart from its show after they are filed under it",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-618",
+    "title": "Find another source: the current release says \"Language not stated\" while the picker shows its index hint",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-617",
+    "title": "A deleted download leaves its target \"downloaded\", so a new request for it can wait forever",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-616",
+    "title": "The hunter downloads a film again although a finished copy is already on disk (Your Name: a second release started)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-580",
+    "title": "WALL·E (a Pixar film) is filed under \"Anime Movies\" instead of Movies",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-606",
+    "title": "Title pages come back empty for minutes after a restart while AniList rate-limits",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-615",
+    "title": "A request's \"already in your library\" check matches watchlist rows by type and id only, so TMDB movie 199 can count AniList film 199 as in the library",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-614",
+    "title": "Adding an AniList film to the watchlist fails with a 500 when another catalog's work already uses its key (Spirited Away, AniList 199)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-613",
+    "title": "[minor] \"Request started\" notifications are uneven: sent twice for a second hand pick, missing for the lead requester after Retry",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-612",
+    "title": "A saved .torrent zeroed by a power loss makes Resume fail instead of falling back to the magnet",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-603",
+    "title": "E1 Subtitle track roles (full vs signs/forced) and per-video sidecar closure",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-609",
+    "title": "Season pack fallback never probes a pack whose name alone fails the English check, so a VOSTFR-named pack with English sidecars is never found",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-607",
+    "title": "Header probe times out on a healthy swarm: its own client gets 32 KB in 45 s while the main transfer downloads the whole file",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-605",
+    "title": "Hunter and watchlist film grabs save to a folder without the year",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-558",
+    "title": "T4 Film or series from source format (one IsSeries); merge linked catalog entries",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-601",
+    "title": "Approving a request whose title differs from the existing work (same catalog id) fails with a Work unique constraint error",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-595",
+    "title": "Install toast shows the raw browser ServiceWorker error text; Cancel request buttons don't name the title",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-594",
+    "title": "Requester Browse shows owner-only details: file quality (\"Movie · 1080p\", \"Series · 7 episodes\"), \"Downloaded in full\" and \"Not checked\" badges",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-593",
+    "title": "One approved season request grabbed episodes 17, 18 and 19 twice (two releases each) into the same folder",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-592",
+    "title": "Requester Library page misses downloaded films (Shawshank) and lists titles that aren't on disk (I Want to Eat Your Pancreas, earlier Your Name.)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-591",
+    "title": "Second requester's request for the same title stays pending after the owner approves the first one; inbox shows two separate cards",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-590",
+    "title": "Requester title page says \"Available\" as soon as a request is approved, before anything has downloaded (whole show marked for a one-season request)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-600",
+    "title": "Research and design: reliable English audio or subtitles verification (no races, no wasted downloads, no skipped good releases)",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-572",
+    "title": "Frieren Season 1 lists Season 2's ten episodes as S01E29-E38 (38 episodes, 1 season)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-597",
+    "title": "Anime episode files keep release names instead of the show's SxxEyy",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-588",
+    "title": "Download click left a spinner and queued nothing (Crouching Tiger, Hidden Dragon); a later API call worked",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-574",
+    "title": "Anime films: romaji search finds nothing, English search shows only a plain Movie card, Spirited Away gets year 2003",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-569",
+    "title": "Searching the English title \"Money Heist\" doesn't find La Casa de Papel",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-581",
+    "title": "Se7en (1995) shows \"In cinemas\" with no Download button; it is also titled \"Seven\" and ranks below \"Se7en (2022)\"",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-409",
+    "title": "[major] 'Library' means two things: Browse says Stuart Little is 'From your library' but the Library page shows 0 titles",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-586",
+    "title": "Downloads rows: remakes are indistinguishable (no year) and some rows show the release name instead of the catalog title",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-585",
+    "title": "Refused \"program file\" releases stay in Downloads as Error rows offering Retry after the film is already Ready (Free Solo)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-575",
+    "title": "Downloads says \"needs attention\" for dead releases the app already replaced",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-589",
+    "title": "A film stuck \"Looking for a release\" can't be cancelled from the title page or Downloads",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-582",
+    "title": "\"[Uzbek Dubbed]\" release labelled \"English dub\" and auto-picked for Society of the Snow (1 seeder, 7 GB)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-596",
+    "title": "Puss in Boots: The Last Wish never auto-grabs; its releases count as \"other titles\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-565",
+    "title": "Swap dialog judges the current release without its site category",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-564",
+    "title": "Audio language setting promises checks that do not run yet",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-563",
+    "title": "Find another source recommends an English dub over preferred releases",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-555",
+    "title": "T6 English audio or English subtitles rule; header probe wired; no English = wait with Pick a release",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-566",
+    "title": "QA sweep: films (non-anime)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-587",
+    "title": "Tracker ad files (.txt, YIFY .jpg, \"Other\" folder) left in completed film folders",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-584",
+    "title": "Release lists mark HD-TS (cam) releases as fitting with no warning",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-583",
+    "title": "Release names with both \"UHD\" and \"1080p\" are read as 4K (2001 auto pick shown as 4K; \"UHD-BDRip 1080p\" offered as \"Higher quality\")",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-567",
+    "title": "QA sweep: series (non-anime)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-557",
+    "title": "T3 Link AniList and TMDB ids (Fribb anime-lists + TMDB fallback)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-568",
+    "title": "QA sweep: anime series and anime films",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-579",
+    "title": "Series specials (season 0) are not shown: Sherlock's The Abominable Bride, Doctor Who Christmas specials",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-578",
+    "title": "Completed episodes leave .nfo, site .txt and Screens\\ PNGs in the Season folder",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-577",
+    "title": "\"Because you're watching Lanterns\" recommends unrelated reality and kids shows",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-576",
+    "title": "Upcoming is empty for an airing show in Library; next episode not shown",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-573",
+    "title": "Episode grab picks a .iso release (Spy x Family Cour 2 E13)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-570",
+    "title": "Doctor Who (2005) episode search treats Doctor Who (2023) releases as matches",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-556",
+    "title": "T2 WorkNames: labelled names array (english, romaji, synonym, native, original) and ids on Work",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-554",
+    "title": "T1 Rebase fix/audio-lang (+block, probe, web) onto main",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-542",
+    "title": "Anime episodes split across show folders by release name",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-541",
+    "title": "Layout shift across the UI",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-540",
+    "title": "Anime films land in Movies",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-562",
+    "title": "T13 Quality sweep: show available qualities per film and episode; per-item quality fallback",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-561",
+    "title": "T8 Row and health panel copy: weak release, stalled, slow release, waiting for an English release",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-560",
+    "title": "T7 Stall watch: background watcher, crawl rule, automatic re-pick and swap",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-559",
+    "title": "T5 ReleaseFinder + ReleaseChoice for grab, swap and hunter (film ladder, pooled, seeder bands)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-545",
+    "title": "DRY sweep: shared page shells (ConfirmDialog, PageQueryBoundary, polling, download toast)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-533",
+    "title": "Release language detector with confidence levels; nyaa category carried through to the engine",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-532",
+    "title": "Language fallback ladder: language never leaves an episode with nothing; plain apostrophes in rung queries",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-553",
+    "title": "Wanted episode error says \"We couldn't find\" when releases were found but every send failed",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-552",
+    "title": "Original language is unknown for titles not keyed by TMDB, so original-language releases rank as a clash",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-551",
+    "title": "Release language misses a lowercase language word in the title part and \"Rus (rus, eng. sub.)\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-550",
+    "title": "Build warning CS9113: ReleaseSwapService no longer reads its AutomationOptions parameter",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-549",
+    "title": "Find another source searches films and season packs with the curly apostrophe",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-546",
+    "title": "DRY sweep: one media card, release-gate chip, availability chip, artwork hook, quality chip",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-544",
+    "title": "DRY: one Core owner for release-name rules (episode parse, packs, year, clean title, work identity)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-548",
+    "title": "DRY sweep (art): one artwork owner, one poster resolver, one transfer-state map, one seeder threshold, one settings defaults source",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-543",
+    "title": "DRY: shared download transfer row, progress, menu, season switcher, nav pending badge",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-547",
+    "title": "Unify web formatting helpers",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-539",
+    "title": "Download takes minutes to appear",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-536",
+    "title": "ReleaseBlock: server-side release blocklist with a ReleaseAttempt migration inventory",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-535",
+    "title": "Find another source in the UI: rename, finished items, languages and blocked rows in the dialog, audio language setting",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-525",
+    "title": "Home categories: web type switch, genre browsing and rails",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-534",
+    "title": "Header probe prototype: read track languages from the first pieces of the main video (bounded, passes unchecked on doubt)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-538",
+    "title": "MonoTorrent keeps per-piece disk state across a remove and re-add of the same hash; a re-added transfer can pass a hash check with wrong bytes on disk",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-537",
+    "title": "Deferred swap for finished downloads: persisted state machine (Pending, ReadyToCommit, Committed, Failed, Cancelled)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-524",
+    "title": "Home categories: server rail config, caching and keyless fallback",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-523",
+    "title": "Home categories: debug why home looks random, write the plan and critic it",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-531",
+    "title": "Notifications replace \"That torrent link was not found\" with \"No working release was found.\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-530",
+    "title": "A download parked just before its media check is never checked, laid out or announced after a restart",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-529",
+    "title": "Pick a release yourself ignores the anime episode mapping and drops the ranking's reasons",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-528",
+    "title": "Automatic rules send films and other non-episode releases straight to the engine, skipping the grab checks",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-527",
+    "title": "A release that failed can be picked again: nothing remembers it once its Downloads row is gone",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-526",
+    "title": "Plan \"Find another source\" (finished swaps, release blocklist, languages in the dialog)",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-522",
+    "title": "BUG-U: Anime episodes download with the wrong audio language (Frieren in Chinese, Mushoku Tensei in French)",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-518",
+    "title": "[minor] Title page: a downloaded episode card has no Open, only a disabled check",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-517",
+    "title": "[trivial] Series dialog header cuts off the size on phones (\"1 season · 695 …\")",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-516",
+    "title": "[minor] Downloads counts: status line skips queued rows, series row counts queued as downloading",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-521",
+    "title": "Title page season line and hero count queued episodes as \"downloading\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-520",
+    "title": "Looking state on the title page never says why it is still looking",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-519",
+    "title": "[trivial] Removed streaming POST routes return 405, docs say 404",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-515",
+    "title": "[minor] Requester can't request a show opened from the home Downloaded rail: \"Couldn't match this title to a catalog entry\"",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-514",
+    "title": "[minor] Em dash in UI copy: add toast says \"Queued — #2 in line\"",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-513",
+    "title": "[major] Film Download spins for up to 8 minutes with no feedback while dead releases time out one by one",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-506",
+    "title": "Requesters see \"Download it or add it to your library\" on titles not in the library",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-511",
+    "title": "One Piece from a Downloads row: extras list a 23rd season of 1180 episodes, so the hero reads \"2 of 2335 downloaded\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-510",
+    "title": "Long anime: Download season only asks for the first 200 episodes, and episodes past 200 can't be reached",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-509",
+    "title": "Absolute-numbered anime downloads (\"One Piece - 1120\") are left out of the episode tally and shown as an extra season",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-508",
+    "title": "A finished download whose file is a symlink never parks and keeps its queue slot",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-485",
+    "title": "J-S10 Delete unit tests broken by the streaming removal",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-481",
+    "title": "J-S5 Remove watched/progress and Continue Watching",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-483",
+    "title": "J2-S7 Remove ffmpeg installer, locator, desktop endpoints and Docker ffmpeg",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-484",
+    "title": "J2-S8 Built-in media validator and pre-download file-list rejection",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-477",
+    "title": "J-S9 Open in own player / Show in folder: POST /api/downloads/{id}/open, plus addedAt and filesMissing on engine rows",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-496",
+    "title": "M1 Search result synopsis clamps to two lines on sm+ (hidden sm:line-clamp-2)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-494",
+    "title": "W9 BUG-R tri-state select-all per season in the series dialog",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-482",
+    "title": "J-S6 Migration RemoveStreaming with DB backup before migrating",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-495",
+    "title": "W10 BUG-T MaxActiveDownloadsControl stepper shared by Settings and the Downloads status line",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-493",
+    "title": "W8 BUG-O Downloads sort select (Recent, Name, Quality, Size, Progress) remembered",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-507",
+    "title": "Queued download added from a .torrent URL lists its hash as the name until it starts",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-471",
+    "title": "T1 Settings API reports the cap in force and its source",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-470",
+    "title": "K1 Fast delete/pause: shared engine detach, persisted delete tombstones, restart-safe cleanup",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-469",
+    "title": "D1 Only Download now skips the cap; Resume re-queues; cap changes apply at once",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-492",
+    "title": "W7 BUG-P collapsible Add torrent panel and BUG-Q one quiet status line on Downloads",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-476",
+    "title": "N1 AniList anime episodes filled from the A1 resolver's matched show (TVmaze keyless, TMDB with key)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-474",
+    "title": "B1 One counts-only season summary notification per persisted season run",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-473",
+    "title": "A2 Search names for all anime: load AniList mapping for any anime work (Season 2 - 01, 2nd Season - 01, absolute - 29)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-475",
+    "title": "C1 One transfer-state projection with role-aware redaction on title episodes (Queued #3 vs Looking)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-472",
+    "title": "A1 Season list from the server: one season-shape resolver (AniList sequel chain matched to TMDB/TVmaze by id)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-491",
+    "title": "W6 BUG-L finished Downloads rows show Ready only; bar only while downloading; Files missing badge",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-490",
+    "title": "W5 BUG-I one season line and BUG-F show-level progress in the title hero",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-488",
+    "title": "W3 Web: Downloads without Play/Copy stream URL; add Open and Show in folder",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-503",
+    "title": "S2 Title GET fills provider id from Work or catalog row when the URL lacks one and returns it; Request uses it; unknown shows plain text",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-502",
+    "title": "S1 Catalog rows store provider + providerId at chart write; rail items emit workKey/provider/providerId; titleHrefForItem passes them to titlePath",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-501",
+    "title": "G1 Browse rails share one seen set (provider id, else title+year+type, work key as second guard); personal > because > trending > popular",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-487",
+    "title": "W2 Web: title page and browse without Play; BUG-H remove Episodes jump button",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-489",
+    "title": "W4 Web: Settings without streaming retention, stream troubleshooting and ffmpeg card",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-486",
+    "title": "W1 Web: delete the player and all streaming UI (hls.js, canStream, streaming feature)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-500",
+    "title": "Sources: probe other keyless public indexers (TorrentProject, ext.to, Solidtorrents successors); add only reliable ones; live matrix in docs",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-499",
+    "title": "Sources: live-test TheRARBG, TorrentGalaxy, 1337x, LimeTorrents keyless; add only if reliable",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-505",
+    "title": "Rules: source filter only accepts 7 legacy source ids",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-504",
+    "title": "Search: free-text episode searches rank other episodes on top when a source matches loosely (torrentdownloads)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-498",
+    "title": "Sources: SubsPlease adapter (keyless JSON API, anime)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-497",
+    "title": "Sources: yts.lt is the primary YTS host; saved sources.json with retired yts.mx gets the live host first",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-480",
+    "title": "J-S4 Remove stream retention from send, grabs and settings",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-479",
+    "title": "J-S3 Remove engine stream hooks",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-478",
+    "title": "J-S2 Remove the TorrentFlow.Media project and its wiring",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-468",
+    "title": "BUG-S Request disabled from browse rails (no providerId)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-467",
+    "title": "BUG-M Search synopsis line-clamp broken",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-466",
+    "title": "BUG-N Anime episode cards blank via AniList",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-465",
+    "title": "BUG-G Home rails duplicate titles",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-464",
+    "title": "BUG-E Episode pill colors re-verify",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-463",
+    "title": "BUG-F Show-level download progress indicator",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-447",
+    "title": "[major] 'New episodes only' series are hunted from S01E01 once automatic checks run",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-462",
+    "title": "[minor] /rules content column ignores its max-w-3xl and spans the full 1152px container on desktop",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-424",
+    "title": "[minor] Download log shows the stale send-time message 'Download started (0% · 0 peers)' for a finished download",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-423",
+    "title": "[major] Download log (/history) is orphaned: no link from Notifications or any nav, only the 'd' shortcut",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-454",
+    "title": "[minor] Notification actions are named 'Open Download completed' / 'Mark Download completed read' for every entry",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-422",
+    "title": "[minor] Download-completed notifications show the raw torrent name and link only to the generic /downloads list",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-403",
+    "title": "[minor] Delete feedback copy: 'Removed 1 torrent(s) and files' / 'Removed 1 downloads'",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-451",
+    "title": "[minor] Download recovery and retention sweep copy isn't pluralised ('restored 1 torrents', 'item(s)')",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-401",
+    "title": "[minor] Finished download menu offers both Pause and Resume",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-436",
+    "title": "[minor] Closing the search palette on /search leaves a blank page",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-450",
+    "title": "[minor] Closing the search palette opened from the header Search scrolls the page back up",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-449",
+    "title": "[minor] Browser Back while the search palette is open changes the URL but leaves the palette open",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-400",
+    "title": "[major] Pause/Resume on a download fails silently while the screen-reader status says 'Download paused.'",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-448",
+    "title": "[minor] Library 'Turn on automatic checks' opens Settings at the top with the setting hidden in collapsed Advanced",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-433",
+    "title": "[minor] Settings > Sources: 12 fully expanded source forms, and 'Changes apply immediately' beside per-source 'Save source' buttons",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-432",
+    "title": "[minor] Keyless TMDB: source Test says 'Check its URL' when the real problem is the missing API key",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-431",
+    "title": "[minor] Settings > Advanced says 'Rules belong in Library' and links to Library, but rules live only at the unlisted /rules page",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-410",
+    "title": "[minor] Library empty state: 'Search shows' goes to Browse, and Run automation is live with 0 titles",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-418",
+    "title": "[minor] Library card says 'No next episode set — Choose where this show should start' right after choosing 'New episodes only'",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-429",
+    "title": "[minor] Request dialog is a centred modal on phones, while Add to library uses a bottom sheet",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-419",
+    "title": "[minor] Focus lost to <body> after the Add to library dialog closes",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-393",
+    "title": "[minor] Mobile More sheet does not return focus to the More button on close",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-435",
+    "title": "[minor] Document title: most pages are just 'TorrentFlow', and About's title leaks onto /search",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-437",
+    "title": "[minor] 404 page text is black on dark theme (invisible), no way back",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-402",
+    "title": "[minor] Download details label a BluRay release as WEB-DL",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-446",
+    "title": "[minor] Choosing an item from a download row's More actions menu also selects the row",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-445",
+    "title": "[minor] Buttons that disable themselves while busy drop keyboard focus to <body>",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-404",
+    "title": "[minor] Focus drops to <body> after deleting a download",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-444",
+    "title": "[minor] Player error text says a title is 'still in your library' (Library means the watchlist)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-394",
+    "title": "[major] Search 'Best match' picks obscure titles over the obvious one (Frieren, Dune Part Two, typo 'the baer')",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-398",
+    "title": "[minor] 'From your library' vs 'Add to library' mean different things",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-392",
+    "title": "[minor] Browse hero says Download for a movie that is already fully downloaded",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-396",
+    "title": "[minor] Anime title rating source flips from TMDB to AniList while loading",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-397",
+    "title": "[minor] Anime title URLs carry every alias (~1.4 KB URL)",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-399",
+    "title": "[blocker] Opening Dune (2021), the top search result, fails: 'Provider identity does not match this title'",
+    "status": "needs_verification"
+  },
+  {
+    "id": "OPS-442",
+    "title": "[minor] AniList anime episode cards show only 'Episode N' with no episode titles or air dates",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-441",
+    "title": "Flow: Toasts & feedback",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-440",
+    "title": "Flow: Misc routes (About, Share, 404, /client, /everything, /activity)",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-438",
+    "title": "Flow: Keyboard navigation & focus",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-425",
+    "title": "Flow: Notifications (inbox, mark read, view details, download log)",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-421",
+    "title": "Flow: Player: playback, subtitles, audio selection, resume position",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-408",
+    "title": "Flow: Downloads (queue, add, pause/resume/force, details, delete)",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-407",
+    "title": "Flow: Search (movies / TV / anime, empty state)",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-406",
+    "title": "Flow: Title pages (movie / TV / anime, season picker, per-season indicator)",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-117",
+    "title": "Keyless movies/TV have empty More like this",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-61",
+    "title": "Season process reaches2.2GB",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-12",
+    "title": "Wire encryption patch never applies on clean pnpm installs",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-42",
+    "title": "Notifications blank load",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-121",
+    "title": "99+ notifications from per-episode failures",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-120",
+    "title": "Add to library inline panel pushes layout, duplicate buttons, native select, raw lang code",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-119",
+    "title": "Episode cards unclamped synopsis, jagged heights, native scrollbar, dup E2/S01E02",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-118",
+    "title": "Header overflows ~1240px, Requests clipped, scrollbar, double 99+",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-71",
+    "title": "Series page 390: first episode row under bottom nav until scroll",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-54",
+    "title": "First episode row can sit under bottom nav at fold",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-49",
+    "title": "Rules helper/chips truncate",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-48",
+    "title": "About text/keyboard table crush",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-47",
+    "title": "Settings banner/path overflow",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-46",
+    "title": "Download season under bottom nav",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-45",
+    "title": "Add-to-library popover broken on phone",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-44",
+    "title": "Movie hero CTAs clipped",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-43",
+    "title": "Episode titles truncated",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-41",
+    "title": "Header title lags route",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-40",
+    "title": "Bottom nav labels truncated",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-69",
+    "title": "Swap dialog not visually verified (no downloads in test env)",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-351",
+    "title": "Visually QA swap dialog",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-313",
+    "title": "Planning auto-swap of unhealthy torrents",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-85",
+    "title": "Send URL fails 502 on webtorrent.io .torrent (partial: headers/UA fixed; remote TLS may still fail) — remote refuses TLS/403; plain error shipped 0ef5862",
+    "status": "wontfix"
+  },
+  {
+    "id": "OPS-339",
+    "title": "Fixing everything overnight",
+    "status": "in_progress"
+  },
+  {
+    "id": "OPS-91",
+    "title": "Frieren request scope UX unclear",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-70",
+    "title": "Read-only Library not verified with items",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-343",
+    "title": "Checking role and viewport behavior",
+    "status": "blocked"
+  },
+  {
+    "id": "OPS-115",
+    "title": "Season/request grabs must reuse the exact title-page per-episode download path (owner: \"just click all the download buttons at once\")",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-112",
+    "title": "Anime grabs pick DUBBED releases by default",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-111",
+    "title": "Grabs pick 0-2 seeder releases that time out on metadata; no auto-retry of next candidate",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-110",
+    "title": "MHA anime grabs/swap never use Nyaa; picks dead western eztv/apibay releases",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-109",
+    "title": "Partial season grab shows flat \"Couldn't get it\" instead of partly done + retry",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-108",
+    "title": "MHA Seasons 1,6 request: nothing found at all",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-107",
+    "title": "MHA S5-6 request: 39/50 started, S06E25 1080p not found, \"Search could not finish\"",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-106",
+    "title": "Owner: anime episode-specific grabs are a constant failure. Verify on the new build with real titles; needs failing examples",
+    "status": "todo"
+  },
+  {
+    "id": "OPS-2",
+    "title": "Corporate registry lock entry blocks clean install",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-3",
+    "title": "Fresh clone environment and schema setup fail",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-4",
+    "title": "Native torrent client module unavailable",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-5",
+    "title": "Movie title rejects valid quality release",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-6",
+    "title": "Season discovery reports incomplete scope",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-7",
+    "title": "Verbose diagnostics unused in acquisition",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-8",
+    "title": "Download POST rejects provider identities from title search",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-9",
+    "title": "Anime title search returns 500 for some valid queries",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-10",
+    "title": "Next build scans large local session media cache",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-13",
+    "title": "Live rate-limit buckets can grow indefinitely",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-14",
+    "title": "Provider HTTP request and payload lifetime gaps",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-15",
+    "title": "Background faults outlive request waiters",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-16",
+    "title": "Settings validation and nullable parity",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-17",
+    "title": "Untracked delete crashes Settings",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-18",
+    "title": "Inventory stub hides untracked files",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-19",
+    "title": "Drive root picker cannot go up",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-20",
+    "title": "Queued download has no force control",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-21",
+    "title": "Advanced availability panel missing API",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-23",
+    "title": "Send validation errors lack field",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-25",
+    "title": "Downloads vanish across launch locations",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-27",
+    "title": "Source controls shrink below 44px at desktop breakpoint",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-28",
+    "title": "Torznab Test accepts HTML as a healthy indexer",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-30",
+    "title": "Cinemeta title incorrectly credits TMDB rating",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-33",
+    "title": "Saving remote access shows an inline message instead of a toast",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-34",
+    "title": "install.ps1:294 says libraries unchanged after partial adopt failure",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-35",
+    "title": "DataAdoption publish failure leaves partial target, no rollback",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-36",
+    "title": "docs/windows-install.md omits -Version",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-38",
+    "title": "AniList anime titles show no episodes",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-39",
+    "title": "Changing download limits does not update queue immediately",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-50",
+    "title": "SettingsParityTests.BuiltinListDoesNotAdvertiseAnExternalHost flaky",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-55",
+    "title": "Episode card download button turned solid primary with poor glyph contrast (156877b)",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-56",
+    "title": "Torrent search enrichment delays responses",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-62",
+    "title": "Magnet with no metadata becomes bare Error row named by raw hash after timeout, counted as Paused",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-319",
+    "title": "Fixing torznab Test validation",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-320",
+    "title": "Fixing prewarm/preprobe JSON",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-322",
+    "title": "Adding field to TorrentSend 400s",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-323",
+    "title": "Fixing SettingsParityTests flake",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-316",
+    "title": "Fixing search latency",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-287",
+    "title": "Validating web changes",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-292",
+    "title": "Inspecting worktree state",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-293",
+    "title": "Finishing timeline feature",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-294",
+    "title": "Rebasing and pushing main",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-286",
+    "title": "Fixing Cinemeta badge",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-284",
+    "title": "Creating worktree",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-283",
+    "title": "Cleaning up repo after implementation",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-265",
+    "title": "Making checks air-date aware",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-266",
+    "title": "Waiting for healthier swarms",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-282",
+    "title": "Importing torrents from other clients",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-279",
+    "title": "Fixing nested season folders",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-280",
+    "title": "Fixing downloads lost after restart",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-281",
+    "title": "Switching main to .NET app",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-278",
+    "title": "Fixing inline action feedback",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-273",
+    "title": "Building Windows installer",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-274",
+    "title": "Adding autostart and tray icon",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-275",
+    "title": "Adding update check and ffmpeg provisioning",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-255",
+    "title": "Adding remote access settings and tunnel listener",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-256",
+    "title": "Validating Cloudflare Access JWT",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-259",
+    "title": "Making the app an installable PWA",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-263",
+    "title": "Adding download windows and optional speed limits",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-264",
+    "title": "Adding priority lanes to queue",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-267",
+    "title": "Building upcoming timeline with wait reasons",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-269",
+    "title": "Rewriting Dockerfile for .NET",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-270",
+    "title": "Writing compose with cloudflared",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-271",
+    "title": "Adding path mapping and GHCR CI",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-272",
+    "title": "Verifying each phase",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-251",
+    "title": "Verifying downloads end to end",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-252",
+    "title": "Building single-file exe",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-253",
+    "title": "Disabling external clients",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-254",
+    "title": "Creating dotnet branch",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-248",
+    "title": "Running parity harness on feat",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-249",
+    "title": "Playwright pass over SPA pages",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-250",
+    "title": "Merging port/soak",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-245",
+    "title": "Browse rails",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-246",
+    "title": "Prewarm",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-247",
+    "title": "Fixing subtitle window with real ffmpeg",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-243",
+    "title": "Settings e2e",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-244",
+    "title": "Queue UI Next+SPA",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-239",
+    "title": "Content layout",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-240",
+    "title": "Subtitles",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-241",
+    "title": "Parity harness",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-242",
+    "title": "Search e2e",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-237",
+    "title": "Linux verify",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-238",
+    "title": "External clients",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-232",
+    "title": "Web quality pass",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-233",
+    "title": "One-command setup",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-234",
+    "title": "Library port",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-235",
+    "title": "Reviewing library port",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-236",
+    "title": "Closing library parity gaps",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-231",
+    "title": "Server quality pass Search/Metadata/Data",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-230",
+    "title": "SPA assets served as html",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-226",
+    "title": "Wiring metadata enricher into search",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-227",
+    "title": "Revisiting InvariantGlobalization",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-228",
+    "title": "Fixing queue review findings",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-217",
+    "title": "Porting UI to Vite SPA",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-218",
+    "title": "Excluding web from root tsconfig/eslint",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-219",
+    "title": "Adding 308 redirects for /activity and /client in ASP.NET host",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-220",
+    "title": "Porting search module",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-221",
+    "title": "Porting metadata module",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-222",
+    "title": "Porting engine to MonoTorrent",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-223",
+    "title": "Porting library/automation/rules",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-224",
+    "title": "Porting streaming/playback/media",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-225",
+    "title": "Pushing queue + search fixes to main",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-216",
+    "title": "Benchmark package managers",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-211",
+    "title": "Repairing provider identity routing",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-212",
+    "title": "Repairing title discovery and ranking",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-213",
+    "title": "Hardening provider rate-limit behavior",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-214",
+    "title": "Excluding runtime media caches from build inputs",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-215",
+    "title": "Adding real-provider regression coverage",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-210",
+    "title": "Running aggressive provider download tests",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-209",
+    "title": "Cleaning non-main TorrentFlow worktrees",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-208",
+    "title": "Verifying final GitHub CI",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-207",
+    "title": "Patching dependency audit blockers",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-206",
+    "title": "Preparing personal GitHub delivery",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-200",
+    "title": "Fixing portable setup",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-201",
+    "title": "Fixing film acquisition",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-203",
+    "title": "Fixing diagnostics settings",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-204",
+    "title": "Adding installable PWA",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-205",
+    "title": "Testing fixes and PWA",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-186",
+    "title": "Adding payload equality gate in use-api-query",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-187",
+    "title": "Guarding player pointermove setState",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-188",
+    "title": "Memoizing downloads rows + handlers",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-189",
+    "title": "Memoizing browse rails/cards + content-visibility",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-190",
+    "title": "Adding optimizePackageImports + context memo",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-191",
+    "title": "Dynamic-importing player + lazy hls.js",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-192",
+    "title": "Fixing infoHashFromMagnet re-export",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-193",
+    "title": "Lazy-mounting SearchOverlay on first open",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-194",
+    "title": "Making progress poll read-only",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-195",
+    "title": "Adding select projections to title detail",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-196",
+    "title": "Adding composite DB indexes",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-197",
+    "title": "Caching/coalescing browse + status",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-198",
+    "title": "Isolating player playhead into leaf",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-199",
+    "title": "Verifying perf gains",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-161",
+    "title": "Building work-key derivation module",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-162",
+    "title": "Defining the title detail payload contract",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-163",
+    "title": "Writing pure primary/episode action resolution",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-164",
+    "title": "Building GET /api/title/[workKey]",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-165",
+    "title": "Adding POST get-it action",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-166",
+    "title": "Building /title/[workKey] page + components",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-167",
+    "title": "Routing discovery cards to the title page",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-168",
+    "title": "Adding unit tests for pure title modules",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-169",
+    "title": "Writing scripts/shoot-title.mjs",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-170",
+    "title": "Running gates and proving assertions non-vacuous",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-171",
+    "title": "Shipping real artwork",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-172",
+    "title": "Building the title detail page",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-173",
+    "title": "Filling the home page with real content",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-174",
+    "title": "Making Get it feel instant",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-175",
+    "title": "Finishing the player",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-176",
+    "title": "Integrating and verifying the whole product",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-177",
+    "title": "Reading the existing metadata seam",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-178",
+    "title": "Probing live TMDB detail endpoints",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-179",
+    "title": "Designing the WorkDetail contract",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-180",
+    "title": "Implementing detail resolution",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-181",
+    "title": "Implementing bounded TTL cache",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-182",
+    "title": "Auditing CatalogEntry.overview upsert",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-183",
+    "title": "Writing tests + sabotage proof",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-184",
+    "title": "Running all gates",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-185",
+    "title": "Collecting live evidence",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-159",
+    "title": "Adopting useApiQuery in remaining panels",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-139",
+    "title": "Thread tx handle through hooks",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-140",
+    "title": "Restore per-caller message specificity",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-141",
+    "title": "Un-export advanceLibraryItemIfHuntMatch",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-142",
+    "title": "Final tsc + test:unit",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-143",
+    "title": "Verifying playback ladder with real media",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-144",
+    "title": "Building Netflix browse UI",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-145",
+    "title": "Final integration review and verification",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-146",
+    "title": "Fixing probe.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-147",
+    "title": "Fixing capabilities/decide",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-148",
+    "title": "Rewriting session.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-149",
+    "title": "Streaming HLS route",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-150",
+    "title": "Fixing plan route",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-151",
+    "title": "Migrating stream index route",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-152",
+    "title": "Updating inline-player",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-153",
+    "title": "Building media-ladder-e2e",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-154",
+    "title": "Updating unit tests",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-155",
+    "title": "Final verification",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-157",
+    "title": "Adding useApiQuery hook and error states",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-158",
+    "title": "Migrating remaining mediaType call sites",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-160",
+    "title": "Capturing after screenshots",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-156",
+    "title": "Extracting mediaType rule class",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-138",
+    "title": "Migrating duplicate base32 infohash logic",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-137",
+    "title": "Fixing the 5 audit bugs",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-128",
+    "title": "Document behavioural differences",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-129",
+    "title": "Create grab/types.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-130",
+    "title": "Create grab/pipeline.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-131",
+    "title": "Migrate automation/runner.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-132",
+    "title": "Migrate rules/runner.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-133",
+    "title": "Migrate library/ondemand.ts",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-134",
+    "title": "Write pipeline tests",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-135",
+    "title": "Run tsc --noEmit",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-136",
+    "title": "Run test:unit",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-122",
+    "title": "Fix all unguarded session dereferences",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-123",
+    "title": "Fix scheduler arbitrary row",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-124",
+    "title": "Verify run-lock index",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-125",
+    "title": "Fix activity dedup + write tests",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-126",
+    "title": "Verify history index usage",
+    "status": "resolved"
+  },
+  {
+    "id": "OPS-127",
+    "title": "Run tsc and tests",
+    "status": "resolved"
+  }
+]

@@ -1,0 +1,81 @@
+{
+  "workKey": "tmdb:movie:45745",
+  "title": "Sintel",
+  "aliases": [
+    "Sintel - Hiillos",
+    "Durian Open Movie Project",
+    "辛特尔"
+  ],
+  "names": [
+    {
+      "text": "Sintel",
+      "kind": "english"
+    },
+    {
+      "text": "Sintel",
+      "kind": "original"
+    },
+    {
+      "text": "Sintel - Hiillos",
+      "kind": "synonym"
+    },
+    {
+      "text": "Durian Open Movie Project",
+      "kind": "synonym"
+    },
+    {
+      "text": "辛特尔",
+      "kind": "synonym"
+    }
+  ],
+  "ids": {
+    "tmdb": 45745,
+    "anilist": null,
+    "mal": null,
+    "imdb": "tt1727587"
+  },
+  "format": "movie",
+  "originalLanguage": "en",
+  "provider": "tmdb",
+  "providerId": "45745",
+  "year": 2010,
+  "mediaType": "movie",
+  "isSeries": false,
+  "overview": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+  "rating": 7.3,
+  "ratingSource": "tmdb",
+  "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+  "backdropUrl": "https://image.tmdb.org/t/p/w1280/msqeiEyIRpPAtrCeRGFNZQ9tkJL.jpg",
+  "releaseDate": "2010-09-30",
+  "availability": null,
+  "infoHash": null,
+  "owned": null,
+  "downloadFraction": null,
+  "transfer": null,
+  "seasons": [],
+  "season": null,
+  "episodes": [],
+  "episodesTruncated": false,
+  "library": {
+    "inLibrary": false,
+    "watchListItemId": null,
+    "monitored": false,
+    "status": null,
+    "cursorSeason": null,
+    "cursorEpisode": null,
+    "addPayload": {
+      "mediaType": "movie",
+      "externalId": "45745",
+      "title": "Sintel",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+      "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+      "rating": 7.3,
+      "workKey": "tmdb:movie:45745",
+      "provider": "tmdb",
+      "providerId": "45745",
+      "format": "Movie"
+    }
+  },
+  "known": true,
+  "generatedAt": "2026-10-04T00:21:42.2906614+03:00"
+}

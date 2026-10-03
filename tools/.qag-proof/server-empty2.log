@@ -1,0 +1,70 @@
+[00:25:57 WRN] The migration operation 'PRAGMA foreign_keys = 0;
+' from migration 'CheckByteSenders' cannot be executed in a transaction. If the app is terminated or an unrecoverable error occurs while this operation is being executed then the migration will be left in a partially applied state and would need to be reverted manually before it can be applied again. Create a separate migration that contains just this operation.
+[00:25:57 WRN] The migration operation 'PRAGMA foreign_keys = 0;
+' from migration 'ProbePayloadMetrics' cannot be executed in a transaction. If the app is terminated or an unrecoverable error occurs while this operation is being executed then the migration will be left in a partially applied state and would need to be reverted manually before it can be applied again. Create a separate migration that contains just this operation.
+[00:25:57 WRN] The migration operation 'PRAGMA foreign_keys = 0;
+' from migration 'TargetSchedulingPriority' cannot be executed in a transaction. If the app is terminated or an unrecoverable error occurs while this operation is being executed then the migration will be left in a partially applied state and would need to be reverted manually before it can be applied again. Create a separate migration that contains just this operation.
+[00:25:57 WRN] The migration operation 'PRAGMA foreign_keys = 0;
+' from migration 'TargetRecoverySettings' cannot be executed in a transaction. If the app is terminated or an unrecoverable error occurs while this operation is being executed then the migration will be left in a partially applied state and would need to be reverted manually before it can be applied again. Create a separate migration that contains just this operation.
+[00:25:57 WRN] The migration operation 'PRAGMA foreign_keys = 0;
+' from migration 'TargetPublicActions' cannot be executed in a transaction. If the app is terminated or an unrecoverable error occurs while this operation is being executed then the migration will be left in a partially applied state and would need to be reverted manually before it can be applied again. Create a separate migration that contains just this operation.
+[00:25:58 INF] TorrentFlow rebuild data directory: D:\code\memtest\qag-data\empty2
+[00:25:58 INF] Engine listen port 0 unassigned; using and persisting 8349.
+[00:25:58 INF] DHT started with 0 cached nodes and 5 router endpoints.
+[00:25:58 INF] Engine ready on 8349; global peers 400, payload peers 120, probe slots 10.
+[00:25:58 INF] Now listening on: http://127.0.0.1:3962
+[00:25:58 INF] Application started. Press Ctrl+C to shut down.
+[00:25:58 INF] Hosting environment: Development
+[00:25:58 INF] Content root path: D:\code
+[00:25:58 INF] Ready in 2525 ms; working set 142376960 bytes
+[00:25:59 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:00 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:00 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 629.4633ms
+[00:26:00 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:00 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:00 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 8.4146ms
+[00:26:00 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:00 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:00 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.326ms
+[00:26:00 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:00 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:00 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:00 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.2944ms
+[00:26:01 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:01 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:01 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.7714ms
+[00:26:01 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:01 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:01 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.7164ms
+[00:26:01 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:01 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:01 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 0.9648ms
+[00:26:01 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:01 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:01 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:01 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.389ms
+[00:26:02 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:02 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:02 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:02 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:02 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 1.0161ms
+[00:26:02 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null
+[00:26:02 INF] Executing endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:02 INF] Writing value of type '<>f__AnonymousType86`4' as Json.
+[00:26:02 INF] Executed endpoint 'HTTP: GET /api/dev/engine/torrents'
+[00:26:02 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - 200 null application/json; charset=utf-8 0.8728ms
+[00:26:02 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3962/api/dev/engine/torrents - null null

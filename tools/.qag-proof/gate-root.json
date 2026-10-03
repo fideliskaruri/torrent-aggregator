@@ -1,0 +1,35 @@
+{
+  "status": 200,
+  "body": {
+    "root": {
+      "path": "D:\\code\\memtest\\qag-library-final",
+      "physicalKey": "d:\\code\\memtest\\qag-library-final",
+      "kinds": [
+        "Movies",
+        "TV",
+        "Anime",
+        "AnimeMovies"
+      ],
+      "libraryFolders": {
+        "movies": "Movies",
+        "tv": "TV",
+        "anime": "Anime Series",
+        "animeMovies": "Anime Movies"
+      },
+      "volumeSerial": "06f43487",
+      "priority": 1,
+      "reserveBytes": 0,
+      "maxAllocatedBytes": null,
+      "enabled": true,
+      "online": true,
+      "reviewRequired": false,
+      "lastCheckedAt": "2026-10-03T21:33:23.5417126+00:00",
+      "lastError": null,
+      "createdAt": "2026-10-03T21:33:23.5417126+00:00",
+      "updatedAt": "2026-10-03T21:33:23.5417126+00:00",
+      "version": 1,
+      "id": "49566786b020421e92620bdc82321ab1"
+    },
+    "failure": null
+  }
+}

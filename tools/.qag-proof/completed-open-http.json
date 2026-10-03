@@ -1,0 +1,9 @@
+{
+  "status": 409,
+  "body": {
+    "ok": false,
+    "reason": "no-video",
+    "error": "This download has no video file to open.",
+    "message": "Show it in its folder instead."
+  }
+}

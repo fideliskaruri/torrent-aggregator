@@ -1,0 +1,34 @@
+{
+  "status": 200,
+  "body": {
+    "settings": {
+      "clientType": "builtin",
+      "externalClientType": "",
+      "host": "http://127.0.0.1:8080",
+      "username": "",
+      "password": "",
+      "category": "",
+      "savePath": "",
+      "baseDownloadPath": "D:\\code\\memtest\\qag-library-final",
+      "maxStorageGb": "0",
+      "preferredResolution": 1080,
+      "audioLanguage": "en",
+      "automationIntervalMinutes": 0,
+      "maxActiveDownloads": 1,
+      "downloadWindows": [],
+      "categories": [
+        "Anime",
+        "Movies",
+        "TV",
+        "Music",
+        "Games",
+        "Software",
+        "Books",
+        "Other"
+      ],
+      "pathRules": {}
+    },
+    "testResult": null,
+    "retentionWarning": null
+  }
+}

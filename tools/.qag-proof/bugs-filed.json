@@ -1,0 +1,235 @@
+[
+  {
+    "key": "OPS-861",
+    "id": "OPS-861",
+    "title": "Canonical catalog keys lose converted episode ownership and offer Download again",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro: build rebuild HEAD on isolated copied-and-converted stable data with media mapped to actual copies, scheduler disabled. At 390 or 1280 open /search?q=Rick%20and%20Morty and /title/tmdb:tv:60625. All S1 episodes offer Download and the season header reports zero downloaded. Open /title/rick-and-morty-2013: the same eleven S1 files are In your library, 1080p; Downloads also reports 11 ready. GET canonical title has seasons[0].downloadedEpisodes=0 and episodes[].owned=null; legacy title has downloadedEpisodes=11 and owned.resolution=1080. Existing MediaFiles belong to legacy workId cmurncg9qbuom9jsyhu3rn32g, while canonical metadata resolves a separate Work. Expected one identity/ownership across catalog aliases, no duplicate Download offers. Evidence: tools\\.qag-proof\\rick-canonical.json, rick-rick-and-morty-2013.json, screenshots\\owned-canonical-series-390.png and owned-legacy-series-390.png. Suspected owning module: Metadata canonical provider identity / API Catalog ownership resolution against Targets/Library. Cause not yet proven. Earlier OPS-815/856 are closed and concern admission aliases/import-review holds, not this reproduced read mismatch.",
+    "found": {
+      "where": "http://127.0.0.1:3961/title/tmdb:tv:60625",
+      "viewport": "390 and 1280",
+      "steps": [
+        "Convert read-only stable snapshot with media copied and path-mapped",
+        "Open canonical Rick and Morty title",
+        "Compare legacy /title/rick-and-morty-2013 and Downloads"
+      ],
+      "expected": "Same eleven owned S1 episodes are in library across both title identities.",
+      "actual": "Canonical title shows Download for all eleven; legacy title and Downloads show eleven owned."
+    },
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:28:54.597Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:29:03.101Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:28:54.577Z",
+    "updated_at": "2026-10-03T21:29:03.101Z",
+    "status_since": "2026-10-03T21:28:54.577Z"
+  },
+  {
+    "key": "OPS-862",
+    "id": "OPS-862",
+    "title": "Settings audio-language copy still promises removed English probing and waiting states",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro: open /settings on rebuild HEAD at 390 or 1280, read Audio language help below quality selectors. It says TorrentFlow reads the start of the video for up to 45 seconds, a release that cannot be checked keeps going and shows English not confirmed, and then waits for an English release. Standing docs/rules.md says unknown language is accepted without a probe, wait, or English-not-confirmed state during rebuild. Expected help describes the actual current policy and does not promise obsolete probing/recovery states. Screenshot: tools\\.qag-proof\\screenshots\\copied-settings-390.png; DOM evidence walk.json Settings text. Suspected owning module: web/src/app/settings/page.tsx audio-language-help copy. No application changes.",
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:28:54.601Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:29:10.845Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:28:54.601Z",
+    "updated_at": "2026-10-03T21:29:10.845Z",
+    "status_since": "2026-10-03T21:28:54.601Z"
+  },
+  {
+    "key": "OPS-863",
+    "id": "OPS-863",
+    "title": "Open folder success claims nonexistent requested folder while opening its parent",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro: on an enrolled copied root D:\\code\\memtest\\qag-data\\media, POST /api/settings/open-folder with JSON {path:\"D:\\\\code\\\\memtest\\\\qag-data\\\\media\\\\contract-no-such-folder\",reveal:false}. The requested child does not exist. Response 200 says path=requested missing child, message=\"Verified folder <missing child>\"; reveal:true says \"Opened <missing child>\" while LocalFiles.OpenFolderAsync actually selects existing parent. Expected accurately identify the parent being opened/verified or return the legacy 404 for nonexistent folder. Confirmed in Library/LocalFiles.cs: folderPath is replaced by parent, response still interpolates full. Evidence: tools\\.qag-proof\\contract\\raw.json POST open-folder, folder-missing-verify.json; contextual screenshot screenshots\\settings-advanced-390.png. Suspected owning module: Library LocalFiles.OpenFolderAsync. No further file-manager launches in targeted repro (reveal:false).",
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:28:54.605Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:29:15.161Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:28:54.605Z",
+    "updated_at": "2026-10-03T21:29:15.161Z",
+    "status_since": "2026-10-03T21:28:54.605Z"
+  },
+  {
+    "key": "OPS-864",
+    "id": "OPS-864",
+    "title": "View as requester calendar calls requester-only API with owner session and fails 403",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro on owner-local server: at 390 open More > View as requester; at 1280 use header View as requester. Open Upcoming (/upcoming). Calendar displays Could not load your calendar, Only people you share TorrentFlow with use these; the owner adds titles directly. GET /api/requester/calendar returns 403 in owner preview; console reports failed resource at both widths. Expected owner preview renders requester calendar without unauthorized calls, as Requests and Library already do with ownerSession-aware reads, and does not imply Try again can fix role refusal. Screenshot tools\\.qag-proof\\screenshots\\requester-calendar-390.png and requester-calendar-1280.png; focused.json network evidence. Suspected owning module web/src/app/upcoming/page.tsx RequesterCalendar endpoint selection. Actual requester authentication not tested. No duplicate open preview-calendar issue found.",
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:34:29.469Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:35:05.250Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:34:29.469Z",
+    "updated_at": "2026-10-03T21:35:05.250Z",
+    "status_since": "2026-10-03T21:34:29.469Z"
+  },
+  {
+    "key": "OPS-865",
+    "id": "OPS-865",
+    "title": "Completed built-in download state complete hides Open and Show in folder actions",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro: use source tools/.jelly-proof/Seed.ps1 against isolated 3962 and POST ordinary film placement to /api/dev/filing/ for licensed Sintel. Wait for final media SHA256 to match seed. /api/client/torrents returns state=\"complete\", verified=true, filesMissing=false for builtin transfer; Downloads says Ready but no Open button. Its overflow uses Open folder instead of Show in folder. Confirmed predicate in web/src/app/downloads/release-display.ts canOpenFinishedFile only accepts state=\"downloaded\", whereas backend/src/Api/DownloadEndpoints.cs projects completed downloads as \"complete\". Expected both completion synonyms share readiness/action policy. Screenshots tools\\.qag-proof\\screenshots\\completed-download-390.png and completed-download-1280.png; completed-client.json and completed-menu-390.png. Suspected owning module API download state contract / web Downloads readiness predicate. No player was launched.",
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:34:29.473Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:35:11.123Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:34:29.472Z",
+    "updated_at": "2026-10-03T21:35:11.123Z",
+    "status_since": "2026-10-03T21:34:29.472Z"
+  },
+  {
+    "key": "OPS-866",
+    "id": "OPS-866",
+    "title": "Open completed download rejects filed video because filing clears Selected flag",
+    "type": "bug",
+    "status": "todo",
+    "status_label": "To do",
+    "project": {
+      "id": "torrentflow",
+      "name": "TorrentFlow"
+    },
+    "feature": {
+      "key": "FEAT-35",
+      "title": "Backend rebuild (phases 0 to 7)"
+    },
+    "reported_by": "qag",
+    "description": "Repro: complete licensed Sintel via documented source seeder recipe and isolated confirmed Library root. Final Movies\\Sintel (2010)\\Sintel.mp4 exists, 129241752 bytes, SHA256 matches seed; download is FinishedAt and Ready. POST /api/downloads/builtin:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c/open {mode:\"open\"} returns 409 reason=no-video, This download has no video file to open. DownloadFile has role=video,filed=1,selected=0,finalPath pointing to verified film. Confirmed Library/LocalFiles.OpenDownloadAsync filters Selected && Filed, but ordinary Targets/TargetTransfers.cs and DevFiling.cs both set Selected=false when filing completes. Expected filed owned video is openable independently of active engine file selection. Evidence tools\\.qag-proof\\completed-open-http.json, completed-bindings.json, gate-completion.json and screenshots\\completed-download-390.png. Suspected owning module Library LocalFiles finished-video lookup; not an app player launch issue. Child PLAYWRIGHT_NO_REVEAL=1 ensured no player launch.",
+    "no_visual_evidence": false,
+    "attachments": [],
+    "commits": [],
+    "agent": null,
+    "history": [
+      {
+        "at": "2026-10-03T21:34:29.476Z",
+        "who": "owner",
+        "text": "Filed as a Bug in To do"
+      },
+      {
+        "at": "2026-10-03T21:35:15.482Z",
+        "who": "qag",
+        "text": "Moved under FEAT-35"
+      }
+    ],
+    "created_at": "2026-10-03T21:34:29.475Z",
+    "updated_at": "2026-10-03T21:35:15.482Z",
+    "status_since": "2026-10-03T21:34:29.475Z"
+  }
+]

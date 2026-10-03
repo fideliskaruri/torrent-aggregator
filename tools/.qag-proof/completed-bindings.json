@@ -1,0 +1,17 @@
+[
+  {
+    "id": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c:0",
+    "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+    "enginePath": "D:\\code\\memtest\\qag-library-final\\Movies\\Sintel (2010)\\Sintel.mp4",
+    "expectedBytes": 129241752,
+    "fileIndex": 0,
+    "filed": 1,
+    "finalPath": "D:\\code\\memtest\\qag-library-final\\Movies\\Sintel (2010)\\Sintel.mp4",
+    "mediaFileId": "downloaded:6CCF763C5C614C14BF4EB46F6EF8BE38CC17BCBE492782BBF0CAD68BDA1A2AD7",
+    "partialPath": null,
+    "physicalKey": "d:\\code\\memtest\\qag-library-final\\movies\\sintel (2010)\\sintel.mp4",
+    "role": "video",
+    "selected": 0,
+    "targetId": "target:01a103a9-f678-7ebf-b262-04d4deacc2c9:film"
+  }
+]
