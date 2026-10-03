@@ -127,8 +127,8 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - PWA, auto-approve, timeline, notifications.
 
 ## Architecture rethink (2026-10-03): whole backend rebuild
-- [ ] Phase 0: connectivity control, benchmark harness, baseline (main and Next.js 5824ed5~1), API contract capture.
-- [ ] Phase 1: design doc (data model, pipeline, services) and system-level critique. Owner go.
+- [x] Phase 0 (2026-10-03, commits bf36395..ceefb12): connectivity control, benchmark harness, baseline (main and Next.js 5824ed5~1), API contract capture.
+- [x] Phase 1 (66a3532; Opus 5.5 critique resolved; owner go taken under autopilot default): design doc (data model, pipeline, services) and system-level critique. Owner go.
 - [ ] Phase 2: new server skeleton serving the captured contract; settings, metadata, catalog.
 - [ ] Phase 3: Find (season-level, source trust, background budget) and swarm check.
 - [ ] Phase 4: Plan and Fetch (one state per target, stall watch, swap, cap).
