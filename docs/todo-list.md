@@ -138,3 +138,4 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - [ ] Phase 6: requests, notifications, timeline, remote access, desktop shell.
 - [ ] Phase 7: switch over on a copy of the real data, then live; delete the old server.
 - On hold until the rebuild lands: season-pool lane, OPS-641 lane, T5/T7 plan.
+- [ ] OPS-843: Library read derives owned titles from MediaFile (no synced watchlist rows). Owner rule: no patches.

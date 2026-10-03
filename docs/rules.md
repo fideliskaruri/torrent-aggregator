@@ -94,3 +94,5 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - **Up to five quick agents at a time (owner, 2026-10-03, replaces the two-agent cap).** Run up to five agents at once plus the coordinator. They use fast models at low effort, and each works on its own module so no two agents edit the same files.
 
 - **Speed (owner, 2026-10-03: 'this has been going for too long!').** Agents run 30 min max; the coordinator stops and rescopes any agent past that. Proof runs cover only what the change touches (no full hard-set reruns except at phase gates). Gate-blocking fixes go before new phases.
+
+- **No patches (owner, 2026-10-03: 'make sure you're doing things that make sense and not patching shit').** Every fix goes to the root cause, in the module that owns it. No copies of a fact to paper over a missing read (example: owned titles show in the Library because the Library read derives from MediaFile, not by writing watchlist rows). No workaround that only makes a symptom disappear. Proof-only shortcuts stay in proof tools and never ship. The coordinator rejects patch-style fixes in review.
