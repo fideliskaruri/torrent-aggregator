@@ -61,6 +61,13 @@ report blocked paths rather than guessing a wider deletion. General imported
 removal needs a Store removal capability and shared-pack removal needs Targets'
 per-file drain API; neither is bypassed by Library.
 
+The actual incomplete-transfer proof exposed OPS-822: a binding-only DevFiling
+download without target associations can recover its still-running Download
+identity and recreate partials after public removal. Durable intent retirement
+and recovery serialization require the Targets/Engine lane. This proof is not
+claimed as passing. Web deletion was exercised at 390 and 1280; OPS-821 records
+the missing film delete control and delayed post-deletion ownership refresh.
+
 Evidence: gitignored `tools\.libdel-proof\`, port 3970, copied/converted stable
 database in `D:\code\memtest\rebuild-libdel`. Full licensed Sintel/Big Buck Bunny
 copies exercise film, episode and season layout; synthetic episode identities
