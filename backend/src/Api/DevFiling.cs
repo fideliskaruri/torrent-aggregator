@@ -43,8 +43,8 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
             catch (OperationCanceledException) when (!http.RequestAborted.IsCancellationRequested)
             { return Results.Json(new { waiting = true, message = "No file list arrived. Check the connection or choose another torrent." }, statusCode: 408); }
         });
-        group.MapPost("/", async (Input input, DevFiling filing, CancellationToken ct) =>
-            Results.Json(await filing.AddAsync(input, ct), Json));
+        group.MapPost("/", async (Input input, HttpContext http, DevFiling filing, CancellationToken ct) =>
+            Results.Json(await filing.AddAsync(input, AccessIdentity.UserId(http), ct), Json));
         group.MapGet("/", async (DevFiling filing, CancellationToken ct) =>
             Results.Json(await filing.ReadAsync(ct), Json));
         group.MapDelete("/{hash}", async (string hash, DevFiling filing, TargetPipeline targets, CancellationToken ct) =>
@@ -59,7 +59,7 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
         });
     }
 
-    private async Task<object> AddAsync(Input input, CancellationToken ct)
+    private async Task<object> AddAsync(Input input, string actor, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
@@ -70,8 +70,43 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
             var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
             var hash = MonoTorrentEngine.NormalizeHash(input.Magnet);
             var id = Prefix + hash;
-            if ((await AccessState.AllAsync<DownloadRow>(store, ct)).Any(d => d.Id == id))
+            if ((await AccessState.AllAsync<DownloadRow>(store, ct)).Any(d => d.Hash == hash))
                 return new { accepted = true, duplicate = true };
+            var pipeline = scope.ServiceProvider.GetRequiredService<TargetPipeline>();
+            var work = input.Placement.Work ?? throw new ArgumentException("Open the title before filing it.");
+            if (input.Placement.Targets.IsEmpty ||
+                input.Placement.Targets.DistinctBy(t => t.EpisodeId).Count() != input.Placement.Targets.Length)
+                throw new ArgumentException("Choose each film or episode once before filing.");
+            var canonical = ImmutableArray.CreateBuilder<TargetRow>();
+            var targetIds = new Dictionary<string, string>();
+            foreach (var supplied in input.Placement.Targets)
+            {
+                var episode = work.Episodes.SingleOrDefault(e => e.Id == supplied.EpisodeId);
+                if (supplied.EpisodeId is not null && episode is null)
+                    throw new ArgumentException("Choose an episode from this title before filing.");
+                var season = work.Seasons.SingleOrDefault(s => s.Id == episode?.SeasonId);
+                var accepted = await pipeline.AcquireAsync(new(work.Work.WorkKey, season?.Number,
+                    episode?.Number, supplied.ResolutionFloor), actor, ct);
+                if (!accepted.Accepted || accepted.TargetIds.IsEmpty)
+                    return new { accepted = false, message = accepted.Message };
+                var target = (await store.ReadAsync<TargetRow>(AccessState.Query(
+                    accepted.TargetIds.Single()), ct)).Single();
+                canonical.Add(target);
+                targetIds.Add(supplied.Id, target.Id);
+            }
+            var requested = input.Placement with
+            {
+                Work = (await scope.ServiceProvider.GetRequiredService<IMetadata>()
+                    .GetWorkAsync(work.Work.WorkKey, false, ct)).Work ??
+                    throw new ArgumentException("The title could not be resolved. Open it before filing."),
+                Targets = canonical.ToImmutable(),
+                Assignment = input.Placement.Assignment with
+                {
+                    TargetIds = [.. input.Placement.Assignment.TargetIds.Select(id => targetIds[id])],
+                    Files = [.. input.Placement.Assignment.Files.Select(f => f with
+                        { TargetId = f.TargetId is null ? null : targetIds[f.TargetId] })],
+                },
+            };
             var candidate = MonoTorrentEngine.CandidateFor(input.Magnet, input.TorrentUri);
             var attachment = await engine.AttachProbeAsync(candidate, ct);
             if (attachment.Handle is not { } handle) return new { accepted = false, failure = attachment.Failure };
@@ -81,9 +116,9 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 deadline.CancelAfter(TimeSpan.FromSeconds(30));
                 var metadata = await engine.WaitMetadataAsync(handle, deadline.Token);
-                var placement = await library.PlaceAsync(input.Placement with
+                var placement = await library.PlaceAsync(requested with
                 {
-                    Files = metadata, Assignment = input.Placement.Assignment with { Hash = hash },
+                    Files = metadata, Assignment = requested.Assignment with { Hash = hash },
                 }, ct);
                 if (placement.Failure is { } failure)
                 {
@@ -98,19 +133,14 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
                 var download = new DownloadRow(id, hash, DownloadIntent.Run, root.Id, now, null, token, null, null, 1);
                 var claim = await engine.ClaimAdmissionAsync(new(token, hash, id, handle, now.AddSeconds(90)), ct);
                 if (!claim.Accepted) return new { accepted = false, failure = claim.Failure };
-                var targets = input.Placement.Targets;
+                var targets = requested.Targets;
                 var find = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
                 var oldRelease = (await find.ReadAsync<ReleaseRow>(AccessState.Query(hash), ct)).SingleOrDefault();
                 var release = candidate.Release with { Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes) };
                 await CommitAsync(find, [new(release, null, oldRelease)], [], ct, StoreOwner.Find);
-                var targetWrites = ImmutableArray.CreateBuilder<RowWrite>();
-                foreach (var target in targets)
-                {
-                    var oldTarget = (await store.ReadAsync<TargetRow>(AccessState.Query(target.Id), ct)).SingleOrDefault();
-                    targetWrites.Add(new(target with { Version = oldTarget is null ? 1 : oldTarget.Version + 1 },
-                        oldTarget?.Version, null));
-                }
-                var writes = targetWrites.ToImmutable().Add(new(download, null, null));
+                ImmutableArray<RowWrite> writes = [new(download, null, null),
+                    .. targets.Select(target => new RowWrite(new DownloadTargetRow($"{id}:{target.Id}",
+                        id, target.Id, AssociationRole.Current, now), null, null))];
                 await CommitAsync(store, writes, [], ct);
                 if (!await repository.SavePlacementAsync(files, placement.Folders, ct))
                     throw new InvalidOperationException("Library placement changed. Reload the library and retry.");
@@ -247,7 +277,7 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
         var receipt = new AttemptRow($"commit:filing:{key}", null, null, null, null, AttemptKind.LegacyEvent,
             now, now, "applied", "filing", null, null, null, null, null, null, null);
         if (!(await store.CommitAsync(new(key, owner, writes.Add(new(receipt, null, null)), deletes), ct)).Applied)
-            throw new InvalidOperationException("The download changed. Retry the action.");
+            throw new InvalidOperationException("The filing records could not be saved. Check the server log before trying again.");
     }
 
     internal sealed record Input(string Magnet, string? TorrentUri, PlacementInput Placement);
