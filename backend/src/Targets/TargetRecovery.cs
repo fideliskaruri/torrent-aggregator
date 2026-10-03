@@ -67,6 +67,8 @@ public sealed partial class TargetPipeline
 
     private async Task<TargetActionReply> SwapAsync(string targetId, string? stall, CancellationToken ct)
     {
+        if (!await CanRunAsync(ct))
+            return new(false, 0, 0, [targetId], "Downloads are paused. Finish reviewing the library and enable downloads first.");
         var initial = await ReadAsync(ct);
         var first = initial.Targets.SingleOrDefault(t => t.Id == targetId);
         if (first is null || first.State != TargetState.Fetching || first.ChosenReleaseHash is null)
