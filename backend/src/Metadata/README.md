@@ -56,7 +56,7 @@ TMDB-only top-rated film/series rails are omitted rather than mislabeled keyless
 
 `tools\Test-MetadataContract.ps1` is an HTTP-only benchmark. A small separate diagnostic
 composition host exposes `/resolve`, `/work/{id}`, `/search`, `/browse`, `/extras`,
-`/links` and `/recommend` on loopback 3940, using real providers and a separate
+``/links` and `/recommend` on loopback 3940, using real providers and a separate
 `metadata-bench.db` in the scratch data directory. It is not part of the production API:
 
 ```powershell
@@ -65,8 +65,12 @@ dotnet run --project tools\metadata-host\MetadataHost.csproj
 tools\Test-MetadataContract.ps1
 ```
 
-`--DataDirectory` overrides the scratch directory. `/health` returns the exact process
-ID for cleanup. Do not run alongside the API on 3940. This is a diagnostic host, not a
+`--DataDirectory` overrides the scratch directory, which the host creates when missing.
+`/health` returns the exact process ID for cleanup. Do not run alongside the API on 3940.
+`/proof/tmdb/{kind}/{id}` reads successful TMDB detail/season cache responses through
+Store for verification; it excludes credentials and their cache-key digest. These
+diagnostic routes are loopback-only and are not registered by the production API.
+This is a diagnostic host, not a
 benchmark with production references: the benchmark script talks HTTP only. The catalog
 API phase should expose Domain operations through the preserved web contract, not retain
 these diagnostic routes.
@@ -75,6 +79,25 @@ Nine-title evidence and full labelled names are in `tools\.metadata-proof\` (ign
 local artifacts), with times and provider IDs recorded on OPS-661. Nine titles passed
 real kind/anime/identity checks, including Money Heist's original label and Frieren
 S2E1 = absolute 29. Frieren's announced S3 has no confirmed count and is correctly
-provisional; known S1/S2 retain their coordinates. No TMDB credential was available
-in the scratch installation, so live v3/v4 authentication and digital/physical date
-verification still require the coordinator's credentialed QA.
+provisional; known S1/S2 retain their coordinates.
+
+`tools\Test-MetadataTmdb.ps1` (PowerShell 7.5+) verifies the authenticated matrix,
+successful applied TMDB responses rather than mapped IDs alone, and earliest type
+4/5 dates against raw `release_dates`. Start a host with a fresh scratch directory
+and inject the credential only into that child's `TMDB_API_KEY` environment; never
+put it in arguments, evidence, logs or repository files. `-UseExistingResults`
+checks an already-recorded matrix without replacing its cold/warm timings.
+
+Authenticated evidence is in `tools\.metadata-proof\authenticated\`. All nine titles
+used successful TMDB details. A Silent Voice has digital 2017-09-26 and physical
+2017-05-17; Big Buck Bunny has digital 2008-04-10 and no physical evidence. Sintel
+has neither type 4 nor type 5 evidence, so both dates correctly remain unknown.
+All ten Frieren S2 air dates match TMDB's current continuous S1 episodes 29-38,
+while the Domain snapshot presents S2E1-E10 / absolute 29-38 and retains AniList's
+more precise airing instants. The supplied credential's authentication path was
+tested; the alternate credential shape was not independently tested.
+
+For missing-key verification, start another fresh host with `TMDB_API_KEY` removed
+from its child environment, then run `tools\Test-MetadataTmdb.ps1 -Mode Keyless`.
+It checks an actionable `unconfigured` TMDB failure, successful keyless Scorpion
+fallback and the same healthy server PID after both requests.
