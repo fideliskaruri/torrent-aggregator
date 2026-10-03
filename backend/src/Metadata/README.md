@@ -56,7 +56,7 @@ TMDB-only top-rated film/series rails are omitted rather than mislabeled keyless
 
 `tools\Test-MetadataContract.ps1` is an HTTP-only benchmark. A small separate diagnostic
 composition host exposes `/resolve`, `/work/{id}`, `/search`, `/browse`, `/extras`,
-``/links` and `/recommend` on loopback 3940, using real providers and a separate
+`/links` and `/recommend` on loopback 3940, using real providers and a separate
 `metadata-bench.db` in the scratch data directory. It is not part of the production API:
 
 ```powershell
