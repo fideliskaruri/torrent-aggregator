@@ -45,6 +45,7 @@ builder.Services.AddDevEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
     builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
+builder.Services.AddDevLibrary();
 var app = builder.Build();
 try
 {
@@ -62,6 +63,7 @@ try
     app.MapDevEngine();
     app.MapDevPlan();
     app.MapDevCheck();
+    await app.MapDevLibraryAsync();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>

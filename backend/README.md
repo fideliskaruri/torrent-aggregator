@@ -270,3 +270,59 @@ filtering, charset/CDN trailers, malformed interior XML, streaming 1337x detail
 deadline and BitSearch 429/cooldown. Its process is stopped by PID; evidence is
 `tools\.sources-proof\fallback-infrastructure.json`. Live 1337x TLS failures are reported,
 not worked around; a Torznab endpoint must be explicitly configured to contact one.
+
+## Library placement and ownership (OPS-734)
+
+`ILibraryPlacement` is the implemented placement/inventory subset of the future
+`ILibrary` filing/scan contract. `Library` references Domain only. Its scoped
+`ILibraryRepository` persists root/inventory identity and WorkFolder pins in Store;
+it never exposes EF or writes Target state. `PlaceAsync` returns an **unsaved**
+WorkFolder and final/partial file binding proposal: Targets must commit that
+proposal with admission/path claims, not start two transfers from an uncommitted
+proposal. Filing, signature validation, scan/import review and removal execution
+remain their subsequent tasks.
+
+- New roots use Movies, TV, **Anime Series**, Anime Movies. Priority is ascending.
+  Enrollment is explicit and writes only a root-ID marker on the confirmed volume.
+  Checks verify the marker, volume and link-free path; an offline root is never a
+  placement candidate. Mass disappearance puts the root on a durable review hold.
+- Existing series stay on their recorded root and actual item folder, even after
+  the English display title changes. A full or disconnected pinned drive waits,
+  rather than silently splitting the series onto another drive. New works fill the
+  first accepting online root that preserves its reserve. Committed outstanding
+  selections sharing a volume are deducted conservatively from available space.
+- Folder names port `MediaFolders`; video **basenames remain the original release
+  basenames**, not a new `Show S01E02` scheme. Selected subtitles follow the video's
+  basename with their language suffix. Wrapper/episode folders are flattened only
+  with the old layout's evidence. Reserved names are guarded; unsafe/long paths,
+  links and video collisions return a typed failure rather than overwriting.
+- `OwnedAsync(TargetScope)` is the single item/work ownership query. Only videos
+  establish ownership: Present and offline-drive Offline files, plus unconfirmed
+  missing files protected pending the scan task. It returns owned quality; the
+  public projection says `In your library, 1080p` and **never includes origin**.
+  Confirmed Missing rows expire after 30 days on an online, non-guarded root,
+  except references retained by historical/active operations.
+
+Optional first-run migration input:
+`--TorrentFlow:Library:LegacyDatabase <old-db-copy>`. Store reads only
+`ClientSettings.baseDownloadPath/pathRules/maxStorageBytes`, in SQLite read-only
+mode, and seeds one root only when no roots exist. Existing Movies/TV rules become
+root-relative kind folders; the old base-root anime mapping stays flat. The seeded
+root is offline pending explicit identity confirmation: seeding never writes to
+the old drive. An old rule outside the base root returns a review failure rather
+than silently changing its path. A new installation with no configured legacy
+database starts with no roots.
+
+The captured web settings contract has **no root routes or root types** (only the
+old `/api/settings/client` form), so this slice adds no guessed production route.
+Development-only `/api/dev/library` provides roots add/list/configure/check/remove,
+placement, item/work ownership, internal inventory recording, expiry and naming
+proof. It requires a trusted loopback owner. Production has no proof endpoints.
+Only two additive host hooks register/map it; discovery composition is unchanged.
+
+HTTP evidence is saved to ignored `tools\.library-proof\summary.json`, using port
+3949 and `D:\code\memtest\rebuild-lib`, never either shared test server. The reference
+runner executes the old `MediaFolders` and `ContentLayoutPlanner` against real 3930
+catalog/release/manifest inputs. TV and film comparisons include actual old disk
+paths; the 3930 installation has no Anime Series/Anime Movies disk folders, so
+anime comparisons are labelled **old-code output, not actual old disk evidence**.
