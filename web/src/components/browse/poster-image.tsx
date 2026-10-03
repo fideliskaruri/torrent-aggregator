@@ -148,8 +148,9 @@ function FallbackTile({
           <span className="pointer-events-none absolute -bottom-[0.18em] -right-[0.06em] hidden font-semibold leading-none text-subtle-foreground text-[60cqw] opacity-20 @min-[6rem]:block">
             {posterInitial(title)}
           </span>
-          <span className="absolute inset-x-0 top-1/2 hidden -translate-y-1/2 px-3 text-center @min-[6rem]:block">
-            <span className="line-clamp-4 text-balance break-words text-[13px] font-semibold leading-snug text-foreground @min-[10rem]:text-[15px]">
+          {/* Hyphenate rather than split a long word one letter from its end on a phone-width tile. */}
+          <span lang="en" className="absolute inset-x-0 top-1/2 hidden -translate-y-1/2 px-2 text-center @min-[6rem]:block @min-[8rem]:px-3">
+            <span className="line-clamp-4 text-balance break-words hyphens-auto text-[12px] font-semibold leading-snug text-foreground @min-[8rem]:text-[13px] @min-[10rem]:text-[15px]">
               {title}
             </span>
           </span>
