@@ -2,6 +2,8 @@
 
 Date: 2026-10-04. Base: `a7e683fa4b1db39c83474109777af9f1ec249116`.
 Isolated branch/worktree: `canon-ops861`, `D:\code\memtest\wt-canon`.
+Integrated fix commit on `rebuild`: `1d92777b7241ba12cce5c3c801295a078db1a5aa`
+(isolated original `f409ccf2ba6bf5139321b891f024b2017f50b693`).
 Backend only. No web, DownloadEndpoints, settings, LocalFiles or Library filing changes.
 
 ## Root cause
