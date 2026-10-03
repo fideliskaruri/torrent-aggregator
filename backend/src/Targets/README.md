@@ -77,6 +77,16 @@ retry time, chosen hash where applicable and immutable last plan history. They a
 searched again until due or explicitly retried. Source/check retry timing follows the
 release-age schedule in design 1.4. There is no separate progress cache.
 
+Bounded discovery records its stopping decision in immutable Attempt history, not
+a second verdict or plan cache. An unchanged scope, policy, source pool and valid
+Check evidence reuse that decision until the release-calendar retry deadline
+(bounded by the source-cache window and verdict expiry). Plan still runs against
+the current Check verdicts. Unfinished/cancelled hashes remain unchecked; a warm
+read does not refill their submission budget. Changed metadata, item policy,
+owned inventory, exclusions, source pool or verdict evidence invalidates reuse.
+This stopping boundary is shared by the worker and development planning route
+and survives process restart (OPS-751).
+
 Selected Plan files pass through Library placement and Engine admission. Fetching is
 committed with its Download and Current associations under target CAS. Filing waits for
 every selected file of that item, including sidecars, to have all touching pieces

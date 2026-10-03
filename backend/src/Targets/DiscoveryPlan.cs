@@ -39,6 +39,11 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                     new(null, null, null, clock.Elapsed.TotalMilliseconds), 0, 0, targets, 0,
                     ImportReviews.BackgroundMessage);
         }
+        var stopping = new DiscoveryStopping(scopes, check);
+        var scopeKey = DiscoveryStopping.ScopeKey(work, scope, policy, lane, exhaust, targets, owned,
+            excludedHashes, options);
+        var previousStop = await stopping.ReadAsync(work.Work.Id, scopeKey, ct);
+        var reusedStop = false;
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope, policy, lane,
             SearchNamePhase.English, [], 0, 0) { Exhaust = exhaust };
         var feedback = Channel.CreateBounded<SearchFeedback>(new BoundedChannelOptions(1)
@@ -92,6 +97,19 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                             submitted.Add(cached.Hash);
                             firstVerdict ??= clock.Elapsed.TotalMilliseconds;
                         }
+                        if (previousStop is not null && previousStop.NextTryAt > DateTimeOffset.UtcNow && batch.CachedPool &&
+                            previousStop.PoolKey == DiscoveryStopping.PoolKey(batch) &&
+                            previousStop.VerdictKey == DiscoveryStopping.VerdictKey(evidence.Values))
+                        {
+                            reusedStop = true;
+                            deadlineReached = true;
+                            stopReason = $"{previousStop.Reason} Reusing this scope's checks until {previousStop.NextTryAt:O}.";
+                            inputEnded = true;
+                            probes.Writer.TryComplete();
+                            await checkLifetime.CancelAsync();
+                        }
+                        else if (findEnded)
+                            previousStop = null;
                         break;
                     case SwarmEvidence measurement:
                         evidence[measurement.Hash] = measurement;
@@ -128,7 +146,7 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                 }
                 // Three hashes per uncovered target, shared across pack coverage. Check owns lane admission.
                 // Refill only as measurements finish, so large season pools cannot expire in Check's queue.
-                if (!inputEnded)
+                if (!inputEnded && previousStop is null)
                 {
                     foreach (var candidate in last.Candidates
                                  .OrderBy(c => QualityOrder(c))
@@ -190,6 +208,11 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                     ready ??= clock.Elapsed.TotalMilliseconds;
             }
             plan = Choose();
+            var finalGoodTargets = last is null ? [] : GoodTargets();
+            if (!reusedStop && last is not null && stopReason is not null &&
+                !targets.All(t => finalGoodTargets.Contains(t.Id)))
+                await stopping.SaveAsync(work.Work.Id, scopeKey, last, targets,
+                    stopReason, options, ct);
             return new(last!, [.. evidence.Values], plan,
                 new(firstCandidate, firstVerdict, ready, clock.Elapsed.TotalMilliseconds),
                 submissions, evidence.Values.Count(e => !e.FromCache && !e.FromLiveTransfer && e.Window > TimeSpan.Zero),
@@ -208,7 +231,8 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         {
             QueriesExhausted = findEnded && (inputEnded || pending.Count == 0),
             UnknownFallbackReason = "Safe files; no checked Good or Weak alternative covers these items. " +
-                (deadlineReached ? $"The {planSeconds}-second planning window ended; unchecked alternatives remain. " :
+                (reusedStop ? $"{stopReason} Unchecked alternatives remain. " :
+                    deadlineReached ? $"The {planSeconds}-second planning window ended; unchecked alternatives remain. " :
                     submissions >= ProbeBudget ? "The 24-probe budget was used; unchecked alternatives may remain. " :
                     "The source sweep and relevant candidate checks completed. ") + "Waiting for seeders.",
             FileMetadata = [.. evidence.Values.Select(e => new PlanFileMetadata(e.Hash, e.PieceLength,

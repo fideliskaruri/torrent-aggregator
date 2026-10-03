@@ -624,7 +624,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         _ => false,
     };
 
-    private static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now)
+    internal static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now)
     {
         if (reason is WaitReason.FileBusy or WaitReason.DownloadCap or WaitReason.NoDriveSpace or WaitReason.DriveOffline)
             return now.AddMinutes(5);
