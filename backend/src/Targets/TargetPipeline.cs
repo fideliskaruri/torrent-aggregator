@@ -59,7 +59,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         AcceptAsync(input, actor, IntentOrigin.Request, null, null, null, ct);
 
     private async Task<TargetActionReply> AcceptAsync(AcquireInput input, string actor, IntentOrigin origin,
-        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct, bool lockHeld = false)
+        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct, bool lockHeld = false,
+        MetadataResult? resolved = null, string? savedAudioLanguage = null)
     {
         if (input.Quality is < 1 or > 4320 || minSeeders is < 0 || maxBytes is <= 0)
             throw new ArgumentException("Choose a valid quality, seed count and size.");
@@ -69,10 +70,15 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             await using var serviceScope = scopes.CreateAsyncScope();
             var store = serviceScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var catalog = new CatalogState(store);
-            var work = (await catalog.ReadAsync<WorkRow>(CatalogState.Query(), ct))
-                .FirstOrDefault(w => w.Id == input.WorkKey || w.WorkKey == input.WorkKey)
+            var automatic = origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter;
+            var refreshScope = !automatic && input.Season is not null && input.Episode is null;
+            resolved ??= await serviceScope.ServiceProvider.GetRequiredService<IMetadata>()
+                .GetWorkAsync(input.WorkKey, refreshScope, ct);
+            var work = resolved.Work?.Work
                 ?? throw new ArgumentException("Open the title before downloading it.");
             var preference = (await catalog.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Id), ct)).FirstOrDefault();
+            var audioLanguage = savedAudioLanguage ??
+                await TargetAudioPolicy.ResolveAsync(store, work, preference, ct);
             input = input with { Quality = input.Quality ?? preference?.ResolutionFloor ?? preference?.PreferredResolution };
             if (work.Kind == WorkKind.Series && input.Season is null ||
                 work.Kind == WorkKind.Film && (input.Season is not null || input.Episode is not null))
@@ -85,7 +91,9 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var selected = episodes.Where(e => e.SeasonId == season?.Id &&
                 (input.Episode is null || e.Number == input.Episode) && e.MappingStatus == MappingStatus.Confirmed).ToArray();
             var now = DateTimeOffset.UtcNow;
-            if (!film && selected.Length == 0)
+            if (!film && (selected.Length == 0 || refreshScope &&
+                (resolved.Failure is not null || resolved.Stale || season?.MappingStatus != MappingStatus.Confirmed ||
+                    episodes.Any(e => e.MappingStatus != MappingStatus.Confirmed))))
             {
                 if (origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
                     throw new ArgumentException("Automatic downloads need confirmed episodes. Try again after metadata refresh.");
@@ -94,10 +102,16 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 if (prior is null || prior.State == ScopeIntentState.Cancelled)
                 {
                     var intent = new ScopeIntentRow(id, actor, work.Id, input.Episode is null ? RequestScope.Seasons : RequestScope.Episodes,
-                        new([input.Season ?? 1], false), new(input.Quality, input.Quality ?? 1080, null, null, null, 0),
+                        new([input.Season ?? 1], false), new(input.Quality, input.Quality ?? 1080, audioLanguage, null, null, 0),
                         false, id, ScopeIntentState.Pending, now, prior?.CreatedAt ?? now, now, (prior?.Version ?? 0) + 1);
                     await CommitAsync(store, [new(intent, prior?.Version, null)], [], ct);
                 }
+                else if (prior.State == ScopeIntentState.Pending && prior.Policy.AudioLanguage != audioLanguage)
+                    await CommitAsync(store, [new(prior with
+                    {
+                        Policy = prior.Policy with { AudioLanguage = audioLanguage, Revision = prior.Policy.Revision + 1 },
+                        UpdatedAt = now, Version = prior.Version + 1,
+                    }, prior.Version, null)], [], ct);
                 var added = prior is null || prior.State == ScopeIntentState.Cancelled;
                 return new(true, added ? 1 : 0, 0, [], added ? "Season queued." : "Already queued");
             }
@@ -110,6 +124,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var ownedCount = 0;
             var queued = 0;
             var batch = Guid.NewGuid().ToString("N");
+            var changedPolicies = new List<string>();
             foreach (var episodeId in items)
             {
                 if (owned.Any(o => o.EpisodeId == episodeId)) { ownedCount++; continue; }
@@ -118,16 +133,36 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     continue;
                 var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";
                 ids.Add(id);
-                if (old is not null && old.State is not (TargetState.Removed or TargetState.Done)) continue;
+                if (old is not null && old.State is not (TargetState.Removed or TargetState.Done))
+                {
+                    if (old.AudioLanguage != audioLanguage)
+                    {
+                        var replan = old.State is TargetState.Wanted or TargetState.Waiting or TargetState.Finding or
+                            TargetState.Checking or TargetState.Planning;
+                        writes.Add(new(old with
+                        {
+                            AudioLanguage = audioLanguage, PolicyRevision = old.PolicyRevision + 1,
+                            State = replan ? TargetState.Wanted : old.State,
+                            ReasonCode = replan ? null : old.ReasonCode, ReasonText = replan ? null : old.ReasonText,
+                            NextTryAt = replan ? null : old.NextTryAt, LeaseToken = replan ? null : old.LeaseToken,
+                            LeaseUntil = replan ? null : old.LeaseUntil,
+                            ChosenReleaseHash = replan ? null : old.ChosenReleaseHash,
+                            UpdatedAt = now, Version = old.Version + 1,
+                        }, old.Version, null));
+                        if (replan) changedPolicies.Add(old.Id);
+                    }
+                    continue;
+                }
                 var row = old is null
                     ? new TargetRow(id, work.Id, episodeId, TargetKind.Acquire, TargetState.Wanted,
                         null, null, null, null, episodeId is null ? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt :
                             selected.FirstOrDefault(e => e.Id == episodeId)?.AirAt,
-                        input.Quality, input.Quality ?? 1080, null, maxBytes, input.Rank is not null, input.Rank ?? 0,
+                        input.Quality, input.Quality ?? 1080, audioLanguage, maxBytes, input.Rank is not null, input.Rank ?? 0,
                         null, actor, origin, ruleId, null, null, null, batch, now, 0, null, 0,
                         null, null, now, now, 1)
                     : old with { State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,
+                        AudioLanguage = audioLanguage,
                         PolicyRevision = old.PolicyRevision + 1, UpdatedAt = now, Version = old.Version + 1 };
                 row = row with { Priority = TargetScheduling.Priority(row, now),
                     MinListedSeeders = minSeeders ?? row.MinListedSeeders };
@@ -137,6 +172,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
             }
             if (writes.Count > 0) await CommitAsync(store, writes.ToImmutable(), [], ct);
+            foreach (var id in changedPolicies)
+                if (cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
             var message = queued == 0 && ownedCount > 0 ? "Already in your library" :
                 queued == 0 && ids.Count > 0 ? "Already queued" :
                 ownedCount > 0 ? $"{queued} queued, {ownedCount} already in your library" : $"{queued} queued";
@@ -318,7 +355,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         foreach (var intent in pending.Take(1))
         {
             await using var scope = scopes.CreateAsyncScope();
-            var result = await scope.ServiceProvider.GetRequiredService<IMetadata>().GetWorkAsync(intent.WorkId, false, ct);
+            var result = await scope.ServiceProvider.GetRequiredService<IMetadata>().GetWorkAsync(intent.WorkId, true, ct);
             var work = result.Work;
             var episode = intent.Scope == RequestScope.Episodes && int.TryParse(intent.Id.Split(':')[^1], out var number)
                 ? number : (int?)null;
@@ -328,17 +365,21 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
                 var current = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(intent.Id), ct)).SingleOrDefault();
                 if (current is null || current.State != ScopeIntentState.Pending || current.Version != intent.Version) continue;
-                if (work is not null)
+                if (work is not null && result.Failure is null && !result.Stale)
                 foreach (var season in intent.ScopeData.Seasons)
                 {
                     var request = (await store.ReadAsync<RequestRow>(CatalogState.Query(intent.ActorUserId), ct)).SingleOrDefault();
                     await AcceptAsync(new(work.Work.Id, season, episode, intent.Policy.ResolutionFloor),
                         intent.ActorUserId, request is null ? IntentOrigin.Owner : IntentOrigin.Request,
-                        null, null, null, ct, lockHeld: true);
+                        null, null, null, ct, lockHeld: true, resolved: result,
+                        savedAudioLanguage: intent.Policy.AudioLanguage);
                 }
-                var ready = work is not null && intent.ScopeData.Seasons.All(n => work.Seasons.Any(s => s.Number == n &&
+                var ready = work is not null && result.Failure is null && !result.Stale &&
+                    intent.ScopeData.Seasons.All(n => work.Seasons.Any(s => s.Number == n &&
                     s.MappingStatus == MappingStatus.Confirmed && work.Episodes.Any(e => e.SeasonId == s.Id &&
-                        (episode is null || e.Number == episode) && e.MappingStatus == MappingStatus.Confirmed)));
+                        (episode is null || e.Number == episode) && e.MappingStatus == MappingStatus.Confirmed) &&
+                    work.Episodes.Where(e => e.SeasonId == s.Id && (episode is null || e.Number == episode))
+                        .All(e => e.MappingStatus == MappingStatus.Confirmed)));
                 await CommitAsync(store, [new(intent with
                 {
                     State = ready ? ScopeIntentState.Materialized : ScopeIntentState.Pending,

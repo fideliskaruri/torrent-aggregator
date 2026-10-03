@@ -16,7 +16,8 @@ internal static class DevDiscoveryPlan
     {
         if (!app.Environment.IsDevelopment()) return;
         app.MapGet("/api/dev/plan", async (HttpContext http, IMetadata metadata,
-            DiscoveryPlan discovery, CancellationToken ct) =>
+            DiscoveryPlan discovery, [Microsoft.Extensions.DependencyInjection.FromKeyedServices("targets")] IStore store,
+            CancellationToken ct) =>
         {
             if (!DevFind.Owner(http)) return Results.StatusCode(403);
             var query = http.Request.Query;
@@ -57,15 +58,18 @@ internal static class DevDiscoveryPlan
                 return Results.Json(new { error = "numbering_unconfirmed",
                     message = "Refresh the catalog to confirm this season's episode numbering." }, statusCode: 409);
             var metadataMs = clock.Elapsed.TotalMilliseconds;
+            var preference = (await new CatalogState(store)
+                .ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Work.Id), ct)).FirstOrDefault();
+            var audioLanguage = await TargetAudioPolicy.ResolveAsync(store, work.Work, preference, ct);
             var result = await discovery.RunAsync(work, new(work.Work.Id, [.. episodes.Select(e => e.Id)], film),
-                new(floor, quality, null, null, null, 0),
+                new(floor, quality, audioLanguage, null, null, 0),
                 lane == "background" ? PriorityLane.Background : PriorityLane.Owner, exhaust == "true", ct);
             var evidence = result.Evidence.ToDictionary(e => e.Hash, StringComparer.OrdinalIgnoreCase);
             return Results.Json(new
             {
                 workKey = work.Work.WorkKey, workId = work.Work.Id, kind = work.Work.Kind,
                 scope = scopeName.Length > 0 ? scopeName : film ? "film" : episode is null ? "season" : "episode",
-                lane = lane.Length == 0 ? "owner" : lane, preferredQuality = quality, qualityFloor = floor,
+                lane = lane.Length == 0 ? "owner" : lane, preferredQuality = quality, qualityFloor = floor, audioLanguage,
                 metadataMs, timeline = result.Timeline, totalMs = clock.Elapsed.TotalMilliseconds,
                 sourceRequests = result.Find.SourceRequests, result.Find.WindowSourceRequests,
                 result.Find.RequestLimit, result.Find.RequestBudgetExhausted, result.Find.EarlyStopped,

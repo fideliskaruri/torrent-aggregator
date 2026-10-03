@@ -29,6 +29,16 @@ Open a title first so its identity is in Metadata's catalog. Acquire reads the L
 have-it set and stores only missing film/episode targets, with counts. Repeated clicks
 reuse deterministic item IDs. Confirmed seasons use one season pool and plan; unresolved
 season/episode scope intent is persisted and expanded only after confirmed Metadata.
+Owner/request season acquisitions refresh Metadata before enumerating episodes, including
+nonempty converted listings. An incomplete refresh keeps the scope pending rather than
+closing it over a stale subset. Automatic episode acceptance keeps its caller's follow
+selection and never expands to the season's back catalogue. Verified provider aliases
+use Metadata's canonical identity for both acquisition and pending Wanted actions.
+Target and pending-scope audio policies resolve work preferences before the global quality
+setting: `auto` means Japanese for anime and English otherwise; `english` means English;
+`any` is retained as an explicit policy. Developer planning uses the same resolver.
+Repeated acquisition updates changed audio policies without reporting new queued items.
+Plan must support `any` to disable language rejection; its current language gate does not.
 Queued counts include only newly accepted or explicitly revived intent. An identical
 repeat keeps the same target and returns `queued: 0`, `Already queued`.
 Pending scopes support Wanted Remove/Try now through Targets. Remove is a durable

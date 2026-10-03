@@ -10,16 +10,38 @@ public sealed partial class TargetPipeline
     {
         if (action is not (TargetAction.Remove or TargetAction.TryNow))
             throw new ArgumentException("Choose Remove or Try now for a pending season.");
+        var affected = 0;
+        await using var resolutionScope = scopes.CreateAsyncScope();
+        var canonical = (await resolutionScope.ServiceProvider.GetRequiredService<IMetadata>()
+            .GetWorkAsync(workKey, false, ct)).Work?.Work;
+        if (canonical is null) return 0;
+        if (canonical.Id != workKey && canonical.WorkKey != workKey)
+        {
+            var aliasCatalog = new CatalogState(resolutionScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"));
+            var seasons = await aliasCatalog.ReadAsync<SeasonRow>(CatalogState.Query(workId: canonical.Id), ct);
+            var episodes = await aliasCatalog.ReadAsync<EpisodeRow>(CatalogState.Query(), ct);
+            var links = await aliasCatalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
+            var downloads = await aliasCatalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct);
+            var targets = await aliasCatalog.ReadAsync<TargetRow>(CatalogState.Query(workId: canonical.Id), ct);
+            foreach (var target in targets.Where(t =>
+                t.State is TargetState.Wanted or TargetState.Waiting or TargetState.Finding or TargetState.Checking or TargetState.Planning))
+            {
+                var item = episodes.FirstOrDefault(e => e.Id == target.EpisodeId);
+                var itemSeason = seasons.FirstOrDefault(s => s.Id == item?.SeasonId);
+                if (season is not null && itemSeason?.Number != season ||
+                    episode is not null && item?.Number != episode ||
+                    links.Any(l => l.TargetId == target.Id && downloads.Any(d => d.Id == l.DownloadId))) continue;
+                await ActionAsync(target.Id, action, ct);
+                affected++;
+            }
+        }
         await stateGate.WaitAsync(ct);
         try
         {
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var catalog = new CatalogState(store);
-            var work = (await catalog.ReadAsync<WorkRow>(CatalogState.Query(), ct))
-                .FirstOrDefault(w => w.Id == workKey || w.WorkKey == workKey);
-            if (work is null) return 0;
-            var pending = (await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(workId: work.Id), ct))
+            var pending = (await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(workId: canonical.Id), ct))
                 .Where(s => s.State == ScopeIntentState.Pending &&
                     (season is null || s.ScopeData.Seasons.Contains(season.Value)) &&
                     (episode is null || s.Scope == RequestScope.Episodes &&
@@ -34,7 +56,7 @@ public sealed partial class TargetPipeline
                         ? s.ScopeData with { Seasons = [.. s.ScopeData.Seasons.Where(n => n != season)] } : s.ScopeData,
                     NextTryAt = now, UpdatedAt = now, Version = s.Version + 1,
                 }, s.Version, null))], [], ct);
-            return pending.Length;
+            return affected + pending.Length;
         }
         finally { stateGate.Release(); }
     }
