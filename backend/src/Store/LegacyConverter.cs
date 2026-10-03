@@ -35,6 +35,7 @@ public sealed class LegacyConverter
     private readonly HashSet<string> nameIds = new();
     private readonly HashSet<string> observations = new();
     private readonly HashSet<string> blockClaims = new();
+    private readonly HashSet<string> deletedHashes = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> report = [];
     private readonly DateTimeOffset epoch = DateTimeOffset.UnixEpoch;
     private SqliteTransaction? transaction;
@@ -58,23 +59,31 @@ public sealed class LegacyConverter
     {
         from = Path.GetFullPath(from);
         to = Path.GetFullPath(to);
-        if (from.Equals(to, StringComparison.OrdinalIgnoreCase) || to.StartsWith(from + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (Overlaps(from, to))
             throw new ArgumentException("Destination must be separate from the source.");
         var oldDb = File.Exists(Path.Combine(from, "torrentflow.db")) ? Path.Combine(from, "torrentflow.db")
             : Path.Combine(from, "data", "torrentflow.db");
         from = Path.GetDirectoryName(oldDb)!;
+        if (Overlaps(from, to))
+            throw new ArgumentException("Destination must be separate from the source data.");
         Directory.CreateDirectory(to);
         using var lease = new FileStream(Path.Combine(to, ".conversion.lock"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None);
-        var map = pathMap is null ? new Dictionary<string, string>()
+        var suppliedMap = pathMap is null ? new Dictionary<string, string>()
             : JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(pathMap))!;
-        foreach (var pair in map)
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in suppliedMap)
         {
             if (!Path.IsPathFullyQualified(pair.Key) || !Path.IsPathFullyQualified(pair.Value)
-                || pair.Value.Equals(pair.Key, StringComparison.OrdinalIgnoreCase)
-                || pair.Value.StartsWith(@"D:\Torrents", StringComparison.OrdinalIgnoreCase)
-                || pair.Value.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), StringComparison.OrdinalIgnoreCase))
+                || Overlaps(Path.GetFullPath(pair.Value), Path.GetFullPath(pair.Key))
+                || Overlaps(Path.GetFullPath(pair.Value), @"D:\Torrents")
+                || Overlaps(Path.GetFullPath(pair.Value), from)
+                || Overlaps(Path.GetFullPath(pair.Value), to)
+                || Overlaps(Path.GetFullPath(pair.Value), Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)))
                 throw new ArgumentException("Rehearsal path maps must point to separate copied payload roots.");
+            EnsureNoLinks(Path.GetFullPath(pair.Value));
+            map.Add(Path.GetFullPath(pair.Key).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(pair.Value).TrimEnd(Path.DirectorySeparatorChar));
         }
         using var source = new SqliteConnection(new SqliteConnectionStringBuilder
         { DataSource = oldDb, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
@@ -82,15 +91,22 @@ public sealed class LegacyConverter
         var backupDirectory = Path.Combine(to, "legacy-backup");
         var backupDb = Path.Combine(backupDirectory, "torrentflow.db");
         var marker = Path.Combine(to, "conversion-complete.json");
+        var started = Path.Combine(to, "conversion-started.json");
         if (File.Exists(marker))
         {
+            var completion = Json(File.ReadAllText(marker), "{}");
+            if (!completion.GetProperty("completed").GetBoolean())
+                throw new IOException("Invalid conversion completion marker. Do not start the new server; preserve this destination for review.");
             if (!File.Exists(Path.Combine(to, "torrentflow.db")) || !File.Exists(backupDb))
                 throw new IOException("Completion marker exists without its database or immutable backup.");
+            if (completion.GetProperty("sourceBackupSha256").GetString() != Digest(backupDb))
+                throw new IOException("The conversion backup no longer matches its completion marker. Preserve this destination for review; no changes made.");
             Console.WriteLine("Already converted. No changes made.");
             return;
         }
-        if (File.Exists(Path.Combine(to, "torrentflow.db")))
-            throw new IOException("Destination already has a database but no completion marker. Use a fresh destination.");
+        if (File.Exists(started) || File.Exists(Path.Combine(to, "torrentflow.db")))
+            throw new IOException("Conversion was interrupted or this destination already contains a database. Do not start the new server. Preserve this destination and copied payloads; rerun with a fresh destination and fresh payload copies. The old server can still use its untouched data.");
+        File.WriteAllText(started, JsonSerializer.Serialize(new { startedAt = DateTimeOffset.UtcNow, source = from }));
         Directory.CreateDirectory(backupDirectory);
         using (var backup = new SqliteConnection($"Data Source={backupDb};Pooling=False"))
         {
@@ -124,9 +140,15 @@ public sealed class LegacyConverter
             completed = true, schedulerPaused = true, report = converter.report,
         };
         File.WriteAllText(Path.Combine(to, "conversion-report.json"), JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllText(marker, JsonSerializer.Serialize(result));
+        File.WriteAllText(marker + ".pending", JsonSerializer.Serialize(result));
+        File.Move(marker + ".pending", marker);
         foreach (var line in converter.report) Console.WriteLine(line);
     }
+
+    private static bool Overlaps(string first, string second) =>
+        first.TrimEnd(Path.DirectorySeparatorChar).Equals(second.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+        || first.StartsWith(second.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        || second.StartsWith(first.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private void Run()
     {
@@ -165,6 +187,7 @@ public sealed class LegacyConverter
             People();
             Catalog();
             Settings();
+            Deletions();
             Staging();
             Manifest();
             Transfers();
@@ -173,8 +196,8 @@ public sealed class LegacyConverter
             Intent();
             History();
             SideFiles();
-            Execute("UPDATE Target SET state='done',reasonCode=NULL,reasonText=NULL WHERE EXISTS (SELECT 1 FROM MediaFile m WHERE m.workId=Target.workId AND coalesce(m.episodeId,'')=coalesce(Target.episodeId,'') AND m.role='video' AND m.status='present')");
-            Execute("UPDATE RequestItem SET settlement='fulfilled' WHERE targetId IN (SELECT id FROM Target WHERE state='done')");
+            Execute("UPDATE Target SET state='done',reasonCode=NULL,reasonText=NULL WHERE state<>'removed' AND EXISTS (SELECT 1 FROM MediaFile m WHERE m.workId=Target.workId AND coalesce(m.episodeId,'')=coalesce(Target.episodeId,'') AND m.role='video' AND m.status='present')");
+            Execute("UPDATE RequestItem SET settlement='fulfilled' WHERE settlement='open' AND targetId IN (SELECT id FROM Target WHERE state='done')");
             using var check = destination.CreateCommand();
             check.Transaction = transaction;
             check.CommandText = "PRAGMA foreign_key_check";
@@ -416,8 +439,6 @@ public sealed class LegacyConverter
             }
         if (paths.Values.Any(root => path.StartsWith(Path.GetFullPath(root).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)))
         { EnsureNoLinks(path); return Path.GetFullPath(path); }
-        if (path.StartsWith(sourceDirectory.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
-        { EnsureNoLinks(path); return Path.GetFullPath(path); }
         return null;
     }
     private static void EnsureNoLinks(string path)
@@ -510,7 +531,7 @@ public sealed class LegacyConverter
     }
     private void Staging()
     {
-        foreach (var row in Rows("EngineTorrent"))
+        foreach (var row in Rows("EngineTorrent").Where(r => !deletedHashes.Contains(S(r, "hash") ?? "")))
         {
             var staged = Map(S(row, "stagePath"));
             var final = Map(S(row, "savePath"));
@@ -600,7 +621,7 @@ public sealed class LegacyConverter
     }
     private void Transfers()
     {
-        foreach (var row in Rows("EngineTorrent"))
+        foreach (var row in Rows("EngineTorrent").Where(r => !deletedHashes.Contains(S(r, "hash") ?? "")))
         {
             var hash = Release(row, "hash") ?? throw new InvalidDataException("EngineTorrent has an invalid hash.");
             var id = S(row, "id")!;
@@ -667,7 +688,7 @@ public sealed class LegacyConverter
         {
             var hash = S(row, "infoHash")?.ToLowerInvariant();
             var download = Rows("EngineTorrent").FirstOrDefault(d => S(d, "hash")?.ToLowerInvariant() == hash);
-            if (download is null) continue;
+            if (download is null || deletedHashes.Contains(hash ?? "")) continue;
             var target = S(row, "id")!;
             using var exists = destination.CreateCommand();
             exists.Transaction = transaction;
@@ -694,10 +715,10 @@ public sealed class LegacyConverter
             var episode = Episode(work, (int?)N(row, "season"), (int?)N(row, "episode"));
             if (!targetCoordinates.Add($"{work}/{episode}"))
             { report.Add("Duplicate Target archived: " + S(row, "id")); continue; }
-            var state = S(row, "status") is "removed" or "deleted" or "cancelled" ? TargetState.Removed
+            var state = IsRemoval(row) || deletedHashes.Contains(S(row, "infoHash") ?? "") ? TargetState.Removed
                 : S(row, "status") == "paused" ? TargetState.Paused : TargetState.Wanted;
             var path = Map(S(row, "filePath"));
-            if (path is not null && File.Exists(path))
+            if (state != TargetState.Removed && path is not null && File.Exists(path))
             {
                 Media(work, episode, path, null, null, FileRole.Video, (int?)N(row, "preferredResolution"));
                 state = TargetState.Done;
@@ -730,15 +751,14 @@ public sealed class LegacyConverter
             var id = S(row, "id")!;
             var scope = S(row, "scope") switch { "series" => RequestScope.Series, "season" or "seasons" => RequestScope.Seasons,
                 "episode" or "episodes" => RequestScope.Episodes, _ => RequestScope.Film };
-            var decision = S(row, "status") switch { "approved" or "fulfilled" or "downloading" => RequestDecision.Approved,
+            var decision = S(row, "status") switch { "approved" or "fulfilled" or "downloading" or "partial" or "failed" => RequestDecision.Approved,
                 "declined" or "rejected" => RequestDecision.Declined, "cancelled" => RequestDecision.Cancelled, _ => RequestDecision.Pending };
             Add("Request", Values(("id", id), ("userId", S(row, "requestedByUserId") ?? owner), ("workId", work),
-                ("scope", scope), ("scopeData", new RequestScopeData(S(row, "seasons") is { } data
-                    ? JsonSerializer.Deserialize<ImmutableArray<int>>(data) : [], false)),
+                ("scope", scope), ("scopeData", new RequestScopeData(RequestSeasons(S(row, "seasons")), false)),
                 ("decision", decision), ("note", S(row, "note")), ("decisionReason", S(row, "decisionReason")),
+                ("decidedAt", S(row, "decidedAt") is null ? null : D(row, "decidedAt")),
                 ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
-            Add("RequestItem", Values(("id", Id("request-item/" + id)), ("requestId", id),
-                ("targetId", S(row, "acquisitionTargetId")), ("settlement", S(row, "status") == "fulfilled" ? ItemSettlement.Fulfilled : ItemSettlement.Open)));
+            RequestItems(row, work, scope);
         }
         foreach (var row in Rows("RequestAutoApproveRule"))
             Add("AutoApproveRule", Values(("id", S(row, "id")), ("normalizedEmail", S(row, "email")!.Trim().ToLowerInvariant()),
@@ -749,6 +769,142 @@ public sealed class LegacyConverter
                 ("maxBytes", N(row, "maxSizeBytes")), ("resolutionFloor", N(row, "resolution")),
                 ("sourceIds", JsonSerializer.Deserialize<ImmutableArray<string>>(S(row, "sources") ?? "[]")),
                 ("enabled", B(row, "enabled")), ("matchCount", N(row, "matchCount") ?? 0), ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
+    }
+    private static bool IsRemoval(Dictionary<string, object?> row) =>
+        S(row, "status")?.ToLowerInvariant() is "removed" or "deleted" or "cancelled" or "deleting"
+            or "removing" or "pending-delete" or "pendingdelete" or "pending_delete";
+
+    private void Deletions()
+    {
+        foreach (var row in Rows("EngineTorrent").Where(IsRemoval))
+            deletedHashes.Add(S(row, "hash")!);
+        var deletions = Rows("EngineDeletion").ToList();
+        foreach (var row in deletions)
+        {
+            var hash = S(row, "Hash") ?? throw new InvalidDataException("Deletion has no hash.");
+            if (Rows("EngineTorrent").Any(r => string.Equals(S(r, "hash"), hash, StringComparison.OrdinalIgnoreCase) && !IsRemoval(r)))
+            {
+                report.Add($"Deletion {hash}: superseded by an existing transfer; its files retained.");
+                continue;
+            }
+            deletedHashes.Add(hash);
+            var files = JsonSerializer.Deserialize<string[]>(S(row, "FilesJson") ?? "[]") ?? [];
+            var staged = S(row, "SavePath")?.Split(Path.DirectorySeparatorChar).Contains(".staging", StringComparer.OrdinalIgnoreCase) == true;
+            if (!B(row, "DeleteFiles") && !staged)
+            {
+                report.Add($"Deletion {hash}: engine detach only; library files retained for explicit import review.");
+                continue;
+            }
+            if (staged && Map(S(row, "SavePath")) is { } stage && Directory.Exists(stage))
+            {
+                EnsureNoLinks(stage);
+                files = [.. files, .. Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories)];
+            }
+            foreach (var original in files.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var path = Map(original);
+                if (path is null)
+                {
+                    report.Add($"Deletion {hash}: unmapped original file not accessed; no copied orphan exists.");
+                    continue;
+                }
+                var shared = Rows("EngineTorrent").Where(r => !deletedHashes.Contains(S(r, "hash") ?? ""))
+                    .Any(r => Json(S(r, "verifiedFilesJson")).EnumerateArray().Any(f =>
+                        f.TryGetProperty("fullPath", out var full) && string.Equals(Map(full.GetString()), path, StringComparison.OrdinalIgnoreCase)));
+                if (shared) throw new InvalidDataException($"Deletion {hash} overlaps a retained transfer. Review its copied files before converting.");
+                var bytes = File.Exists(path) ? new FileInfo(path).Length : (long?)null;
+                var digest = File.Exists(path) ? Digest(path) : null;
+                File.Delete(path);
+                if (File.Exists(path)) throw new IOException($"Deletion {hash} could not remove its copied payload; conversion stopped.");
+                Add("FileOperation", Values(("id", Id($"delete/{hash}/{PhysicalKey(path)}")),
+                    ("kind", FileOperationKind.Delete), ("sourcePath", path), ("expectedBytes", bytes),
+                    ("expectedDigest", digest), ("state", FileOperationState.Done), ("deleteSource", true),
+                    ("attempts", N(row, "Attempts") ?? 0), ("createdAt", D(row)), ("updatedAt", D(row))));
+            }
+            report.Add($"Deletion {hash}: {files.Length} exact copied file claims reconciled; original files untouched.");
+        }
+        foreach (var row in Rows("EngineTorrent").Where(IsRemoval))
+        {
+            if (!deletions.Any(d => string.Equals(S(d, "Hash"), S(row, "hash"), StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("A removing transfer has no deletion file manifest. Preserve copied files and complete the old deletion on a separate copy before converting.");
+        }
+    }
+
+    private static ImmutableArray<int> RequestSeasons(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        if (value.TrimStart().StartsWith('[')) return JsonSerializer.Deserialize<ImmutableArray<int>>(value);
+        return [.. value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(v => int.Parse(v, CultureInfo.InvariantCulture)).Distinct().Order()];
+    }
+
+    private static Dictionary<int, int> RequestMarks(string? value)
+    {
+        var marks = new Dictionary<int, int>();
+        foreach (var token in (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = token.Split(':');
+            if (parts.Length != 2 || !int.TryParse(parts[0], CultureInfo.InvariantCulture, out var season)
+                || !int.TryParse(parts[1], CultureInfo.InvariantCulture, out var episode) || season < 0 || episode < 0)
+                throw new InvalidDataException("A request has an invalid high-water mark. Review the copied legacy request before converting.");
+            marks[season] = Math.Max(episode, marks.GetValueOrDefault(season));
+        }
+        return marks;
+    }
+
+    private void RequestItems(Dictionary<string, object?> row, string work, RequestScope scope)
+    {
+        var request = S(row, "id")!;
+        var selectedSeasons = RequestSeasons(S(row, "seasons"));
+        var covered = RequestMarks(S(row, "coveredThrough"));
+        var fulfilled = RequestMarks(S(row, "fulfilledThrough"));
+        var candidates = Rows("AcquisitionTarget").Where(t =>
+            (S(t, "workId") == work || S(t, "workKey") == S(row, "workKey")) &&
+            (scope == RequestScope.Film ? N(t, "episode") is null :
+                scope == RequestScope.Episodes ? S(t, "id") == S(row, "acquisitionTargetId") :
+                scope == RequestScope.Series || selectedSeasons.Contains((int)(N(t, "season") ?? -1)))).ToList();
+        var coordinates = candidates.Select(t => ((int?)N(t, "season"), (int?)N(t, "episode"))).ToHashSet();
+        foreach (var mark in covered.Concat(fulfilled).GroupBy(m => m.Key))
+        {
+            if (scope != RequestScope.Series && !selectedSeasons.Contains(mark.Key)) continue;
+            var through = mark.Max(m => m.Value);
+            if (through > 10000 || through < 0) throw new InvalidDataException("Request high-water mark is outside supported episode bounds.");
+            for (var number = 1; number <= through; number++)
+                coordinates.Add((mark.Key, number));
+        }
+        if (scope == RequestScope.Film) coordinates.Add((null, null));
+        var count = 0;
+        foreach (var (season, number) in coordinates.OrderBy(c => c.Item1).ThenBy(c => c.Item2))
+        {
+            var episode = Episode(work, season, number);
+            using var command = destination.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT id,state FROM Target WHERE workId=$work AND coalesce(episodeId,'')=coalesce($episode,'') AND kind='acquire'";
+            command.Parameters.AddWithValue("$work", work);
+            command.Parameters.AddWithValue("$episode", episode ?? (object)DBNull.Value);
+            string? target = null, state = null;
+            using (var reader = command.ExecuteReader())
+                if (reader.Read()) { target = reader.GetString(0); state = reader.GetString(1); }
+            var historicalFulfilled = season is { } sn && number is { } en && en <= fulfilled.GetValueOrDefault(sn);
+            var stopped = state == "removed" || (!historicalFulfilled && target is null && season is { } s && number <= covered.GetValueOrDefault(s));
+            if (target is null && stopped)
+            {
+                target = Id($"request-tombstone/{work}/{episode}");
+                Add("Target", Values(("id", target), ("workId", work), ("episodeId", episode),
+                    ("kind", TargetKind.Acquire), ("state", TargetState.Removed), ("createdBy", owner),
+                    ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
+                targetCoordinates.Add($"{work}/{episode}");
+            }
+            var settlement = stopped ? ItemSettlement.StoppedByOwner :
+                historicalFulfilled || state == "done" || (scope == RequestScope.Film && S(row, "status") == "fulfilled")
+                    ? ItemSettlement.Fulfilled : ItemSettlement.Open;
+            Add("RequestItem", Values(("id", Id($"request-item/{request}/{episode ?? "film"}")), ("requestId", request),
+                ("episodeId", episode), ("targetId", target), ("settlement", settlement),
+                ("settledAt", settlement == ItemSettlement.Open ? null : D(row, "updatedAt")),
+                ("createdAt", D(row)), ("updatedAt", D(row, "updatedAt"))));
+            count++;
+        }
+        report.Add($"Request {request}: {count} item links; high-water marks and owner removals retained.");
     }
     private void History()
     {
@@ -811,10 +967,9 @@ public sealed class LegacyConverter
             command.Parameters.AddWithValue("$path", PhysicalKey(path));
             command.ExecuteNonQuery();
         }
-        foreach (var table in new[] { "ReleaseHint", "CachedMetadata", "EngineDeletion" })
+        foreach (var table in new[] { "ReleaseHint", "CachedMetadata" })
             report.Add($"{table}: backup preserves all {Rows(table).Count()} rows; provider-specific hint keys are not hash-bound and stale cache data cannot prove ownership; live adoption requires review.");
         report.Add($"CatalogEntry: {Rows("CatalogEntry").Count()} rows merged by public work key into catalog; browse rank/seed/health hints archived.");
-        if (Rows("EngineDeletion").Any()) throw new InvalidDataException("Pending legacy deletions require reviewed file operations before conversion.");
     }
     private string PhysicalKey(string path) => rootIdentity is null
         ? Path.GetFullPath(path).TrimEnd('\\').ToLowerInvariant() : rootIdentity(path).PhysicalKey;
