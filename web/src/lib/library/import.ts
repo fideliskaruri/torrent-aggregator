@@ -42,7 +42,6 @@ export interface ImportItem {
   candidates: ImportCandidate[];
   sidecars: { path: string }[];
   alreadyInLibrary: boolean;
-  duplicateKey: string | null;
   message: string | null;
 }
 
@@ -54,16 +53,7 @@ export interface ImportScan {
   scanned: number;
   items: ImportItem[];
   error: string | null;
-  duplicates: { key: string; itemIds: string[] }[];
 }
-
-export type ImportMode = "TrackInPlace" | "Move" | "Copy";
-
-export const IMPORT_MODES: { value: ImportMode; label: string; hint: string }[] = [
-  { value: "TrackInPlace", label: "Leave files where they are", hint: "Nothing moves. TorrentFlow counts them as yours." },
-  { value: "Move", label: "Move into my library", hint: "Files get library names on your drive. Each is checked before the original goes." },
-  { value: "Copy", label: "Copy into my library and keep originals", hint: "Needs room for a second copy of every file." },
-];
 
 export interface ImportResultItem {
   itemId: string;

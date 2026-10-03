@@ -160,25 +160,17 @@ All new routes are owner-only, including reads containing paths:
 | Method | Route | Body / response |
 |---|---|---|
 | POST | `/api/library/imports/scan` | `{"path":"D:\\Media"}`; 202 `{scanId,state}` immediately |
-| GET | `/api/library/imports/{scanId}` | `state`, `total`, `scanned`, `items`, `confident`, `needsPick`, `unmatched`, `duplicates`, optional `error` |
+| GET | `/api/library/imports/{scanId}` | `state`, `total`, `scanned`, `items`, `confident`, `needsPick`, `unmatched`, optional `error` |
 | GET | `/api/library/imports` | Pending persisted scan IDs, paths, states and counts |
 | POST | `/api/library/imports/{scanId}/dismiss` | `{itemIds:["id"]}` explicitly leaves those files alone and releases their review |
-| POST | `/api/library/imports/{scanId}/confirm` | `{mode:"TrackInPlace"|"Move"|"Copy",rootId?,items:[{itemId,workId,episodeId?}]}` |
-| GET | `/api/library/imports/operations` | Interrupted operation paths, stages and reasons needing review |
+| POST | `/api/library/imports/{scanId}/confirm` | `{items:[{itemId,workId,episodeId?}]}` records accepted files at their current paths |
 | POST | `/api/library/roots/{rootId}/rescan` | Present/offline/missing/dropped counts and drive status |
 | GET | `/api/library/owned/{workId}` | Existing have-it projection; optional `episodeId` / `film=true` |
 
 Review items retain separate filename/ancestor parse evidence, parsed quality,
 candidate work and exact episode IDs, sidecars, and an already-owned marker.
-`ImportReviews.CandidatesAsync` exposes the effective pending items for a canonical
-work through the existing review port, retaining their candidate identities and
-parse evidence. It creates no persisted hold or ownership rows. Targets owns the
-one admission rule: ownership first, then candidate episode/film scope; a missing
-candidate episode mapping can still be scoped by the recorded filename coordinates.
-Only a known-work item without either identity or coordinate evidence is work-wide.
-Duplicate keys group all locations of the same film/episode; confirmation rejects
-selecting two of them. A missing episode mapping requires an explicit valid catalog
-episode pick. Unmatched files may also be explicitly assigned at confirmation.
+A missing episode mapping requires an explicit valid catalog episode pick.
+Unmatched files may also be explicitly assigned at confirmation.
 The scan root itself is not ordinary title evidence (a folder named `Incoming`
 must not turn unknown files into the film of that name). For bare numbered videos
 under `Season N`, a named-series scan root can supply the series name; the catalog
@@ -191,8 +183,6 @@ Filename and non-container ancestor titles are resolved independently; disagreem
 or an ancestor that does not match the chosen work's names requires a pick.
 Bare `01`/`E01` filenames in a named series' `Season N` folder reuse the folder's
 season and the catalog's confirmed episode map.
-Destination collisions report import-specific guidance without changing download messages.
-
 Confidence also requires a readable video duration and catalog runtime. Film
 duration must be within the larger of 25% or 20 minutes of the catalog runtime;
 episodes must be within 50% of their exact episode runtime. The existing bounded
@@ -208,31 +198,16 @@ Details are read once per unchanged file in a scan
 and reused by adoption; explicit confirmation reads and stores current dimensions
 and runtime on MediaFile. Neither ffmpeg nor ffprobe is a production dependency.
 
-Nothing writes files or inventory before confirmation. Track-in-place retains the
-source path, with a null root outside enrolled roots. Move and copy reuse placement,
-including existing title pins, Jellyfin kind/season folders and sidecar names.
-Original basenames are retained as required by design 1.5. No destination is overwritten.
-Every selected video must have a recognized container signature.
-The signature atom is shared with download filing; AVI, ASF and transport-stream
-fixtures are covered, and renamed WAV/audio and executable headers are refused.
+Nothing writes inventory before confirmation. Confirmation records the selected
+video at its current path, with its enrolled root when applicable. No files are
+renamed, copied or deleted. The file's size, mtime, non-link ancestry and recognized
+container signature are checked before it is recorded. Imported origin is internal
+only; the shared have-it query immediately exposes the same quality and ownership
+as downloaded media.
 
-Verification uses **full SHA-256**, not sampled hashes: import is explicit and runs
-outside the instant scan acknowledgement, so the additional sequential reads are
-worth eliminating a sampling blind spot. Size, source mtime and non-link ancestry
-are checked too. Copies use exclusive `.partial` creation, durable flush, verified
-atomic publication, and another final digest before inventory commit. All video and
-sidecar rows for an item commit together with its operation stages; only then may a
-move delete digest-verified originals. Copy never counts its retained source as a
-second inventory file. Imported origin is internal only; the shared have-it query
-immediately exposes the same quality/ownership as downloaded media.
-
-SQLite FileOperation/FilePathClaim rows protect both ends across concurrent calls
-and survive interruptions. Completed operation references are released so they
-cannot prevent the 30-day missing-file expiry. Completed scan proposals survive restart. Confirmed and dismissed items leave the
+Completed scan proposals survive restart. Confirmed and dismissed items leave the
 pending projection, with decisions retained for audit. Interrupted scans are shown
-as failed and can be scanned again; an interrupted operation is left for explicit path review rather than guessed or
-destructively replayed. Automatic recovery of pre-inventory proposals is not
-implemented here; the operations read endpoint exposes that limitation honestly.
+as failed and can be scanned again.
 
 Root reconciliation reuses marker/volume identity and mass-vanish protection.
 Incomplete or offline scans mark files offline and cannot confirm missing files.

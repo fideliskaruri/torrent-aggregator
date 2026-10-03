@@ -26,7 +26,6 @@ public static class StoreModule
         services.AddScoped<NotificationRepository>(sp => new NotificationRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddSingleton<ICheckRepository, CheckRepository>();
         services.AddScoped<ILibraryRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
-        services.AddScoped<ILibraryImportRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddScoped<ImportReviewRepository>(sp => new ImportReviewRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         return services;
     }

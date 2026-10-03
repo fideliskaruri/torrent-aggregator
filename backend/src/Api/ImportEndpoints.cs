@@ -20,7 +20,7 @@ internal static class ImportEndpoints
             context.HttpContext.Response.Headers.CacheControl = "no-store";
             try { return await next(context); }
             catch (Exception ex) when (ex is JsonException or BadHttpRequestException)
-            { return Results.BadRequest(new { error = "invalid_import", message = "The import request could not be read. Choose the files and mode again." }); }
+            { return Results.BadRequest(new { error = "invalid_import", message = "The import request could not be read. Choose the files again." }); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             { return Results.BadRequest(new { error = "import_failed", message = ex.Message }); }
         });
@@ -30,10 +30,6 @@ internal static class ImportEndpoints
             var scan = jobs.Start(path);
             return Results.Json(new { scanId = scan.Id, state = scan.State }, Json, statusCode: 202);
         });
-        group.MapGet("/imports/operations", async (ILibraryImportRepository repository, CancellationToken ct) =>
-            Results.Json(new { operations = (await repository.ImportOperationsAsync(ct))
-                .Where(o => o.State is not FileOperationState.Done and not FileOperationState.Superseded)
-                .Select(o => new { o.Id, o.SourcePath, o.DestinationPath, o.State, o.LastError, o.ExpectedBytes }) }, Json));
         group.MapGet("/imports", async (ImportReviews reviews, CancellationToken ct) =>
             Results.Json(new { scans = (await reviews.ListAsync(ct)).Where(s => !s.Items.IsEmpty ||
                 s.State is "queued" or "scanning" or "failed").Select(s => new { s.Id, s.Path, s.State,
@@ -45,14 +41,12 @@ internal static class ImportEndpoints
                 confident = scan.Items.Where(i => i.Group == ImportConfidence.Confident),
                 needsPick = scan.Items.Where(i => i.Group == ImportConfidence.NeedsPick),
                 unmatched = scan.Items.Where(i => i.Group == ImportConfidence.Unmatched),
-                duplicates = scan.Items.Where(i => i.DuplicateKey is not null).GroupBy(i => i.DuplicateKey)
-                    .Where(g => g.Count() > 1).Select(g => new { key = g.Key, itemIds = g.Select(i => i.Id) }),
             }, Json) : Results.NotFound(new { message = "This scan expired. Scan the folder again." }));
         group.MapPost("/imports/{id}/confirm", async (string id, HttpContext http, ImportJobs jobs,
             MediaImport importer, CancellationToken ct) =>
         {
             var input = await http.Request.ReadFromJsonAsync<ImportConfirmInput>(Json, ct) ??
-                throw new ArgumentException("Choose files and an import mode.");
+                throw new ArgumentException("Choose files to import.");
             using var held = await jobs.LockAsync(id, ct);
             var scan = await jobs.GetAsync(id, ct);
             if (scan is null) return Results.NotFound(new { message = "This scan does not exist. Scan the folder again." });

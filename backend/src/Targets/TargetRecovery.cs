@@ -108,10 +108,6 @@ public sealed partial class TargetPipeline
     {
         var initial = await ReadAsync(ct);
         var first = initial.Targets.SingleOrDefault(t => t.Id == targetId);
-        await using var reviewScope = scopes.CreateAsyncScope();
-        if (first is not null &&
-            await TargetAdmission.HoldsAsync(reviewScope.ServiceProvider, first, ct))
-            return new(false, 0, 0, [targetId], ImportReviews.HoldMessage) { Held = 1 };
         if (stall is not null && !await CanRunAsync(ct))
             return new(false, 0, 0, [targetId], "Downloads are paused. Finish reviewing the library and enable downloads first.");
         if (first is null || first.State != TargetState.Fetching || first.ChosenReleaseHash is null)
@@ -128,9 +124,6 @@ public sealed partial class TargetPipeline
             var rows = initial.Targets.Where(t => t.State == TargetState.Fetching &&
                 links.Any(l => l.DownloadId == old.Id && l.TargetId == t.Id && l.Role == AssociationRole.Current))
                 .ToImmutableArray();
-            foreach (var row in rows)
-                if (await TargetAdmission.HoldsAsync(scope.ServiceProvider, row, ct))
-                    return new(false, 0, 0, [targetId], ImportReviews.HoldMessage) { Held = 1 };
             var now = DateTimeOffset.UtcNow;
             await CommitAsync(store, [new(new AttemptRow(Guid.NewGuid().ToString("N"), first.Id,
                 first.WorkId, old.Hash, first.CreatedBy, AttemptKind.Swap, now, now, "Searching",

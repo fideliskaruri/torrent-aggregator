@@ -64,8 +64,7 @@ builder.Services.AddScoped(sp =>
 {
     var repository = sp.GetRequiredService<ImportReviewRepository>();
     return new TorrentFlow.Library.ImportReviews(repository.GetAsync, repository.ListAsync,
-        repository.SaveAsync, repository.DecideAsync, async (key, ct) =>
-            (await sp.GetRequiredService<TorrentFlow.Domain.IMetadata>().GetWorkAsync(key, false, ct)).Work?.Work.Id);
+        repository.SaveAsync, repository.DecideAsync);
 });
 builder.Services.AddLocalFiles();
 builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,

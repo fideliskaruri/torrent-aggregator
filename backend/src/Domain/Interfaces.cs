@@ -91,12 +91,8 @@ public interface ILibrary
     Task<PlacementResult> PlaceAsync(PlacementInput input, CancellationToken cancellationToken);
     Task<FilingResult> FileAsync(FilingRequest request, CancellationToken cancellationToken);
     Task<ScanResult> ScanAsync(ScanRequest request, CancellationToken cancellationToken);
-    Task<FilingResult> ImportAsync(ImportCommand command, CancellationToken cancellationToken);
     Task<DeletionPlan> PreviewDeleteAsync(LibraryCommand command, CancellationToken cancellationToken);
     Task<FilingResult> ExecuteAsync(LibraryCommand command, CancellationToken cancellationToken);
-    Task<FilingResult> AdvanceOperationAsync(FileOperationRow operation, FileExecutionProof proof,
-        CancellationToken cancellationToken);
-    Task<FilingResult> RecoverOperationsAsync(DateTimeOffset now, CancellationToken cancellationToken);
     Task<FolderResult> BrowseFoldersAsync(FolderQuery query, CancellationToken cancellationToken);
     Task<RecoveryResult> RecoveryAsync(RecoveryQuery query, CancellationToken cancellationToken);
     Task<UntrackedFilesResult> UntrackedFilesAsync(UntrackedFilesQuery query, CancellationToken cancellationToken);

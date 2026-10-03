@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Threading.Channels;
 using TorrentFlow.Domain;
 using Microsoft.Extensions.DependencyInjection;
-using TorrentFlow.Library;
 
 namespace TorrentFlow.Targets;
 
@@ -30,20 +29,6 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                 policy.ResolutionFloor, policy.PreferredResolution, policy.AudioLanguage, policy.MaxBytes,
                 false, 0, null, "dev", IntentOrigin.Owner, null, null, null, null, null, now,
                 0, null, 0, null, null, now, now, 0)).ToImmutableArray();
-        ImmutableArray<TargetRow> heldTargets;
-        await using (var reviewScope = scopes.CreateAsyncScope())
-        {
-            var admission = await TargetAdmission.ReadAsync(reviewScope.ServiceProvider, scope, ct);
-            heldTargets = [.. targets.Where(t => admission.Holds(t.EpisodeId))];
-            targets = [.. targets.Where(t => !admission.Holds(t.EpisodeId))];
-            if (targets.IsEmpty)
-                return new(new("import-review", 0, [], [], true, SearchNamePhase.English, SourceTier.Core),
-                    [], new([], [.. heldTargets.Select(t => new Rejection("", t.Id, "import_review",
-                        ImportReviews.HoldMessage))], [.. heldTargets.Select(t => t.Id)]),
-                    new(null, null, null, clock.Elapsed.TotalMilliseconds), 0, 0, heldTargets, 0,
-                    ImportReviews.HoldMessage);
-            scope = scope with { EpisodeIds = [.. targets.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)] };
-        }
         var stopping = new DiscoveryStopping(scopes, check);
         var scopeKey = DiscoveryStopping.ScopeKey(work, scope, policy, lane, exhaust, targets, owned,
             excludedHashes, options, sourceIds);
@@ -221,16 +206,7 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
             return new DiscoveryResult(last!, [.. evidence.Values], plan,
                 new(firstCandidate, firstVerdict, ready, clock.Elapsed.TotalMilliseconds),
                 submissions, evidence.Values.Count(e => !e.FromCache && !e.FromLiveTransfer && e.Window > TimeSpan.Zero),
-                targets, evidence.Values.Count(e => e.FromCache), stopReason) with
-            {
-                Plan = plan with
-                {
-                    Rejections = plan.Rejections.AddRange(heldTargets.Select(t =>
-                        new Rejection("", t.Id, "import_review", ImportReviews.HoldMessage))),
-                    UncoveredTargetIds = plan.UncoveredTargetIds.AddRange(heldTargets.Select(t => t.Id)),
-                },
-                Targets = targets.AddRange(heldTargets),
-            };
+                targets, evidence.Values.Count(e => e.FromCache), stopReason);
         }
         finally
         {

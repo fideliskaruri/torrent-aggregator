@@ -87,7 +87,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                             rule.MinListedSeeders, rule.MaxBytes, ct);
                         count += accepted.Queued;
                         ownedCount += accepted.Owned;
-                        if (accepted.Queued > 0 || accepted.Held > 0 || accepted.Owned > 0)
+                        if (accepted.Queued > 0 || accepted.Owned > 0)
                             items.Add(new(work.Work.WorkKey, episode.Id, season.Number, episode.Number,
                                 episode.AirAt!.Value, "Rule", AdmissionProjection.Status(accepted),
                                 rule.Id, accepted.Message));
