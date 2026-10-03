@@ -64,7 +64,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
             {
                 Complete = outcome == SourceOutcome.Success,
                 Diagnostics = new(code, trace.QueueWait, trace.Requests, trace.HttpStatus,
-                    trace.StartedAt, pool.Count, truncated)
+                    trace.StartedAt, pool.Count, truncated) { UpstreamElapsed = trace.UpstreamElapsed }
             };
         try
         {

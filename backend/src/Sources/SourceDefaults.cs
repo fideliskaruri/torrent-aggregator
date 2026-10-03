@@ -7,8 +7,8 @@ internal static class SourceDefaults
     {
         ["apibay"] = "https://apibay.org",
         ["nyaa"] = "https://nyaa.si",
-        ["eztv"] = "https://eztv.re/api",
-        ["yts"] = "https://yts.lt/api/v2",
+        ["eztv"] = "https://eztvx.to/api",
+        ["yts"] = "https://yts.gg/api/v2",
         ["torrentscsv"] = "https://torrents-csv.com/service/search",
         ["knaben"] = "https://api.knaben.org/v1",
         ["animetosho"] = "https://feed.animetosho.net"

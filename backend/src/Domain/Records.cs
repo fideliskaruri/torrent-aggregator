@@ -191,7 +191,10 @@ public sealed record SourceResult(string SourceId, SourceOutcome Outcome, Immuta
     public SourceDiagnostics? Diagnostics { get; init; }
 }
 public sealed record SourceDiagnostics(string Code, TimeSpan QueueWait, int Requests,
-    int? HttpStatus, DateTimeOffset? StartedAt, int Returned, bool Truncated);
+    int? HttpStatus, DateTimeOffset? StartedAt, int Returned, bool Truncated)
+{
+    public TimeSpan UpstreamElapsed { get; init; }
+}
 public sealed record Candidate(ReleaseRow Release, ImmutableArray<ReleaseObservationRow> Observations,
     int? ConservativeListedSeeders);
 public sealed record SearchRequest(string SessionId, WorkSnapshot Work, TargetScope Scope,

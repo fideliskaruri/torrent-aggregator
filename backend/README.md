@@ -198,7 +198,12 @@ or cooldown is never Complete. The pool asks for at least 50 and retains at most
 bounded pagination. Knaben's nested total and Nyaa's fixed RSS window keep truncation
 honest. RSS parsing prohibits DTDs/resolvers and malformed XML is SourceFailure.
 Responses are bounded to 8 MiB. Diagnostics include queue wait, first start, request
-count, last HTTP status, returned count and truncation; listed seeders are not health.
+count, last HTTP status, returned count, truncation and `upstreamElapsed` (headers/body
+I/O including connection setup, excluding gate wait); listed seeders are not health.
+The first call on an idle gate has no courtesy delay. Sequential apibay searches can
+spend nearly two seconds waiting for the previous call's start-spacing window.
+EZTV/YTS defaults point directly at their live canonical API hosts; a short TorrentsCSV
+page ends its cursor traversal rather than fetching an unnecessary empty page.
 
 In **Development only**, the owner-only, loopback-only read hook is:
 
@@ -225,6 +230,8 @@ dotnet backend\.sources-build\bin\Api\debug\TorrentFlow.dll `
 python tools\sources-check.py
 # Stop that exact server PID before running the self-owned stub proof:
 python tools\sources-http-proof.py
+# With 3945 free: one fresh host/gate per Core source, then a warm idle comparison:
+python tools\sources-cold-check.py
 ```
 
 `sources-check.py` writes the applicable nine-title live matrix, raw snapshots,
@@ -238,3 +245,5 @@ malformed RSS/DTD refusal, insecure redirect refusal, independent-site/shared-ho
 cooldown, queued cooldown release, 503-without-header, delay/date/default/exponential
 429 cooldown and an uncapped 500-second Retry-After. Evidence is
 `tools\.sources-proof\infrastructure.json`. Neither script calls 3930 or stable data.
+`sources-cold-check.py` records queue, upstream and HTTP elapsed time, request count,
+comparison with the queued matrix and owned PIDs in `tools\.sources-proof\cold.json`.

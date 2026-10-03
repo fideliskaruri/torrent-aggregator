@@ -100,7 +100,7 @@ internal static class CoreAdapters
         {
             "eztv" => rawCount == 100,
             "yts" => rawCount == 50,
-            "torrentscsv" => Long(root, "next") is > 0,
+            "torrentscsv" => rawCount >= 25 && Long(root, "next") is > 0,
             "animetosho" => rawCount >= 75,
             // Knaben may return fewer hits than the requested window even with a larger total.
             "knaben" => root.TryGetProperty("total", out var total) &&
