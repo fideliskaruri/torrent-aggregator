@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Domain'"></AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Parser' or '$(MSBuildProjectName)' == 'Plan' or '$(MSBuildProjectName)' == 'Metadata' or '$(MSBuildProjectName)' == 'Sources' or '$(MSBuildProjectName)' == 'Engine' or '$(MSBuildProjectName)' == 'Library' or '$(MSBuildProjectName)' == 'Store'">Domain</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Check'">Domain;Engine</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Find'">Domain;Parser;Sources;Metadata</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Targets'">Domain;Find;Check;Plan;Engine;Library;Metadata;Store</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Api'">Domain;Targets;Metadata;Store</AllowedModules>
+  </PropertyGroup>
+  <Target Name="EnforceModuleReferences" BeforeTargets="CollectPackageReferences;ResolveProjectReferences">
+    <ItemGroup>
+      <AllowedReference Include="$(AllowedModules)" />
+      <AllowedPath Include="@(AllowedReference->'$(MSBuildThisFileDirectory)src\%(Identity)\%(Identity).csproj')" />
+      <ActualReference Include="@(ProjectReference->'%(FullPath)')" />
+      <ForbiddenReference Include="@(ActualReference)" Exclude="@(AllowedPath)" />
+    </ItemGroup>
+    <Error Condition="'@(ForbiddenReference)' != ''"
+      Text="Forbidden module reference: $(MSBuildProjectName) -&gt; @(ForbiddenReference). Allowed: $(AllowedModules)." />
+    <Error Condition="'$(MSBuildProjectName)' == 'Domain' and '@(PackageReference)' != ''"
+      Text="Domain must not reference packages." />
+  </Target>
+</Project>

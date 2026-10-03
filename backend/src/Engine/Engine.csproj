@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>TorrentFlow.Engine</AssemblyName><RootNamespace>TorrentFlow.Engine</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <PackageReference Include="MonoTorrent" />
+  </ItemGroup>
+</Project>

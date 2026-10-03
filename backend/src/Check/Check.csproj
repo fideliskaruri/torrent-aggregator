@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>TorrentFlow.Check</AssemblyName><RootNamespace>TorrentFlow.Check</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Engine\Engine.csproj" />
+  </ItemGroup>
+</Project>

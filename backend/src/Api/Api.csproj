@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>TorrentFlow</AssemblyName>
+    <RootNamespace>TorrentFlow.Api</RootNamespace>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Targets\Targets.csproj" />
+    <ProjectReference Include="..\Metadata\Metadata.csproj" />
+    <ProjectReference Include="..\Store\Store.csproj" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+</Project>

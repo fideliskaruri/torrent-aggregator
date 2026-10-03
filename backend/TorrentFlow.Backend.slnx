@@ -1,3 +1,14 @@
 <Solution>
   <Project Path="src/Domain/Domain.csproj" />
+  <Project Path="src/Parser/Parser.csproj" />
+  <Project Path="src/Plan/Plan.csproj" />
+  <Project Path="src/Metadata/Metadata.csproj" />
+  <Project Path="src/Sources/Sources.csproj" />
+  <Project Path="src/Engine/Engine.csproj" />
+  <Project Path="src/Check/Check.csproj" />
+  <Project Path="src/Find/Find.csproj" />
+  <Project Path="src/Library/Library.csproj" />
+  <Project Path="src/Store/Store.csproj" />
+  <Project Path="src/Targets/Targets.csproj" />
+  <Project Path="src/Api/Api.csproj" />
 </Solution>

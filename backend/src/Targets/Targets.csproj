@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>TorrentFlow.Targets</AssemblyName><RootNamespace>TorrentFlow.Targets</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Find\Find.csproj" />
+    <ProjectReference Include="..\Check\Check.csproj" />
+    <ProjectReference Include="..\Plan\Plan.csproj" />
+    <ProjectReference Include="..\Engine\Engine.csproj" />
+    <ProjectReference Include="..\Library\Library.csproj" />
+    <ProjectReference Include="..\Metadata\Metadata.csproj" />
+    <ProjectReference Include="..\Store\Store.csproj" />
+  </ItemGroup>
+</Project>

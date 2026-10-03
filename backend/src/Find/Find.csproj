@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>TorrentFlow.Find</AssemblyName><RootNamespace>TorrentFlow.Find</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Parser\Parser.csproj" />
+    <ProjectReference Include="..\Sources\Sources.csproj" />
+    <ProjectReference Include="..\Metadata\Metadata.csproj" />
+  </ItemGroup>
+</Project>
