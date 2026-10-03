@@ -1,0 +1,57 @@
+{
+  "live": [],
+  "bindings": [
+    {
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "fileIndex": 0,
+      "selected": false,
+      "targetId": "target:01a10390-c084-70fe-971a-4445632b3c45:film",
+      "partialPath": null,
+      "finalPath": "D:\\code\\memtest\\library-f408-base\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "physicalKey": "d:\\code\\memtest\\library-f408-base\\movies\\sintel (2010)\\sintel.mp4",
+      "mediaFileId": "downloaded:256D49225E8F39640539E598673EBC79803D8F0EA6B5F0FDDF290B74BEB14E66",
+      "role": "Video",
+      "expectedBytes": 129241752,
+      "enginePath": "D:\\code\\memtest\\library-f408-base\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "filed": true,
+      "id": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c:0"
+    }
+  ],
+  "media": [
+    {
+      "workId": "01a10390-c084-70fe-971a-4445632b3c45",
+      "episodeId": null,
+      "rootId": "ce072f79dd5e464d80a906f461b0adbd",
+      "path": "D:\\code\\memtest\\library-f408-base\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "physicalKey": "d:\\code\\memtest\\library-f408-base\\movies\\sintel (2010)\\sintel.mp4",
+      "role": "Video",
+      "parentMediaFileId": null,
+      "bytes": 129241752,
+      "mtimeUtc": "2026-10-03T23:59:50.594426+03:00",
+      "resolution": 480,
+      "source": null,
+      "container": "mp4",
+      "videoCodec": null,
+      "videoProfile": null,
+      "width": 1024,
+      "height": 436,
+      "hdr": null,
+      "runtimeSeconds": null,
+      "bitrateBps": null,
+      "tracks": [],
+      "origin": "Downloaded",
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "fileIndex": 0,
+      "addedAt": "2026-10-03T23:59:51.2720403+03:00",
+      "lastSeenAt": "2026-10-03T23:59:51.2720403+03:00",
+      "missingSince": null,
+      "status": "Present",
+      "missingConfirmedAt": null,
+      "verifiedAt": "2026-10-03T23:59:51.2720403+03:00",
+      "contentDigest": "1DC6F2CA9762DFCC7D1B1843129A3E4F351D1FE935DEA2241C7B359C11EBC1D8",
+      "version": 1,
+      "id": "downloaded:256D49225E8F39640539E598673EBC79803D8F0EA6B5F0FDDF290B74BEB14E66"
+    }
+  ],
+  "reasons": {}
+}

@@ -1,7 +1,9 @@
 # Local licensed-fixture seeder
 
-Build with `dotnet build tools\.jelly-proof\Seeder\Seeder.csproj`.
-Run `dotnet <Seeder.dll> <fixture directory> http://127.0.0.1:<TorrentFlow port>`.
+Run `tools\.jelly-proof\Seed.ps1 -FixtureDirectory <fixture directory>
+-ServerUrl http://127.0.0.1:<TorrentFlow port>`. This builds the current source;
+do not reuse the historical `seeder-bin\Seeder.dll` (it is pinned to port 3973).
+See `tools\.jelly-proof\README.md` for the complete filing recipe.
 There is deliberately no default server address: separate proof instances must
 not silently inject peers into an earlier instance.
 

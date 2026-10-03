@@ -1,0 +1,47 @@
+{
+  "jellyfinListening": false,
+  "stoppedPids": [
+    38448,
+    10900,
+    34900,
+    63236,
+    42412,
+    57336,
+    24020,
+    60624,
+    60784,
+    13668,
+    63212,
+    48468,
+    43204,
+    51560,
+    54352,
+    55256,
+    62868
+  ],
+  "originalSeed": {
+    "bytes": 129241752,
+    "sha256": "1DC6F2CA9762DFCC7D1B1843129A3E4F351D1FE935DEA2241C7B359C11EBC1D8"
+  },
+  "removedPaths": [
+    "D:\\code\\memtest\\bin-f408",
+    "D:\\code\\memtest\\seeder-f408",
+    "D:\\code\\memtest\\fixture-f408",
+    "D:\\code\\memtest\\data-f408-base",
+    "D:\\code\\memtest\\data-f408-cold",
+    "D:\\code\\memtest\\data-f408-fail",
+    "D:\\code\\memtest\\library-f408-base",
+    "D:\\code\\memtest\\library-f408-cold",
+    "D:\\code\\memtest\\library-f408-fail",
+    "D:\\code\\memtest\\my-library",
+    "D:\\code\\memtest\\jf-f408",
+    "D:\\code\\memtest\\wt-f408"
+  ],
+  "remainingOwnedPaths": [],
+  "receiverListening": false,
+  "untouched": [
+    "port 3930",
+    "D:\\code\\memtest\\stable",
+    "tools/.gitignore"
+  ]
+}
