@@ -137,12 +137,16 @@ internal static class TitleReleases
                 return Results.Conflict(new { ok = false, message = "That release doesn't match this title. Search again and choose another." });
             var accepted = await targets.AcquireAsync(new(workKey, choice.Season, choice.Episode),
                 AccessIdentity.UserId(http), ct);
-            if (accepted.TargetIds.IsEmpty)
-                return Results.Conflict(new { ok = false, message = accepted.Owned > 0 ?
-                    "This title is already in your library." : "The episode list isn't ready. Reload the title and choose an episode." });
+            if (!accepted.Accepted || accepted.TargetIds.IsEmpty)
+                return Results.Conflict(new { ok = false, message = accepted.Message });
             var queued = 0;
             foreach (var id in accepted.TargetIds)
-                queued += (await targets.PickAsync(id, choice.Hash, ct)).Queued;
+            {
+                var picked = await targets.PickAsync(id, choice.Hash, ct);
+                if (!picked.Accepted)
+                    return Results.Conflict(new { ok = false, message = picked.Message });
+                queued += picked.Queued;
+            }
             return Results.Ok(new { ok = true, message = $"{queued} queued", title = CatalogProjection.Title(work!),
                 infoHash = choice.Hash, queued = queued > 0 });
         }
