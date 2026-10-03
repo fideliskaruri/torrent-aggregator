@@ -372,3 +372,10 @@ looks right.
 - Hard set completed: Prison Break (older finished show) and Money Heist / La Casa de Papel (non-English show).
 
 - Agents: at most two running at once plus the coordinator (owner, 2026-10-03).
+
+### Source decision (Phase 0 gate, 2026-10-03, decided under autopilot from docs/source-audit.md)
+- Core: apibay, nyaa, eztv (series), yts (films, provisional), torrentscsv, knaben, animetosho (anime).
+- Fallback, only when the core pool has no healthy match: therarbg, bitsearch (mandatory 429 cooldown), limetorrents,
+  torrentdownloads, torrentdownloadinfo. The audit found unique healthy releases in each, so none is dropped.
+- Off by default: 1337x (TLS failure on every call; retest before enabling), subsplease, archive (public-domain
+  webseed use only), torznab (opt-in when configured).
