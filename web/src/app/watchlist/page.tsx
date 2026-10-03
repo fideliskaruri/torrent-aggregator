@@ -89,6 +89,8 @@ import { activityLine, needsAttention, positionLine } from "./card-state";
 import { CheckSchedule } from "@/components/library/check-schedule";
 import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
+import { WatchStateChip } from "@/components/title/watch-state";
+import type { JellyfinNextUp, JellyfinWatchState } from "@/components/title/types";
 
 interface WatchItem {
   nextCheckAt?: string | null;
@@ -117,6 +119,10 @@ interface WatchItem {
   updatedAt: string;
   /** The linked work's key; the row opens that page, not one rebuilt from its title. */
   workKey?: string | null;
+  /** Jellyfin progress for a film; absent when the server sends none. */
+  watchState?: JellyfinWatchState;
+  /** Jellyfin next episode for a series; absent when the server sends none. */
+  jellyfinNextUp?: JellyfinNextUp;
 }
 
 /**
@@ -923,6 +929,8 @@ export default function WatchlistPage() {
                       className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
                     />
                   ) : null}
+                  <WatchStateChip state={item.watchState} nextUp={item.jellyfinNextUp}
+                    className="absolute bottom-1 left-1 z-[2] max-w-[calc(100%-0.5rem)] truncate" />
                 </MediaPoster>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-2.5">

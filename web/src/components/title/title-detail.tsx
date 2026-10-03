@@ -47,6 +47,7 @@ import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
 import { libraryHint } from "./library-hint";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
+import { WatchStateChip } from "./watch-state";
 import {
   providerAiredFor,
   seasonProgressFromRows,
@@ -1340,6 +1341,8 @@ function TitleContent({
                   isSeries={payload.isSeries}
                   seasonCount={seasonCount}
                 />
+                <WatchStateChip state={payload.watchState} nextUp={payload.jellyfinNextUp}
+                  className="mt-2 h-7 rounded-full bg-background/60 px-2.5" />
               </div>
 
               {/* An anime sequel entry is a season of its show: say which one

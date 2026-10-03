@@ -26,6 +26,7 @@ import {
 } from "@/components/settings/max-active-downloads";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
+import { JellyfinSettings } from "@/components/settings/jellyfin-settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1350,6 +1351,8 @@ export default function SettingsPage() {
         </SettingsDisclosure>
       </form>
       <SourcesSettings />
+
+      <JellyfinSettings />
 
       <RemoteAccessSection />
 

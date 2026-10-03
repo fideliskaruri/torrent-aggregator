@@ -34,6 +34,7 @@ import { PosterImage } from "@/components/browse/poster-image";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { Badge } from "@/components/ui/badge";
+import { WatchStateChip, watchStateLabel } from "./watch-state";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { MediaPoster } from "@/components/browse/media-poster-card";
 import { Button } from "@/components/ui/button";
@@ -720,6 +721,7 @@ function EpisodeCardImpl({
       >
         E{episode.episode}
       </Badge>
+      <WatchStateChip state={episode.watchState} className="absolute bottom-2 left-2 hidden sm:inline-flex" />
       {progressPct > 0 ? (
         <Progress
           data-episode-progress
@@ -737,6 +739,7 @@ function EpisodeCardImpl({
   const requesterLabel = available ? "Ready" : transferStateLabel(episode.state);
   const mobileMeta = [
     airDate,
+    watchStateLabel(episode.watchState),
     canDownload ? downloadDisplayLabel : requesterLabel,
   ]
     .filter(Boolean)

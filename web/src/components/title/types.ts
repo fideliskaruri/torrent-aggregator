@@ -48,6 +48,20 @@ export interface TitleEpisode {
   available?: boolean;
   /** Requester view only: the plain state of the owner's download, never its queue position. */
   state?: TitleTransferState | null;
+  /** Jellyfin progress for this episode. Absent when Jellyfin has no match. */
+  watchState?: JellyfinWatchState;
+}
+
+/** Read-only progress from the owner's Jellyfin server. `inProgress` is 0 to 100. */
+export interface JellyfinWatchState {
+  watched: boolean;
+  inProgress: number | null;
+}
+
+export interface JellyfinNextUp {
+  episodeId: string;
+  season: number;
+  episode: number;
 }
 
 /**
@@ -216,6 +230,10 @@ export interface TitleDetailPayload {
    * episode starts describing itself as queued.
    */
   transfer: TitleEpisodeTransfer | null;
+  /** Jellyfin progress for a film. Absent when Jellyfin is not connected or has no match. */
+  watchState?: JellyfinWatchState;
+  /** The episode Jellyfin would play next for a series. Absent when unknown. */
+  jellyfinNextUp?: JellyfinNextUp;
 
   /** Every season we know of, ascending. Empty for a film. */
   seasons: TitleSeason[];
