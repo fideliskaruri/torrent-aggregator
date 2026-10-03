@@ -50,7 +50,10 @@ function CalendarSkeleton({ visible }: { visible: boolean }) {
 }
 
 function RequesterCalendar() {
-  const list = useApiQuery<RequesterCalendarResponse>("/api/requester/calendar", { refreshMs: 60_000, emptyOnUnauthorized: false });
+  // `/api/requester/*` only answers requesters; the owner's preview reads the same calendar over every open request.
+  const { ownerSession } = useCapabilities();
+  const list = useApiQuery<RequesterCalendarResponse>(ownerSession ? "/api/requests/calendar" : "/api/requester/calendar",
+    { refreshMs: 60_000, emptyOnUnauthorized: false });
   const rows = list.data?.entries ?? [];
   const now = new Date();
   return (

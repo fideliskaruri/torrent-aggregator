@@ -20,6 +20,35 @@ internal static class RequestEndpoints
         services.AddHostedService<RequestReconciler>();
     }
 
+    /// <summary>Open requests on the calendar; null userId reads every requester's (the owner's preview).</summary>
+    private static async Task<IResult> Calendar(RequestService service, string? userId, CancellationToken ct)
+    {
+        var rows = await service.Read<RequestRow>(CatalogState.Query(userId: userId), ct);
+        var results = new List<object>();
+        var entries = new List<object>();
+        var open = rows.Where(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved).ToArray();
+        var targets = open.Length == 0 ? [] : await service.Read<TargetRow>(CatalogState.Query(), ct);
+        var episodes = open.Length == 0 ? [] : await service.Read<EpisodeRow>(CatalogState.Query(), ct);
+        foreach (var row in open)
+        {
+            results.Add(await service.Project(row, false, ct));
+            var work = (await service.Read<WorkRow>(CatalogState.Query(row.WorkId), ct)).Single();
+            var name = (await service.Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct))
+                .OrderBy(n => n.Ordinal).FirstOrDefault()?.Value ?? work.WorkKey;
+            var mine = targets.Where(t => t.WorkId == work.Id && t.Origin == IntentOrigin.Request).ToArray();
+            var expected = mine.Select(t => TorrentFlow.Api.Notifications.CalendarDates.Expected(t, episodes.FirstOrDefault(e => e.Id == t.EpisodeId), work))
+                .Where(d => d is not null).Min() ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
+            var state = row.Decision == RequestDecision.Pending ? "pending" :
+                mine.Length > 0 && mine.All(t => t.State == TargetState.Done) ? "in_library" :
+                mine.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
+                mine.Any(t => t.ChosenReleaseHash is not null) ? "found" :
+                expected > DateTimeOffset.UtcNow ? "expected" : "searching";
+            entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state, release = TorrentFlow.Api.Notifications.CalendarDates.Release(work.Kind != WorkKind.Film, expected, work),
+                mediaType = work.Kind == WorkKind.Film ? "movie" : "tv" });
+        }
+        return Reply(new { items = results, entries });
+    }
+
     internal static void MapRequests(this WebApplication app)
     {
         var requester = app.MapGroup("/api/requester");
@@ -64,33 +93,10 @@ internal static class RequestEndpoints
             foreach (var row in rows) results.Add(await service.Project(row, false, ct));
             return Reply(new { requests = results });
         });
-        requester.MapGet("/calendar", async (HttpContext http, RequestService service, CancellationToken ct) =>
-        {
-            var rows = await service.Read<RequestRow>(CatalogState.Query(userId: AccessIdentity.UserId(http)), ct);
-            var results = new List<object>();
-            var entries = new List<object>();
-            var open = rows.Where(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved).ToArray();
-            var targets = open.Length == 0 ? [] : await service.Read<TargetRow>(CatalogState.Query(), ct);
-            var episodes = open.Length == 0 ? [] : await service.Read<EpisodeRow>(CatalogState.Query(), ct);
-            foreach (var row in open)
-            {
-                results.Add(await service.Project(row, false, ct));
-                var work = (await service.Read<WorkRow>(CatalogState.Query(row.WorkId), ct)).Single();
-                var name = (await service.Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct))
-                    .OrderBy(n => n.Ordinal).FirstOrDefault()?.Value ?? work.WorkKey;
-                var mine = targets.Where(t => t.WorkId == work.Id && t.Origin == IntentOrigin.Request).ToArray();
-                var expected = mine.Select(t => TorrentFlow.Api.Notifications.CalendarDates.Expected(t, episodes.FirstOrDefault(e => e.Id == t.EpisodeId), work))
-                    .Where(d => d is not null).Min() ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
-                var state = row.Decision == RequestDecision.Pending ? "pending" :
-                    mine.Length > 0 && mine.All(t => t.State == TargetState.Done) ? "in_library" :
-                    mine.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
-                    mine.Any(t => t.ChosenReleaseHash is not null) ? "found" :
-                    expected > DateTimeOffset.UtcNow ? "expected" : "searching";
-                entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state, release = TorrentFlow.Api.Notifications.CalendarDates.Release(work.Kind != WorkKind.Film, expected, work),
-                    mediaType = work.Kind == WorkKind.Film ? "movie" : "tv" });
-            }
-            return Reply(new { items = results, entries });
-        });
+        requester.MapGet("/calendar", (HttpContext http, RequestService service, CancellationToken ct) =>
+            Calendar(service, AccessIdentity.UserId(http), ct));
+        // The owner's View as requester preview: the same calendar over every open request, read-only.
+        owner.MapGet("/calendar", (RequestService service, CancellationToken ct) => Calendar(service, null, ct));
         requester.MapPost("/requests", async (HttpContext http, RequestService service, CancellationToken ct) =>
         {
             if (http.Request.ContentLength is > 16384) return Results.StatusCode(413);
