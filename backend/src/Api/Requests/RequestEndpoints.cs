@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Targets;
@@ -184,7 +186,60 @@ internal static class RequestEndpoints
         // Requesters have no mutation actions after creation, including the legacy cancel route.
         requester.MapPost("/requests/{id}/cancel", () => Results.Json(
             new { error = "Request details are read-only. Ask the owner to change this request.", code = "read_only" }, statusCode: 403));
-        owner.MapPost("/{id}/pick", RequestPick.Handle);
+        owner.MapPost("/{id}/pick", Pick);
+    }
+
+    private sealed record ReleaseChoice(string WorkId, string Hash, int? Season, int? Episode, DateTimeOffset ExpiresAt);
+
+    private static async Task<IResult> Pick(string id, HttpContext http, RequestService service,
+        TargetPipeline pipeline, IDataProtectionProvider protection, CancellationToken ct)
+    {
+        var request = (await service.Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+            ?? throw new KeyNotFoundException("Request not found.");
+        if (!http.Request.HasJsonContentType() || http.Request.ContentLength > 16384)
+            return Results.BadRequest(new { error = "Choose a release first." });
+        var body = await http.Request.ReadFromJsonAsync<JsonElement>(ct);
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("token", out var token) ||
+            token.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(token.GetString()))
+            return Results.BadRequest(new { error = "Choose a release first." });
+        ReleaseChoice? choice;
+        try
+        {
+            choice = JsonSerializer.Deserialize<ReleaseChoice>(protection
+                .CreateProtector("TorrentFlow.TitleReleaseChoice.v1").Unprotect(token.GetString()!));
+        }
+        catch (Exception ex) when (ex is CryptographicException or JsonException)
+        { return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." }); }
+        if (choice is null || choice.ExpiresAt <= DateTimeOffset.UtcNow || choice.WorkId != request.WorkId)
+            return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." });
+        await RequestService.Gate.WaitAsync(ct);
+        try
+        {
+            request = (await service.Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+                ?? throw new KeyNotFoundException("Request not found.");
+            if (request.Decision != RequestDecision.Approved)
+                throw new RequestConflict("not_pending", $"This request is already {request.Decision.ToString().ToLowerInvariant()}.");
+            await service.Acquire(request, ct);
+            var items = await service.Read<RequestItemRow>(CatalogState.Query() with { RequestId = id }, ct);
+            var seasons = await service.Read<SeasonRow>(CatalogState.Query(workId: request.WorkId), ct);
+            var episodes = await service.Read<EpisodeRow>(CatalogState.Query(), ct);
+            var seasonId = seasons.FirstOrDefault(s => s.Number == choice.Season)?.Id;
+            var selected = items.Where(i => i.Settlement == ItemSettlement.Open && i.TargetId is not null &&
+                (request.Scope == RequestScope.Film ? choice.Season is null && choice.Episode is null :
+                    episodes.Any(e => e.Id == i.EpisodeId && e.SeasonId == seasonId &&
+                        (choice.Episode is null || e.Number == choice.Episode)))).ToArray();
+            if (selected.Length == 0)
+                return Results.Conflict(new { ok = false, message = "Choose an unfinished item from this request." });
+            var queued = 0;
+            foreach (var targetId in selected.Select(i => i.TargetId!).Distinct())
+                queued += (await pipeline.PickAsync(targetId, choice.Hash, ct)).Queued;
+            var projected = JsonSerializer.SerializeToElement(await service.Project(request, true, ct), Json);
+            return Reply(new { ok = true, status = projected.GetProperty("status").GetString(),
+                message = $"{queued} queued", infoHash = choice.Hash });
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        { return Results.Conflict(new { ok = false, message = ex.Message }); }
+        finally { RequestService.Gate.Release(); }
     }
 
     private static async ValueTask<object?> Filter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)

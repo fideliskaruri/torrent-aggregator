@@ -33,7 +33,7 @@ internal static class DownloadEndpoints
         group.MapPost("/client/torrents/tidy", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.TidyAsync(ct)));
         group.MapPost("/downloads/{transferId}/keep", async (string transferId, DownloadsApi api, CancellationToken ct) =>
-            Reply(await api.KeepAsync(transferId, ct)));
+            await api.KeepAsync(transferId, ct));
         group.MapPost("/title/{workKey}", async (string workKey, TitleDownload input, HttpContext http,
             TargetPipeline targets, IMetadata metadata, CancellationToken ct) =>
         {
@@ -82,14 +82,21 @@ internal static class DownloadEndpoints
             candidates = Array.Empty<object>(),
             warnings = new[] { "Importing downloads from other clients is not available in this build." },
         }));
-        group.MapPost("/settings/download-recovery/sources", () => Results.Json(new
+        group.MapPost("/settings/download-recovery/sources", (RecoverySourcesInput input) =>
         {
-            ok = false, message = "Importing downloads from other clients is not available in this build.",
-        }, statusCode: 501));
+            if (!input.Acknowledged)
+                return Results.BadRequest(new { error = "Confirm that the other client will not write to these files." });
+            if (input.Ids is null || input.Ids.Length > 500 || input.Ids.Any(string.IsNullOrWhiteSpace))
+                return Results.BadRequest(new { error = "Select between 1 and 500 torrents to import." });
+            if (input.Ids.Length > 0)
+                return Results.Json(new { error = "Importing downloads from other clients is not available in this build. Keep using the original client." }, statusCode: 501);
+            return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
+        });
     }
 
     internal sealed record DownloadAction(string Action, string? Hash = null, string[]? Hashes = null,
         string? OwnerClientType = null, bool DeleteFiles = false);
+    internal sealed record RecoverySourcesInput(string[]? Ids, bool Acknowledged);
     internal sealed record TitleDownload(int? Season = null, int? Episode = null, int? PreferredResolution = null,
         string? Provider = null, string? ProviderId = null, string? MediaType = null, string? Title = null, int? Year = null);
 }
@@ -232,13 +239,21 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             skipped = downloads.Count(d => d.FinishedAt is null) };
     }
 
-    internal async Task<object> KeepAsync(string transferId, CancellationToken ct)
+    internal async Task<IResult> KeepAsync(string transferId, CancellationToken ct)
     {
-        var hash = transferId.StartsWith("builtin:", StringComparison.Ordinal) ? transferId[8..] : transferId;
+        var match = System.Text.RegularExpressions.Regex.Match(transferId.Trim(),
+            "^(?:builtin:)?([0-9a-f]{40})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (!match.Success) return Results.BadRequest(new { ok = false, reason = "invalid-id",
+            error = "That is not a download id.", message = "Reload the page and try again." });
+        var hash = match.Groups[1].Value.ToLowerInvariant();
         var download = (await targets.ReadAsync(ct)).Downloads.SingleOrDefault(d => d.Hash == hash);
-        if (download is null) throw new ArgumentException("This download is no longer available.");
-        if (download.FinishedAt is null) throw new InvalidOperationException("This download is still finishing. Try again when it is ready.");
-        return new { ok = true, message = "The download is already kept in your library." };
+        if (download is null) return Results.NotFound(new { ok = false, reason = "not-found",
+            error = "Torrent not found in engine.", message = "Torrent not found in engine." });
+        if (download.FinishedAt is null) return Results.Conflict(new { ok = false, reason = "not-held",
+            error = "This download is still finishing. Try again when it is ready.",
+            message = "This download is still finishing. Try again when it is ready." });
+        return Results.Ok(new { ok = true, message = "The download is already kept in your library." });
     }
 
     private async Task<(TargetRow Target, WorkRow? Work, string? Title, int? Season, int? Episode)[]> WantedRows(CancellationToken ct)

@@ -38,6 +38,28 @@ internal static class AutomationEndpoints
         });
         app.MapGet("/api/follows", async (AutomationRepository db, CancellationToken ct) =>
             Results.Ok(new { follows = await db.ReadAsync<FollowRow>(ct) }));
+        app.MapPost("/api/automation/run", async (Hunter hunter, AutomationRepository db, CancellationToken ct) =>
+        {
+            var pass = await hunter.RunAsync(false, ct);
+            var rules = await db.ReadAsync<AutoRuleRow>(ct);
+            var queued = pass.Items.Count(i => i.Status == "queued");
+            var message = pass.Busy ? "Automatic checks are already running." : $"{queued} queued";
+            var summary = new
+            {
+                rules = new { ran = pass.Busy ? 0 : rules.Count(r => r.Enabled),
+                    matched = pass.Items.Where(i => i.Origin == "Rule" && i.Status == "queued")
+                        .Select(i => i.RuleId).Distinct().Count(),
+                    messages = rules.Where(r => r.Enabled && !pass.Busy).Select(r =>
+                        new { ruleId = r.Id, matched = pass.Items.Any(i => i.RuleId == r.Id && i.Status == "queued"),
+                            title = (string?)null, message = $"{pass.Items.Count(i => i.RuleId == r.Id && i.Status == "queued")} queued",
+                            status = pass.Items.Any(i => i.RuleId == r.Id && i.Status == "queued") ? "sent" : "skipped" }) },
+                library = new { @checked = pass.Items.Count(i => i.Origin == "Follow"),
+                    sent = pass.Items.Count(i => i.Origin == "Follow" && i.Status == "queued"),
+                    skipped = pass.Owned + pass.Existing, failed = 0, deferred = 0 },
+                offline = false, message,
+            };
+            return Reply(new { ok = true, offline = false, message, summary });
+        });
         app.MapPut("/api/follows/{workKey}", SaveFollow);
         app.MapPut("/api/quality-watches/{workKey}", SaveQualityWatch);
         app.MapPost("/api/dev/hunter", async (HttpContext http, Hunter hunter, CancellationToken ct) =>

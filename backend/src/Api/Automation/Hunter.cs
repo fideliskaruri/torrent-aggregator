@@ -5,7 +5,7 @@ using TorrentFlow.Targets;
 namespace TorrentFlow.Api.Automation;
 
 internal sealed record HunterItem(string WorkKey, string EpisodeId, int Season, int Episode,
-    DateTimeOffset ExpectedAt, string Origin, string Status);
+    DateTimeOffset ExpectedAt, string Origin, string Status, string? RuleId = null);
 internal sealed record HunterPass(string Lane, bool Busy, ImmutableArray<HunterItem> Items, int Owned,
     int Existing, int Notifications, string? BlockedReason);
 
@@ -74,7 +74,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                         count += accepted.Queued;
                         ownedCount += accepted.Owned;
                         items.Add(new(work.Work.WorkKey, "", 0, 0, work.Work.DigitalAt ?? now,
-                            "Rule", accepted.Queued > 0 ? "queued" : "existing"));
+                            "Rule", accepted.Queued > 0 ? "queued" : "existing", rule.Id));
                     }
                     else foreach (var episode in work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed && e.AirAt <= now))
                     {
@@ -86,7 +86,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                         count += accepted.Queued;
                         ownedCount += accepted.Owned;
                         if (accepted.Queued > 0) items.Add(new(work.Work.WorkKey, episode.Id, season.Number,
-                            episode.Number, episode.AirAt!.Value, "Rule", "queued"));
+                            episode.Number, episode.AirAt!.Value, "Rule", "queued", rule.Id));
                     }
                 }
                 await repository.SaveAsync(rule with { LastRunAt = now, MatchCount = rule.MatchCount + count,

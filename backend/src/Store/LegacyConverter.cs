@@ -926,8 +926,10 @@ public sealed class LegacyConverter
                     ("workId", work), ("releaseHash", hash), ("actorUserId", S(row, "userId") ?? owner),
                     ("kind", AttemptKind.LegacyEvent), ("startedAt", D(row, table == "ReleaseAttempt" ? "TriedAt" : "createdAt")),
                     ("endedAt", D(row, "updatedAt")), ("outcome", S(row, "status") ?? "legacyTried"),
-                    ("reasonText", S(row, "message") ?? S(row, "error")), ("legacyContext", JsonSerializer.SerializeToElement(row))));
+                    ("reasonText", LegacyActivityText.Read(S(row, "message") ?? S(row, "error"),
+                        S(row, "status"))), ("legacyContext", JsonSerializer.SerializeToElement(row))));
             }
+
         foreach (var row in Rows("ReleaseBlock"))
         {
             var hash = Release(row, "Hash");

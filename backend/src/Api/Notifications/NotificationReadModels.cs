@@ -82,6 +82,7 @@ internal static class NotificationReadModels
         {
             var work = works.FirstOrDefault(w => w.Id == a.WorkId);
             var release = releases.FirstOrDefault(r => r.Id == a.ReleaseHash);
+            string? Legacy(string key) => LegacyActivityText.Field(a.LegacyContext, key);
             var status = a.Outcome?.ToLowerInvariant() switch
             {
                 "fetching" or "added" or "accepted" or "sent" => "sent",
@@ -92,17 +93,19 @@ internal static class NotificationReadModels
             rows.Add(new()
             {
                 ["id"] = "hist-" + a.Id, ["type"] = "history",
-                ["title"] = work is null ? ReleaseTitle(release) : Title(work, names),
-                ["status"] = status, ["message"] = a.ReasonText ?? a.Outcome,
-                ["source"] = null, ["kind"] = a.Kind.ToString().ToLowerInvariant(), ["query"] = null,
-                ["magnet"] = release?.Magnet, ["infoHash"] = a.ReleaseHash, ["savePath"] = null,
-                ["category"] = work is null ? null : work.Kind == WorkKind.Film ? "movie" : "tv",
-                ["context"] = a.LegacyContext?.ToString(), ["clientType"] = "builtin", ["sendKind"] = null,
+                ["title"] = work is null ? Legacy("title") ?? ReleaseTitle(release) : Title(work, names),
+                ["status"] = status, ["message"] = LegacyActivityText.Read(a.ReasonText, a.Outcome),
+                ["source"] = Legacy("source"), ["kind"] = Legacy("kind") ?? a.Kind.ToString().ToLowerInvariant(),
+                ["query"] = Legacy("query"),
+                ["magnet"] = release?.Magnet, ["infoHash"] = a.ReleaseHash, ["savePath"] = Legacy("savePath"),
+                ["category"] = work is null ? Legacy("category") : work.Kind == WorkKind.Film ? "movie" : "tv",
+                ["context"] = Legacy("context"), ["clientType"] = Legacy("clientType") ?? "builtin",
+                ["sendKind"] = Legacy("sendKind"),
                 ["createdAt"] = a.EndedAt ?? a.StartedAt,
-                ["rung"] = work is null ? a.Kind.ToString().ToLowerInvariant() :
-                    (work.Kind == WorkKind.Film ? "film: " : "series: ") + Title(work, names),
-                ["language"] = release?.Parsed.LanguageMarkers is { IsEmpty: false } markers
-                    ? string.Join(", ", markers) : "Language not stated",
+                ["rung"] = Legacy("rung") ?? (work is null ? a.Kind.ToString().ToLowerInvariant() :
+                    (work.Kind == WorkKind.Film ? "film: " : "series: ") + Title(work, names)),
+                ["language"] = Legacy("language") ?? (release?.Parsed.LanguageMarkers is { IsEmpty: false } markers
+                    ? string.Join(", ", markers) : "Language not stated"),
             });
         }
         return rows.OrderByDescending(r => (DateTimeOffset)r["createdAt"]!)
