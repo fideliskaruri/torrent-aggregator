@@ -33,6 +33,39 @@ shows each filed video immediately. Removal waits for its ordered filing operati
 drains the hash, removes partials and unchanged owned finals, and prunes the hidden
 fragments. An external final that appeared during a collision is left alone.
 
+## Legacy library actions
+
+Owner-only `GET /api/library/delete` previews a `watchListItemId` and `scope`
+(`show`, `season`, or `episode`). `POST` accepts the same scope and requires
+`confirm: true`. Library builds the exact plan from target/file/media identity,
+not release-name guesses. API removal delegates to Targets' public removal and
+download-file deletion APIs, which drain Engine before Library unlinks files.
+Counts include known partial siblings and the exact download's unwanted subtree.
+Recorded sidecars are digest-checked too. Empty-folder pruning only walks the
+removed files' ancestor chains, never recursively prunes other titles or a root.
+Already-cleared download bindings do not create phantom preview releases.
+
+`POST /api/library/ondemand` resolves a watch item, work key, or title and queues
+the existing Targets acquisition action. The response reports its actual queued
+and owned counts without claiming that bytes have started.
+
+An explicitly replacing target whose video basename matches its current
+binding reserves `<stem> [<replacement-hash8>]<extension>` and that path's
+`.partial`. Unrelated collisions still fail. Engine's normal atomic publication
+then completes the new file without overwriting or removing the old file.
+Targets remains responsible for switching Current and retiring the fallback.
+
+This bounded port does **not** unlink imported media without a Download binding,
+or a narrow episode inside a shared download holding other episodes. Their plans
+report blocked paths rather than guessing a wider deletion. General imported
+removal needs a Store removal capability and shared-pack removal needs Targets'
+per-file drain API; neither is bypassed by Library.
+
+Evidence: gitignored `tools\.libdel-proof\`, port 3970, copied/converted stable
+database in `D:\code\memtest\rebuild-libdel`. Full licensed Sintel/Big Buck Bunny
+copies exercise film, episode and season layout; synthetic episode identities
+do not imply that Blender published a television series.
+
 ## Folder import
 
 `MediaImport` composes the Domain Parser, Metadata, inventory and placement ports.

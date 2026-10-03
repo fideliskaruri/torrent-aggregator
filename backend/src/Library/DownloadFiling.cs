@@ -6,6 +6,43 @@ namespace TorrentFlow.Library;
 
 public sealed class DownloadFiling
 {
+    public static ImmutableArray<string> PayloadPaths(IEnumerable<DownloadFileRow> bindings,
+        IEnumerable<MediaFileRow>? media = null)
+    {
+        var files = bindings.ToArray();
+        var paths = files.SelectMany(b => new[] { b.PartialPath, b.FinalPath, b.EnginePath,
+                b.FinalPath is null ? null : b.FinalPath + ".partial" }).OfType<string>()
+            .Concat((media ?? []).Where(m => files.Any(f => f.DownloadId == m.DownloadId)).Select(m => m.Path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in UnwantedFolders(files))
+            if (Directory.Exists(directory)) Collect(directory);
+        return [.. paths.Where(File.Exists)];
+
+        void Collect(string directory)
+        {
+            LibraryPaths.NoLinks(directory);
+            foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+            {
+                LibraryPaths.NoLinks(path);
+                if (Directory.Exists(path)) Collect(path);
+                else paths.Add(path);
+            }
+        }
+    }
+
+    private static IEnumerable<string> UnwantedFolders(IEnumerable<DownloadFileRow> bindings)
+    {
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in bindings.Where(f => f.Role == FileRole.Unwanted))
+        {
+            for (var directory = Path.GetDirectoryName(file.EnginePath ?? file.PartialPath);
+                 directory is not null; directory = Path.GetDirectoryName(directory))
+                if (Path.GetFileName(Path.GetDirectoryName(directory)) == ".unwanted")
+                { folders.Add(directory); break; }
+        }
+        return folders;
+    }
+
     public static async Task<string> DigestAsync(string path, CancellationToken ct)
     {
         LibraryPaths.NoLinks(path);
@@ -110,6 +147,15 @@ public sealed class DownloadFiling
     public static async Task DeletePayloadAsync(ImmutableArray<DownloadFileRow> bindings, string itemFolder, string hash,
         ImmutableArray<FileOperationRow> operations, ImmutableArray<MediaFileRow> media, CancellationToken ct)
     {
+        var ownedMedia = media.Where(m => bindings.Any(f => f.DownloadId == m.DownloadId)).ToArray();
+        foreach (var file in ownedMedia.Where(m => File.Exists(m.Path)))
+        {
+            LibraryPaths.NoLinks(file.Path);
+            if (!LibraryPaths.IsInside(itemFolder, file.Path) ||
+                LibraryPaths.PhysicalKey(file.Path) != file.PhysicalKey || file.ContentDigest is null ||
+                await DigestAsync(file.Path, ct) != file.ContentDigest)
+                throw new IOException("A recorded library file changed. It was left untouched. Review it before removing it.");
+        }
         foreach (var file in bindings)
         {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -132,25 +178,54 @@ public sealed class DownloadFiling
                 if (!LibraryPaths.IsInside(itemFolder, path)) throw new IOException("The deletion path is outside the title folder.");
                 if (File.Exists(path)) File.Delete(path);
             }
+            if (file.FinalPath is { } ownedFinal)
+            {
+                var partialSibling = ownedFinal + ".partial";
+                if (File.Exists(partialSibling) && !media.Any(m => m.Path.Equals(partialSibling, StringComparison.OrdinalIgnoreCase)))
+                {
+                    LibraryPaths.NoLinks(partialSibling);
+                    if (!LibraryPaths.IsInside(itemFolder, partialSibling)) throw new IOException("The partial is outside the title folder.");
+                    File.Delete(partialSibling);
+                }
+            }
         }
-        var unwanted = LibraryPaths.Within(itemFolder, Path.Combine(".unwanted", hash));
-        Prune(unwanted);
-        var hidden = Path.GetDirectoryName(unwanted)!;
-        if (Directory.Exists(hidden) && Directory.EnumerateFileSystemEntries(hidden).All(p => Path.GetFileName(p) == ".ignore"))
+        foreach (var file in ownedMedia)
+            if (File.Exists(file.Path)) File.Delete(file.Path);
+        foreach (var directory in UnwantedFolders(bindings))
         {
-            File.Delete(Path.Combine(hidden, ".ignore"));
-            Directory.Delete(hidden);
+            if (Path.GetFileName(directory) != hash || !LibraryPaths.IsInside(itemFolder, directory))
+                throw new IOException("The unwanted fragments do not belong to this download.");
+            if (Directory.Exists(directory)) DeleteUnwanted(directory);
         }
-        foreach (var path in bindings.Where(b => b.FinalPath is not null).Select(b => Path.GetDirectoryName(b.FinalPath!)!).Distinct())
-            Prune(path);
-        Prune(itemFolder);
-    }
+        var directories = bindings.SelectMany(b => new[] { b.PartialPath, b.FinalPath, b.EnginePath })
+            .OfType<string>().Concat(ownedMedia.Select(m => m.Path))
+            .Select(p => Path.GetDirectoryName(p)!).Concat(UnwantedFolders(bindings).Select(Path.GetDirectoryName).OfType<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        foreach (var directory in directories)
+        {
+            var current = directory;
+            while (LibraryPaths.IsInside(itemFolder, current) && Directory.Exists(current))
+            {
+                LibraryPaths.NoLinks(current);
+                if (Path.GetFileName(current) == ".unwanted" &&
+                    Directory.EnumerateFileSystemEntries(current).All(p => Path.GetFileName(p) == ".ignore"))
+                    File.Delete(Path.Combine(current, ".ignore"));
+                if (Directory.EnumerateFileSystemEntries(current).Any()) break;
+                Directory.Delete(current);
+                current = Path.GetDirectoryName(current)!;
+            }
+        }
 
-    private static void Prune(string path)
-    {
-        LibraryPaths.NoLinks(path);
-        if (!Directory.Exists(path)) return;
-        foreach (var child in Directory.EnumerateDirectories(path)) Prune(child);
-        if (!Directory.EnumerateFileSystemEntries(path).Any()) Directory.Delete(path);
+        static void DeleteUnwanted(string directory)
+        {
+            LibraryPaths.NoLinks(directory);
+            foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+            {
+                LibraryPaths.NoLinks(path);
+                if (Directory.Exists(path)) DeleteUnwanted(path);
+                else File.Delete(path);
+            }
+            Directory.Delete(directory);
+        }
     }
 }

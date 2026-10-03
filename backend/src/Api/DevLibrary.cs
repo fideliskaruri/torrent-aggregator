@@ -24,6 +24,7 @@ internal static class DevLibrary
     internal static async Task MapDevLibraryAsync(this WebApplication app)
     {
         app.MapImports();
+        app.MapLibraryActions();
         // The old settings are read-only migration input; no auto-enrollment or old-drive writes.
         if (app.Configuration["TorrentFlow:Library:LegacyDatabase"] is { Length: > 0 } legacy)
         {

@@ -394,6 +394,19 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                     var file = input.Files.Single(f => f.Index == selection.FileIndex);
                     var final = LibraryPaths.Within(destination, mapped[file.Index]);
                     var key = LibraryPaths.PhysicalKey(final);
+                    var replacing = target.ChosenReleaseHash is { } current && current != input.Assignment.Hash &&
+                        bindings.Any(b => b.TargetId == target.Id && b.PhysicalKey == key) ||
+                        target.Kind == TargetKind.Replace && media.Any(m => m.PhysicalKey == key &&
+                            m.WorkId == target.WorkId && m.EpisodeId == target.EpisodeId);
+                    if (replacing)
+                    {
+                        // A replacement reserves its own final and partial. Publication is
+                        // still a no-overwrite atomic rename; the old release stays intact.
+                        var suffix = input.Assignment.Hash[..Math.Min(8, input.Assignment.Hash.Length)];
+                        final = Path.Combine(Path.GetDirectoryName(final)!,
+                            $"{Path.GetFileNameWithoutExtension(final)} [{suffix}]{Path.GetExtension(final)}");
+                        key = LibraryPaths.PhysicalKey(final);
+                    }
                     if (!used.Add(key) || File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".partial") ||
                         bindings.Any(b => b.PhysicalKey == key) || media.Any(m => m.PhysicalKey == key))
                         return Rejected("FileCollision", "A file already uses the destination name. Review the duplicate before downloading.");
