@@ -245,18 +245,37 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
         }).ToArray();
     }
 
-    internal async Task<object> WantedAsync(CancellationToken ct) => new
+    internal async Task<object> WantedAsync(CancellationToken ct)
     {
-        wanted = (await WantedRows(ct)).Select(r => new
+        var rows = (await WantedRows(ct)).Select(r => (object)new
         {
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
             mediaType = r.Work?.Kind == WorkKind.Series ? "tv" : "movie", season = r.Season, episode = r.Episode,
             error = (string?)null, why = r.Target.ReasonText,
             looking = r.Target.State is TargetState.Finding or TargetState.Checking or TargetState.Planning,
             nextAttemptAt = r.Target.NextTryAt,
-        }),
-        queue = new { },
-    };
+        }).ToList();
+        var snapshot = await targets.ReadAsync(ct);
+        var works = await Rows<WorkRow>(ct);
+        var names = await Rows<WorkNameRow>(ct);
+        foreach (var intent in snapshot.Scopes.Where(s => s.State == ScopeIntentState.Pending))
+        {
+            var work = works.FirstOrDefault(w => w.Id == intent.WorkId);
+            var title = work is null ? intent.WorkId : CatalogProjection.Title(new(work,
+                [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
+            var episode = intent.Scope == RequestScope.Episodes &&
+                int.TryParse(intent.Id.Split(':')[^1], out var number) ? (int?)number : null;
+            foreach (var season in intent.ScopeData.Seasons.Distinct())
+                rows.Add(new
+                {
+                    workKey = work?.WorkKey ?? intent.WorkId, title, year = work?.Year,
+                    mediaType = "tv", season = (int?)season, episode,
+                    error = "Waiting for the show's season list", why = "Waiting for the episode list. Trying again soon.",
+                    looking = false, nextAttemptAt = intent.NextTryAt,
+                });
+        }
+        return new { wanted = rows, queue = new { } };
+    }
 
     internal async Task<object> WantedActionAsync(string key, int? season, int? episode, TargetAction action, CancellationToken ct)
     {

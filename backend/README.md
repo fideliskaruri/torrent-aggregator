@@ -363,3 +363,24 @@ The completion proof uses a real public-domain Alice torrent, admitted paused,
 then hash-checked against its real content: engine completion produces both a
 notification and activity row. Browser push receipt still needs a real browser
 subscription; subscription persistence and input protections are HTTP-verified.
+
+## Downloads contract remainder (OPS-773)
+
+`GET /api/wanted` includes pending scope intents that do not yet have concrete
+episode targets. It preserves the requested season and episode and returns the
+web's existing waiting-for-season-list label, rather than presenting a missing
+episode catalog as a failed release search. Concrete targets still use their
+recorded finder state and reason.
+Pending-scope removal/retry still requires a Targets action contract (OPS-796);
+the concrete-target action adapter cannot cancel a scope intent.
+
+The Downloads page places film overflow actions beside the title at mobile
+widths; episode cards retain their existing action footer. Unknown season scopes
+do not claim that a season has zero episodes.
+
+Raw sends and external resume-data adoption remain unimplemented (404 and 501
+respectively). The development raw harness is not a production implementation:
+production admission and raw lifecycle require the Targets module's
+`ITargets.AddRawAsync` contract, not an API-layer state machine. Saved cap, setup,
+diagnostics and recovery settings are checked across a real process restart in
+the ignored `tools\.dlapi-proof\rest\` evidence.

@@ -47,6 +47,8 @@ function groupRows(rows: WantedRow[]): LookingGroup[] {
         ? null
         : single != null
           ? `S${String(first.season).padStart(2, "0")}E${String(single).padStart(2, "0")}`
+          : episodes.length === 0
+          ? `Season ${first.season}`
           : `Season ${first.season} · ${episodes.length} episodes`;
     const next = items
       .map((i) => i.nextAttemptAt)

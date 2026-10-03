@@ -295,11 +295,16 @@ export function DownloadTransferRow({
           <div className="flex items-start gap-2.5">
             {showThumb ? heading.thumb : null}
             <div className="min-w-0 flex-1 space-y-1">
-              {card ? (
-                <span className="text-[13px] font-semibold tabular-nums text-foreground">{title}</span>
-              ) : (
-                heading.text
-              )}
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  {card ? (
+                    <span className="text-[13px] font-semibold tabular-nums text-foreground">{title}</span>
+                  ) : (
+                    heading.text
+                  )}
+                </div>
+                {!card ? <div className="shrink-0 sm:hidden">{menu}</div> : null}
+              </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
                   variant={badge.variant}
@@ -389,7 +394,7 @@ export function DownloadTransferRow({
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2 lg:gap-1.5">
           {actions}
-          {menu}
+          <div className="hidden sm:block">{menu}</div>
         </div>
       )}
     </div>
