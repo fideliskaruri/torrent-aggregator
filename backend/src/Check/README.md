@@ -60,3 +60,11 @@ Development-only owner/loopback routes:
 
 `python tools\bench\check-proof.py` checks the real sources and swarms on isolated port
 3948. Evidence is gitignored under `tools\.check-proof`; no unit tests or full downloads.
+# Cached file evidence and admission (OPS-806)
+
+Cached evidence carrying a file list is reused only while Engine can still supply
+the corresponding complete, hash-validated torrent information. File names and
+lengths are not a substitute for the torrent's piece hashes. Both bulk cache reads
+and individual probe requests apply this check; missing information sends the
+candidate through the existing bounded check rather than repeatedly admitting an
+unbound magnet. Engine retains this information when releasing a successful probe.

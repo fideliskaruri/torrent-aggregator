@@ -10,6 +10,19 @@ redirected magnet is parsed and hash-checked instead of sent to HTTP.
 Both probe attachment and payload admission use this resolver. Torrent metadata
 and redirected magnets must match the candidate's expected hash.
 
+Successful probe release retains the complete hash-bound torrent information in
+the engine cache before MonoTorrent removes its probe metadata. Cached admission
+and attachment read that information (or MonoTorrent's intact metadata cache)
+before consulting the release URL, which may no longer respond. A Verdict's file
+list alone cannot reconstruct piece hashes: Check skips cached file evidence when
+the full torrent information is missing and performs a fresh check instead.
+Admission timeouts and unavailable metadata return distinct, actionable failures.
+
+Queue transitions log their supplied eligibility, run intent, cap and filing
+permit. Queued or paused managers never retain stall flags; stall observations
+apply only during an active run. Run and Queued admissions both retain runnable
+intent, independently of whether the current cap grants a physical slot.
+
 The optional progressive observation port takes Check's predicate; Engine never
 decides a health band. An early stop uses the same stop, disk flush, capability
 rotation and release cleanup as a full probe. Observation duration excludes the

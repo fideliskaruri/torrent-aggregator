@@ -88,7 +88,8 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
             if (cached is { Band: HealthBand.Unknown } && request.WantedTarget &&
                 cached.ExpiresAt > cached.CheckedAt.AddMinutes(options.UnknownMinutes))
                 cached = cached with { ExpiresAt = cached.CheckedAt.AddMinutes(options.UnknownMinutes) };
-            if (cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow)
+            if (cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow &&
+                await HasAdmissionMetadataAsync(cached, ct))
             {
                 lock (sync) cacheHits++;
                 return cached with { FromCache = true };
@@ -271,8 +272,17 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
             false, true, null) { QueueWait = wait, ProbeVersion = options.ProbeVersion };
     }
 
-    public Task<ImmutableArray<SwarmEvidence>> LoadAsync(ImmutableArray<string> hashes, CancellationToken ct) =>
-        repository.LoadAsync(hashes, ct);
+    private async Task<bool> HasAdmissionMetadataAsync(SwarmEvidence evidence, CancellationToken ct) =>
+        evidence.Files is null || engine is not MonoTorrentEngine concrete ||
+        await concrete.MetadataAsync(evidence.Hash, ct) is not null;
+
+    public async Task<ImmutableArray<SwarmEvidence>> LoadAsync(ImmutableArray<string> hashes, CancellationToken ct)
+    {
+        var usable = ImmutableArray.CreateBuilder<SwarmEvidence>();
+        foreach (var cached in await repository.LoadAsync(hashes, ct))
+            if (await HasAdmissionMetadataAsync(cached, ct)) usable.Add(cached);
+        return usable.ToImmutable();
+    }
     public Task<ImmutableArray<SwarmEvidence>> RecentAsync(int limit, CancellationToken ct) =>
         repository.RecentAsync(limit, ct);
 

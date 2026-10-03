@@ -279,8 +279,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         var hash = link.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
         using var ownership = await hashMutex.LockAsync(hash, ct);
         // Network metadata fetch runs outside the lifecycle lock and never writes payload.
-        Torrent? torrent = null;
-        if (candidate.Release.TorrentUri is { } uri)
+        Torrent? torrent = await LoadCachedTorrentAsync(hash);
+        if (torrent is null && candidate.Release.TorrentUri is { } uri)
         {
             var metadata = await TorrentMetadata.LoadAsync(uri, hash, ct);
             torrent = metadata.Torrent;
@@ -564,6 +564,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             if (owned.CreatedByProbe && !handles.Values.Any(h => h.Hash == owned.Hash) &&
                 entries.TryGetValue(owned.Hash, out var entry) && entry.Probe)
             {
+                await CacheMetadataAsync(entry.Manager);
                 await RemoveManagerAsync(entry, false);
                 entries.Remove(owned.Hash);
                 var path = Path.Combine(directory, "probes", owned.Hash);
@@ -652,7 +653,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             foreach (var token in handles.Values.Where(h => h.Hash == handle.Hash).Select(h => h.Token).ToArray())
             { handles.Remove(token); waits.Remove(token); metadataHandles.Remove(token); }
             claims.Remove(admission.AdmissionToken);
-            entry.WantsRun = admission.Download.Intent == DownloadIntent.Run;
+            entry.WantsRun = admission.Download.Intent is DownloadIntent.Run or DownloadIntent.Queued;
             await entry.Manager.UpdateSettingsAsync(TorrentSettings(false));
             await ReconcileQueueAsync();
             return new(true, await SnapshotAsync(entry), null);
@@ -678,13 +679,25 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 return existing.Probe ? Rejected("probe_owned", "Transfer the metadata capability before starting payload.")
                     : new(true, await SnapshotAsync(existing), null);
             var magnet = Link(admission.Candidate.Release.Magnet ?? hash);
-            var metadata = Path.Combine(directory, $"{hash}.torrent");
+            var metadata = await LoadCachedTorrentAsync(hash);
             TorrentManager manager;
-            if (File.Exists(metadata))
-                manager = await client.AddAsync(await Torrent.LoadAsync(metadata), Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            if (metadata is not null)
+            {
+                manager = await client.AddAsync(metadata, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            }
             else if (admission.Candidate.Release.TorrentUri is { } uri)
             {
-                var resolved = await TorrentMetadata.LoadAsync(uri, hash, ct);
+                TorrentMetadata.Result resolved;
+                try { resolved = await TorrentMetadata.LoadAsync(uri, hash, ct); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    return Rejected("metadata_timeout", "The torrent information did not arrive within six seconds. Check the connection or choose another release.");
+                }
+                catch (Exception ex) when (ex is HttpRequestException or IOException)
+                {
+                    log($"Torrent metadata admission failed for {hash}: {ex.Message}");
+                    return Rejected("metadata_unavailable", "The torrent information could not be downloaded. Check the connection or choose another release.");
+                }
                 manager = resolved.Torrent is { } torrent
                     ? await client.AddAsync(torrent, Path.Combine(directory, "bindings", hash), TorrentSettings(false))
                     : await client.AddAsync(resolved.Magnet ?? magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
@@ -692,7 +705,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             else
                 manager = await client.AddAsync(magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
             var entry = new Entry(manager, admission.Download.Id, false)
-                { WantsRun = admission.Download.Intent == DownloadIntent.Run,
+                { WantsRun = admission.Download.Intent is DownloadIntent.Run or DownloadIntent.Queued,
                     SharedSlotDownloadId = claims.GetValueOrDefault(admission.AdmissionToken)?.SharedSlotDownloadId };
             entries.Add(hash, entry);
             WatchCompletion(manager);
@@ -739,7 +752,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 {
                     await RemoveManagerAsync(entry, true);
                     entries.Remove(hash);
-                    return Rejected("metadata_required", "Obtain the file list before binding a download.");
+                    return Rejected("metadata_required", "The saved file list has no matching torrent information. Check this release again before downloading.");
                 }
             }
             await ReconcileQueueAsync();
@@ -887,7 +900,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         var completed = selected.Sum(f => f.CompletedBytes);
         UpdateUploaded(entry);
         return new(entry.Id, Hash(manager), manager.HasMetadata, true, entry.Completed || SelectedComplete(manager),
-            entry.MetadataStalled, entry.ProgressStalled, bytes, completed,
+            entry.Run && entry.MetadataStalled, entry.Run && entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
             DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
                 entry.Filed.Any(i => !manager.Files[i].BitField.AllTrue)

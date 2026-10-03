@@ -65,7 +65,13 @@ public sealed partial class MonoTorrentEngine
             .ToHashSet();
         // Drain losers before starting winners: lowering a cap never transiently exceeds it.
         foreach (var entry in entries.Values.Where(e => !e.Probe && e.Run && !winners.Contains(e)))
+        {
+            log($"Queue stop {entry.Id}: wantsRun={entry.WantsRun}, complete={entry.Completed}, " +
+                $"eligible={queueOrder.GetValueOrDefault(entry.Id)?.Eligible}, " +
+                $"permit={permits.Values.Any(p => p.DownloadId == entry.Id)}, " +
+                $"selected={entry.Manager.Files.Count(f => f.Priority != MonoTorrent.Priority.DoNotDownload)}, cap={settings.MaxActiveDownloads}.");
             await StopDownloadAsync(entry);
+        }
         foreach (var entry in ordered.Where(e => winners.Contains(e) && !e.Run))
         {
             entry.ActiveSince = entry.ProgressSince = Stopwatch.GetTimestamp();
@@ -77,6 +83,7 @@ public sealed partial class MonoTorrentEngine
             }
             else await entry.Manager.StartAsync();
             entry.Run = true;
+            log($"Queue start {entry.Id}: cap={settings.MaxActiveDownloads}.");
         }
     }
 
@@ -88,6 +95,7 @@ public sealed partial class MonoTorrentEngine
         if (entry.Manager.HasMetadata) await client.DiskManager.FlushAsync(entry.Manager);
         entry.LastReceived = entry.LastUploaded = 0;
         entry.Run = false;
+        entry.MetadataStalled = entry.ProgressStalled = false;
     }
 
     private static async Task HashCheckBindingsAsync(Entry entry)
@@ -193,15 +201,23 @@ public sealed partial class MonoTorrentEngine
         try
         {
             if (entries.TryGetValue(hash, out var entry)) return Files(entry.Manager);
-            var path = Path.Combine(directory, $"{hash}.torrent");
-            if (!File.Exists(path)) return null;
-            var torrent = await MonoTorrent.Torrent.LoadAsync(path);
-            if (torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant() != hash)
-                throw new InvalidDataException("Cached torrent metadata does not match the requested hash.");
+            var torrent = await LoadCachedTorrentAsync(hash);
+            if (torrent is null) return null;
             return [.. torrent.Files.Select((f, i) =>
                 new TorrentFlow.Domain.TorrentFile(i, f.Path, f.Length, f.OffsetInTorrent))];
         }
         finally { gate.Release(); }
+    }
+
+    private async Task<MonoTorrent.Torrent?> LoadCachedTorrentAsync(string hash)
+    {
+        var path = Path.Combine(directory, $"{hash}.torrent");
+        if (!File.Exists(path)) path = Path.Combine(directory, "metadata", hash.ToUpperInvariant() + ".torrent");
+        if (!File.Exists(path)) return null;
+        var torrent = await MonoTorrent.Torrent.LoadAsync(path);
+        if (torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant() != hash)
+            throw new InvalidDataException("Cached torrent metadata does not match the requested hash.");
+        return torrent;
     }
 
     public async Task LimitDevRateAsync(int bytesPerSecond, CancellationToken ct)
