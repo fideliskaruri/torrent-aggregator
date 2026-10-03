@@ -16,12 +16,14 @@ internal static class Bench
 
     public static async Task<int> Run(string[] args)
     {
+        if (args.FirstOrDefault() == "parse") return ParseBench.Run(args[1..]);
         Options options;
         try { options = Options.Parse(args); }
         catch (Exception e) { Console.Error.WriteLine(e.Message); return 2; }
         if (options.Help)
         {
             Console.WriteLine("dotnet run --project tools\\bench -- --base http://127.0.0.1:3931 --label baseline [--titles file] [--wait-seconds 120] [--search-only] [--only \"Sintel\"]");
+            Console.WriteLine("dotnet run --project tools\\bench -c Release -- parse [--corpus file] [--iterations 10] [--stress] [--json file]");
             return 0;
         }
         var root = FindRoot();

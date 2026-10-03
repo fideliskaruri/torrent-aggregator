@@ -1,0 +1,2954 @@
+{
+  "Corpus": "D:\\code\\platformApps-worktrees\\rebuild\\backend\\corpus\\names.tsv",
+  "Iterations": 10,
+  "ParseMilliseconds": 1894.7935,
+  "NamesPerSecond": 18656.386566662804,
+  "StressMilliseconds": 19.4676,
+  "GatePassed": false,
+  "Accuracy": [
+    {
+      "Field": "kind",
+      "Correct": 3485,
+      "Total": 3535,
+      "HandCorrect": 1729,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "seasons",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "episodes",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "resolution",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "foreign",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "unsafe",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "year",
+      "Correct": 3532,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "source_type",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "codec",
+      "Correct": 3535,
+      "Total": 3535,
+      "HandCorrect": 1734,
+      "HandTotal": 1734
+    },
+    {
+      "Field": "group",
+      "Correct": 3229,
+      "Total": 3535,
+      "HandCorrect": 1593,
+      "HandTotal": 1734
+    }
+  ],
+  "Mismatches": [
+    {
+      "Line": 21,
+      "Name": "A Silent Voice",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 37,
+      "Name": "A Silent Voice - Koe no Katachi",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 69,
+      "Name": "Eiga Koe no Katachi | Honorifics | Signs | Lyrics (ass \u002B fonts)",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 107,
+      "Name": "Silent Voice MULTi 1080p WEB x264 -NanDesuKa (ADN)",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 140,
+      "Name": "Yoshitoki O\u0304ima - A Silent Voice (Koe no Katachi)",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 192,
+      "Name": "[MoeShqip] Koe no Katachi (A Silent Voice) Shqip/Albanian",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 395,
+      "Name": "BIG_BUCK_BUNNY iso",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 398,
+      "Name": "Big Buck BUNNY EXE",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 399,
+      "Name": "Big Buck Bunny",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 436,
+      "Name": "Big Buck Bunny IPod 5G 320x180",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 437,
+      "Name": "Big Buck Bunny Production Files",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 438,
+      "Name": "Big Buck Bunny [960x540]",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 439,
+      "Name": "Big Buck Bunny [BIGroup] mov",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 442,
+      "Name": "Big Buck Bunny mp4",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 444,
+      "Name": "Big Buck Bunny trailer",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 453,
+      "Name": "Big buck bunny By Nero young",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 469,
+      "Name": "Big_Buck_Bunny_3D avi",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 476,
+      "Name": "Hola Big Buck Bunny CC 3 0 mp4",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 502,
+      "Name": "VIPeers_  Big Buck Bunny - Animation 3gp",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 507,
+      "Name": "big buck bunny 1080 stereo ogg",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 512,
+      "Name": "big buck bunny [TRACKERSURFER french]",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 516,
+      "Name": "big_ buck_bunny.mkv",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 517,
+      "Name": "big_buck_bunny.ogg",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 654,
+      "Name": "Frieren\uA789 Beyond Journey\u0027s End [BD][1080p][HEVC 10bit x265][Dual Audio][Tenrai-Sensei]",
+      "Field": "kind",
+      "Expected": "season_pack",
+      "Actual": "movie",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1159,
+      "Name": "Gunner, HEAT, PC! (v2026.09.02)",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1174,
+      "Name": "Heat Guy J (\u30D2\u30FC\u30C8\u30AC\u30A4\u30B8\u30A7\u30A4, H\u012Bto Gai Jei) [8 x DVD9 PAL - FR \u0026 JAP VOSTFR 2.0]",
+      "Field": "kind",
+      "Expected": "episode",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1176,
+      "Name": "Heat Guy J [574p.x264][DA:VO,VF,Vostfr]",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1211,
+      "Name": "JeffsModels - August Heat - Busty August Is Treated To Another Hard Cock 1080p",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1262,
+      "Name": "[BBF] Dead Heat v2 [VHS AC3 SUB ITA][830754AB].mkv",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1263,
+      "Name": "[Beatrice] Dead Heat [WEBRip 640x480 x264 EAC3].mkv",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1269,
+      "Name": "[Ioroid] Dead Heat [BCH WEB-DL 720p AVC AAC]",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1270,
+      "Name": "[JacquieEtMichelTV] Lolita 27YO feeling the heat! (26.07.26)[720p][x264][xFans].mp4",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1277,
+      "Name": "[Owlolf-fansub]Fate\uFF0FGO Dead Heat Summer Race vostfr [1080p][MKV]",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1278,
+      "Name": "[POVD] Myra Moans get in car or stay in heat (26.09.04)[720p][x264][xFans].mp4",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1279,
+      "Name": "[Rododendron] Detective Conan: Solve the Mystery of Heatstroke! (VHS 480p)",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2401,
+      "Name": "01. Scorpion\u0027s Sting.mp4",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2510,
+      "Name": "Eyeshield21 \u30A2\u30A4\u30B7\u30FC\u30EB\u30C921 [1080p] [H264] [English sub]",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2643,
+      "Name": "Blender Sintel trailer - OGV",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2647,
+      "Name": "SINTEL-4D",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2648,
+      "Name": "Sintel",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2680,
+      "Name": "Sintel 4k 27qp 24fps 1aud 9subs mkv",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2681,
+      "Name": "Sintel 872p mp4",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2690,
+      "Name": "Sintel mp4",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2713,
+      "Name": "Sintel_DivXPlusHD_2Titles_6500kbps mkv",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2733,
+      "Name": "sintel_202207",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2734,
+      "Name": "sintel_4k mov",
+      "Field": "kind",
+      "Expected": "movie",
+      "Actual": "other",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2736,
+      "Name": "\u00D0\u00A1\u00D0\u00B8\u00D0\u00BD\u00D1\u201A\u00D0\u00B5\u00D0\u00BB / Sintel \u002B OST (2010) DMRip 1080p   \u00D0\u0153\u00D0\u00B8\u00D1\u201E\u00D0\u00BE\u00D0\u00B3\u00D1\u20AC\u00D0\u00B0\u00D0\u00B4",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3144,
+      "Name": "anime-pahe-ramayana-the-legend-of-prince-rama-eng-dub-01-dvd-438p-orange-flash",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3214,
+      "Name": "[BDRip 1080p ENG-AC3-MULTI SUB] Michael Jackson This Is It-LiFE",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3319,
+      "Name": "Show 1080p",
+      "Field": "kind",
+      "Expected": "other",
+      "Actual": "movie",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1159,
+      "Name": "Gunner, HEAT, PC! (v2026.09.02)",
+      "Field": "year",
+      "Expected": "2026",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2728,
+      "Name": "[philosophy-raws][\u00E8\u00BE\u203A\u00E7\u2030\u00B9\u00E5\u00B0\u201D][sintel][HI444PP FLAC][4096x1776][BT 2020\u002BYCOGO][\u00E7\u00AE\u20AC\u00E7\u00B9\u0081\u00E8\u2039\u00B1\u00E5\u00AD\u2014\u00E5\u00B9\u2022]",
+      "Field": "year",
+      "Expected": "2020",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2731,
+      "Name": "sintel-2048-surround mkv",
+      "Field": "year",
+      "Expected": "2048",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 4,
+      "Name": "(Hi10) Koe no Katachi (2016) (BD 1080p) (10-bit x264) (Opus) (35mm)",
+      "Field": "group",
+      "Expected": "Hi10",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 9,
+      "Name": "A Knight of the Seven Kingdoms S01E02 1080p WEB h264 ETHEL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ETHEL",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 12,
+      "Name": "A Knight of the Seven Kingdoms S01E04 MULTI 1080p WEB H264 HiggsBoson EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "HiggsBoson",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 14,
+      "Name": "A Knight of the Seven Kingdoms S01E05 1080p WEB h264 ETHEL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ETHEL",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 16,
+      "Name": "A Knight of the Seven Kingdoms S01E06 1080p WEB h264 ETHEL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ETHEL",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 30,
+      "Name": "A Silent Voice (2016) MULTi 1080p WEB x264 AAC -Tsundere-Raws (CR) (Koe no Katachi)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 43,
+      "Name": "A Silent Voice 2016 1080p BluRay AVC LPCM 5.1-DIY@TTG",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "DIY@TTG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 68,
+      "Name": "Eiga Koe no Katachi A Silent Voice 2016 GerDub AC3 1080p x264-org-ger-iND",
+      "Field": "group",
+      "Expected": "org-ger-iND",
+      "Actual": "iND",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 105,
+      "Name": "Silent Voice (2016) 1080p WEB AV1 E-AC-3 -Tsundere-Raws (NF) (Koe no Katachi, A Silent Voice)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 113,
+      "Name": "Silent Witness S27E08 Death Of A Thousand Hits Part Two 1080p HDTV H264 ORGANiC EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ORGANiC",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 115,
+      "Name": "Silent Witness S27E08 Death Of A Thousand Hits Part Two 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 116,
+      "Name": "Silent Witness S27E08 Death Of A Thousand Hits Part Two 720p HDTV x264 ORGANiC EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ORGANiC",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 118,
+      "Name": "Silent Witness S27E08 Death Of A Thousand Hits Part Two XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 143,
+      "Name": "[-GkTorrent-cx-]-A-Silent-Voice-2016-FRENCH-BDRip-XviD-FuN-avi",
+      "Field": "group",
+      "Expected": "FuN",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 173,
+      "Name": "[Hakata Ramen] Koe no Katachi (BD) [1080p][HEVC][x265][10bit] HR-SR",
+      "Field": "group",
+      "Expected": "SR",
+      "Actual": "Hakata Ramen",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 176,
+      "Name": "[JPN-ENG] A Silent Voice [2016] 1080p ITA BDRip x265 DTS-HD MA 5.1 Kira [SEV]",
+      "Field": "group",
+      "Expected": "JPN-ENG",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 237,
+      "Name": "widowed-buttocks -silent-aspiration-on-a-decamar-intense-piston-with-the-hem-rolling-up-and-out-of-voice",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "voice",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 238,
+      "Name": "\u3010\u8C6C\u8C6C\u65E5\u5287\u5B57\u5E55\u7D44\u30112016 \u5287\u5834\u7248 \u52D5\u756B\u2605[\u8072\u4E4B\u5F62 \u58F0\u4E4B\u5F62 / \u8072\u306E\u5F62 \u96FB\u5F71 A Silent Voice 2016] BDrip [BIG5_\u7E41\u9AD4] [720p \u85CD\u5149\u7248] \u5167\u5D4CMp4",
+      "Field": "group",
+      "Expected": "\u8C6C\u8C6C\u65E5\u5287\u5B57\u5E55\u7D44",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 241,
+      "Name": "A Silent Voice 2016 1080p BluRay x264 10bit rar",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "rar",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 268,
+      "Name": "A Quiet Place Day One 2024 1080p WEBRip H264 Will1869",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Will1869",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 272,
+      "Name": "A Working Man 2025 1080p WEB DL H264 FRANK",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FRANK",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 276,
+      "Name": "Chainsaw Man The Movie Reze Arc 2025 1080p TS MY CN EN-RGB",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "RGB",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 280,
+      "Name": "Gintama the Movie 2026 Yoshiwara in Flames 2026 FRENCH WEBRip x264 mp4",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mp4",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 335,
+      "Name": "Backrooms 2026 1080p WEB-DL HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 351,
+      "Name": "Backrooms 2026 Extended 1080p WEB-DL HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 365,
+      "Name": "Backrooms.2026.1080p.BDRip.AVC.DDP5.1-Asmo",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Asmo",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 412,
+      "Name": "Big Buck Bunny 1080p x264 mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mkv",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 417,
+      "Name": "Big Buck Bunny 2008 HDRip XviD avi",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "avi",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 428,
+      "Name": "Big Buck Bunny 4K UHD HFR 60fps ENG FLAC WEBDL 2160p X264 ZMachine",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ZMachine",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 429,
+      "Name": "Big Buck Bunny 4K UHD HFR 60fps FLAC WEBDL 2160p X264 mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mkv",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 433,
+      "Name": "Big Buck Bunny BDRip XviD MEDiC",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "MEDiC",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 441,
+      "Name": "Big Buck Bunny animation (1080p HD)_Full-HD mp4",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "HD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 450,
+      "Name": "Big Time RV S04E17 Back For More 720p HDTV x264 W4F EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "W4F",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 451,
+      "Name": "Big Time RV S04E17 Back For More HDTV x264 W4F EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "W4F",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 470,
+      "Name": "Black Ink Crew S08E09 Big Daddy Got Back 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 471,
+      "Name": "Black Ink Crew S08E09 Big Daddy Got Back 720p HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 472,
+      "Name": "Black Ink Crew S08E09 Big Daddy Got Back HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 474,
+      "Name": "Filthy Fortunes S02E01 Big Bangs for Big Bucks 1080p DISC WEB DL AAC2 0 H 264 RAWR EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "RAWR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 478,
+      "Name": "Love After Lockup S03E22 Life After Lockup Big Daddys Back 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 479,
+      "Name": "Love After Lockup S03E22 Life After Lockup Big Daddys Back 720p HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 481,
+      "Name": "Love After Lockup S03E22 Life After Lockup Big Daddys Back HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 482,
+      "Name": "Love After Lockup S03E22 Life After Lockup Big Daddys Back XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 483,
+      "Name": "Malawi Wildlife Rescue S01E04 Big Buck Chase 1080p WEB h264 CAFFEiNE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CAFFEiNE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 484,
+      "Name": "Malawi Wildlife Rescue S01E04 Big Buck Chase 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 485,
+      "Name": "Malawi Wildlife Rescue S01E04 Big Buck Chase 720p WEB h264 CAFFEiNE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CAFFEiNE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 486,
+      "Name": "Malawi Wildlife Rescue S01E04 Big Buck Chase WEB h264 CAFFEiNE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CAFFEiNE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 487,
+      "Name": "Malawi Wildlife Rescue S01E04 Big Buck Chase XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 488,
+      "Name": "My Big Fat American Gypsy Wedding S06E06 Gorger Parents Fight Back 720p WEBRip x264 KOMPOST EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOMPOST",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 489,
+      "Name": "My Big Fat Fabulous Life S08E12 Whitney Gets Her Groove Back 1080p WEB h264 KOMPOST EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOMPOST",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 490,
+      "Name": "My Big Fat Fabulous Life S08E12 Whitney Gets Her Groove Back 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 491,
+      "Name": "My Big Fat Fabulous Life S08E12 Whitney Gets Her Groove Back 720p HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 492,
+      "Name": "My Big Fat Fabulous Life S08E12 Whitney Gets Her Groove Back 720p WEB h264 KOMPOST EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOMPOST",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 493,
+      "Name": "My Big Fat Fabulous Life S08E12 Whitney Gets Her Groove Back XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 503,
+      "Name": "Wipeout US S08E01 The Big Balls Are Back Baby 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 505,
+      "Name": "Wipeout US S08E01 The Big Balls Are Back Baby 720p WEBRip x264 KOMPOST EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOMPOST",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 506,
+      "Name": "Wipeout US S08E01 The Big Balls Are Back Baby XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 515,
+      "Name": "big-buck-bunny_nintendo_3ds-edition",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "edition",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 527,
+      "Name": "[ Torrent911.tv ] BLEACH.Sennen.Kessen-hen.S01E01.VOSTFR.Fansub.WebRip.1080p.x264.AAC-Pikari-Teshima.mkv",
+      "Field": "group",
+      "Expected": "Pikari-Teshima",
+      "Actual": "Teshima",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 549,
+      "Name": "Frieren Beyond Journey\u0027s End S02E04 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren 2nd Season,Frieren: Beyond Journey\u0027s End Season 2)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 550,
+      "Name": "Frieren Beyond Journey\u0027s End S02E09 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 551,
+      "Name": "Frieren Beyond Journey\u0027s End S02E10 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 570,
+      "Name": "Frieren Beyond Journeys End S01E20 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 571,
+      "Name": "Frieren Beyond Journeys End S01E21 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 573,
+      "Name": "Frieren Beyond Journeys End S01E22 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 575,
+      "Name": "Frieren Beyond Journeys End S01E23 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 576,
+      "Name": "Frieren Beyond Journeys End S01E24 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 580,
+      "Name": "Frieren Beyond Journeys End S01E27 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 582,
+      "Name": "Frieren Beyond Journeys End S01E28 1080p WEB H264 KAWAII EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KAWAII",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 597,
+      "Name": "Frieren Beyond Journeys End S02E03 720p WEB H264 SKYANiME EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SKYANiME",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 603,
+      "Name": "Frieren Beyond Journeys End S02E04 720p WEB H264 SKYANiME EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SKYANiME",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 608,
+      "Name": "Frieren Beyond Journeys End S02E05 720p WEB H264 SKYANiME EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SKYANiME",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 863,
+      "Name": "Frieren : Beyond Journey\u0027s End S01 (2023) CUSTOM MULTi-FRENCH/VOSTFR 1080p 10bits BluRay x265 AAC -Punisher694 (Sousou no Frieren) (VF)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Punisher694",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 867,
+      "Name": "Frieren Beyond Journeys End S01 1080p BluRay X264 iNSPiRE",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "iNSPiRE",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 868,
+      "Name": "Frieren Beyond Journeys End S01 1080p NF WEB-DL AAC2.0 H 264 MULTi-VARYG (Sousou no Frieren, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 873,
+      "Name": "Frieren Beyond Journeys End S01E24 XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 876,
+      "Name": "Frieren Beyond Journeys End S01E26 The Height of Magic 1080p CR WEB-DL AAC2.0 H 264 DUAL-VARYG (Sousou no Frieren, Dual-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 877,
+      "Name": "Frieren Beyond Journeys End S01E28 It Would Be Embarrassing When We Met Again 1080p CR WEB-DL AAC2.0 H 264 DUAL-VARYG (Sousou no Frieren, Dual-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 882,
+      "Name": "Frieren S01 MULTi 1080p WEB AV1 AAC -Tsundere-Raws (NF) (VF, FRENCH, VOSTFR, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 883,
+      "Name": "Frieren S01 MULTi 1080p WEB x264 AAC -Tsundere-Raws (CR) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 884,
+      "Name": "Frieren S01 MULTi 1080p WEB x264 AAC -Tsundere-Raws (NF) (VF, FRENCH, VOSTFR, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 957,
+      "Name": "[JP-EN] Frieren : Beyond Journey\u0027s End S01 [2023-2024] COMPLETE 1080p BDRip x265 DUAL FLAC 2.0 Kira [SEV]",
+      "Field": "group",
+      "Expected": "JP-EN",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 990,
+      "Name": "[TRC] Frieren - Beyond Journey\u0027s End - S01 [English Dub] [CR WEB-RIP 1080p HEVC-10 AAC]",
+      "Field": "group",
+      "Expected": "10",
+      "Actual": "TRC",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1009,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E26 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1010,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E27 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1011,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E28 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1012,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E28 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1033,
+      "Name": "Frieren Beyond Journeys End S01E27 An Era of Humans 1080p CR WEB-DL AAC2.0 H 264 DUAL-VARYG (Sousou no Frieren, Dual-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1139,
+      "Name": "Body Heat 1981 Criterion 1080p BluRay HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1147,
+      "Name": "Cheerleaders In Heat Vol. 6 [New Sensations 2026] XXX WEB-DL 2160p MP4-P2P [XC]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "P2P",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1158,
+      "Name": "Experimenting Girlfriends [Sensual Heat 2026] XXX WEB-DL 2160p MP4-P2P [XC]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "P2P",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1169,
+      "Name": "Heat 1995 Directors Cut Remastered BluRay 1080p HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1178,
+      "Name": "Heat Of The Moment 2 [SexArt 2025] XXX WEB-DL MP4-P2P [XC]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "P2P",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1225,
+      "Name": "Need.for.Speed.Heat.MULTi7-ElAmigos",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ElAmigos",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1233,
+      "Name": "Red Heat 1988 REMASTERED 1080p BluRay HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1235,
+      "Name": "Saint Seiya Film 2 (1988) MULTi-FRENCH/VOSTFR 1080p 10bits BluRay x265 FLAC-GundamGuy (VF) (La Bataille des Dieux / Kamigami no Atsuki Tatakai / The Heated Battle of the Gods)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "GundamGuy",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1239,
+      "Name": "Scorpions - Face The Heat [Japanese Edition] [1993] [FLAC]-Sc4r3cr0w",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Sc4r3cr0w",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1294,
+      "Name": "\u3010NO ARCHIVE KARAOKE\u3011 it\u0027s heat haze day \u3010NIJISANJI EN _ Elira Pendora\u3011 2021-08-16",
+      "Field": "group",
+      "Expected": "NO ARCHIVE KARAOKE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1307,
+      "Name": "Je veux manger ton pancr\u00E9as (2018) MULTi-FRENCH/VOSTFR 1080p 10bits BluRay x265 AAC 5.1 -Punisher694 (I Want To Eat Your Pancreas / Kimi no Suizo wo Tabetai)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Punisher694",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1332,
+      "Name": "Chicago Fire S12E04 The Little Things 1080p WEBRip 10Bit DDP5 1 HEVC d3g EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "d3g",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1333,
+      "Name": "Chicago Fire S12E04 The Little Things 1080p Web DL x264 OFT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "OFT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1339,
+      "Name": "Little Disasters S01E01 The Perfect Mother 720p AMZN WEB DL DDP2 0 H 264 RAWR EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "RAWR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1340,
+      "Name": "Little Disasters S01E02 1080p WEB H264 SKYFiRE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SKYFiRE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1341,
+      "Name": "Little Disasters S01E04 720p WEB H264 SKYFiRE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SKYFiRE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1362,
+      "Name": "Little Fires Everywhere S01 1080p AMZN WEB-DL DDP5 1 H 264-NTG Kyle",
+      "Field": "group",
+      "Expected": "NTG",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1380,
+      "Name": "Little Fires Everywhere S01E01 08 ITALiAN WEBRip x264 C0P",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "C0P",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1439,
+      "Name": "Little Fires Everywhere S01e01 02 ITA ENG 1080p AMZN WEB DLMux H264 Morpheus",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Morpheus",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1461,
+      "Name": "Little Shop of Horrors 1986 Directors Cut REMASTERED 1080p BluRay HEVC x265 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1462,
+      "Name": "Little Singles S01E01 720p WEB H264 JFF EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "JFF",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1463,
+      "Name": "Little Singles S01E01 Palm Desert ed 1080p AMZN WEB DL DDP2 0 H 264 RAWR EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "RAWR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1464,
+      "Name": "Little Women Atlanta S04E04 Youre Fired 720p HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1465,
+      "Name": "Little Women Atlanta S04E04 Youre Fired HDTV x264 CRiMSON EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CRiMSON",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1467,
+      "Name": "Little-Fires-Everywhere-S01E01-The-Spark-720p-AMZN-WEB-DL-DDP5-1-H-264-NTG[eztv-io]",
+      "Field": "group",
+      "Expected": "AMZN-WEB-DL-DDP5-1-H-264-NTG",
+      "Actual": "NTG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1468,
+      "Name": "Little-Fires-Everywhere-S01E01-WEB-H264",
+      "Field": "group",
+      "Expected": "Everywhere-S01E01-WEB-H264",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1469,
+      "Name": "Little-Fires-Everywhere-S01E01-XviD",
+      "Field": "group",
+      "Expected": "Fires-Everywhere-S01E01-XviD",
+      "Actual": "XviD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1472,
+      "Name": "Little-Fires-Everywhere-S01E03-720p-WEB-x265",
+      "Field": "group",
+      "Expected": "Everywhere-S01E03-720p-WEB-x265",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1473,
+      "Name": "Little-Fires-Everywhere-S01E04-WEB-h264",
+      "Field": "group",
+      "Expected": "Everywhere-S01E04-WEB-h264",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1474,
+      "Name": "Little-Fires-Everywhere-S01E08-1080p-WEB-H264",
+      "Field": "group",
+      "Expected": "S01E08-1080p-WEB-H264",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1475,
+      "Name": "Little-Fires-Everywhere-S01E08-720p-WEB-H264",
+      "Field": "group",
+      "Expected": "Everywhere-S01E08-720p-WEB-H264",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1476,
+      "Name": "Little-Fires-Everywhere-S01E08-WEB-H264",
+      "Field": "group",
+      "Expected": "Everywhere-S01E08-WEB-H264",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1610,
+      "Name": "Little.Fires.Everywhere.S01.HDTV.1080i.x264.BGAUDiO-4PLAY",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "4PLAY",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1625,
+      "Name": "La Casa di Carta Korea Money Heist Korea Joint Economic Area S01 iTALiAN MULTi 1080p WEB x264-MeM GP",
+      "Field": "group",
+      "Expected": "MeM",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1628,
+      "Name": "La.casa.de.papel.A.K.A.Money.Heist.S01.COMPLETE.DUAL-AUDIO.SPA-E",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "E",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1670,
+      "Name": "Money Heist Korea Joint Economic Area S01 Repack iTALiAN MULTi 1080p WEB x264-MeM GP",
+      "Field": "group",
+      "Expected": "MeM",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1671,
+      "Name": "Money Heist Korea Joint Economic Area S01 iTALiAN MULTi 1080p WEB x264-MeM GP",
+      "Field": "group",
+      "Expected": "MeM",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1672,
+      "Name": "Money Heist Korea Joint Economic Area S01E01 720p HEVC x265-MeGu ...",
+      "Field": "group",
+      "Expected": "MeGu",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1673,
+      "Name": "Money Heist Korea Joint Economic Area S01E03 1080p HEVC x265-MeG ...",
+      "Field": "group",
+      "Expected": "MeG",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1675,
+      "Name": "Money Heist Korea Joint Economic Area S01E03 MULTi WEB x265 MACK4 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "MACK4",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1677,
+      "Name": "Money Heist Korea Joint Economic Area S01E04 1080p WEB H264-CAKE ...",
+      "Field": "group",
+      "Expected": "CAKE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1679,
+      "Name": "Money Heist Korea Joint Economic Area S01E05 MULTi WEB x265-MACK ...",
+      "Field": "group",
+      "Expected": "MACK",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1680,
+      "Name": "Money Heist Korea Joint Economic Area S01E06 1080p WEB H264-CAKE ...",
+      "Field": "group",
+      "Expected": "CAKE",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1682,
+      "Name": "Money Heist Korea Joint Economic Area S01E08 1080p WEB h264-KOGi ...",
+      "Field": "group",
+      "Expected": "KOGi",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1684,
+      "Name": "Money Heist Korea Joint Economic Area S01E09 1080p WEB h264 KOGi EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOGi",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1685,
+      "Name": "Money Heist Korea Joint Economic Area S01E09 XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1687,
+      "Name": "Money Heist Korea Joint Economic Area S01E11 1080p WEB h264-KOGi ...",
+      "Field": "group",
+      "Expected": "KOGi",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1688,
+      "Name": "Money Heist Korea Joint Economic Area S01E11 MULTi 1080p WEB x264 STRINGERBELL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "STRINGERBELL",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1689,
+      "Name": "Money Heist Korea Joint Economic Area S01E11 XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1710,
+      "Name": "Money Heist S01E01 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1711,
+      "Name": "Money Heist S01E02 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1712,
+      "Name": "Money Heist S01E03 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1713,
+      "Name": "Money Heist S01E04 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1714,
+      "Name": "Money Heist S01E05 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1715,
+      "Name": "Money Heist S01E06 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1716,
+      "Name": "Money Heist S01E07 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1717,
+      "Name": "Money Heist S01E08 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1718,
+      "Name": "Money Heist S01E09 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1720,
+      "Name": "Money Heist S01E10 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1721,
+      "Name": "Money Heist S01E11 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1722,
+      "Name": "Money Heist S01E12 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1723,
+      "Name": "Money Heist S01E13 1080p NF WEB DL DDP2 0 x264 Mooi1990 EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mooi1990",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1730,
+      "Name": "Money.Heist.S01-S04.SPA-ENG.720p.10bit.WEBRip.2CH.x265-HEVC-PSA",
+      "Field": "group",
+      "Expected": "HEVC-PSA",
+      "Actual": "PSA",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1750,
+      "Name": "Money.Heist.aka.La.Casa.de.Papel S01\u0026S02.1080p.--S03\u0026S04\u0026S05.2160p.--NF.WEB.HDR.DDP5.1-ZeLk@",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ZeLk@",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1752,
+      "Name": "[FileTracker pl] Dom z papieru - La Casa de Papel - Money Heist 2017 [S01-S02] [1080p WEB x264-Mooi1990 i EDHD][Napisy PL][Alusia]",
+      "Field": "group",
+      "Expected": "Mooi1990",
+      "Actual": "FileTracker pl",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 1757,
+      "Name": "[DKB] Mushoku Tensei - Isekai Ittara Honki Dasu - S01E01 [1080p][HEVC-265 10bit][Eng-Subs][weekly]",
+      "Field": "group",
+      "Expected": "265",
+      "Actual": "DKB",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1785,
+      "Name": "Puss in Boots The Last Wish 2022 1080P YUV444 HDR AV1 Opus7 1-LAV1SH mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "LAV1SH",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1819,
+      "Name": "Puss in Boots The Last Wish 2022 HDRip x264 seleZen",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "seleZen",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1823,
+      "Name": "Puss in Boots The Last Wish 2022 WEB-DLRip x264 seleZen",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "seleZen",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1830,
+      "Name": "Puss in Boots-The Last Wish 2022 720p WEB-DL Hindi Line-English",
+      "Field": "group",
+      "Expected": "English",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1831,
+      "Name": "Puss-In-Boots-The-Last-Wish-2022-1080p-WEB-Rip-HEVC-x265-10Bit-AC-3-5-1-MSubs--KINGDOM-RG",
+      "Field": "group",
+      "Expected": "x265-10Bit-AC-3-5-1-MSubs--KINGDOM-RG",
+      "Actual": "RG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1832,
+      "Name": "Puss-in-Boots-The-Last-Wish-(2022)-Il-Gatto-con-gli-Stivali-FullHD-1080p-H264-Ita-Eng-AC3-5-1-Sub-Ita-Eng-realDMDJ-DDL-Ita",
+      "Field": "group",
+      "Expected": "Ita-Eng-AC3-5-1-Sub-Ita-Eng-realDMDJ-DDL-Ita",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1833,
+      "Name": "Puss-in-Boots-The-Last-Wish-2022-1080p-WEBRip-x264-AAC-AOC",
+      "Field": "group",
+      "Expected": "AAC-AOC",
+      "Actual": "AOC",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1887,
+      "Name": "Rick and Morty S01E01 Pilot 1080p TrueHD 5 1 VC-1 REMUX-FraMeSToR",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSToR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1892,
+      "Name": "Rick and Morty S01E03 Anatomy Park 1080p TrueHD 5 1 VC-1 REMUX-FraMeSToR",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSToR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1894,
+      "Name": "Rick and Morty S01E04 M Night Shaym Alians 1080p TrueHD 5 1 VC-1 REMUX-FraM",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraM",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1900,
+      "Name": "Rick and Morty S01E05 Meeseeks and Destroy 1080p TrueHD 5 1 VC-1 REMUX-FraM",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraM",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1904,
+      "Name": "Rick and Morty S01E06 Rick Potion Nr 9 1080p TrueHD 5 1 VC-1 REMUX-FraMeSTo",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSTo",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1907,
+      "Name": "Rick and Morty S01E07 Raising Gazorpazorp 1080p TrueHD 5 1 VC-1 REMUX-FraMe",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMe",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1911,
+      "Name": "Rick and Morty S01E08 Rixty Minutes 1080p TrueHD 5 1 VC-1 REMUX-FraMeSToR",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSToR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 1920,
+      "Name": "Rick and Morty S01E11 Ricksy Business 1080p TrueHD 5 1 VC-1 REMUX-FraMeSToR",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSToR",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2143,
+      "Name": "Jellyfish Cant Swim in the Night S01E04 Double A-Side 1080p HIDI WEB-DL AAC2.0 H 264 DUAL-VARYG (Rick and Morty: The Anime, Dual-Audio)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2147,
+      "Name": "Rick And Morty S01 S02 S03 Complete BluRay H264 5.1 BONE",
+      "Field": "group",
+      "Expected": "BONE",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2148,
+      "Name": "Rick And Morty S01 S07 1080p ITA ENG AAC x265 MaDTiA",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "MaDTiA",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2157,
+      "Name": "Rick and Morty - S01 - 2160p HDR Ai Upscale 5.1 MKV -Mesc",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Mesc",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2185,
+      "Name": "Rick and Morty S01- 09 \u002B Specials Bluray 1080p Opus 5.1 x265 FraMeSToR",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FraMeSToR",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2204,
+      "Name": "Rick and Morty The Anime S01E01 Girl Who Manipulates Time 1080p AMZN WEB-DL DDP2.0 H 264 MULTi-VARYG (Animegataris, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2208,
+      "Name": "Rick and Morty The Anime S01E07 When We Meet in Our Dreams 1080p AMZN WEB-DL.AAC2.0 H 264 MULTi-VARYG (Animegataris, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2211,
+      "Name": "Rick and Morty The Anime S01E07 When We Meet in Our Dreams REPACK 1080p AMZN WEB-DL.DDP2.0 H 264 MULTi-VARYG (Animegataris, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2213,
+      "Name": "Rick and Morty The Anime S01E08 Feel Dont Think 1080p AMZN WEB-DL DDP2.0 H 264 MULTi-VARYG (Animegataris, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2216,
+      "Name": "Rick and Morty The Anime S01E09 Her Innermost Wish 1080p AMZN WEB-DL DDP2.0 H 264 MULTi-VARYG (Rick and Morty: The Anime, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2219,
+      "Name": "Rick and Morty The Anime S01E10 A Pain in the Back 1080p AMZN WEB-DL DDP2.0 H 264 MULTi-VARYG (Rick and Morty: The Anime, Multi-Audio, Multi-Subs)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VARYG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2224,
+      "Name": "Rick-And-Morty-S01-S02-HDTV-x264-Zamunda-NET",
+      "Field": "group",
+      "Expected": "Zamunda-NET",
+      "Actual": "NET",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2225,
+      "Name": "Rick-and-Morty-Complete-S01-03-x265-HEVC",
+      "Field": "group",
+      "Expected": "Morty-Complete-S01-03-x265-HEVC",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2259,
+      "Name": "S01-Rick-And-Morty-1080p-WEB-DL-Dublado-avi",
+      "Field": "group",
+      "Expected": "Morty-1080p-WEB-DL-Dublado-avi",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2267,
+      "Name": "[FileTracker.pl] Rick and Morty 2013- [S01-S04] [1080p.Bluray.x264-zyl][1080p.WEBRip.WEB-DL.x264-zyl-KiT][Dubbing PL][Alusia]",
+      "Field": "group",
+      "Expected": "FileTracker pl",
+      "Actual": "FileTracker.pl",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2299,
+      "Name": "[\u745E\u514B\u548C\u83AB\u8482\u7B2C\u4E00\u5B63]Rick and Morty.S01.1080p.BluRay.DD5.1.x264-NTb",
+      "Field": "group",
+      "Expected": "NTb",
+      "Actual": "\u745E\u514B\u548C\u83AB\u8482\u7B2C\u4E00\u5B63",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2300,
+      "Name": "_=Demonoid_www Demonoid pw=_-Rick_and_Morty_Complete_S01_03_720p_x265_HEVC",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Rick_and_Morty_Complete_S01_03_720p_x265_HEVC",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2342,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-CM",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CM",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2343,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-COCAIN",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "COCAIN",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2344,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-DASH",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "DASH",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2345,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-DiAMOND",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "DiAMOND",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2346,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-EwDp",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "EwDp",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2347,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-PrisM",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "PrisM",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2348,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-TiTAN",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "TiTAN",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2349,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-iJUGGA",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "iJUGGA",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2350,
+      "Name": "Scorpion S01E01 2014 HDRip 720p-iND",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "iND",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2388,
+      "Name": "Ultra Violet and Black Scorpion S01E01 720p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2411,
+      "Name": "Red Tornado 01-06 (of 06) (2009-2010) (Digital) (Scorpion-Empire",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Empire",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2416,
+      "Name": "Scorpion S01 1080p WEBRip x265 KONTRAST",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KONTRAST",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2417,
+      "Name": "Scorpion S03E01E02 720p HDTV X264 DIMENSION EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "DIMENSION",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2418,
+      "Name": "Scorpion S03E01E02 HDTV x264 LOL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "LOL",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2438,
+      "Name": "WinRAR 5 01 Final [x86x64]\u002BKey-FFF",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "FFF",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2464,
+      "Name": "\u3010\u66F4\u591A\u9AD8\u6E05\u7535\u5F71\u8BBF\u95EE www.BBQDDQ.com\u3011\u5973\u56DA701\u53F7[\u4E2D\u6587\u5B57\u5E55].Female.Prisoner.701.Scorpion.1972.BluRay.1080p.LPCM.1.0.x265.10bit-BBQDDQ 6.01 GB",
+      "Field": "group",
+      "Expected": "\u66F4\u591A\u9AD8\u6E05\u7535\u5F71\u8BBF\u95EE www BBQDDQ com",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2469,
+      "Name": "Dappers 1x01 HDTV_XviD-FoV [NO-RAR] - [  ]",
+      "Field": "group",
+      "Expected": "FoV",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2473,
+      "Name": "Gold Rush S01 E01 E06 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2477,
+      "Name": "Outback Crystal Hunters S01E01 E04 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2490,
+      "Name": "Ultra Violet and Black Scorpion S01E01 1080p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2494,
+      "Name": "Yukon Gold S01 E01 E05 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2500,
+      "Name": "Black Scorpion S01 DVDRip XviD SFM",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SFM",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2502,
+      "Name": "Cardinal S01 Complete 1080p WEBRip x265 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2503,
+      "Name": "Coast 2005 S01 Complete DVDRip x265 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2505,
+      "Name": "Conspiracies Decoded S01E05 Secrets of the Scorpion 480p x264 mSD EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "mSD",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2507,
+      "Name": "Conspiracies Decoded S01E05 Secrets of the Scorpion 720p WEBRip x264 KOMPOST EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "KOMPOST",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2508,
+      "Name": "Conspiracies Decoded S01E05 Secrets of the Scorpion HDTV x264 SUiCiDAL EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SUiCiDAL",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2509,
+      "Name": "Conspiracies Decoded S01E05 Secrets of the Scorpion XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2511,
+      "Name": "Gold Rush S01 E07 E11 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2514,
+      "Name": "Hoffman Family Gold S01 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2517,
+      "Name": "Killers Behind The Myth S01E05 Tuchlin The Scorpion 720p WEB x264 UNDERBELLY EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "UNDERBELLY",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2520,
+      "Name": "Outback Crystal Hunters S01E05 E08 WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2521,
+      "Name": "Outback Opal Hunters S01 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2522,
+      "Name": "Outback Opal Hunters S01 WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2530,
+      "Name": "Scorpion S01 COMPLETE FRENCH HDTV XVID-L-P",
+      "Field": "group",
+      "Expected": "L-P",
+      "Actual": "P",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2584,
+      "Name": "Scorpion.S01E08.Risky.Business.720p.WEB-DL.DD5.1.H.264-BS[rartv] ...",
+      "Field": "group",
+      "Expected": "BS",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2594,
+      "Name": "Solar System S01 Complete 1080p WEB DL x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2595,
+      "Name": "Survivors 1975 S01 Complete DVDRip x265 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2597,
+      "Name": "The Repair Shop Australia S01E04 WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2599,
+      "Name": "The Repair Shop Australia S01E07 WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2613,
+      "Name": "Ultra Violet and Black Scorpion S01E02 1080p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2614,
+      "Name": "Ultra Violet and Black Scorpion S01E02 720p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2615,
+      "Name": "Ultra Violet and Black Scorpion S01E03 720p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2619,
+      "Name": "Ultra Violet and Black Scorpion S01E11 720p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2620,
+      "Name": "Ultra Violet and Black Scorpion S01E12 1080p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2621,
+      "Name": "Ultra Violet and Black Scorpion S01E13 720p WEB h264 SALT EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SALT",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2627,
+      "Name": "Wild Things with Dominic Monaghan S01E03 Black Hairy Thick Tail Scorpion iNTERNAL WEBRip x264 CAFFEiNE EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "CAFFEiNE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2630,
+      "Name": "Your Friendly Neighborhood Spider Man S01E07 Scorpion Rising XviD AFG EZTV",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "AFG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2633,
+      "Name": "Yukon Gold S01 E06 E10 720p WEBRip x264 skorpion",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "skorpion",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2647,
+      "Name": "SINTEL-4D",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "4D",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2659,
+      "Name": "Sintel (2010)DVD5 nl subs NLT-Release",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Release",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2666,
+      "Name": "Sintel 2010 720p Surround X264 Blender",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Blender",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2668,
+      "Name": "Sintel 2010 720p X264 Vodo",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Vodo",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2679,
+      "Name": "Sintel 4K UHD ENG FLAC ITA ENG Sub DMRip 1744p X264 ZMachine",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ZMachine",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2699,
+      "Name": "Sintel.2010.720p.Theora.Ogv-VODO",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VODO",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2709,
+      "Name": "Sintel.2010.Theora-VODO",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "VODO",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2716,
+      "Name": "The Sintern 2024 720p WEBRip 800MB x264 GalaxyRG",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "GalaxyRG",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2731,
+      "Name": "sintel-2048-surround mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "surround",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 2754,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E01 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2755,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E01 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2756,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E01 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2757,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E02 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2758,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E02 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2759,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E02 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2760,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E03 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2761,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E03 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2762,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E03 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2763,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E04 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2764,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E04 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2765,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E04 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2766,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E05 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2767,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E05 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2768,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E06 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2769,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E06 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2770,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E09 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2771,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E09 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2772,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E09 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2773,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E10 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2774,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E10 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2775,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E10 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2776,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E11 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2777,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E11 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2778,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E11 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2779,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E12 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2780,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E12 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2781,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E12 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2782,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E13 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2783,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E13 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2784,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E14 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2785,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E14 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2786,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E15 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2787,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E15 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2788,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E17 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2789,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E17 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2790,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E18 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2791,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E18 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2792,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E19 VOSTFR 1080p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2793,
+      "Name": "Frieren - Beyond Journey\u0027s End S01E19 VOSTFR 720p WEB x264 AAC -Tsundere-Raws (CR) (Sousou no Frieren)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2794,
+      "Name": "Frieren - Beyond Journey\u2019s End S01E05 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 2795,
+      "Name": "Frieren - Beyond Journey\u2019s End S01E06 MULTi 1080p WEB H.264 E-AC-3 AAC -Tsundere-Raws (CUSTOM) (VOSTFR, VF, Sousou no Frieren, Frieren: Beyond Journey\u0027s End)",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Tsundere-Raws",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3054,
+      "Name": "The Flash 2014 S01E01 720p HDTV X264-DIMENSION Sub ITA(TeamPremiumCracking)",
+      "Field": "group",
+      "Expected": "DIMENSION",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3060,
+      "Name": "The Flash 2014 S01E01 PREAIR 720p WEB-DL x264-SAM TBS",
+      "Field": "group",
+      "Expected": "SAM",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3084,
+      "Name": "The Pitt S01E01 1080p AV1 10bit-MeGusta[EZTVx to] mkv",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "MeGusta",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3106,
+      "Name": "[KatmovieHD.Tv] The Flash S01E01 Bluray 1080p 10bit HEVC [Hindi\u002BEnglish 5.1] x265",
+      "Field": "group",
+      "Expected": "KatmovieHD Tv",
+      "Actual": "",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3144,
+      "Name": "anime-pahe-ramayana-the-legend-of-prince-rama-eng-dub-01-dvd-438p-orange-flash",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "flash",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3179,
+      "Name": "The.Flash.1X01-23.WEB-DLMux.XviD.Ita.Eng.Ac3.Ba79-iCV-MIRCrew",
+      "Field": "group",
+      "Expected": "iCV-MIRCrew",
+      "Actual": "MIRCrew",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3183,
+      "Name": "BusinessCards MX v4 01 ML\u002BKey-MAZE",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "MAZE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3184,
+      "Name": "Community Season 5 Episode 01 Repiloting HDTV XviD-ASAP[ettv][FR]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "ASAP",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3187,
+      "Name": "Pro Evolution Soccer 2014 Update v1 01-RELOADED",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "RELOADED",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3196,
+      "Name": "DeepLush 21 04 07 Anna Claire Clouds This Is It XXX 1080p MP4-WRB[XvX]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "WRB",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3203,
+      "Name": "Michael Jacksons This Is It 2009 1080p BDRip AVC FLAC5 1 1h51m18s DVD9-Asmo",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Asmo",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3214,
+      "Name": "[BDRip 1080p ENG-AC3-MULTI SUB] Michael Jackson This Is It-LiFE",
+      "Field": "group",
+      "Expected": "BDRip 1080p ENG-AC3-MULTI SUB",
+      "Actual": "LiFE",
+      "LabelledBy": "auto"
+    },
+    {
+      "Line": 3258,
+      "Name": "[NPA_Zero\u0026iDerKaiser0] Bleach TYBW - 03 [KoksalProduction] (1080p) (ArabicSub).mp4",
+      "Field": "group",
+      "Expected": "NPA Zero\u0026iDerKaiser0",
+      "Actual": "NPA_Zero\u0026iDerKaiser0",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3323,
+      "Name": "(Judas) One Piece - 1170",
+      "Field": "group",
+      "Expected": "Judas",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3324,
+      "Name": "\u3010ToonsHub\u3011One Piece - 1170",
+      "Field": "group",
+      "Expected": "ToonsHub",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3328,
+      "Name": "[SomeGroup]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "SomeGroup",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3390,
+      "Name": "[Frieren][05v2][1080p]",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "Frieren",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3391,
+      "Name": "\u3010\u55B5\u840C\u5976\u8336\u5C4B\u3011[\u846C\u9001\u7684\u8299\u8389\u83B2 / Sousou no Frieren][36][1080p]",
+      "Field": "group",
+      "Expected": "\u55B5\u840C\u5976\u8336\u5C4B",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3424,
+      "Name": "The Odyssey (1997) DVDRip Xvid LKRG",
+      "Field": "group",
+      "Expected": "",
+      "Actual": "LKRG",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3427,
+      "Name": "[ WebToolTip.com ] The Odyssey - An Illustrated Guide - A Character-by-C...",
+      "Field": "group",
+      "Expected": "WebToolTip com",
+      "Actual": "",
+      "LabelledBy": "hand"
+    },
+    {
+      "Line": 3529,
+      "Name": "\u3010\u55B5\u840C\u5976\u8336\u5C4B\u3011[\u846C\u9001\u7684\u8299\u8389\u83B2 / Sousou no Frieren][36][1080p]",
+      "Field": "group",
+      "Expected": "\u55B5\u840C\u5976\u8336\u5C4B",
+      "Actual": "",
+      "LabelledBy": "hand"
+    }
+  ]
+}

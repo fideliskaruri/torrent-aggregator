@@ -6,4 +6,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\backend\src\Parser\Parser.csproj" />
+  </ItemGroup>
 </Project>

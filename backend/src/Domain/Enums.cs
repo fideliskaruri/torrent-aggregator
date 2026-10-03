@@ -2,6 +2,8 @@ namespace TorrentFlow.Domain;
 
 public enum WorkKind { Unknown, Film, Series }
 public enum WorkFormat { Unknown, Movie, Series, Special }
+public enum ReleaseKind { Movie, Episode, SeasonPack, MultiSeason, CompleteSeries, Special, Other }
+public enum ForeignStatus { Unknown, No, Yes }
 public enum NameLabel { English, Romaji, Synonym, Native, Original }
 public enum MappingStatus { Confirmed, Provisional, Unavailable }
 public enum LinkStatus { Verified, Suggested, Rejected }

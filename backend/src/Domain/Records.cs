@@ -14,7 +14,14 @@ public sealed record Quality(int? Resolution, string? Source, string? Codec, str
 public sealed record ParsedRelease(string RawName, string Title, int? Year, ImmutableArray<int> Seasons,
     ImmutableArray<int> Episodes, ImmutableArray<int> AbsoluteNumbers, ImmutableArray<NumberRange> Ranges,
     bool Pack, bool MultiSeason, string? SpecialType, Quality Quality, string? Group,
-    ImmutableArray<string> LanguageMarkers, bool ClearlyForeign, bool Sample, bool Cam);
+    ImmutableArray<string> LanguageMarkers, bool ClearlyForeign, bool Sample, bool Cam)
+{
+    public ReleaseKind Kind { get; init; } = ReleaseKind.Other;
+    public ForeignStatus Foreign { get; init; } = ForeignStatus.Unknown;
+    public bool Unsafe { get; init; }
+    public ImmutableArray<NumberRange> EpisodeRanges { get; init; } = [];
+    public ImmutableArray<NumberRange> AbsoluteRanges { get; init; } = [];
+}
 public sealed record TorrentFile(int Index, string RelativePath, long Bytes, long Offset);
 public sealed record Rejection(string Hash, string? TargetId, string Code, string Explanation);
 

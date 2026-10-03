@@ -1,6 +1,45 @@
-# HTTP benchmark
+# Benchmarks
 
-.NET 10, no packages, no server-project references. Run from the repository root:
+.NET 10, no packages. HTTP measurements have no server-project references and
+interact with the application through HTTP only. The offline `parse` command has
+the requested narrow exception: a reference to the pure Parser project and its
+Domain contracts, never Api, Store, Metadata or Engine. Run from the repository root:
+
+## Offline parser corpus
+
+```powershell
+dotnet run --project tools\bench -c Release -- parse --iterations 10 --stress --json tools\bench\results\parser-final.json
+dotnet run --project tools\bench -c Release -- parse --name "Example S2 - 06 [1080p]"
+dotnet run --project tools\bench -c Release -- parse --hash "0123456789ABCDEF0123456789ABCDEF01234567"
+```
+
+The default input is `backend\corpus\names.tsv`, discovered from the current
+directory's repository ancestors. `--corpus file` selects another TSV with the
+same column contract; `--iterations 1..1000` controls timed passes (default 10).
+One untimed warmup precedes the timed parsing-only passes. Reported throughput
+does not include input reading, comparisons, JSON writing or stress cases.
+
+The six gate fields are **kind, seasons, episodes, resolution, foreign, unsafe**:
+each requires at least 99.5% overall and exactly 100% on `labelled_by=hand`.
+Coordinates compare semantic sets, preserving the distinction between seasonal
+and absolute numbers and retaining invalid descending ranges. Year, source,
+codec and group are additional diagnostics, not substitutes for gate accuracy.
+The console prints the first 50 gate mismatches; optional JSON records all field
+scores and mismatches, including provenance. `--stress` reports five adversarial
+inputs up to the Parser's 16,384-character limit, outside the timed corpus run.
+
+Exit **0** means the corpus gate passes, **1** means it fails, **2** means invalid
+options or input. Inspection with `--name` or `--hash` is explicitly **not a gate
+run**. Parsing performs no HTTP, payload acquisition, metadata lookup or database
+access. Bench supplies UTC year + 2 as the deterministic Parser year cutoff.
+
+The OPS-667 evidence in `results\parser-final.json` is deliberately **not green**:
+seasons, episodes, resolution, foreign and unsafe are 100% overall and on hand
+rows; kind is 98.586% overall and 99.712% hand, with 50 mismatches (five hand).
+OPS-671 tracks the remaining scope/catalog-policy disagreement. The benchmark
+returns 1 for this evidence; no failed rows are excluded.
+
+## HTTP benchmark
 
 ```powershell
 dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baseline --search-only
