@@ -159,7 +159,10 @@ public sealed record SettingRow(string Id, int SchemaVersion, JsonElement Value,
 
 public sealed record WorkSnapshot(WorkRow Work, ImmutableArray<WorkNameRow> Names,
     ImmutableArray<WorkLinkRow> Links, ImmutableArray<SeasonRow> Seasons,
-    ImmutableArray<EpisodeRow> Episodes);
+    ImmutableArray<EpisodeRow> Episodes)
+{
+    public DateTimeOffset? PremiereAt { get; init; }
+}
 public sealed record Actor(string UserId, UserRole Role, bool TrustedLocal, bool Container);
 public sealed record Failure(string Code, string Message, DateTimeOffset? RetryAt, bool NeedsOwner);
 public sealed record Policy(int? ResolutionFloor, int? PreferredResolution, string? AudioLanguage,

@@ -42,9 +42,12 @@ do not mistake a catalog's unknown availability for checked-and-unavailable.
 Home genres are defined once in Metadata `CatalogViews`, used by provider browse,
 HTTP validation and genre chips. Metadata builds personal recommendation rails,
 persists their canonical identities and deduplicates them against catalog rails.
-Standard season lists omit season zero as the legacy API does; an explicit zero
-season can still read its metadata. Provisional future seasons are not silently
-discarded, and unknown air dates never become a fabricated aired count.
+Title season lists omit season zero and seasons without episodes; an explicit
+zero season can still read its metadata. Empty future seasons remain in Metadata
+for the calendar. Explicit/remembered populated seasons win, otherwise the first
+ordered populated season opens. Comparison browsers clear cookies before cold
+visits: `tf_season` intentionally remembers a manually selected season.
+Unknown air dates never become a fabricated aired count.
 
 ## Verification and remaining integration findings
 
@@ -52,14 +55,23 @@ Use `tools\contract-check\Check.ps1`, `Test-Catalog.ps1` and
 `Compare-Titles.ps1` against the sandbox. Evidence lives in ignored
 `tools\.catalog-proof\`, not production code. No unit tests.
 
-The final replay has 22 passing catalog captures and one documented failure:
-`GET /api/title/family-guy/links` returns 404 rather than the populated legacy
-capture's 200 (OPS-681). That yearless legacy slug is not a persisted canonical
-identity, and title-only resolution is ambiguous. The route must not choose an
-unrelated film just to produce a passing shape. Canonical web links retain their
-provider hints; legacy aliases need a migration/identity fix.
+The replay has 22 passing catalog captures. One populated legacy links fixture
+is deferred to converter verification (OPS-681, phase 7.1): phase 1.6 preserves
+workKey, but this scratch catalog has not migrated that saved work. The checker
+verifies the corresponding title is unknown before accepting this deferral.
+Unknown slug links still return 404; saved-link shapes are not declared proven
+by an unknown response.
 
-This is not a claim that the whole rebuild phase gate passes. Integration exposed Metadata provider/numbering differences
-(OPS-677), unified-search ranking differences (OPS-678), and a static-hosting
-service-worker MIME issue (OPS-676). Those are recorded separately rather than
+Anime presentation uses AniList rating, synopsis, genres, covers and premiere.
+Episode schedules do not define the show's release date. Metadata projects the
+premiere from its provider cache into WorkSnapshot, without a second persisted
+date or a Store schema change. Title recommendations use the same source priority
+and cap at 12, filtering artwork before limits; home/browse replenish their pools.
+Complete refreshed provider listings replace unreferenced obsolete episodes,
+rather than unioning incompatible numbering. Referenced IDs and partial listings
+are preserved.
+
+The coordinator regression review fixed provider/numbering differences (OPS-677).
+Independent unified-search ranking differences (OPS-678) and a static-hosting
+service-worker MIME issue (OPS-676) remain. Those are recorded separately rather than
 concealed by an API-specific ranking or numbering algorithm.

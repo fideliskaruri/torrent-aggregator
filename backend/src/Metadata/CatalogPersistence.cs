@@ -96,9 +96,28 @@ internal sealed partial class MetadataService
                     work = work with { NumberingVersion = previous.Work.NumberingVersion, RefreshedAt = null };
                 }
             }
-            // Missing provider data is not proof that catalog items disappeared. Referenced episode IDs survive.
-            foreach (var old in previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id))) seasons.Add(old);
-            foreach (var old in previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id))) episodes.Add(old);
+            var completeListing = proposed.Work.Kind == WorkKind.Series &&
+                proposed.Work.RefreshedAt > now.AddMinutes(-1) &&
+                proposed.Seasons.All(s => s.MappingStatus == MappingStatus.Confirmed);
+            var missingEpisodes = previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id)).ToArray();
+            var retainedIds = new HashSet<string>();
+            if (completeListing && missingEpisodes.Length > 0)
+            {
+                foreach (var file in await store.AllAsync<MediaFileRow>(CatalogStore.Query(workId: work.Id), ct))
+                    if (file.EpisodeId is { } id) retainedIds.Add(id);
+                foreach (var target in await store.AllAsync<TargetRow>(CatalogStore.Query(workId: work.Id), ct))
+                {
+                    if (target.EpisodeId is { } id) retainedIds.Add(id);
+                }
+                foreach (var follow in await store.AllAsync<FollowRow>(CatalogStore.Query(workId: work.Id), ct))
+                    if (follow.FromEpisodeId is { } id) retainedIds.Add(id);
+            }
+            foreach (var old in missingEpisodes.Where(e => !completeListing || retainedIds.Contains(e.Id)))
+                episodes.Add(completeListing ? old with { MappingStatus = MappingStatus.Unavailable,
+                    Version = old.Version + 1, UpdatedAt = now } : old);
+            foreach (var old in previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id) &&
+                (!completeListing || episodes.Any(e => e.SeasonId == s.Id) || links.Any(l => l.SeasonId == s.Id))))
+                seasons.Add(old);
             for (var i = 0; i < links.Count; i++)
             {
                 var original = proposed.Links.FirstOrDefault(l => linkMap.GetValueOrDefault(l.Id) == links[i].Id);
@@ -114,7 +133,11 @@ internal sealed partial class MetadataService
                 writes.Add(new(episode, previous.Episodes.FirstOrDefault(e => e.Id == episode.Id)?.Version, null));
             var deletes = previous.Names.Where(n => names.All(p => p.Id != n.Id))
                 .Select(n => new RowDelete(StoreTable.WorkName, n.Id, null, n))
-                .Concat(retired.Select(l => new RowDelete(StoreTable.WorkLink, l.Id, null, l)));
+                .Concat(retired.Select(l => new RowDelete(StoreTable.WorkLink, l.Id, null, l)))
+                .Concat(previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id))
+                    .Select(e => new RowDelete(StoreTable.Episode, e.Id, e.Version, null)))
+                .Concat(previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id))
+                    .Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)));
             var result = await store.CommitAsync(writes, deletes, ct);
             return result.Applied ? new(work, [.. names.OrderBy(n => n.Ordinal)], [.. links],
                 [.. seasons.OrderBy(s => s.Number)], [.. episodes]) : null;

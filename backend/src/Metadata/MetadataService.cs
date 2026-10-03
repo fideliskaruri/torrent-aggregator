@@ -71,8 +71,8 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                     refresh, cancellationToken);
             return Missing("not_found", "This title is not in the catalog. Search for it again.", true);
         }
-        if (!refresh && cached.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1) && !cached.Seasons.Any(s =>
-            s.MappingStatus != MappingStatus.Confirmed)) return new(cached, null, true, false);
+        if (!refresh && CurrentPresentation(cached) && cached.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1) && !cached.Seasons.Any(s =>
+            s.MappingStatus != MappingStatus.Confirmed)) return new(await WithPremiereAsync(cached, cancellationToken), null, true, false);
         var primary = cached.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified);
         if (primary is null) return new(cached, null, false, true);
         var resolved = await ResolveIdentityAsync(new(primary.Provider, primary.ExternalId,
@@ -140,10 +140,10 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             var knownWork = await store.SnapshotAsync(known.WorkId, ct);
             if (knownWork is not null && (identity.ProviderKind is null ||
                 knownWork.Work.Kind == (identity.ProviderKind is "tv" or "series" ? WorkKind.Series : WorkKind.Film))
-                && knownWork.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1)
+                && CurrentPresentation(knownWork) && knownWork.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1)
                 && (knownWork.Work.Kind == WorkKind.Film || !knownWork.Seasons.IsEmpty)
                 && knownWork.Seasons.All(s => s.MappingStatus == MappingStatus.Confirmed))
-                return new(knownWork, null, true, false);
+                return new(await WithPremiereAsync(knownWork, ct), null, true, false);
         }
         await map.LoadAsync(ct);
         map.RefreshInBackground();
@@ -181,7 +181,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                     MapCinemeta(builder, show, WorkKind.Series);
                     builder.Work = builder.Work with { Anime = true, Format = animeWork.Format,
                         RuntimeMinutes = animeWork.RuntimeMinutes ?? builder.Work.RuntimeMinutes,
-                        Year = animeWork.Year, ProviderStatus = animeWork.ProviderStatus };
+                        Year = animeWork.Year, ProviderStatus = animeWork.ProviderStatus,
+                        Synopsis = animeWork.Synopsis, Rating = animeWork.Rating, RatingSource = animeWork.RatingSource,
+                        Genres = animeWork.Genres, PosterUrl = animeWork.PosterUrl, BackdropUrl = animeWork.BackdropUrl };
                 }
                 else builder.Complete = false;
             }
@@ -195,7 +197,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                     var animeWork = builder.Work;
                     MapTmdb(builder, row, builder.Work.Kind);
                     builder.Work = builder.Work with { Anime = true, Format = animeWork.Format,
-                        RuntimeMinutes = animeWork.RuntimeMinutes ?? builder.Work.RuntimeMinutes };
+                        RuntimeMinutes = animeWork.RuntimeMinutes ?? builder.Work.RuntimeMinutes,
+                        Synopsis = animeWork.Synopsis, Rating = animeWork.Rating, RatingSource = animeWork.RatingSource,
+                        Genres = animeWork.Genres, PosterUrl = animeWork.PosterUrl, BackdropUrl = animeWork.BackdropUrl };
                 }
             }
         }
@@ -279,7 +283,8 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             RefreshedAt = builder.Complete ? builder.Now : builder.Now.AddHours(-1) };
         var persisted = await PersistAsync(builder.Build(), ct);
         if (persisted is null) return Missing("catalog_conflict", "This title changed while it was being refreshed. Try again.", false);
-        return new(persisted, answer.Failure, builder.Complete && persisted.Work.RefreshedAt is not null, builder.Stale);
+        return new(await WithPremiereAsync(persisted, ct), answer.Failure,
+            builder.Complete && persisted.Work.RefreshedAt is not null, builder.Stale);
 
         ImmutableArray<AnimeMapEntry> AllowedMap(ImmutableArray<AnimeMapEntry> entries) => [.. entries.Where(e =>
             !priorLinks.Any(l => l.WorkId == known?.WorkId && l.Status == LinkStatus.Rejected &&

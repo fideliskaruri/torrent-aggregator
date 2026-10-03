@@ -2,7 +2,7 @@
 
 Register `services.AddMetadata(dataDirectory)` after Store registration. Metadata references
 only Domain (plus the shared .NET framework for composition). `IMetadata` is implemented
-without changing Domain. No old server reference, database/ORM access, torrent parsing,
+through Domain ports and snapshots. No old server reference, database/ORM access, torrent parsing,
 payload file writes, or additional hosted service.
 
 ## Catalog facts and storage
@@ -25,6 +25,10 @@ payload file writes, or additional hosted service.
 - TMDB `release_dates` types 1/2/3, 4 and 5 populate theatrical, digital and physical
   film dates. Browse and extras use one release-window calculation (21-day theatrical
   fallback only when home-release evidence is absent).
+- Anime presentation prefers AniList synopsis, score/source, genres and artwork.
+  Western presentation and numbering prefer verified TMDB, with keyless fallbacks.
+  Premiere dates are read from provider detail caches into `WorkSnapshot.PremiereAt`,
+  not inferred from airing schedules or copied into a second persisted fact.
 - All catalog and raw provider/Fribb cache persistence uses the keyed Metadata `IStore`
   capability, CAS writes and durable commit receipts. Fribb's last-good map therefore
   lives in the database in the supplied data directory, not a second JSON truth store.
@@ -35,6 +39,11 @@ payload file writes, or additional hosted service.
   bounded batch of old works and prunes expired non-last-good caches. Rejected links
   survive refresh. Removed map claims lose only their linked names. Episode IDs are
   preserved and renumbering is deferred while acquisition is active.
+- A complete refreshed listing retires unreferenced obsolete seasons/episodes.
+  Partial answers keep prior rows; referenced episode IDs survive as unavailable
+  mappings rather than silently changing the meaning of a saved file/target/follow.
+  Browse pools retain covered candidates before limits and replenish TMDB from
+  three pages, yielding 24 featured cards or up to 48 genre-grid items.
 
 HTTP calls have a 10-second total queue/network deadline (Cinemeta/TVmaze/iTunes 8s,
 IMDb suggestions 5s, IMDb names 4s, Fribb 20s); no inline retry. AniList's one 700ms

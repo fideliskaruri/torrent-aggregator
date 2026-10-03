@@ -57,11 +57,12 @@ internal sealed partial class MetadataService
         foreach (var (rail, _) in rails)
         {
             if (rail is null) continue;
-            cinemas.AddRange(rail.Works.Where(w => InCinemas(w.Work, now)));
-            var visible = rail.Works.Where(w => !seen.Contains(w.Work.Id) && !InCinemas(w.Work, now) &&
+            cinemas.AddRange(rail.Works.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) && InCinemas(w.Work, now)));
+            var visible = rail.Works.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) &&
+                    !seen.Contains(w.Work.Id) && !InCinemas(w.Work, now) &&
                     !(w.Work.Kind == WorkKind.Film && w.Work.TheatricalAt > now))
                 .OrderBy(w => w.Work.ProviderStatus == "NOT_YET_RELEASED" || w.Work.Year > now.Year)
-                .Take(query.Genre is { Length: > 0 } ? 48 : 20).ToImmutableArray();
+                .Take(query.Genre is { Length: > 0 } ? 48 : 24).ToImmutableArray();
             foreach (var work in visible) seen.Add(work.Work.Id);
             if (!visible.IsEmpty) result.Add(rail with { Works = visible });
         }
@@ -74,7 +75,8 @@ internal sealed partial class MetadataService
     {
         var cacheId = ProviderHttp.Id("rail:" + spec.Id);
         var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(cacheId), ct)).FirstOrDefault();
-        if (previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow)
+        if (previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow &&
+            previous.Payload.Obj("workIds").Strings().Count() >= (genre is null ? 24 : 48))
             return (await ReadRailAsync(previous, spec.Title, ct), false);
         var configured = await store.SettingsAsync(ct);
         var hasTmdb = configured.EnabledProviders.Contains("tmdb") && await tmdb.EnabledAsync(ct);
@@ -108,10 +110,12 @@ internal sealed partial class MetadataService
                     "&release_date.lte=" + DateTime.UtcNow.ToString("yyyy-MM-dd") :
                     spec.Id == "series-new" ? "&first_air_date.gte=" + DateTime.UtcNow.AddDays(-180).ToString("yyyy-MM-dd") +
                     "&first_air_date.lte=" + DateTime.UtcNow.ToString("yyyy-MM-dd") : "";
-                var answer = await tmdb.GetAsync(spec.TmdbPath, "include_adult=false&" + spec.Query + dateFilter, ct,
-                    ttl: TimeSpan.FromDays(1));
-                failed = !answer.Complete || answer.Stale;
-                foreach (var media in answer.Json?.Obj("results").Items() ?? [])
+                var answers = await Task.WhenAll(Enumerable.Range(1, 3).Select(page =>
+                    tmdb.GetAsync(spec.TmdbPath, "include_adult=false&" + spec.Query + dateFilter + "&page=" + page,
+                        ct, ttl: TimeSpan.FromDays(1))));
+                failed = answers.Any(answer => !answer.Complete || answer.Stale);
+                foreach (var media in answers.SelectMany(answer => answer.Json?.Obj("results").Items() ?? [])
+                    .DistinctBy(media => media.Text("id")))
                 {
                     var b = new WorkBuilder(new("tmdb", media.Text("id")!, JsonFacts.Kind(kind)));
                     MapTmdb(b, media, kind);
@@ -143,7 +147,7 @@ internal sealed partial class MetadataService
         if (failed && previous is not null) return (await ReadRailAsync(previous, spec.Title, ct), true);
         if (failed || candidates.Count == 0) return (null, true);
         var stored = new List<WorkSnapshot>();
-        foreach (var candidate in candidates.Take(50))
+        foreach (var candidate in candidates.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl)).Take(50))
         {
             var row = await PersistAsync(candidate, ct);
             if (row is not null) stored.Add(row);
@@ -162,7 +166,7 @@ internal sealed partial class MetadataService
     {
         var works = new List<WorkSnapshot>();
         foreach (var id in row.Payload.Obj("workIds").Strings())
-            if (await store.SnapshotAsync(id, ct) is { } work) works.Add(work);
+            if (await store.SnapshotAsync(id, ct) is { } work && !string.IsNullOrWhiteSpace(work.Work.PosterUrl)) works.Add(work);
         return new(row.Payload.Text("id")!, title, [.. works]);
     }
 
@@ -174,7 +178,9 @@ internal sealed partial class MetadataService
         int? votes = null;
         string? certification = null;
         WorkSnapshot? partOf = null;
-        ImmutableArray<WorkSnapshot> similar = [];
+        var recommendations = await RecommendAsync([work.Work.Id], cancellationToken);
+        ImmutableArray<WorkSnapshot> similar = recommendations is null ? [] :
+            [.. recommendations.Works.Take(12)];
         if (primary?.Provider == "tmdb")
         {
             var detail = await tmdb.DetailAsync(primary.ExternalId, work.Work.Kind, cancellationToken, false);
@@ -182,8 +188,6 @@ internal sealed partial class MetadataService
             certification = detail.Json?.Obj("release_dates").Obj("results").Items()
                 .Where(c => c.Text("iso_3166_1") == "US").SelectMany(c => c.Obj("release_dates").Items())
                 .Select(c => c.Text("certification")).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
-            var recommendations = await RecommendAsync([work.Work.Id], cancellationToken);
-            similar = recommendations?.Works ?? [];
             if (detail.Json?.Obj("belongs_to_collection") is { ValueKind: JsonValueKind.Object } collection)
             {
                 var collectionId = collection.Text("id");
@@ -213,7 +217,7 @@ internal sealed partial class MetadataService
             var seed = await store.SnapshotAsync(id, cancellationToken);
             if (seed is null) continue;
             var link = seed.Links.FirstOrDefault(l => l.Provider == "tmdb" && l.Status == LinkStatus.Verified);
-            if (link is not null && await tmdb.EnabledAsync(cancellationToken))
+            if (seed.Work.Anime != true && link is not null && await tmdb.EnabledAsync(cancellationToken))
             {
                 var answer = await tmdb.GetAsync("/" + JsonFacts.Kind(seed.Work.Kind) + "/" + link.ExternalId + "/recommendations",
                     "", cancellationToken, ttl: TimeSpan.FromDays(1));
@@ -239,15 +243,20 @@ internal sealed partial class MetadataService
             }
             else
             {
-                var browse = await BrowseAsync(new(seed.Work.Kind == WorkKind.Series ? "series" : "films", null, null),
+                var browse = await BrowseAsync(new(seed.Work.Anime == true ? "anime" :
+                    seed.Work.Kind == WorkKind.Series ? "series" : "films", null, null),
                     cancellationToken);
                 rows.AddRange(browse.Rails.SelectMany(r => r.Works).Where(w => !seedWorkIds.Contains(w.Work.Id))
                     .OrderByDescending(w => w.Work.Genres.Intersect(seed.Work.Genres).Count()).Take(20));
             }
         }
         var stored = new List<WorkSnapshot>();
-        foreach (var row in rows.DistinctBy(w => w.Work.WorkKey).Take(20))
-            if (await PersistAsync(row, cancellationToken) is { } work && !seedWorkIds.Contains(work.Work.Id)) stored.Add(work);
+        foreach (var row in rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl)).DistinctBy(w => w.Work.WorkKey))
+        {
+            if (await PersistAsync(row, cancellationToken) is { } work && !seedWorkIds.Contains(work.Work.Id) &&
+                !string.IsNullOrWhiteSpace(work.Work.PosterUrl)) stored.Add(work);
+            if (stored.Count == 20) break;
+        }
         var first = seedWorkIds.IsEmpty ? null : await store.SnapshotAsync(seedWorkIds[0], cancellationToken);
         var title = first?.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ?? first?.Names.FirstOrDefault()?.Value;
         return stored.Count == 0 ? null : new("because", "Because you're watching " + title, [.. stored]);

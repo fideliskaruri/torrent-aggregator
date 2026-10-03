@@ -151,8 +151,10 @@ internal static class CatalogEndpoints
     }
 
     private static int? Season(WorkSnapshot w, HttpContext h) => !CatalogProjection.Series(w) ? null :
-        (Number(Param(h, "s")) ?? Number(Param(h, "remembered"))) is { } chosen && w.Seasons.Any(s => s.Number == chosen) ? chosen :
-            w.Seasons.FirstOrDefault(s => s.Number > 0)?.Number ?? w.Seasons.FirstOrDefault()?.Number;
+        (Number(Param(h, "s")) ?? Number(Param(h, "remembered"))) is { } chosen &&
+            (chosen == 0 && w.Seasons.Any(s => s.Number == 0) ||
+                CatalogProjection.TitleSeasons(w).Any(s => s.Number == chosen)) ? chosen :
+            CatalogProjection.TitleSeasons(w).FirstOrDefault()?.Number;
 
     private static async Task<IResult> Detail(string workKey, HttpContext h, IMetadata metadata,
         CatalogState state, CancellationToken ct)
@@ -170,7 +172,8 @@ internal static class CatalogEndpoints
         var follow = (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault();
         var coordinate = CatalogProjection.Coordinate(w, follow);
         var owned = await state.OwnedAsync(w.Work.Id, ct);
-        var episodes = w.Episodes.Where(e => w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
+        var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
+            w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
         int? Id(string provider) => Number(w.Links.FirstOrDefault(l => l.Provider == provider && l.Status == LinkStatus.Verified)?.ExternalId);
         return Json(new
         {
@@ -178,13 +181,14 @@ internal static class CatalogEndpoints
             names = w.Names.DistinctBy(n => (n.Value, n.Label)).Select(n => new { text = n.Value, kind = n.Label.ToString().ToLowerInvariant() }),
             ids = new { tmdb = Id("tmdb"), anilist = Id("anilist"), mal = Id("mal"),
                 imdb = w.Links.FirstOrDefault(l => l.Provider == "imdb" && l.Status == LinkStatus.Verified)?.ExternalId },
-            format = CatalogProjection.Format(w), w.Work.OriginalLanguage, provider = CatalogProjection.Provider(w),
+            format = CatalogProjection.Format(w), originalLanguage = CatalogProjection.PresentationLanguage(w),
+            provider = CatalogProjection.Provider(w),
             providerId = CatalogProjection.Primary(w)?.ExternalId, w.Work.Year, mediaType = CatalogProjection.TitleType(w),
             isSeries = CatalogProjection.Series(w), overview = w.Work.Synopsis, w.Work.Rating, w.Work.RatingSource,
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
             downloadFraction = (double?)null, transfer = (object?)null,
-            seasons = w.Seasons.Where(s => s.Number > 0).Select(s => new
+            seasons = CatalogProjection.TitleSeasons(w).Select(s => new
             {
                 season = s.Number, knownEpisodes = s.ExpectedEpisodeCount ?? w.Episodes.Count(e => e.SeasonId == s.Id),
                 pack = (object?)null, transfer = (object?)null,
@@ -242,12 +246,12 @@ internal static class CatalogEndpoints
         var seasonId = w?.Seasons.FirstOrDefault(s => s.Number == season)?.Id;
         var payload = new
         {
-            workKey, season, seasonCount = w?.Seasons.Count(s => s.Number > 0) is > 0 and var count ? (int?)count : null,
-            seasons = w?.Seasons.Where(s => s.Number > 0).Select(s => s.Number).ToArray() ?? [],
+            workKey, season, seasonCount = w is not null && CatalogProjection.TitleSeasons(w).Count() is > 0 and var count ? (int?)count : null,
+            seasons = w is null ? [] : CatalogProjection.TitleSeasons(w).Select(s => s.Number).ToArray(),
             airedEpisodes = w?.Seasons.Where(s => s.Number > 0 && w.Episodes.Any(e => e.SeasonId == s.Id) &&
                 w.Episodes.Where(e => e.SeasonId == s.Id).All(e => e.AirAt is not null)).ToDictionary(s => s.Number.ToString(),
                 s => w.Episodes.Count(e => e.SeasonId == s.Id && e.AirAt <= DateTimeOffset.UtcNow)) ?? new Dictionary<string, int>(),
-            episodes = w?.Episodes.Where(e => e.SeasonId == seasonId).Select(e => new
+            episodes = w?.Episodes.Where(e => e.SeasonId == seasonId && e.MappingStatus != MappingStatus.Unavailable).Select(e => new
             {
                 episode = e.Number, name = e.Title, overview = e.Synopsis, airDate = e.AirAt?.ToString("yyyy-MM-dd"),
                 runtimeMin = e.RuntimeMinutes, e.StillUrl, airStamp = e.AirAt,
@@ -258,7 +262,8 @@ internal static class CatalogEndpoints
             inTheatricalWindow = extras?.InTheatricalWindow ?? false,
             nextHomeReleaseAt = extras?.NextHomeReleaseAt?.ToString("yyyy-MM-dd"),
             genres = w?.Work.Genres ?? [], voteCount = extras?.VoteCount, ratingSource = w?.Work.RatingSource,
-            certification = extras?.Certification, originalLanguage = w?.Work.OriginalLanguage?.ToUpperInvariant(),
+            certification = extras?.Certification, originalLanguage = w is null ? null :
+                CatalogProjection.PresentationLanguage(w)?.ToUpperInvariant(),
             resolved = extras?.Resolved ?? w is not null, generatedAt = DateTimeOffset.UtcNow,
         };
         var node = JsonSerializer.SerializeToNode(payload, CatalogProjection.Json)!;

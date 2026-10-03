@@ -13,12 +13,18 @@ internal static class CatalogProjection
     internal static string TitleType(WorkSnapshot w) => Series(w) ? Type(w) : "movie";
     internal static string? Format(WorkSnapshot w) => w.Work.Format == WorkFormat.Unknown ? null :
         w.Work.Format.ToString().ToLowerInvariant();
+    internal static string? PresentationLanguage(WorkSnapshot w) =>
+        w.Work.RatingSource == "anilist" ? null : w.Work.OriginalLanguage;
     internal static WorkLinkRow? Primary(WorkSnapshot w) =>
         w.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified)
         ?? w.Links.FirstOrDefault(l => l.Status == LinkStatus.Verified);
     internal static string? Provider(WorkSnapshot w) => Primary(w)?.Provider is "imdb" ? "cinemeta" : Primary(w)?.Provider;
     internal static string? Release(WorkSnapshot w) =>
-        (w.Work.TheatricalAt ?? w.Episodes.Where(e => e.AirAt is not null).MinBy(e => e.AirAt)?.AirAt)?.ToString("yyyy-MM-dd");
+        (w.PremiereAt ?? w.Work.TheatricalAt ??
+            w.Episodes.Where(e => e.AirAt is not null).MinBy(e => e.AirAt)?.AirAt)?.ToString("yyyy-MM-dd");
+    internal static IEnumerable<SeasonRow> TitleSeasons(WorkSnapshot w) =>
+        w.Seasons.Where(s => s.Number > 0 && w.Episodes.Any(e => e.SeasonId == s.Id &&
+            e.MappingStatus != MappingStatus.Unavailable)).OrderBy(s => s.Number);
     internal static string[] Aliases(WorkSnapshot w) =>
         [.. w.Names.Select(n => n.Value).Where(n => n != Title(w)).Distinct(StringComparer.OrdinalIgnoreCase)];
     internal static string Href(WorkSnapshot w)
