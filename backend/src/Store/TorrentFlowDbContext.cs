@@ -54,7 +54,7 @@ internal sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext
             .ToTable("Notification", t => t.HasCheckConstraint("CK_Notification_length", "length(title) <= 200 AND (body IS NULL OR length(body) <= 500)"));
         modelBuilder.SharedTypeEntity<Dictionary<string, object>>("Setting")
             .ToTable("Setting", t => t.HasCheckConstraint("CK_Setting_section",
-                "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration') AND schemaVersion=1"));
+                "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration','recovery') AND schemaVersion=1"));
     }
 }
 

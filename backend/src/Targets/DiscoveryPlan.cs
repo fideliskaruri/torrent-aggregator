@@ -12,7 +12,7 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         PriorityLane lane, bool exhaust, CancellationToken cancellationToken,
         Func<CandidateBatch, Task>? onBatch = null,
         ImmutableArray<TargetRow>? actualTargets = null, ImmutableArray<OwnedItem> owned = default,
-        Func<TargetState, Task>? onStage = null)
+        Func<TargetState, Task>? onStage = null, ImmutableHashSet<string>? excludedHashes = null)
     {
         var clock = Stopwatch.StartNew();
         var planSeconds = scope.Film ? 28 : scope.EpisodeIds.Length == 1 ? 26 : 54;
@@ -57,6 +57,8 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                 switch (item)
                 {
                     case CandidateBatch batch:
+                        batch = batch with { Candidates = [.. batch.Candidates.Where(c =>
+                            excludedHashes?.Contains(c.Release.Id) != true)] };
                         if (!batch.Candidates.IsEmpty && firstCandidate is null && onStage is not null)
                             await onStage(TargetState.Checking);
                         last = batch;

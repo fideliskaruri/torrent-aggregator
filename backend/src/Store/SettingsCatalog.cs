@@ -15,6 +15,7 @@ public static class SettingsCatalog
         ["desktop"] = typeof(DesktopSettings), ["quality"] = typeof(QualitySettings),
         ["requests"] = typeof(RequestSettings), ["scheduler"] = typeof(SchedulerSettings),
         ["jellyfin"] = typeof(JellyfinSettings), ["migration"] = typeof(MigrationSettings),
+        ["recovery"] = typeof(RecoverySettings),
     };
 
     public static T Read<T>(SettingRow row)
@@ -69,6 +70,7 @@ public static class SettingsCatalog
             Row("scheduler", new SchedulerSettings(!schedulerDisabled, 1, 8, 2, 8, 10, 2, false, false)),
             Row("jellyfin", new JellyfinSettings(null, null, null)),
             Row("migration", new MigrationSettings(1, "notStarted")),
+            Row("recovery", new RecoverySettings()),
         ];
 
         SettingRow Row<T>(string section, T value) =>

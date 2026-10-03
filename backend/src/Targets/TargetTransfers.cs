@@ -6,7 +6,7 @@ using TorrentFlow.Library;
 
 namespace TorrentFlow.Targets;
 
-internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engine)
+internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngine engine)
 {
     private const string Prefix = "targets:";
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -106,6 +106,32 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
                 if (!result.Accepted) throw new IOException(result.Failure?.Message);
                 if (engine is MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
             }
+            catch
+            {
+                await engine.DetachAsync(id, CancellationToken.None);
+                await stateGate.WaitAsync(CancellationToken.None);
+                try
+                {
+                    var persisted = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(id), CancellationToken.None))
+                        .SingleOrDefault(d => d.AdmissionToken == token);
+                    if (persisted is not null)
+                    {
+                        if (!await repository.RemoveDownloadFilesAsync(id, CancellationToken.None))
+                            throw new IOException("The failed download could not be rolled back.");
+                        var affected = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), CancellationToken.None);
+                        var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), CancellationToken.None);
+                        await TargetPipeline.CommitAsync(store,
+                            [.. affected.Where(t => targets.Any(a => a.Id == t.Id) && t.ChosenReleaseHash == assignment.Hash)
+                                .Select(t => new RowWrite(t with { State = TargetState.Wanted, ChosenReleaseHash = null,
+                                    ResumeState = null, LeaseToken = null, LeaseUntil = null,
+                                    UpdatedAt = DateTimeOffset.UtcNow, Version = t.Version + 1 }, t.Version, null))],
+                            [.. links.Where(l => l.DownloadId == id).Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
+                                new(StoreTable.Download, id, persisted.Version, null)], CancellationToken.None);
+                    }
+                }
+                finally { stateGate.Release(); }
+                throw;
+            }
             finally
             {
                 await engine.ReleaseAdmissionClaimAsync(token, CancellationToken.None);
@@ -126,6 +152,15 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
         var bindings = (await repository.BindingsAsync(ct)).Where(f => downloads.Any(d => d.Id == f.DownloadId)).ToImmutableArray();
         var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
         var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
+        foreach (var interrupted in downloads.Where(d => links.Any(l => l.DownloadId == d.Id) &&
+            links.Where(l => l.DownloadId == d.Id).All(l => l.Role == AssociationRole.Replacement)))
+        {
+            await engine.DetachAsync(interrupted.Id, ct);
+            await CleanRetiredAsync(store, repository, interrupted,
+                [.. bindings.Where(f => f.DownloadId == interrupted.Id)], links, ct);
+        }
+        downloads = [.. downloads.Where(d => !links.Any(l => l.DownloadId == d.Id &&
+            l.Role == AssociationRole.Replacement))];
         foreach (var orphan in downloads.Where(d => bindings.All(f => f.DownloadId != d.Id)))
         {
             await engine.DetachAsync(orphan.Id, ct);
@@ -137,7 +172,8 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
                 new(StoreTable.Download, orphan.Id, orphan.Version, null)], ct);
         }
         var resumable = downloads.Where(d => bindings.Any(f => f.DownloadId == d.Id) &&
-            targets.Any(t => links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id) && t.State != TargetState.Removed))
+            targets.Any(t => t.ChosenReleaseHash == d.Hash &&
+                links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id) && t.State != TargetState.Removed))
             .Select(d => targets.Where(t => links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id))
                 .All(t => t.State is TargetState.Paused or TargetState.Removed)
                 ? d with { Intent = DownloadIntent.Paused } : d).ToImmutableArray();
@@ -163,6 +199,13 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
             {
                 var members = targets.Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
                 var files = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
+                if (members.Length > 0 && members.All(t => t.ChosenReleaseHash != download.Hash))
+                {
+                    await engine.DetachAsync(download.Id, ct);
+                    if (members.All(t => t.State is TargetState.Done or TargetState.Removed))
+                        await CleanRetiredAsync(store, repository, download, files, associations, ct);
+                    continue;
+                }
                 if (members.All(t => t.State == TargetState.Removed))
                 {
                     await engine.DetachAsync(download.Id, ct);

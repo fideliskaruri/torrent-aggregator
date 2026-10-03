@@ -22,6 +22,12 @@ internal static class TargetEndpoints
         });
         group.MapGet("/", async (TargetPipeline pipeline, CancellationToken ct) =>
             Results.Json(await pipeline.ReadAsync(ct), Json));
+        group.MapGet("/recovery", async (TargetPipeline pipeline, CancellationToken ct) =>
+            Results.Json(await pipeline.RecoverySettingsAsync(ct), Json));
+        group.MapPut("/recovery", async (TorrentFlow.Store.RecoverySettings input, TargetPipeline pipeline, CancellationToken ct) =>
+            Results.Json(await pipeline.UpdateRecoverySettingsAsync(input, ct), Json));
+        group.MapPost("/{id}/swap", async (string id, TargetPipeline pipeline, CancellationToken ct) =>
+            Results.Json(await pipeline.FindAnotherAsync(id, ct), Json));
         group.MapPost("/", async (AcquireInput input, HttpContext http, TargetPipeline pipeline, CancellationToken ct) =>
         {
             if (input.WorkKey.Length is < 1 or > 200 || input.Season is < 0 or > 999 ||

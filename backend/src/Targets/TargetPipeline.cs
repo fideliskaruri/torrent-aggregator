@@ -20,7 +20,7 @@ public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
     public ImmutableArray<EngineQueueOrder> Queue { get; init; } = [];
 }
 
-public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
+public sealed partial class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
     IEngine engine, ILogger<TargetPipeline> logger)
 {
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -28,6 +28,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
     private readonly ConcurrentDictionary<string, CancellationTokenSource> cancellations = new();
     private readonly TargetTransfers transfers = new(scopes, engine);
     private int maximumScopes = 8;
+    private bool schedulerDisabled;
 
     public static IServiceCollection AddTargets(IServiceCollection services, IConfiguration configuration)
     {
@@ -37,6 +38,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
             sp.GetRequiredService<ILogger<TargetPipeline>>())
         {
             maximumScopes = Math.Clamp(configuration.GetValue("TorrentFlow:Targets:MaximumScopes", 8), 1, 8),
+            schedulerDisabled = configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"),
         });
         services.AddHostedService<PipelineWorker>();
         return services;
@@ -88,8 +90,8 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
             foreach (var episodeId in items)
             {
                 if (owned.Any(o => o.EpisodeId == episodeId)) { ownedCount++; continue; }
-                var id = $"target:{work.Id}:{episodeId ?? "film"}";
-                var old = existing.FirstOrDefault(t => t.Id == id);
+                var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId && t.Kind == TargetKind.Acquire);
+                var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";
                 ids.Add(id);
                 if (old is not null && old.State is not (TargetState.Removed or TargetState.Done)) continue;
                 var row = old is null
@@ -171,7 +173,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                 cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
             if (state == TargetState.Wanted && action is TargetAction.TryNow or TargetAction.DownloadNow)
                 flights["owner:" + id] = RunScopeAsync([next], CancellationToken.None, forceOwner: true);
-            if (action == TargetAction.DownloadNow)
+            if (action == TargetAction.DownloadNow && await CanRunAsync(ct))
             {
                 var catalog = new CatalogState(store);
                 await engine.ApplyQueueAsync(new([])
@@ -206,6 +208,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                 Priority = t.NowAt is null ? TargetPriority.OwnerRank : TargetPriority.Now,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = t.Version + 1 }, t.Version, null)).ToImmutableArray();
             await CommitAsync(store, writes, [], ct);
+            if (!await CanRunAsync(ct)) return;
             await engine.ApplyQueueAsync(new([])
             {
                 Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
@@ -231,6 +234,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
 
     internal async Task RecoverAsync(CancellationToken ct)
     {
+        if (!await CanRunAsync(ct)) return;
         var snapshot = await ReadAsync(ct);
         foreach (var row in snapshot.Targets.Where(t => t.State is TargetState.Finding or TargetState.Checking or TargetState.Planning))
             await ChangeAsync(row.Id, row.LeaseToken, TargetState.Wanted, ct);
@@ -239,9 +243,11 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
 
     internal async Task TickAsync(CancellationToken ct)
     {
+        if (!await CanRunAsync(ct)) return;
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct);
         var snapshot = await ReadAsync(ct);
+        await RecoverStallsAsync(snapshot, ct);
         var now = DateTimeOffset.UtcNow;
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
@@ -281,6 +287,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
 
     private async Task MaterializeAsync(IEnumerable<ScopeIntentRow> pending, CancellationToken ct)
     {
+        if (!await CanRunAsync(ct)) return;
         foreach (var intent in pending.Take(1))
         {
             await using var scope = scopes.CreateAsyncScope();
@@ -306,6 +313,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
 
     private async Task RunScopeAsync(ImmutableArray<TargetRow> rows, CancellationToken shutdown, bool forceOwner = false)
     {
+        if (!await CanRunAsync(shutdown)) return;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         foreach (var row in rows) cancellations[row.Id] = lifetime;
         var token = Guid.NewGuid().ToString("N");
@@ -342,12 +350,13 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                 rows[0].MaxBytes, null, rows[0].PolicyRevision);
             var lane = !forceOwner && rows.All(r => r.SubstantiveMisses > 0 && r.NowAt is null)
                 ? PriorityLane.Background : PriorityLane.Owner;
+            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var blocked = await ExcludedAsync(store, work.Work.Id, null, lifetime.Token);
             var result = await discovery.RunAsync(work, targetScope, policy, lane,
                 false, lifetime.Token, actualTargets: rows, owned: owned, onStage: async state =>
                 {
                     foreach (var row in rows) await ChangeAsync(row.Id, token, state, lifetime.Token);
-                });
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+                }, excludedHashes: blocked);
             var plannedAt = DateTimeOffset.UtcNow;
             await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow(
                 $"plan:{row.Id}:{Guid.NewGuid():N}", row.Id, row.WorkId, null, row.CreatedBy,
@@ -486,6 +495,16 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
         var result = await store.CommitAsync(new(key, StoreOwner.Targets, writes.Add(new(receipt, null, null)), deletes)
             { LibraryProposal = proposal }, ct);
         if (!result.Applied) throw new InvalidOperationException("The target changed concurrently.");
+    }
+
+    private async Task<bool> CanRunAsync(CancellationToken ct)
+    {
+        if (schedulerDisabled) return false;
+        await using var scope = scopes.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("scheduler"), ct)).SingleOrDefault();
+        var settings = row?.Value.Deserialize<SchedulerSettings>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        return settings is { Enabled: true, FirstFullRootScanComplete: true, ImportReviewComplete: true };
     }
 
     private sealed class PipelineWorker(TargetPipeline pipeline, ILogger<PipelineWorker> logger) : BackgroundService

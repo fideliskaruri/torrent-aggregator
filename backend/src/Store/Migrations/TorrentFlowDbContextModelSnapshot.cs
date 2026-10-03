@@ -1564,7 +1564,7 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Setting_schemaVersion", "\"schemaVersion\" >= 0");
 
-                            t.HasCheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration') AND schemaVersion=1");
+                            t.HasCheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration','recovery') AND schemaVersion=1");
 
                             t.HasCheckConstraint("CK_Setting_valueJson", "json_valid(\"valueJson\")");
                         });

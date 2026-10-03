@@ -59,6 +59,30 @@ and one day as the release ages. File/drive/cap retries retain their short recov
 Targeted real HTTP evidence is in gitignored `tools\.targets-proof\finish-summary.json`.
 No unit tests or full hard-set reruns are required for this slice.
 
+## Swap and recovery (4.4)
+
+`FindAnotherAsync(targetId)` keeps Current while the shared Find/Check/Plan runs with
+Current and active work/global blocks excluded. A checked single replacement assignment
+uses distinct partial paths, starts and proves 64 KiB hash-valid selected bytes before
+the version-fenced Current switch. Only then is the old manager detached and its hash
+blocked for this work for six hours. Old partials remain fallback bytes until replacement
+filing completes, then exact recorded paths and bindings are removed. Failure or no
+alternative keeps Current. Interrupted Replacement associations are cleaned on restart.
+
+`RecoverySettingsAsync` and `UpdateRecoverySettingsAsync` persist thresholds (default
+180 seconds without metadata, 600 seconds below 1 MiB progress), enablement, maximum
+automatic attempts (3) and backoff (3600 seconds). Existing Engine active-time signals
+drive recovery; paused, queued and completed transfers do not accrue stalls. Swap
+Attempts record NoMetadata/NoProgress. The bounded worker launches one recovery per
+download, replanning its still-fetching targets together.
+
+Development proof routes: `POST /api/dev/targets/{id}/swap` and
+`GET|PUT /api/dev/targets/recovery`. Production API composition can call these public
+methods directly. Multi-assignment pack replacements, shared logical-slot admission,
+and same-destination-name replacement placement remain follow-up work; those cases
+keep Current rather than discard it. Real fixture evidence and build output are in
+gitignored `tools\.swap-proof`; the local swarm admission proof is currently blocked.
+
 ## Downloads HTTP adapter (4.5)
 
 `Api/DownloadEndpoints.cs` projects the persisted downloads and per-file Engine snapshots
