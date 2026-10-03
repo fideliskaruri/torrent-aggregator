@@ -131,7 +131,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - [x] Phase 1 (66a3532; Opus 5.5 critique resolved; owner go taken under autopilot default): design doc (data model, pipeline, services) and system-level critique. Owner go.
 - [x] Phase 2 (4fb60b4..33f668b): new server skeleton serving the captured contract; settings, access, metadata, catalog. Gate: 22 read contracts pass, 0 fail; headless walk matches 3930; startup 1.9 s, 348 MiB after walk. Legacy slug resolution (OPS-681) moves to the 7.1 converter check.
   - [x] 2.1 skeleton (OPS-659): module graph/build enforcement, full initial Store schema, typed settings and protected secrets, rolling logs, health and static SPA on isolated 3940. Implemented and HTTP/schema verified; coordinator review pending. Read/query and joint proposal extensions deliberately fail closed until their modules exist. Run guide: `backend/README.md`.
-- [ ] Phase 3: Find (season-level, source trust, background budget) and swarm check.
+- [x] Phase 3: Find (season-level, source trust, background budget) and swarm check.
 - [ ] Phase 4: Plan and Fetch (one state per target, stall watch, swap, cap).
   - [ ] Plan file-list case (OPS-698): `A Silent Voice (2015-2016) (Digital) (1r0n)` is a manga scan release despite matching the film's name/year. Reject cbz/jpg-only contents as no playable film; keep the reason and never create a payload download. Find's provisional seed count is not Plan approval.
 - [ ] Phase 5: File into the one folder (partial suffix, hidden unwanted files), Jellyfin names, stop seeding on done.
