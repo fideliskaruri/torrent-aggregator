@@ -114,11 +114,13 @@ public sealed partial class LocalFiles(ILibraryRepository repository, IStore sto
         if (download.FinishedAt is null)
             return Refuse(LocalFileError.Conflict, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
         var bindings = await AllAsync<DownloadFileRow>(ct, downloadId: download.Id);
-        var video = bindings.Where(f => f.DownloadId == download.Id && f.Selected && f.Filed && f.Role == FileRole.Video && f.FinalPath is not null)
-            .OrderByDescending(f => f.ExpectedBytes).FirstOrDefault();
+        var media = await repository.MediaAsync(null, ct);
+        var video = bindings.Where(f => f.DownloadId == download.Id && f.Filed && f.Role == FileRole.Video)
+            .Join(media.Where(m => m.Role == FileRole.Video), f => f.MediaFileId, m => m.Id, (_, m) => m)
+            .OrderByDescending(m => m.Bytes).ThenBy(m => m.Id, StringComparer.Ordinal).FirstOrDefault();
         if (video is null) return Refuse(LocalFileError.Conflict, "no-video", "This download has no video file to open.", "Show it in its folder instead.");
         var roots = await repository.RootsAsync(ct);
-        var full = video.FinalPath!;
+        var full = video.Path;
         var verified = VerifyVideo(full, roots);
         if (verified is not null) return verified;
         full = Path.GetFullPath(full);

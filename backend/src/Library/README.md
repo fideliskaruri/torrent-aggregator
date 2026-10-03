@@ -39,6 +39,11 @@ fragments. An external final that appeared during a collision is left alone.
 
 ## Legacy library actions
 
+Completed-download Open and Show in folder resolve filed video bindings through
+their `MediaFileId` to Library's inventory path. `Selected` means Engine still
+needs bytes and is correctly cleared on filing; it is not a playback predicate.
+The final path and size come from MediaFile, not the placement reservation.
+
 Owner-only `GET /api/library/delete` previews a `watchListItemId` and `scope`
 (`show`, `season`, or `episode`). `POST` accepts the same scope and requires
 `confirm: true`. Library builds the exact plan from target/file/media identity,
