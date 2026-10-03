@@ -14,10 +14,8 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { groupByDay, stateLabels, timelineTime, type RequesterCalendarResponse, type TimelineEntry, type TimelineResponse } from "./timeline";
+import { groupByDay, releaseWording, stateLabels, timelineTime, type RequesterCalendarResponse, type TimelineEntry, type TimelineResponse } from "./timeline";
 
-const releaseLabels = { digital: "Digital release", physical: "Physical release", theatrical: "In cinemas", release: "Release" } as const;
-const labels = { check: "Release check", airs: "Expected to air", queued: "Queued download" };
 
 export default function UpcomingPage() {
   const caps = useCapabilities();
@@ -81,7 +79,7 @@ function RequesterCalendar() {
                         <div className="flex min-w-0 flex-1 flex-col gap-2">
                           <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>
                           <p className="text-xs text-muted-foreground">
-                            {entry.mediaType === "movie" ? "Film" : "Series"} · {entry.at ? timelineTime(entry.at, now) : "Date not known"}
+                            {entry.mediaType === "movie" ? "Film" : "Series"} · {releaseWording(entry.release, entry.mediaType)} · {entry.at ? timelineTime(entry.at, now) : "Date not known"}
                           </p>
                           <div className="self-start"><StateBadge state={entry.state} /></div>
                         </div>
@@ -112,19 +110,10 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
     } catch { setError("Can't reach TorrentFlow. Check that it's running and try again."); }
     finally { setBusy(false); }
   }
-  const series = entry.mediaType === "tv" && entry.workKey;
   const canGrab = entry.targetId && !entry.grabNow && (entry.state === "expected" || entry.state === "searching");
-  if (!series && !canGrab && !entry.grabNow) return null;
+  if (!canGrab && !entry.grabNow) return null;
   return (
     <div className="flex flex-wrap items-center gap-2" data-calendar-actions>
-      {series ? (
-        <Button size="sm" variant={entry.followed ? "secondary" : "outline"} disabled={busy}
-          className="max-md:min-h-11" data-calendar-follow={entry.followed ? "on" : "off"}
-          onClick={() => void run(`/api/follows/${encodeURIComponent(entry.workKey!)}`,
-            { method: "PUT", body: JSON.stringify({ enabled: !entry.followed }) })}>
-          {entry.followed ? "Unfollow" : "Follow"}
-        </Button>
-      ) : null}
       {canGrab ? (
         <Button size="sm" variant="outline" disabled={busy} className="max-md:min-h-11" data-calendar-grab
           onClick={() => void run(`/api/timeline/${encodeURIComponent(entry.targetId!)}/grab-now`, { method: "POST" })}>
@@ -153,8 +142,7 @@ function OwnerCalendar() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Upcoming</h1>
-          <p className="text-sm text-muted-foreground">Air dates, digital and physical releases, and downloads waiting their turn.</p>
-          <p className="text-xs text-subtle-foreground">Times are shown in your local timezone. Queue times are not completion estimates.</p>
+          <p className="text-sm text-muted-foreground">Air dates and release dates for what you follow, watch and approve.</p>
         </div>
         <Button asChild variant="secondary" className="max-md:min-h-11 pointer-coarse:min-h-11">
           <Link to="/downloads" aria-label="Open Downloads" data-upcoming-downloads>
@@ -167,8 +155,7 @@ function OwnerCalendar() {
         <Alert role="status" data-upcoming-metadata-warning>
           <Info aria-hidden />
           <AlertDescription>
-            Some air times are unavailable. Checks and queued downloads are still shown; we’ll retry on the next refresh.
-          </AlertDescription>
+            Some air dates are not known yet. We will try again on the next refresh.</AlertDescription>
         </Alert>
       ) : null}
 
@@ -224,15 +211,10 @@ function OwnerCalendar() {
                         ) : <span className="text-xs text-subtle-foreground">Start time not known</span>}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {entry.release && entry.release !== "episode" ? `${releaseLabels[entry.release]} · ` : ""}{labels[entry.kind]}{entry.episode ? ` · ${entry.episode}` : ""}
-                        {entry.lane ? ` · ${entry.lane} lane` : ""}
-                        {entry.queuePosition ? ` · #${entry.queuePosition}` : ""}
+                        {releaseWording(entry.release, entry.mediaType)}{entry.episode ? ` · ${entry.episode}` : ""}
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
                         {entry.state ? <StateBadge state={entry.state} /> : null}
-                        <Badge variant="outline" className="whitespace-normal break-words" data-wait-reason={entry.waitReason.reason}>
-                          {entry.waitReason.text}
-                        </Badge>
                       </div>
                       <OwnerActions entry={entry} onDone={list.refetch} />
                       {entry.waitReason.since ? (

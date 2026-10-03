@@ -146,7 +146,7 @@ internal static class NotificationReadModels
             if (work is null) continue;
             var ep = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);
             var season = seasons.FirstOrDefault(s => s.Id == ep?.SeasonId);
-            var expected = t.ExpectedAt ?? ep?.AirAt ?? work.DigitalAt ?? work.PhysicalAt;
+            var expected = CalendarDates.Expected(t, ep, work);
             unavailable |= t.EpisodeId is not null && expected is null;
             var future = expected > DateTimeOffset.UtcNow;
             var reason = future ? "NotAiredYet" : t.ReasonCode switch
@@ -159,11 +159,10 @@ internal static class NotificationReadModels
             var state = downloading ? "downloading" : t.State is TargetState.Filing ? "downloading" :
                 t.ChosenReleaseHash is not null || t.State is TargetState.Fetching or TargetState.Planning ? "found" :
                 future ? "expected" : "searching";
-            var release = ep is not null ? "episode" : expected == work.DigitalAt ? "digital" :
-                expected == work.PhysicalAt ? "physical" : "release";
+            var release = CalendarDates.Release(ep is not null, expected, work);
             TimelineEntry Entry(string kind, DateTimeOffset? at) => new(kind + ":" + t.Id, kind,
                 Title(work, names), ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}",
-                work.PosterUrl, at, kind == "check" ? at : null,
+                work.PosterUrl, at, kind == "airs" ? null : t.NextTryAt,
                 t.Origin == IntentOrigin.Owner ? "owner" : "background",
                 kind == "queued" ? Array.IndexOf(queued, t) + 1 : null,
                 new(reason, future ? "Not aired yet" : t.ReasonText ?? "Ready",
@@ -219,4 +218,14 @@ internal static class NotificationReadModels
             .ThenBy(e => e.QueuePosition ?? int.MaxValue).ThenBy(e => e.Id, StringComparer.Ordinal),
             airTimesUnavailable = unavailable }, CatalogProjection.Json);
     }
+}
+
+internal static class CalendarDates
+{
+    public static DateTimeOffset? Expected(TargetRow target, EpisodeRow? episode, WorkRow work) =>
+        target.ExpectedAt ?? episode?.AirAt ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
+
+    public static string Release(bool episode, DateTimeOffset? at, WorkRow work) =>
+        episode ? "episode" : at is null ? "release" : at == work.DigitalAt ? "digital" :
+        at == work.PhysicalAt ? "physical" : at == work.TheatricalAt ? "theatrical" : "release";
 }

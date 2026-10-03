@@ -28,7 +28,7 @@ export type CalendarState = "pending" | "expected" | "searching" | "found" | "do
 
 export type RequesterCalendarEntry = {
   id: string; title: string; posterUrl?: string | null; at?: string | null;
-  state: CalendarState; mediaType: "movie" | "tv";
+  state: CalendarState; mediaType: "movie" | "tv"; release?: TimelineEntry["release"];
 };
 export type RequesterCalendarResponse = { entries?: RequesterCalendarEntry[] };
 
@@ -37,23 +37,24 @@ export const stateLabels: Record<CalendarState, string> = {
   downloading: "Downloading", in_library: "In library",
 };
 
-/** One group per local calendar day; undated rows go last. */
-export function groupByDay<T extends { at?: string | null }>(entries: readonly T[], now = new Date()) {
+/** One group per local calendar day; past dates still open go under "Due now", undated rows go last. */
+export function groupByDay<T extends { at?: string | null; state?: CalendarState }>(entries: readonly T[], now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const map = new Map<string, { key: string; label: string; entries: T[] }>();
   for (const entry of entries) {
     const at = entry.at ? new Date(entry.at) : null;
     const valid = at && Number.isFinite(at.getTime());
     const day = valid ? new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime() : NaN;
-    const key = valid ? String(day) : "none";
     const diff = Math.round((day - today) / 86_400_000);
-    const label = !valid ? "Date not known" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
+    const due = valid && diff < 0 && entry.state !== "in_library";
+    const key = due ? "due" : valid ? String(day) : "none";
+    const label = due ? "Due now" : !valid ? "Date not known" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
       : at.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short",
         ...(at.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
     if (!map.has(key)) map.set(key, { key, label, entries: [] });
     map.get(key)!.entries.push(entry);
   }
-  return [...map.values()].sort((a, b) => (a.key === "none" ? 1 : b.key === "none" ? -1 : Number(a.key) - Number(b.key)));
+  return [...map.values()].sort((a, b) => (a.key === "due" ? -1 : b.key === "due" ? 1 : a.key === "none" ? 1 : b.key === "none" ? -1 : Number(a.key) - Number(b.key)));
 }
 
 export type TimelineResponse = { entries: TimelineEntry[]; airTimesUnavailable: boolean };
@@ -83,4 +84,12 @@ export function timelineTime(at: string | null | undefined, now = new Date()): s
   if (seconds < 3600) return relative.format(Math.ceil(seconds / 60), "minute");
   if (seconds < 86400) return relative.format(Math.ceil(seconds / 3600), "hour");
   return relative.format(Math.ceil(seconds / 86400), "day");
+}
+
+const releaseWords = { digital: "Digital release", physical: "Physical release", theatrical: "In cinemas", release: "Release" } as const;
+
+/** Plain wording for what the date means: episodes air, films release. */
+export function releaseWording(release: TimelineEntry["release"], mediaType: TimelineEntry["mediaType"]) {
+  if (release === "episode" || (!release && mediaType === "tv")) return "Airs";
+  return releaseWords[release ?? "release"];
 }

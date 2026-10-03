@@ -68,14 +68,14 @@ internal static class RequestEndpoints
                 var name = (await service.Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct))
                     .OrderBy(n => n.Ordinal).FirstOrDefault()?.Value ?? work.WorkKey;
                 var mine = targets.Where(t => t.WorkId == work.Id && t.Origin == IntentOrigin.Request).ToArray();
-                var expected = mine.Select(t => t.ExpectedAt ?? episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.AirAt)
+                var expected = mine.Select(t => TorrentFlow.Api.Notifications.CalendarDates.Expected(t, episodes.FirstOrDefault(e => e.Id == t.EpisodeId), work))
                     .Where(d => d is not null).Min() ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
                 var state = row.Decision == RequestDecision.Pending ? "pending" :
                     mine.Length > 0 && mine.All(t => t.State == TargetState.Done) ? "in_library" :
                     mine.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
                     mine.Any(t => t.ChosenReleaseHash is not null) ? "found" :
                     expected > DateTimeOffset.UtcNow ? "expected" : "searching";
-                entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state,
+                entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state, release = TorrentFlow.Api.Notifications.CalendarDates.Release(work.Kind != WorkKind.Film, expected, work),
                     mediaType = work.Kind == WorkKind.Film ? "movie" : "tv" });
             }
             return Reply(new { items = results, entries });
