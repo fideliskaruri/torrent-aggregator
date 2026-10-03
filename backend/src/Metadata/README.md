@@ -22,6 +22,10 @@ payload file writes, or additional hosted service.
   AniList precedence. Catalog identity is never inferred from a torrent name.
   Search cards with conflicting provider IDs never merge. Name-only film matches
   require the same release year; adjacent-year names alone cannot verify an ID.
+  Name resolution prefers a dated candidate over an equally matching undated
+  entry. Only distinct confirmed years establish remake ambiguity; a missing
+  provider date is not evidence of a second release year. Explicit years remain
+  strict, and explicit provider identities bypass name disambiguation.
 - Work IDs survive verified-link enrichment and refresh. Ordered names retain English,
   original, romaji, native and synonym labels with link provenance. Equal names supplied
   by different providers may retain separate provenance, as the data model specifies.

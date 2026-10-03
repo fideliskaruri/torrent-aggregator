@@ -39,13 +39,14 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         var ranked = found.Works.Where(w => query.Kind == WorkKind.Unknown || w.Work.Kind == query.Kind)
             .Where(w => query.Year is null || w.Work.Year == query.Year)
             .Select(w => (Work: w, Score: SearchText.MatchScore(title, w.Names.Select(n => n.Value), false)))
-            .Where(w => w.Score >= 0.6).OrderByDescending(w => w.Score).ToArray();
+            .Where(w => w.Score >= 0.6).OrderByDescending(w => w.Score)
+            .ThenByDescending(w => w.Work.Work.Year is not null).ToArray();
         if (ranked.Length == 0)
             return Missing(found.Partial ? "provider_unavailable" : "not_found",
                 found.Partial ? "Some catalogs did not answer. Try this title again later." :
                     "No matching catalog entry was found. Check the title and year.", !found.Partial);
-        if (ranked.Length > 1 && ranked[0].Score == ranked[1].Score && ranked[0].Work.Work.Year != ranked[1].Work.Work.Year
-            && query.Year is null)
+        if (query.Year is null && ranked.Where(w => w.Score == ranked[0].Score)
+            .Select(w => w.Work.Work.Year).OfType<int>().Distinct().Take(2).Count() > 1)
             return Missing("ambiguous", "Several titles match. Choose a catalog entry or include its year.", true);
         var primary = ranked[0].Work.Links.First(l => l.IsPrimary && l.Status == LinkStatus.Verified);
         var resolved = await ResolveIdentityAsync(new(primary.Provider, primary.ExternalId,
