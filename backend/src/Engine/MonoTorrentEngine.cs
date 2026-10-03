@@ -25,6 +25,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         public bool Run { get; set; }
         public int[] ProbePieces { get; set; } = [];
         public bool PayloadProbe { get; set; }
+        public long ProbeReservation { get; set; }
         public long Received { get; set; }
         public long LastReceived { get; set; }
     }
@@ -43,6 +44,9 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
     private readonly Action<string> log;
     private readonly string directory;
     private readonly int probeSlots;
+    private readonly int maximumProbePieceBytes;
+    private readonly long probeDiskBudgetBytes;
+    private long reservedProbeBytes;
     private Settings settings = null!;
     private ClientEngine client = null!;
     private DhtBootstrap? dht;
@@ -58,22 +62,37 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         BindingFlags.Instance | BindingFlags.NonPublic)
         ?? throw new NotSupportedException("MonoTorrent metadata cache API changed.");
 
-    public MonoTorrentEngine(string dataDirectory, Action<string> log, int probeSlots = 10)
+    public MonoTorrentEngine(string dataDirectory, Action<string> log, int probeSlots = 10,
+        int maximumProbePieceBytes = 32 * 1024 * 1024, long probeDiskBudgetBytes = 40 * 1024 * 1024)
     {
         directory = Path.Combine(dataDirectory, "engine");
         this.log = log;
         this.probeSlots = Math.Clamp(probeSlots, 1, 10);
+        if (maximumProbePieceBytes < 16 * 1024 || probeDiskBudgetBytes < Math.Max(4 * 1024 * 1024, maximumProbePieceBytes))
+            throw new ArgumentOutOfRangeException(nameof(maximumProbePieceBytes),
+                "The probe piece cap must fit the global disk budget and be at least one 16 KiB block.");
+        this.maximumProbePieceBytes = maximumProbePieceBytes;
+        this.probeDiskBudgetBytes = probeDiskBudgetBytes;
     }
 
     public int ListenPort => settings.ListenPort;
     public string CacheDirectory => directory;
     public object PhysicalStatus => new
     {
-        listenPort = settings.ListenPort, dhtState = client.Dht.State.ToString(), dhtNodes = client.Dht.NodeCount,
-        dhtCacheBytes = dht?.CacheBytes ?? 0, dhtReloadedNodes = dht?.ReloadedNodes ?? 0,
-        globalConnections = settings.GlobalPeers, payloadConnections = settings.PerTorrentPeers,
-        probeConnections = Math.Min(12, settings.ProbePeers), probeSlots,
-        localDiscovery = settings.LocalDiscovery, portForwarding = settings.Upnp,
+        listenPort = settings.ListenPort,
+        dhtState = client.Dht.State.ToString(),
+        dhtNodes = client.Dht.NodeCount,
+        dhtCacheBytes = dht?.CacheBytes ?? 0,
+        dhtReloadedNodes = dht?.ReloadedNodes ?? 0,
+        globalConnections = settings.GlobalPeers,
+        payloadConnections = settings.PerTorrentPeers,
+        probeConnections = Math.Min(12, settings.ProbePeers),
+        probeSlots,
+        maximumProbePieceBytes,
+        probeDiskBudgetBytes,
+        reservedProbeBytes = Interlocked.Read(ref reservedProbeBytes),
+        localDiscovery = settings.LocalDiscovery,
+        portForwarding = settings.Upnp,
     };
 
     public async Task InitializeAsync(Settings configuration, Func<int, CancellationToken, Task> persistPort,
@@ -185,8 +204,10 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
     private TorrentSettings TorrentSettings(bool probe) => new TorrentSettingsBuilder
     {
         MaximumConnections = probe ? Math.Min(12, settings.ProbePeers) : settings.PerTorrentPeers,
-        AllowDht = settings.Dht, AllowPeerExchange = settings.Pex,
-        AllowInitialSeeding = false, CreateContainingDirectory = false,
+        AllowDht = settings.Dht,
+        AllowPeerExchange = settings.Pex,
+        AllowInitialSeeding = false,
+        CreateContainingDirectory = false,
     }.ToSettings();
 
     public static string NormalizeHash(string magnetOrHash)
@@ -267,97 +288,141 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         if (window <= TimeSpan.Zero || window > TimeSpan.FromSeconds(60)) throw new ArgumentOutOfRangeException(nameof(window));
         using var ownership = await hashMutex.LockAsync(handle.Hash, ct);
         var clock = Stopwatch.StartNew();
-        var sending = new HashSet<string>();
-        var peerBytes = new Dictionary<string, long>();
+        ProbeSampling? sampling = null;
+        var peerBytes = ImmutableDictionary<string, long>.Empty;
         long delivered = 0;
+        long verifiedBytes = 0;
+        int verified = 0, failures = 0, hashBaseline = 0;
+        int? pieceLength = null;
         var peers = 0;
         var seeders = 0;
         var peersThroughout = true;
         ImmutableArray<TorrentFile>? files = null;
         var reason = "No metadata in the observation window.";
-        while (clock.Elapsed < window)
+        try
         {
+            while (clock.Elapsed < window)
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle ||
+                        !entries.TryGetValue(handle.Hash, out var entry) || handle.ExpiresAt <= DateTimeOffset.UtcNow)
+                        throw new InvalidOperationException("The probe capability expired or was consumed.");
+                    var manager = entry.Manager;
+                    files = Files(manager);
+                    if (!entry.Probe || handle.ObservesLiveTransfer)
+                    {
+                        reason = "This hash belongs to a live download; no probe selection or writes were made.";
+                        break;
+                    }
+                    if (metadataHandles.Any(token => handles.TryGetValue(token, out var waiter) && waiter.Hash == handle.Hash))
+                    {
+                        reason = "Metadata-only waiting owns this hash; payload probing was not started.";
+                        break;
+                    }
+                    if (manager.HasMetadata && !entry.PayloadProbe)
+                    {
+                        pieceLength = manager.Torrent!.PieceLength;
+                        if (pieceLength > maximumProbePieceBytes)
+                        { reason = $"The {pieceLength}-byte piece exceeds the configured {maximumProbePieceBytes}-byte probe cap."; break; }
+                        if (manager.Torrent.Size == 0 || manager.Files.Count == 0)
+                        { reason = "The torrent contains no payload pieces to measure."; break; }
+                        var largest = manager.Files.MaxBy(f => f.Length)!;
+                        var first = largest.StartPieceIndex < largest.EndPieceIndex ? largest.StartPieceIndex + 1 : largest.StartPieceIndex;
+                        var count = Math.Max(1, Math.Min(16,
+                            Math.Min(largest.EndPieceIndex - first + 1, 4 * 1024 * 1024 / pieceLength.Value)));
+                        var reservation = Math.Min((long)count * pieceLength.Value,
+                            manager.Torrent.Size - (long)first * pieceLength.Value);
+                        if (reservedProbeBytes + reservation > probeDiskBudgetBytes)
+                        { reason = "Waiting for the bounded global probe disk budget."; peersThroughout = false; continue; }
+                        await manager.StopAsync(TimeSpan.Zero);
+                        entry.ProbeReservation = reservation;
+                        Interlocked.Add(ref reservedProbeBytes, reservation);
+                        entry.ProbePieces = Enumerable.Range(first, count).ToArray();
+                        probeIO.Select(manager, entry.ProbePieces);
+                        for (var i = 0; i < manager.Files.Count; i++)
+                        {
+                            var file = manager.Files[i];
+                            await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+                            await manager.MoveFileAsync(file, Path.Combine(directory, "probes", handle.Hash, $"{i}.probe"));
+                            if (entry.ProbePieces.Any(p => p >= file.StartPieceIndex && p <= file.EndPieceIndex))
+                                await manager.SetFilePriorityAsync(file, Priority.Normal);
+                        }
+                        PhysicalFiles.PrepareProbeFiles(manager);
+                        entry.PayloadProbe = true;
+                        hashBaseline = manager.HashFails;
+                        sampling = new(manager);
+                        await manager.StartAsync();
+                        reason = "Payload blocks measured in bounded engine-data probe files; full-piece integrity reported separately.";
+                    }
+                    var connected = await manager.GetPeersAsync();
+                    peersThroughout &= connected.Count > 0;
+                    peers = Math.Max(peers, connected.Count);
+                    seeders = Math.Max(seeders, connected.Count(p => p.IsSeeder));
+                    if (sampling is not null)
+                    {
+                        (delivered, peerBytes) = sampling.Sample(connected);
+                        failures = Math.Max(0, manager.HashFails - hashBaseline);
+                    }
+                    if (manager.HasMetadata)
+                    {
+                        pieceLength = manager.Torrent!.PieceLength;
+                        verified = entry.ProbePieces.Count(p => manager.Bitfield[p]);
+                        verifiedBytes = entry.ProbePieces.Where(p => manager.Bitfield[p])
+                            .Sum(p => (long)Math.Min(manager.Torrent!.PieceLength, manager.Torrent.Size - (long)p * manager.Torrent.PieceLength));
+                    }
+                }
+                finally
+                {
+                    gate.Release();
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), ct);
+                }
+            }
             await gate.WaitAsync(ct);
             try
             {
-                if (!handles.TryGetValue(handle.Token, out var owned) || owned != handle ||
-                    !entries.TryGetValue(handle.Hash, out var entry) || handle.ExpiresAt <= DateTimeOffset.UtcNow)
-                    throw new InvalidOperationException("The probe capability expired or was consumed.");
-                var manager = entry.Manager;
-                files = Files(manager);
-                if (!entry.Probe || handle.ObservesLiveTransfer)
+                ProbeHandle? admission = null;
+                if (entries.TryGetValue(handle.Hash, out var entry) && entry.Probe)
                 {
-                    reason = "This hash belongs to a live download; no probe selection or writes were made.";
-                    break;
-                }
-                if (metadataHandles.Any(token => handles.TryGetValue(token, out var waiter) && waiter.Hash == handle.Hash))
-                {
-                    reason = "Metadata-only waiting owns this hash; payload probing was not started.";
-                    break;
-                }
-                if (manager.HasMetadata && !entry.PayloadProbe)
-                {
-                    await manager.StopAsync(TimeSpan.Zero);
-                    var largest = manager.Files.MaxBy(f => f.Length)!;
-                    var first = largest.StartPieceIndex < largest.EndPieceIndex ? largest.StartPieceIndex + 1 : largest.StartPieceIndex;
-                    var count = Math.Min(16, Math.Min(largest.EndPieceIndex - first + 1, 4 * 1024 * 1024 / manager.Torrent!.PieceLength));
-                    if (count <= 0) { reason = "A hash-valid piece exceeds the bounded 4 MiB probe budget."; break; }
-                    entry.ProbePieces = Enumerable.Range(first, count).ToArray();
-                    probeIO.Select(manager, entry.ProbePieces);
-                    for (var i = 0; i < manager.Files.Count; i++)
+                    if (entry.PayloadProbe)
                     {
-                        var file = manager.Files[i];
-                        await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
-                        await manager.MoveFileAsync(file, Path.Combine(directory, "probes", handle.Hash, $"{i}.probe"));
-                        if (entry.ProbePieces.Any(p => p >= file.StartPieceIndex && p <= file.EndPieceIndex))
-                            await manager.SetFilePriorityAsync(file, Priority.Normal);
+                        if (sampling is not null)
+                            (delivered, peerBytes) = sampling.Sample(await entry.Manager.GetPeersAsync());
+                        failures = Math.Max(0, entry.Manager.HashFails - hashBaseline);
+                        sampling?.Dispose();
+                        sampling = null;
+                        await entry.Manager.StopAsync(TimeSpan.Zero);
+                        await client.DiskManager.FlushAsync(entry.Manager);
                     }
-                    entry.PayloadProbe = true;
-                    await manager.StartAsync();
-                    reason = "Bounded hash-valid pieces measured in engine-data probe files.";
+                    if (entry.Manager.HasMetadata)
+                    {
+                        verified = entry.ProbePieces.Count(p => entry.Manager.Bitfield[p]);
+                        verifiedBytes = entry.ProbePieces.Where(p => entry.Manager.Bitfield[p])
+                            .Sum(p => (long)Math.Min(entry.Manager.Torrent!.PieceLength,
+                                entry.Manager.Torrent.Size - (long)p * entry.Manager.Torrent.PieceLength));
+                        failures = Math.Max(failures, entry.Manager.HashFails - hashBaseline);
+                    }
+                    handles.Remove(handle.Token);
+                    admission = handle with { Token = Guid.NewGuid().ToString("N"), ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30) };
+                    handles.Add(admission.Token, admission);
                 }
-                var connected = await manager.GetPeersAsync();
-                peersThroughout &= connected.Count > 0;
-                peers = Math.Max(peers, connected.Count);
-                seeders = Math.Max(seeders, connected.Count(p => p.IsSeeder));
-                foreach (var peer in connected)
+                var now = DateTimeOffset.UtcNow;
+                if (failures > 0) reason = "Downloaded probe pieces failed their hash checks.";
+                return new(handle.Hash, HealthBand.Unknown, files, peers, seeders, peerBytes.Count, delivered, clock.Elapsed,
+                    null, reason, now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, admission)
                 {
-                    var key = peer.Uri.ToString();
-                    if (peer.Monitor.DataBytesReceived > peerBytes.GetValueOrDefault(key)) sending.Add(key);
-                    peerBytes[key] = peer.Monitor.DataBytesReceived;
-                }
-                if (manager.HasMetadata)
-                    delivered = entry.ProbePieces.Where(p => manager.Bitfield[p])
-                        .Sum(p => (long)Math.Min(manager.Torrent!.PieceLength, manager.Torrent.Size - (long)p * manager.Torrent.PieceLength));
+                    PeersPresentThroughoutWindow = peersThroughout && peers > 0,
+                    PieceLength = pieceLength,
+                    PeerBytesReceived = peerBytes,
+                    VerifiedPieceBytes = verifiedBytes,
+                    VerifiedPieces = verified,
+                    HashFailures = failures,
+                };
             }
             finally { gate.Release(); }
-            await Task.Delay(TimeSpan.FromMilliseconds(200), ct);
         }
-        await gate.WaitAsync(ct);
-        try
-        {
-            ProbeHandle? admission = null;
-            if (entries.TryGetValue(handle.Hash, out var entry) && entry.Probe)
-            {
-                if (entry.PayloadProbe)
-                {
-                    await entry.Manager.StopAsync(TimeSpan.Zero);
-                    await client.DiskManager.FlushAsync(entry.Manager);
-                }
-                if (entry.Manager.HasMetadata)
-                    delivered = entry.ProbePieces.Where(p => entry.Manager.Bitfield[p])
-                        .Sum(p => (long)Math.Min(entry.Manager.Torrent!.PieceLength,
-                            entry.Manager.Torrent.Size - (long)p * entry.Manager.Torrent.PieceLength));
-                handles.Remove(handle.Token);
-                admission = handle with { Token = Guid.NewGuid().ToString("N"), ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30) };
-                handles.Add(admission.Token, admission);
-            }
-            var now = DateTimeOffset.UtcNow;
-            return new(handle.Hash, HealthBand.Unknown, files, peers, seeders, sending.Count, delivered, clock.Elapsed,
-                null, reason, now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, admission)
-                { PeersPresentThroughoutWindow = peersThroughout && peers > 0 };
-        }
-        finally { gate.Release(); }
+        finally { sampling?.Dispose(); }
     }
 
     public async Task<MetadataProbeMeasurement> ObserveMetadataProbeAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct)
@@ -503,6 +568,8 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
             await entry.Manager.HashCheckAsync(false);
             var probePath = Path.Combine(directory, "probes", handle.Hash);
             if (Directory.Exists(probePath)) Directory.Delete(probePath, true);
+            Interlocked.Add(ref reservedProbeBytes, -entry.ProbeReservation);
+            entry.ProbeReservation = 0;
             entry.Probe = false;
             entry.Id = admission.Download.Id;
             WatchCompletion(entry.Manager);
@@ -930,6 +997,8 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         if (keepResume && !entry.Probe) await SaveResumeAsync(entry.Manager);
         await client.RemoveAsync(entry.Manager, keepResume ? RemoveMode.KeepAllData : RemoveMode.CacheDataOnly);
         probeIO.Invalidate(entry.Manager);
+        Interlocked.Add(ref reservedProbeBytes, -entry.ProbeReservation);
+        entry.ProbeReservation = 0;
     }
 
     public async Task TickAsync(bool saveDevState, CancellationToken ct)
@@ -1156,20 +1225,20 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         int HashFails, int VerifiedPieces, int TotalPieces, int TrackerCount, int[]? VerifiedPieceIndices);
     public sealed record MetadataProbeMeasurement(SwarmEvidence Evidence, long ProtocolBytesDelivered, int TrackerCount);
 
-private static long UpdateReceived(Entry entry)
-{
-    var current = entry.Manager.Monitor.DataBytesReceived;
-    entry.Received += current >= entry.LastReceived ? current - entry.LastReceived : current;
-    entry.LastReceived = current;
-    return entry.Received;
-}
+    private static long UpdateReceived(Entry entry)
+    {
+        var current = entry.Manager.Monitor.DataBytesReceived;
+        entry.Received += current >= entry.LastReceived ? current - entry.LastReceived : current;
+        entry.LastReceived = current;
+        return entry.Received;
+    }
 
-public async Task<ProbeHandle?> FindProbeAsync(string token, CancellationToken ct)
-{
-    await gate.WaitAsync(ct);
-    try { return handles.GetValueOrDefault(token); }
-    finally { gate.Release(); }
-}
+    public async Task<ProbeHandle?> FindProbeAsync(string token, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try { return handles.GetValueOrDefault(token); }
+        finally { gate.Release(); }
+    }
 
     private static bool PortAvailable(int port)
     {

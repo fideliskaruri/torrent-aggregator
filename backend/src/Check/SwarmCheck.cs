@@ -211,6 +211,7 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
             var measured = await engine.ObserveProbeAsync(handle, remaining, ct);
             handle = measured.AdmissionHandle ?? handle;
             var band = measured.FromLiveTransfer || measured.Files is null ? HealthBand.Unknown :
+                measured.HashFailures > 0 ? HealthBand.Dead :
                 measured.BytesDelivered > 0 && measured.ByteSendingPeers > 0
                     ? measured.Window.TotalSeconds >= options.MinimumGoodSeconds &&
                       measured.BytesDelivered >= settings.GoodBytes &&
@@ -228,11 +229,12 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
                 ProbeVersion = band == HealthBand.Unknown ? options.ProbeVersion : CheckVersion.For(settings, options),
                 Reason = band switch
                 {
-                    HealthBand.Good => "Hash-valid payload and byte-sending peers meet the measured rate threshold.",
-                    HealthBand.Weak => "Hash-valid payload arrived below the Good threshold.",
+                    HealthBand.Good => "Payload blocks and byte-sending peers meet the measured rate threshold.",
+                    HealthBand.Weak => "Payload blocks arrived below the Good threshold.",
+                    HealthBand.Dead when measured.HashFailures > 0 => "Downloaded probe pieces failed their hash checks.",
                     HealthBand.Dead => "Connected peers persisted through the full window but delivered no valid payload.",
                     _ => measured.FromLiveTransfer || measured.Files is null || measured.Window < remaining ? measured.Reason :
-                        "No hash-valid payload arrived; peer or transport uncertainty prevents a Dead verdict.",
+                        "No payload blocks arrived; peer or transport uncertainty prevents a Dead verdict.",
                 },
                 CheckedAt = now,
                 ExpiresAt = now.Add(band == HealthBand.Unknown && flight.Wanted

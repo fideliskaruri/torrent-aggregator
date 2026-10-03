@@ -1932,6 +1932,9 @@ namespace TorrentFlow.Store.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("probeMetricsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("probeVersion")
                         .HasColumnType("INTEGER");
 
@@ -1962,6 +1965,8 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Verdict_connectedPeers", "\"connectedPeers\" >= 0");
 
                             t.HasCheckConstraint("CK_Verdict_connectedSeeders", "\"connectedSeeders\" >= 0");
+
+                            t.HasCheckConstraint("CK_Verdict_probeMetricsJson", "json_valid(\"probeMetricsJson\")");
 
                             t.HasCheckConstraint("CK_Verdict_probeVersion", "\"probeVersion\" >= 0");
 

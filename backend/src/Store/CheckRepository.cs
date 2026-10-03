@@ -61,13 +61,21 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
             var valid = row.ExpiresAt > now &&
                 row.ProbeVersion == (row.Band == HealthBand.Unknown ? options.ProbeVersion : version) &&
                 (row.Band != HealthBand.Good || row.ByteSendingPeers > 0 && row.BytesDelivered > 0) &&
-                (row.Band != HealthBand.Dead || row.ByteSendingPeers == 0 && row.BytesDelivered == 0);
+                (row.Band != HealthBand.Dead || row.ProbeMetrics?.HashFailures > 0 ||
+                    row.ByteSendingPeers == 0 && row.BytesDelivered == 0);
             return new SwarmEvidence(row.Id, valid ? row.Band : HealthBand.Unknown,
                 files.GetValueOrDefault(row.Id), row.ConnectedPeers, row.ConnectedSeeders, row.ByteSendingPeers,
                 row.BytesDelivered, TimeSpan.FromMilliseconds(row.SampleMilliseconds), row.ScrapedSeeders,
                 valid ? row.Reason : "Cached measurement expired or has an invalid probe version.",
                 row.CheckedAt, valid ? row.ExpiresAt : DateTimeOffset.MinValue, false, false, null)
-                { FromCache = true, ProbeVersion = row.ProbeVersion };
+                {
+                    FromCache = true, ProbeVersion = row.ProbeVersion,
+                    PieceLength = row.ProbeMetrics?.PieceLength,
+                    VerifiedPieceBytes = row.ProbeMetrics?.VerifiedPieceBytes ?? 0,
+                    VerifiedPieces = row.ProbeMetrics?.VerifiedPieces ?? 0,
+                    HashFailures = row.ProbeMetrics?.HashFailures ?? 0,
+                    PeerBytesReceived = row.ProbeMetrics?.PeerBytesReceived ?? ImmutableDictionary<string, long>.Empty,
+                };
         })];
     }
 
@@ -95,7 +103,12 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
         var existing = await verdicts.SingleOrDefaultAsync(r => EF.Property<string>(r, "hash") == evidence.Hash, ct);
         var row = new VerdictRow(evidence.Hash, evidence.Band, evidence.ConnectedPeers, evidence.ConnectedSeeders,
             evidence.BytesDelivered, (int)evidence.Window.TotalMilliseconds, evidence.ScrapedSeeders, evidence.Reason,
-            evidence.CheckedAt, evidence.ExpiresAt, evidence.ProbeVersion) { ByteSendingPeers = evidence.ByteSendingPeers };
+            evidence.CheckedAt, evidence.ExpiresAt, evidence.ProbeVersion)
+        {
+            ByteSendingPeers = evidence.ByteSendingPeers,
+            ProbeMetrics = new(evidence.PieceLength, evidence.VerifiedPieceBytes, evidence.VerifiedPieces,
+                evidence.HashFailures, evidence.PeerBytesReceived),
+        };
         if (existing is null) verdicts.Add(Schema.Table("Verdict").ToEntity(row));
         else if (((VerdictRow)Schema.Table("Verdict").ToRow(existing)).CheckedAt <= evidence.CheckedAt)
             db.Entry(existing).CurrentValues.SetValues(Schema.Table("Verdict").ToEntity(row));

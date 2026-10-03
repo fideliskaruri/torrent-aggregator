@@ -29,6 +29,18 @@ internal static class PhysicalFiles
         }
     }
 
+    internal static void PrepareProbeFiles(TorrentManager manager)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        foreach (var file in manager.Files.Where(f => f.Priority != Priority.DoNotDownload))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file.FullPath)!);
+            using var stream = new FileStream(file.FullPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+            if (!DeviceIoControl(stream.SafeFileHandle, 0x000900C4, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero))
+                throw new IOException("The filesystem cannot create sparse engine probe files.");
+        }
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetCompressedFileSizeW", SetLastError = true)]
     private static extern uint GetCompressedFileSize(string path, out uint high);
 

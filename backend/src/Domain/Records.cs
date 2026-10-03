@@ -99,7 +99,10 @@ public sealed record VerdictRow(string Id, HealthBand Band, int ConnectedPeers, 
     DateTimeOffset CheckedAt, DateTimeOffset ExpiresAt, int ProbeVersion) : StoreRow(Id)
 {
     public int ByteSendingPeers { get; init; }
+    public ProbePayloadMetrics? ProbeMetrics { get; init; }
 }
+public sealed record ProbePayloadMetrics(int? PieceLength, long VerifiedPieceBytes, int VerifiedPieces,
+    int HashFailures, ImmutableDictionary<string, long> PeerBytesReceived);
 public sealed record DecisionEvidence(long PolicyRevision, ImmutableArray<Rejection> Rejections,
     ImmutableArray<int> SelectedFiles, ImmutableArray<SourceResult> SourceErrors);
 public sealed record SwapTargetBaseline(string TargetId, long CompletedBytes);
@@ -265,6 +268,13 @@ public sealed record SwarmEvidence(string Hash, HealthBand Band, ImmutableArray<
     public TimeSpan QueueWait { get; init; }
     public bool FromCache { get; init; }
     public int ProbeVersion { get; init; }
+    public int? PieceLength { get; init; }
+    public long BlockBytesReceived => BytesDelivered;
+    public long VerifiedPieceBytes { get; init; }
+    public int VerifiedPieces { get; init; }
+    public int HashFailures { get; init; }
+    public bool PieceVerified => VerifiedPieces > 0;
+    public ImmutableDictionary<string, long> PeerBytesReceived { get; init; } = ImmutableDictionary<string, long>.Empty;
 }
 public sealed record SelectedFile(string? TargetId, int FileIndex, FileRole Role);
 public sealed record Assignment(string Hash, ImmutableArray<string> TargetIds,

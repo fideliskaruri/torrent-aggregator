@@ -19,7 +19,7 @@ public sealed record CheckOptions
     public int MinimumGoodSeconds { get; init; } = 4;
     public int VerdictHours { get; init; } = 6;
     public int UnknownMinutes { get; init; } = 45;
-    public int ProbeVersion { get; init; } = 1;
+    public int ProbeVersion { get; init; } = 2;
 }
 
 public sealed record CheckDiagnostics(int Active, int BackgroundActive, int Queued, int Flights,

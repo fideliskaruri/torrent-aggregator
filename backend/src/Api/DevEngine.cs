@@ -20,7 +20,11 @@ internal static class DevEngine
     internal static IServiceCollection AddDevEngine(this IServiceCollection services, string directory)
     {
         services.AddSingleton(sp => new MonoTorrentEngine(directory,
-            message => sp.GetRequiredService<ILogger<MonoTorrentEngine>>().LogInformation("{EngineMessage}", message)));
+            message => sp.GetRequiredService<ILogger<MonoTorrentEngine>>().LogInformation("{EngineMessage}", message),
+            maximumProbePieceBytes: sp.GetRequiredService<IConfiguration>()
+                .GetValue("TorrentFlow:Engine:ProbeMaxPieceBytes", 32 * 1024 * 1024),
+            probeDiskBudgetBytes: sp.GetRequiredService<IConfiguration>()
+                .GetValue<long>("TorrentFlow:Engine:ProbeDiskBytes", 40L * 1024 * 1024)));
         services.AddSingleton<IEngine>(sp => sp.GetRequiredService<MonoTorrentEngine>());
         services.AddHostedService<EngineHost>();
         return services;
@@ -64,7 +68,8 @@ internal static class DevEngine
             if (input.Seconds is < 1 or > 60) return Results.BadRequest(new { error = "seconds must be 1..60" });
             var magnet = input.Magnet ?? input.Hash ?? throw new ArgumentException("Provide magnet or hash.");
             var attachment = input.Pieces
-                ? await engine.AttachProbeAsync(Candidate(magnet), ct)
+                ? await engine.AttachProbeAsync(input.TorrentUri is null ? Candidate(magnet) :
+                    MonoTorrentEngine.CandidateFor(magnet, input.TorrentUri), ct)
                 : await engine.AttachMetadataProbeAsync(Candidate(magnet), input.Trackerless, ct);
             if (attachment.Handle is not { } handle) return Results.Json(attachment, Json, statusCode: 409);
             var release = handle;
@@ -179,7 +184,7 @@ internal static class DevEngine
     }
 
     private sealed record ProbeInput(string? Magnet, string? Hash, int Seconds = 20,
-        bool Pieces = false, bool Retain = false, bool Trackerless = false);
+        bool Pieces = false, bool Retain = false, bool Trackerless = false, string? TorrentUri = null);
     private sealed record AddInput(string Magnet, int[] Files, string SavePath, string? ProbeToken = null);
     private sealed record IntentInput(bool Run);
 
