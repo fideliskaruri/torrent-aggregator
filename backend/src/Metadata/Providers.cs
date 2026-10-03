@@ -11,10 +11,9 @@ internal sealed class TmdbClient(ProviderHttp http, CatalogStore store, Metadata
 
     private async Task<string?> CredentialAsync(CancellationToken ct)
     {
-        if (Environment.GetEnvironmentVariable("TMDB_API_KEY")?.Trim() is { Length: > 0 } environment)
-            return environment;
         var setting = await store.SettingsAsync(ct);
-        if (setting.TmdbCredential is not { } reference) return null;
+        if (setting.TmdbCredential is not { } reference)
+            return Environment.GetEnvironmentVariable("TMDB_API_KEY")?.Trim();
         if (Path.GetFileName(reference.FileId) != reference.FileId || reference.FileId.Contains("..", StringComparison.Ordinal))
             return null;
         var folder = Path.Combine(paths.DataDirectory, "secrets");

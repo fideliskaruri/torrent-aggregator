@@ -461,7 +461,10 @@ public sealed record SourceSettings(string Id, bool Enabled, SourceTier Tier, in
     int TimeoutMilliseconds, int Concurrency, int StartSpacingMilliseconds,
     ImmutableDictionary<string, string> Options, SecretReference? Credential);
 public sealed record MetadataSettings(SecretReference? TmdbCredential, string? FribbUrl,
-    ImmutableArray<string> EnabledProviders);
+    ImmutableArray<string> EnabledProviders)
+{
+    public ImmutableArray<SourceSettings> Sources { get; init; } = [];
+}
 public sealed record RemoteAccessSettings(bool Enabled, int TunnelPort, string? TeamDomain, string? Audience,
     ImmutableArray<string> OwnerEmails, bool AllowRequesters, string TunnelBindAddress = "127.0.0.1");
 public sealed partial record DesktopSettings(bool StartWithWindows, bool CheckForUpdates,

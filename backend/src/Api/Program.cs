@@ -66,11 +66,8 @@ builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environmen
 var app = builder.Build();
 try
 {
-    var tmdb = app.Environment.IsDevelopment() &&
-        builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled")
-        ? null : SecretFiles.FromTmdbEnvironment(dataDirectory);
     await using (var scope = app.Services.CreateAsyncScope())
-        await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(tmdb,
+        await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(null,
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
     await app.UseAccessAsync();
@@ -80,6 +77,7 @@ try
     app.MapDesktopEndpoints();
     app.MapLocalFiles();
     app.MapDevSources();
+    await app.MapSettingsAsync();
     app.MapDevFind();
     app.MapCatalog();
     app.MapRequests();

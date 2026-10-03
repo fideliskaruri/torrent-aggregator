@@ -83,6 +83,26 @@ response, not the 20 stored elements. Data is deliberately not anonymized.
 The scripts generate and cross-check a baseline only. They are not the future
 `tools/contract-check` implementation.
 
+## Rebuild settings routes
+
+The rebuild exposes the owner-only TMDB GET/PUT/DELETE/test routes and source
+GET/PUT/DELETE/test routes. Credentials are represented in typed settings only by
+opaque references to restricted files under the data directory's `secrets` folder;
+responses contain configuration status and a masked hint, never the credential.
+A saved TMDB key overrides the environment key, and removing it restores the
+environment fallback. Testing never saves a key.
+
+Torrent source settings remain in the Sources section. Metadata provider settings
+use the same typed `SourceSettings` contract inside `MetadataSettings.Sources`,
+so metadata providers never enter Find's torrent-source pool. Older metadata rows
+gain the provider defaults at startup. Provider enablement, base URLs and timeouts
+take effect on subsequent requests, including cache reads. Built-in sources cannot
+be deleted; custom Torznab sources can.
+
+OPS-800's client-settings projection is separate and remains in
+`Api/DownloadEndpoints.cs`; that file was excluded from the settings-route lane.
+The settings proof records its outstanding GET and PUT shape mismatches separately.
+
 ## Baseline findings and limitations
 
 - The requester endpoints deliberately refuse the owner (`403`, `requester_only`).

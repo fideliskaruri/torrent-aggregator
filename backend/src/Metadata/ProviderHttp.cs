@@ -44,6 +44,27 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         TimeSpan ttl, CancellationToken ct, int timeoutSeconds = 10, int maxBytes = 8 * 1024 * 1024,
         bool force = false, CacheKind kind = CacheKind.ProviderDetail, Func<JsonElement, bool>? validate = null)
     {
+        var configured = (await store.SourceSettingsAsync(ct)).FirstOrDefault(s => s.Id == provider);
+        if (configured is { Enabled: false })
+            return new(null, false, false, new("provider_disabled", "This catalog is disabled in Settings.", null, true));
+        if (configured is not null)
+        {
+            key += "|" + JsonSerializer.Serialize(configured);
+            timeoutSeconds = Math.Max(1, (int)Math.Ceiling(configured.TimeoutMilliseconds / 1000d));
+            var create = request;
+            request = () =>
+            {
+                var message = create();
+                if (configured.BaseUrl is { Length: > 0 } baseUrl && message.RequestUri is { } original)
+                {
+                    var endpoint = new Uri(baseUrl.TrimEnd('/') + "/");
+                    var oldPath = original.AbsolutePath;
+                    if (provider == "tmdb" && oldPath.StartsWith("/3/", StringComparison.Ordinal)) oldPath = oldPath[2..];
+                    message.RequestUri = new Uri(endpoint, oldPath.TrimStart('/') + original.Query);
+                }
+                return message;
+            };
+        }
         var id = Id(provider + ":" + key);
         if (!force && misses.TryGetValue(id, out var missing) && missing.Until > DateTimeOffset.UtcNow)
             return missing.Answer;

@@ -78,7 +78,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
                 writer.TryWrite(Snapshot(SourceOutcome.Unsupported, "Disabled", "This source is disabled or unknown."));
                 return;
             }
-            if ((!SourceDefaults.Endpoints.ContainsKey(id) && id != "torznab") || settings.BaseUrl is null)
+            if ((!SourceDefaults.Endpoints.ContainsKey(id) && settings.Type != "torznab") || settings.BaseUrl is null)
             {
                 writer.TryWrite(Snapshot(SourceOutcome.Unconfigured, "Unconfigured", id == "torznab"
                     ? "Torznab needs a configured API endpoint. Set its BaseUrl before enabling it."
@@ -161,6 +161,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
     private async IAsyncEnumerable<CoreAdapters.Page> PagesAsync(string id, SourceSettings settings, SourceQuery query,
         int limit, CallTrace trace, [EnumeratorCancellation] CancellationToken ct)
     {
+        if (settings.Type == "torznab") id = "torznab";
         if (id is not ("apibay" or "nyaa" or "eztv" or "yts" or "torrentscsv" or "knaben" or "animetosho"))
         {
             await foreach (var page in AdditionalAdapters.SearchAsync(id, settings, query, limit, transport, trace, configuration, ct))

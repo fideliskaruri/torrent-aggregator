@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
 
@@ -48,8 +49,20 @@ internal sealed class CatalogStore(IServiceScopeFactory scopes)
     internal async Task<MetadataSettings> SettingsAsync(CancellationToken ct)
     {
         var row = (await ReadAsync<SettingRow>(Query("metadata"), ct)).FirstOrDefault();
-        return row?.Value.Deserialize<MetadataSettings>(Json)
+        var options = new JsonSerializerOptions(Json) { Converters = { new JsonStringEnumConverter() } };
+        var settings = row?.Value.Deserialize<MetadataSettings>(options)
             ?? new(null, FribbMap.DefaultUrl, ["tmdb", "anilist", "cinemeta", "tvmaze", "itunes"]);
+        var sources = settings.Sources;
+        var metadata = sources.Where(s => s.Kind == "metadata").ToArray();
+        return metadata.Length == 0 ? settings : settings with
+            { EnabledProviders = [.. metadata.Where(s => s.Enabled).Select(s => s.Type)] };
+    }
+
+    internal async Task<ImmutableArray<SourceSettings>> SourceSettingsAsync(CancellationToken ct)
+    {
+        var row = (await ReadAsync<SettingRow>(Query("metadata"), ct)).FirstOrDefault();
+        var options = new JsonSerializerOptions(Json) { Converters = { new JsonStringEnumConverter() } };
+        return row?.Value.Deserialize<MetadataSettings>(options)?.Sources ?? [];
     }
 
     internal async Task<WorkSnapshot?> SnapshotAsync(string id, CancellationToken ct)

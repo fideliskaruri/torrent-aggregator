@@ -12,6 +12,11 @@ internal static class SecretFiles
     {
         var secret = Environment.GetEnvironmentVariable("TMDB_API_KEY");
         if (string.IsNullOrWhiteSpace(secret)) return null;
+        return Save(dataDirectory, secret);
+    }
+
+    internal static SecretReference Save(string dataDirectory, string secret)
+    {
         var directory = Path.Combine(dataDirectory, "secrets");
         if (Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("The secrets directory must not be a symbolic link or junction.");
@@ -53,5 +58,16 @@ internal static class SecretFiles
         }
         CryptographicOperations.ZeroMemory(bytes);
         return new(id, 1);
+    }
+
+    internal static string? Read(string dataDirectory, SecretReference? reference)
+    {
+        if (reference is null || reference.FileId.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_'))
+            return null;
+        var directory = Path.Combine(dataDirectory, "secrets");
+        var file = Path.Combine(directory, reference.FileId + ".secret");
+        if (!File.Exists(file) || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0 ||
+            (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) return null;
+        return File.ReadAllText(file).Trim();
     }
 }
