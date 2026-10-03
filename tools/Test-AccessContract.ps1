@@ -52,7 +52,7 @@ function Call([string] $Name, [string] $Url, [int] $Status, [string] $Method = '
     return $data
 }
 function Start-Api([bool] $Remote) {
-    $argsList = @($dll, '--urls', $local, '--TorrentFlow:DataDirectory', $DataDirectory,
+    $argsList = @($dll, '--urls', "http://0.0.0.0:$OwnerPort", '--TorrentFlow:DataDirectory', $DataDirectory,
         '--TorrentFlow:Scheduler:Disabled', 'true', '--background', '--no-browser')
     if ($Remote) { $argsList += @('--environment', 'Development', '--TorrentFlow:RemoteAccess:DevJwksPath', (Join-Path $proof 'jwks.json')) }
     $script:process = Start-Process dotnet -ArgumentList $argsList -PassThru -RedirectStandardOutput (Join-Path $proof 'server.log') -RedirectStandardError (Join-Path $proof 'server-error.log')
@@ -107,6 +107,13 @@ try {
     }
     if (!$LanAddress) { throw 'No non-loopback IPv4 address is available.' }
     Start-Api $false
+    $direct = "http://${LanAddress}:$OwnerPort"
+    $directMe = Call 'direct-lan-owner' "$direct/api/me" 200
+    if ($directMe.role -ne 'owner' -or $directMe.via -ne 'local' -or $null -ne $directMe.email) {
+        throw 'Direct non-loopback connection did not retain local owner identity.'
+    }
+    $null = Call 'direct-lan-misroute' "$direct/api/me" 421 GET $null @{ 'Cf-Ray' = 'proof' }
+    $null = Call 'direct-lan-cross-site' "$direct/api/settings/remote-access" 403 PUT @{ enabled = $false } @{ 'Sec-Fetch-Site' = 'cross-site' }
     $baseline = @(
         @{ name = 'me'; path = '/api/me'; capture = 'me\owner.json' },
         @{ name = 'features'; path = '/api/features'; capture = 'features\default.json' },

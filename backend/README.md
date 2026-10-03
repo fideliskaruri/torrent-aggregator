@@ -123,8 +123,9 @@ before listening; signed-in requester emails map to durable users. The app's
 existing `/cdn-cgi/access/logout` link redirects tunnel sessions to the configured
 Cloudflare team's logout endpoint; local use redirects home.
 
-Only actual loopback connections on the owner listener are owners. Forwarded
-headers never grant identity; Cloudflare headers on the owner port return 421.
+Direct connections on the non-tunnel listener are local owners; listener binding
+is the trust boundary (loopback by default, explicitly overridable for LAN/Docker).
+Forwarded headers never grant identity; Cloudflare headers on the owner port return 421.
 The dedicated tunnel port requires Cloudflare Access RS256 JWTs with the correct
 issuer, audience, lifetime and email. Service tokens and forged signatures fail.
 Requester access is opt-in through settings (allowed by default when remote access

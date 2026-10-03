@@ -1,4 +1,3 @@
-using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -32,12 +31,6 @@ public sealed class AccessMiddleware(RequestDelegate next, AccessState state, Ac
             {
                 await Error(http, 421, "misrouted_tunnel",
                     $"This request came through Cloudflare but reached TorrentFlow's local listener. Point the tunnel at the tunnel port ({AccessState.Url(state.Current)}) and turn on Remote access in Settings.");
-                return;
-            }
-            // Direct LAN connections must never inherit the loopback owner's privileges.
-            if (http.Connection.RemoteIpAddress is not { } ip || !IPAddress.IsLoopback(ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip))
-            {
-                await Error(http, 403, "local_only", "Use the loopback address on this computer, or sign in through the remote access tunnel.");
                 return;
             }
             SetIdentity(http, "owner", "local", null, "local");
