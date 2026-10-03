@@ -19,9 +19,16 @@ internal static class TargetScheduling
             .ThenBy(t => t.ExpectedAt ?? t.ClickedAt ?? t.CreatedAt).ThenBy(t => t.Id, StringComparer.Ordinal);
 
     internal static ImmutableArray<EngineQueueOrder> Queue(IEnumerable<DownloadRow> downloads,
-        ImmutableArray<DownloadTargetRow> links, ImmutableArray<TargetRow> targets, DateTimeOffset now) =>
+        ImmutableArray<DownloadTargetRow> links, ImmutableArray<TargetRow> targets, DateTimeOffset now,
+        ImmutableArray<RawIntentRow> raws = default) =>
         [.. downloads.Select(d =>
         {
+            if (d.RawIntentId is { } rawId && !raws.IsDefault &&
+                raws.SingleOrDefault(r => r.Id == rawId) is { } raw)
+                return new EngineQueueOrder(d.Id, raw.Rank,
+                    raw.NowAt is not null ? TargetPriority.Now : raw.OwnerRanked ? TargetPriority.OwnerRank : TargetPriority.BackCatalogue,
+                    raw.NowAt is not null, d.FinishedAt is null &&
+                        raw.State is not (RawDownloadState.Paused or RawDownloadState.Done or RawDownloadState.Removed or RawDownloadState.Review));
             var members = targets.Where(t => links.Any(l => l.DownloadId == d.Id && l.TargetId == t.Id) &&
                 t.State == TargetState.Fetching);
             var first = Order(members, now).FirstOrDefault();

@@ -101,7 +101,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                         await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
+                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow,
+                        await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)),
                 }, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
@@ -326,7 +327,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                                 EnginePath = binding.FinalPath, PartialPath = null, Selected = false, Filed = true, MediaFileId = media.Id,
                             }, media, ct);
                             if (proposal is null) continue;
-                            var siblings = (await repository.BindingsAsync(ct)).Where(f => f.TargetId == target.Id &&
+                            var siblings = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id && f.TargetId == target.Id &&
                                 f.Role != FileRole.Unwanted);
                             var done = siblings.All(f => f.Id == binding.Id || f.Filed);
                             var now = DateTimeOffset.UtcNow;

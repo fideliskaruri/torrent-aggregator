@@ -117,9 +117,9 @@ No unit tests or full hard-set reruns are required for this slice.
 ## Swap and recovery (4.4)
 
 `FindAnotherAsync(targetId)` keeps Current while the shared Find/Check/Plan runs with
-Current and active work/global blocks excluded. A checked single replacement assignment
-uses distinct partial paths, starts and proves 64 KiB hash-valid selected bytes before
-the version-fenced Current switch. Only then is the old manager detached and its hash
+Current and active work/global blocks excluded. A complete checked replacement plan
+admits all assignments together and proves 64 KiB hash-valid selected bytes for every
+assigned target before one version-fenced Current switch. Only then is the old manager detached and its hash
 blocked for this work for six hours. Old partials remain fallback bytes until replacement
 filing completes, then exact recorded paths and bindings are removed. Failure or no
 alternative keeps Current. Interrupted Replacement associations are cleaned on restart.
@@ -140,9 +140,15 @@ uses its own normal slot. Store retires old associations before promoting replac
 inside the same transaction, preserving the filtered unique Current index regardless
 of hash ordering.
 
-Multi-assignment pack replacements and same-destination-name Library placement remain
-follow-up work (OPS-787); those cases keep Current rather than discard it. Real licensed
-Sintel HTTP evidence and a zero-warning build are in gitignored `tools\.swap-proof\finish`.
+Library alone reserves same-name replacement finals and their adjacent partials, using
+the full replacement hash as the disambiguator. Targets never rewrites Library paths.
+Filing completeness considers only the active download's bindings, not retired fallback
+bindings for the same target. Failed grouped admission drains and rolls back every prepared
+replacement without changing Current. A pack's old payload is retained until all replaced
+targets are filed, including when the new plan splits the pack across multiple downloads.
+Real licensed same-name, two-target pack, two-assignment split, rollback and only-candidate
+HTTP evidence is in gitignored `tools\.tswap-proof\report.md`. Earlier single-assignment
+Sintel HTTP evidence is in `tools\.swap-proof\finish`.
 The fixture completes scheduler onboarding, uses magnets with local seeders (no private
 HTTP metadata fetch), and clears persisted discovery caches before restarting.
 
@@ -170,7 +176,17 @@ healthy migrated database. Fresh-instance proof changes recovery thresholds, che
 readiness five times, restarts, verifies the saved thresholds, and checks readiness five
 more times (`tools\.dlapi-proof\finish\OPS-780-*.json`).
 
-Remaining: raw magnet submission, raw-intent actions, pending unresolved-scope wanted rows,
+`TargetSnapshot.RawIntents` exposes the existing durable raw intent, not a second download
+state. `RawActionAsync(id, Pause|Resume)` commits raw intent and Download intent together
+before applying the derived Engine queue and run decision. `BulkActionAsync(Pause|Resume)`
+includes unfinished catalog targets and raw intents; completed/review/removed items are
+left alone and repeated actions are idempotent. Queue composition reads raw state too,
+so initially paused raw admissions become eligible on Resume all. Desktop's tray and local,
+owner-only `POST /api/desktop/downloads/pause|resume` call this one Targets action surface.
+Real HTTP verified-byte stop/resume and initially-paused admission evidence is in
+`tools\.tswap-proof\report.md` (OPS-769).
+
+Remaining: production raw magnet submission, pending unresolved-scope wanted rows,
 Find another promotion answers, and external client import. External recovery import
 explicitly returns 501 rather than claiming success.
 Download recovery restores persisted Engine bindings; it does not import another client's

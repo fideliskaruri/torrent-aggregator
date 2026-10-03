@@ -395,14 +395,15 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                     var final = LibraryPaths.Within(destination, mapped[file.Index]);
                     var key = LibraryPaths.PhysicalKey(final);
                     var replacing = target.ChosenReleaseHash is { } current && current != input.Assignment.Hash &&
-                        bindings.Any(b => b.TargetId == target.Id && b.PhysicalKey == key) ||
+                        bindings.Any(b => b.TargetId == target.Id &&
+                            (b.PhysicalKey == key || b.FinalPath is { } oldFinal && LibraryPaths.PhysicalKey(oldFinal) == key)) ||
                         target.Kind == TargetKind.Replace && media.Any(m => m.PhysicalKey == key &&
                             m.WorkId == target.WorkId && m.EpisodeId == target.EpisodeId);
                     if (replacing)
                     {
                         // A replacement reserves its own final and partial. Publication is
                         // still a no-overwrite atomic rename; the old release stays intact.
-                        var suffix = input.Assignment.Hash[..Math.Min(8, input.Assignment.Hash.Length)];
+                        var suffix = input.Assignment.Hash;
                         final = Path.Combine(Path.GetDirectoryName(final)!,
                             $"{Path.GetFileNameWithoutExtension(final)} [{suffix}]{Path.GetExtension(final)}");
                         key = LibraryPaths.PhysicalKey(final);

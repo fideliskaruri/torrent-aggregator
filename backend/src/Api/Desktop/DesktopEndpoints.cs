@@ -41,6 +41,17 @@ public static class DesktopEndpoints
 {
     public static IEndpointRouteBuilder MapDesktopEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/api/desktop/downloads/{action}", async (string action, HttpContext http,
+            TorrentFlow.Targets.TargetPipeline targets, CancellationToken ct) =>
+        {
+            if (Refuse(http) is { } refused) return refused;
+            if (AccessIdentity.Role(http) != "owner") return Results.StatusCode(403);
+            var command = action switch { "pause" => TorrentFlow.Domain.TargetAction.Pause,
+                "resume" => TorrentFlow.Domain.TargetAction.Resume, _ => (TorrentFlow.Domain.TargetAction?)null };
+            return command is null ? Error(400, "Choose Pause all or Resume all.") :
+                Results.Json(await targets.BulkActionAsync(command.Value, ct), Json);
+        });
+
         app.MapGet("/api/desktop", (HttpContext http, DesktopEnvironment desktop, DesktopSettingsStore store, AutostartService autostart,
             UpdateChecker checker, UpdateInstaller installer) =>
         {

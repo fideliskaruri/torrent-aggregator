@@ -102,15 +102,21 @@ public sealed partial class TargetPipeline
                 new(first.ResolutionFloor, first.PreferredResolution, first.AudioLanguage, first.MaxBytes, null,
                     first.PolicyRevision), PriorityLane.Owner, false, ct, actualTargets: rows,
                 excludedHashes: await ExcludedAsync(store, first.WorkId, old.Hash, ct));
-            if (result.Plan.Assignments.Length != 1 || !result.Plan.UncoveredTargetIds.IsEmpty ||
-                result.Evidence.SingleOrDefault(e => e.Hash == result.Plan.Assignments[0].Hash) is not
-                    { Band: HealthBand.Good or HealthBand.Weak, Files: not null } evidence)
+            if (result.Plan.Assignments.IsEmpty || !result.Plan.UncoveredTargetIds.IsEmpty ||
+                !rows.Select(t => t.Id).Order().SequenceEqual(
+                    result.Plan.Assignments.SelectMany(a => a.TargetIds).Order()) ||
+                result.Plan.Assignments.Any(a => result.Evidence.SingleOrDefault(e => e.Hash == a.Hash) is not
+                    { Band: HealthBand.Good or HealthBand.Weak, Files: not null }))
                 return new(false, 0, 0, [.. rows.Select(t => t.Id)],
                     "No other checked release is available. Kept the current release.");
-            var assignment = result.Plan.Assignments[0];
-            var candidate = result.Find.Candidates.Single(c => c.Release.Id == assignment.Hash);
-            var switched = await transfers.SwapAsync(work, rows, old, assignment, candidate, evidence.Files.Value,
-                evidence.AdmissionHandle, stall, stateGate, ct);
+            var replacements = result.Plan.Assignments.Select(assignment =>
+            {
+                var evidence = result.Evidence.Single(e => e.Hash == assignment.Hash);
+                return new TargetTransfers.Replacement(assignment,
+                    result.Find.Candidates.Single(c => c.Release.Id == assignment.Hash),
+                    evidence.Files!.Value, evidence.AdmissionHandle);
+            }).ToImmutableArray();
+            var switched = await transfers.SwapAsync(work, rows, old, replacements, stall, stateGate, ct);
             return new(switched, 0, 0, [.. rows.Select(t => t.Id)], switched
                 ? "Started another release." : "The replacement did not start. Kept the current release.");
         }

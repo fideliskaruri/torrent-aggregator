@@ -19,6 +19,7 @@ public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
     ImmutableArray<AttemptRow> History, ImmutableArray<ScopeIntentRow> Scopes)
 {
     public ImmutableArray<EngineQueueOrder> Queue { get; init; } = [];
+    public ImmutableArray<RawIntentRow> RawIntents { get; init; } = [];
 }
 
 public sealed partial class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
@@ -277,7 +278,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 {
                     Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                         await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
+                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow,
+                        await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)),
                 }, ct);
             }
             return new(true, 0, 0, [id], state == TargetState.Removed ? "Removed" : state.ToString());
@@ -310,7 +312,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             {
                 Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                     await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
+                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow,
+                    await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)),
             }, ct);
         }
         finally { stateGate.Release(); }
@@ -334,8 +337,10 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 TargetState.Waiting && (t.NowAt is null || heldWorks.Contains(t.WorkId)) ? t with { State = TargetState.Waiting,
                     ReasonText = ImportReviews.BackgroundMessage } : t)] };
         }
-        return result with { Queue = [.. TargetScheduling.Queue(result.Downloads,
-            await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct), result.Targets, DateTimeOffset.UtcNow)
+        var raws = await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct);
+        return result with { RawIntents = raws,
+            Queue = [.. TargetScheduling.Queue(result.Downloads,
+            await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct), result.Targets, DateTimeOffset.UtcNow, raws)
             .OrderBy(q => q.Priority).ThenBy(q => q.Rank).ThenBy(q => q.DownloadId, StringComparer.Ordinal)] };
     }
 

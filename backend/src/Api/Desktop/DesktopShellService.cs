@@ -39,11 +39,7 @@ public sealed class DesktopShellService(DesktopEnvironment desktop, TargetPipeli
     {
         try
         {
-            var snapshot = await targets.ReadAsync(lifetime.ApplicationStopping);
-            foreach (var target in snapshot.Targets.Where(t => action == TargetAction.Pause
-                ? t.State is not (TargetState.Paused or TargetState.Done or TargetState.Removed)
-                : t.State == TargetState.Paused))
-                await targets.ActionAsync(target.Id, action, lifetime.ApplicationStopping);
+            await targets.BulkActionAsync(action, lifetime.ApplicationStopping);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { logger.LogWarning(ex, "Tray action failed."); }
