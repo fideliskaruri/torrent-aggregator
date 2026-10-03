@@ -71,7 +71,7 @@ internal sealed partial class TargetTransfers
                  .. targets.Where(t => t.State != TargetState.Removed).Select(t => new RowWrite(t with
                  {
                      State = TargetState.Removed, ResumeState = null, NextTryAt = null,
-                     ReplaceMediaFileId = null, ReplacementMode = null,
+                     ReplaceMediaFileId = null,
                      LeaseToken = null, LeaseUntil = null, UpdatedAt = DateTimeOffset.UtcNow,
                      Version = t.Version + 1,
                  }, t.Version, null))], [], ct);
