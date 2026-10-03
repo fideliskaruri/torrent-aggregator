@@ -166,6 +166,8 @@ internal static class NotificationReadModels
             var state = downloading ? "downloading" : t.State is TargetState.Filing ? "downloading" :
                 t.ChosenReleaseHash is not null || t.State is TargetState.Fetching or TargetState.Planning ? "found" :
                 future ? "expected" : "searching";
+            // A film that is already out and already found is a download, not something upcoming.
+            if (ep is null && !future && state is "found" or "downloading") continue;
             var release = CalendarDates.Release(ep is not null, expected, work);
             TimelineEntry Entry(string kind, DateTimeOffset? at) => new(kind + ":" + t.Id, kind,
                 Title(work, names), ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}",
@@ -234,5 +236,5 @@ internal static class CalendarDates
 
     public static string Release(bool episode, DateTimeOffset? at, WorkRow work) =>
         episode ? "episode" : at is null ? "release" : at == work.DigitalAt ? "digital" :
-        at == work.PhysicalAt ? "physical" : at == work.TheatricalAt ? "theatrical" : "release";
+        at == work.PhysicalAt ? "physical" : at == work.TheatricalAt && at > DateTimeOffset.UtcNow ? "theatrical" : "release";
 }

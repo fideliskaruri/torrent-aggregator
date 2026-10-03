@@ -113,7 +113,7 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
   }
   const canGrab = entry.targetId && !entry.grabNow && (entry.state === "expected" || entry.state === "searching");
   const series = entry.mediaType === "tv" && entry.workKey;
-  if (!series && !canGrab && !entry.grabNow && !entry.workKey) return null;
+  if (!series && !canGrab && !entry.grabNow) return null;
   return (
     <div className="flex flex-wrap items-center gap-2" data-calendar-actions>
       {series ? (
@@ -131,7 +131,6 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
         </Button>
       ) : entry.grabNow ? <span className="text-xs text-muted-foreground">Grabbing as soon as it appears</span> : null}
       {error ? <p role="alert" className="w-full text-xs text-destructive">{error}</p> : null}
-      {entry.workKey ? <TitleQuality workKey={entry.workKey} title={entry.title} quality={entry.quality ?? null} /> : null}
     </div>
   );
 }
@@ -163,16 +162,16 @@ function TitleQuality({ workKey, title, quality }: { workKey: string; title: str
     } finally { setSaving(false); }
   }
   return (
-    <div className="w-full" data-calendar-quality>
+    <div className="contents" data-calendar-quality>
       <Button size="sm" variant="ghost" aria-expanded={open} className="max-md:min-h-11 px-1 text-xs text-muted-foreground"
         aria-label={`Minimum quality for ${title}: ${label ?? "your default"}`} onClick={() => setOpen((o) => !o)}>
         Quality: {label ?? "your default"}
         <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", open && "rotate-180")} />
       </Button>
       {open ? (
-        <QualityOptions name={`quality-${workKey}`} value={value} disabled={saving} onChange={(v) => void save(v)} className="mt-1.5" />
+        <QualityOptions name={`quality-${workKey}`} value={value} disabled={saving} onChange={(v) => void save(v)} className="basis-full" />
       ) : null}
-      {error ? <p role="alert" className="mt-1 text-xs text-destructive" data-calendar-quality-error>{error}</p> : null}
+      {error ? <p role="alert" className="basis-full text-xs text-destructive" data-calendar-quality-error>{error}</p> : null}
     </div>
   );
 }
@@ -267,6 +266,7 @@ function OwnerCalendar() {
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
                         {entry.state ? <StateBadge state={entry.state} /> : null}
+                        {entry.workKey ? <TitleQuality workKey={entry.workKey} title={entry.title} quality={entry.quality ?? null} /> : null}
                       </div>
                       <OwnerActions entry={entry} onDone={list.refetch} />
                       {entry.waitReason.since ? (
