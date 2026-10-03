@@ -7,6 +7,7 @@ using Serilog;
 using TorrentFlow.Api;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
+using TorrentFlow.Api.Requests;
 using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Store;
@@ -49,6 +50,7 @@ builder.Services.AddAccess();
 builder.Services.AddNotifications(dataDirectory);
 builder.Services.AddDevSources();
 builder.Services.AddCatalog();
+builder.Services.AddRequests();
 builder.Services.AddDevEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
@@ -78,6 +80,7 @@ try
     app.MapDevSources();
     app.MapDevFind();
     app.MapCatalog();
+    app.MapRequests();
     app.MapDevEngine();
     app.MapDevPlan();
     app.MapDevDiscoveryPlan();
