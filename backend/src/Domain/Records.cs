@@ -459,7 +459,7 @@ public sealed record MetadataSettings(SecretReference? TmdbCredential, string? F
     ImmutableArray<string> EnabledProviders);
 public sealed record RemoteAccessSettings(bool Enabled, int TunnelPort, string? TeamDomain, string? Audience,
     ImmutableArray<string> OwnerEmails, bool AllowRequesters, string TunnelBindAddress = "127.0.0.1");
-public sealed record DesktopSettings(bool StartWithWindows, bool CheckForUpdates,
+public sealed partial record DesktopSettings(bool StartWithWindows, bool CheckForUpdates,
     DateTimeOffset? LastCheckedAt, string? AvailableVersion);
 public sealed record QualitySettings(int? PreferredResolution, string? AudioLanguage, long? MaxBytesPerItem);
 public sealed record RequestSettings(AutoApproveMode AutoApproveMode, int MaxOpenPerRequester);

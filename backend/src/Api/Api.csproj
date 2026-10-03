@@ -3,6 +3,8 @@
     <AssemblyName>TorrentFlow</AssemblyName>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <Version>0.2.0</Version>
+    <ApplicationIcon>Desktop\TorrentFlow.ico</ApplicationIcon>
+    <OutputType Condition="'$(PublishSingleFile)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">WinExe</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Domain\Domain.csproj" />

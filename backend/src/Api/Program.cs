@@ -7,6 +7,7 @@ using Serilog;
 using TorrentFlow.Api;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
+using TorrentFlow.Api.Desktop;
 using TorrentFlow.Store;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -14,13 +15,18 @@ CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 var clock = Stopwatch.StartNew();
 var background = args.Any(a => a.Equals("--background", StringComparison.OrdinalIgnoreCase));
 var noBrowser = args.Any(a => a.Equals("--no-browser", StringComparison.OrdinalIgnoreCase));
-var desktop = args.Any(a => a.Equals("--desktop", StringComparison.OrdinalIgnoreCase));
+var desktop = DesktopEnvironment.IsPublishedDesktop();
+var browserRequested = desktop || args.Any(a => a.Equals("--desktop", StringComparison.OrdinalIgnoreCase));
+if (desktop && OperatingSystem.IsWindows()) NativeDialogs.AttachToParentConsole();
 var hostArgs = args.Where(a => !new[] { "--background", "--no-browser", "--desktop" }
     .Contains(a, StringComparer.OrdinalIgnoreCase)).ToArray();
 var builder = WebApplication.CreateBuilder(hostArgs);
 var dataDirectory = HostPaths.DataDirectory(builder.Configuration);
 var urls = builder.Configuration["urls"];
 if (string.IsNullOrWhiteSpace(urls)) builder.WebHost.UseUrls("http://127.0.0.1:3940");
+using var desktopInstance = new DesktopInstance(desktop, dataDirectory,
+    (urls ?? "http://127.0.0.1:3940").Split(';')[0], background, noBrowser);
+if (!desktopInstance.IsFirst) return;
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
@@ -47,6 +53,9 @@ TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
     builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddDevLibrary();
+builder.Services.AddLocalFiles();
+builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,
+    DesktopEnvironment.CurrentVersion(), dataDirectory, (urls ?? "http://127.0.0.1:3940").Split(';')[0], background));
 var app = builder.Build();
 try
 {
@@ -58,6 +67,9 @@ try
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
     await app.UseAccessAsync();
+    await app.Services.GetRequiredService<DesktopSettingsStore>().InitializeAsync();
+    app.MapDesktopEndpoints();
+    app.MapLocalFiles();
     app.MapDevSources();
     app.MapDevFind();
     app.MapCatalog();
@@ -107,7 +119,7 @@ try
         using var process = Process.GetCurrentProcess();
         app.Logger.LogInformation("Ready in {StartupMs} ms; working set {WorkingSetBytes} bytes",
             clock.ElapsedMilliseconds, process.WorkingSet64);
-        if (desktop && !background && !noBrowser)
+        if (browserRequested && !background && !noBrowser)
         {
             try { Process.Start(new ProcessStartInfo(app.Urls.First()) { UseShellExecute = true }); }
             catch (Exception ex) { app.Logger.LogWarning(ex, "Could not open the browser. Open the loopback URL manually."); }
@@ -118,6 +130,8 @@ try
 catch (Exception ex)
 {
     Log.Fatal(ex, "TorrentFlow rebuild could not start. Check the data directory, port and database, then try again.");
+    if (desktop && OperatingSystem.IsWindows())
+        NativeDialogs.ShowError($"TorrentFlow could not start:\n\n{ex.Message}\n\nCheck the data directory and port, then try again.");
     throw;
 }
 finally
