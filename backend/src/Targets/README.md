@@ -99,6 +99,10 @@ download, including failed admissions. Admission exceptions roll back bindings, 
 and download state before retrying. Library media identity is based on its physical path,
 so retaining a file and downloading the same hash to another root cannot collide on filing.
 Readiness checks SettingsCatalog's required sections rather than a fixed section count.
+This also fixes OPS-780: adding or changing the recovery section must not invalidate a
+healthy migrated database. Fresh-instance proof changes recovery thresholds, checks
+readiness five times, restarts, verifies the saved thresholds, and checks readiness five
+more times (`tools\.dlapi-proof\finish\OPS-780-*.json`).
 
 Remaining: raw magnet submission, raw-intent actions, pending unresolved-scope wanted rows,
 Find another promotion answers, and external client import. External recovery import
