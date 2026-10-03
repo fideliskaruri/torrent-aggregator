@@ -7,6 +7,7 @@ using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Store;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
@@ -27,7 +28,7 @@ internal static class DevEngine
                 .GetValue<long>("TorrentFlow:Engine:ProbeDiskBytes", 40L * 1024 * 1024),
             fileState: new FilingFileState(sp.GetRequiredService<IServiceScopeFactory>())));
         services.AddSingleton<IEngine>(sp => sp.GetRequiredService<MonoTorrentEngine>());
-        services.AddSingleton<DevDownloads>();
+        services.AddSingleton<RawDownloads>();
         services.AddHostedService<EngineHost>();
         return services;
     }
@@ -191,7 +192,7 @@ internal static class DevEngine
     private sealed record AddInput(string Magnet, int[] Files, string SavePath, string? ProbeToken = null);
     private sealed record IntentInput(bool Run);
 
-    private sealed class EngineHost(MonoTorrentEngine engine, DevDownloads downloads, IServiceScopeFactory scopes,
+    private sealed class EngineHost(MonoTorrentEngine engine, RawDownloads downloads, IServiceScopeFactory scopes,
         IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
     {
         private bool initialized;
@@ -212,7 +213,7 @@ internal static class DevEngine
                 }
                 throw new InvalidOperationException("Engine listen port settings changed repeatedly. Restart to retry.");
             }, environment.IsDevelopment(), ct);
-            if (environment.IsDevelopment()) await downloads.RecoverAsync(ct);
+            await downloads.RecoverAsync(ct);
             initialized = true;
             await base.StartAsync(ct);
         }
@@ -226,7 +227,7 @@ internal static class DevEngine
                 while (await timer.WaitForNextTickAsync(stoppingToken))
                     try
                     {
-                        if (environment.IsDevelopment()) await downloads.TickAsync(stoppingToken);
+                        await downloads.TickAsync(stoppingToken);
                         if (++ticks % 20 == 0) await engine.TickAsync(environment.IsDevelopment(), stoppingToken);
                     }
                     catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

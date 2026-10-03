@@ -66,7 +66,45 @@ public sealed partial class TargetPipeline
     public Task<TargetActionReply> FindAnotherAsync(string targetId, CancellationToken ct) =>
         SwapAsync(targetId, null, ct);
 
-    private async Task<TargetActionReply> SwapAsync(string targetId, string? stall, CancellationToken ct)
+    public Task<TargetActionReply> ReplaceAsync(string targetId, string? hash, string? source,
+        CancellationToken ct) => SwapAsync(targetId, null, ct, hash, source);
+
+    public async Task<DiscoveryResult?> AlternativesAsync(string targetId, string? source, CancellationToken ct)
+    {
+        var snapshot = await ReadAsync(ct);
+        var first = snapshot.Targets.SingleOrDefault(t => t.Id == targetId);
+        if (first is null || first.State != TargetState.Fetching || first.ChosenReleaseHash is null)
+            return null;
+        await using var scope = scopes.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var links = await new CatalogState(store).ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
+        var old = snapshot.Downloads.Single(d => d.Hash == first.ChosenReleaseHash);
+        var rows = snapshot.Targets.Where(t => t.State == TargetState.Fetching &&
+            links.Any(l => l.DownloadId == old.Id && l.TargetId == t.Id && l.Role == AssociationRole.Current))
+            .ToImmutableArray();
+        var work = (await scope.ServiceProvider.GetRequiredService<IMetadata>().GetWorkAsync(first.WorkId, false, ct)).Work;
+        if (work is null) return null;
+        var result = await ReplacementPlanAsync(store, work, rows, old.Hash, null, source, ct);
+        foreach (var evidence in result.Evidence)
+            if (evidence.AdmissionHandle is { } handle) await engine.ReleaseProbeAsync(handle, CancellationToken.None);
+        return result;
+    }
+
+    private async Task<DiscoveryResult> ReplacementPlanAsync(IStore store, WorkSnapshot work,
+        ImmutableArray<TargetRow> rows, string current, string? chosen, string? source, CancellationToken ct)
+    {
+        var first = rows[0];
+        return await discovery.RunAsync(work, new(first.WorkId,
+            [.. rows.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)], first.EpisodeId is null),
+            new(first.ResolutionFloor, first.PreferredResolution, first.AudioLanguage, first.MaxBytes, null,
+                first.PolicyRevision), PriorityLane.Owner, false, ct,
+            actualTargets: [.. rows.Select(t => t with { PickedReleaseHash = chosen })],
+            excludedHashes: await ExcludedAsync(store, first.WorkId, current, ct),
+            sourceIds: source is null ? [] : [source]);
+    }
+
+    private async Task<TargetActionReply> SwapAsync(string targetId, string? stall, CancellationToken ct,
+        string? chosen = null, string? source = null)
     {
         var initial = await ReadAsync(ct);
         var first = initial.Targets.SingleOrDefault(t => t.Id == targetId);
@@ -74,13 +112,14 @@ public sealed partial class TargetPipeline
         if (first is not null &&
             await TargetAdmission.HoldsAsync(reviewScope.ServiceProvider, first, ct))
             return new(false, 0, 0, [targetId], ImportReviews.HoldMessage) { Held = 1 };
-        if (!await CanRunAsync(ct))
+        if (stall is not null && !await CanRunAsync(ct))
             return new(false, 0, 0, [targetId], "Downloads are paused. Finish reviewing the library and enable downloads first.");
         if (first is null || first.State != TargetState.Fetching || first.ChosenReleaseHash is null)
             return new(false, 0, 0, [targetId], "Only an unfinished download can find another release.");
         var old = initial.Downloads.Single(d => d.Hash == first.ChosenReleaseHash);
         if (!swapping.TryAdd(old.Id, 0))
             return new(false, 0, 0, [targetId], "Already looking for another release.");
+        DiscoveryResult? planned = null;
         try
         {
             await using var scope = scopes.CreateAsyncScope();
@@ -100,11 +139,8 @@ public sealed partial class TargetPipeline
             var work = (await scope.ServiceProvider.GetRequiredService<IMetadata>()
                 .GetWorkAsync(first.WorkId, false, ct)).Work;
             if (work is null) return new(false, 0, 0, [targetId], "The catalog is unavailable. Kept the current release.");
-            var result = await discovery.RunAsync(work, new(first.WorkId,
-                [.. rows.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)], first.EpisodeId is null),
-                new(first.ResolutionFloor, first.PreferredResolution, first.AudioLanguage, first.MaxBytes, null,
-                    first.PolicyRevision), PriorityLane.Owner, false, ct, actualTargets: rows,
-                excludedHashes: await ExcludedAsync(store, first.WorkId, old.Hash, ct));
+            var result = await ReplacementPlanAsync(store, work, rows, old.Hash, chosen, source, ct);
+            planned = result;
             if (result.Plan.Assignments.IsEmpty || !result.Plan.UncoveredTargetIds.IsEmpty ||
                 !rows.Select(t => t.Id).Order().SequenceEqual(
                     result.Plan.Assignments.SelectMany(a => a.TargetIds).Order()) ||
@@ -128,7 +164,17 @@ public sealed partial class TargetPipeline
             logger.LogWarning(ex, "Release replacement failed for {TargetId}; keeping Current", targetId);
             return new(false, 0, 0, [targetId], "Another release could not start. Kept the current release.");
         }
-        finally { swapping.TryRemove(old.Id, out _); }
+        finally
+        {
+            try
+            {
+                if (planned is not null)
+                    foreach (var evidence in planned.Evidence)
+                        if (evidence.AdmissionHandle is { } handle)
+                            await engine.ReleaseProbeAsync(handle, CancellationToken.None);
+            }
+            finally { swapping.TryRemove(old.Id, out _); }
+        }
     }
 
     private async Task RecoverStallsAsync(TargetSnapshot snapshot, CancellationToken ct)

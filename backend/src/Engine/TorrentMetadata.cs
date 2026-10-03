@@ -6,9 +6,9 @@ namespace TorrentFlow.Engine;
 
 internal static class TorrentMetadata
 {
-    internal sealed record Result(Torrent? Torrent, MagnetLink? Magnet);
+    internal sealed record Result(Torrent? Torrent, MagnetLink? Magnet, byte[]? Bytes = null);
 
-    internal static async Task<Result> LoadAsync(string address, string expectedHash, CancellationToken ct)
+    internal static async Task<Result> LoadAsync(string address, string? expectedHash, CancellationToken ct)
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri))
             throw new ArgumentException("Torrent metadata requires a public HTTP or HTTPS address.");
@@ -37,7 +37,7 @@ internal static class TorrentMetadata
             if (uri.Scheme == "magnet")
             {
                 if (!MagnetLink.TryParse(uri.AbsoluteUri, out var magnet) || magnet is null ||
-                    !magnet.InfoHashes.Contains(InfoHash.FromHex(expectedHash)))
+                    expectedHash is not null && !magnet.InfoHashes.Contains(InfoHash.FromHex(expectedHash)))
                     throw new InvalidDataException("Redirected magnet hash does not match the candidate.");
                 return new(null, magnet);
             }
@@ -73,9 +73,9 @@ internal static class TorrentMetadata
             }
             if (!Torrent.TryLoad(bytes.ToArray(), out var torrent) || torrent is null)
                 throw new InvalidDataException("The response is not valid torrent metadata.");
-            if (!torrent.InfoHashes.Contains(InfoHash.FromHex(expectedHash)))
+            if (expectedHash is not null && !torrent.InfoHashes.Contains(InfoHash.FromHex(expectedHash)))
                 throw new InvalidDataException("Torrent metadata hash does not match the candidate.");
-            return new(torrent, null);
+            return new(torrent, null, bytes.ToArray());
         }
     }
 

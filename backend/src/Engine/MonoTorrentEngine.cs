@@ -180,9 +180,17 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                         ((BEncodedNumber)torrent["DevEligible"]).Number != 0);
             }
         }
-        client = restoreDevState && File.Exists(statePath)
-            ? await ClientEngine.RestoreStateAsync(statePath, factories)
-            : new ClientEngine(BuildSettings(), factories);
+        try
+        {
+            client = restoreDevState && File.Exists(statePath)
+                ? await ClientEngine.RestoreStateAsync(statePath, factories)
+                : new ClientEngine(BuildSettings(), factories);
+        }
+        catch (IOException) when (restoreDevState)
+        {
+            log("Development engine artifact is unavailable; replaying durable download intent.");
+            client = new ClientEngine(BuildSettings(), factories);
+        }
         await client.UpdateSettingsAsync(new EngineSettingsBuilder(BuildSettings())
         {
             MaximumDownloadRate = restoreDevState ? client.Settings.MaximumDownloadRate : 0,
@@ -668,6 +676,14 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     public Task<EngineResult> StartAsync(EngineAdmission admission, CancellationToken ct) =>
         StartAsync(admission, false, ct);
 
+    public async Task<string> ResolveTorrentSourceAsync(string address, CancellationToken ct)
+    {
+        var result = await TorrentMetadata.LoadAsync(address, null, ct);
+        var hash = (result.Torrent?.InfoHashes ?? result.Magnet!.InfoHashes).V1OrV2.ToHex().ToLowerInvariant();
+        if (result.Bytes is { } bytes) await PrepareExternalAsync(bytes, hash, ct);
+        return hash;
+    }
+
     public async Task<ImmutableArray<TorrentFile>> PrepareExternalAsync(byte[] torrentBytes, string hash, CancellationToken ct)
     {
         var torrent = Torrent.Load(torrentBytes);
@@ -859,6 +875,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             if (permits.Values.Any(p => p.DownloadId == downloadId)) return Rejected("filing", "File publication is in progress.");
             await entry.Manager.StopAsync(TimeSpan.Zero);
             entry.Run = false;
+            await CacheMetadataAsync(entry.Manager);
             await BindAsync(entry.Manager, files);
             entry.Bound = true;
             entry.Completed = false;

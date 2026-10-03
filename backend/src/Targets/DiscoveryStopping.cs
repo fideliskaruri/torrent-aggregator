@@ -16,7 +16,8 @@ internal sealed class DiscoveryStopping(IServiceScopeFactory scopes, ICheck chec
 
     internal static string ScopeKey(WorkSnapshot work, TargetScope scope, Policy policy,
         PriorityLane lane, bool exhaust, ImmutableArray<TargetRow> targets,
-        ImmutableArray<OwnedItem> owned, ImmutableHashSet<string>? excluded, CheckOptions options) =>
+        ImmutableArray<OwnedItem> owned, ImmutableHashSet<string>? excluded, CheckOptions options,
+        ImmutableArray<string> sources = default) =>
         Digest(new
         {
             work = new
@@ -43,6 +44,7 @@ internal sealed class DiscoveryStopping(IServiceScopeFactory scopes, ICheck chec
             },
             scope = new { scope.WorkId, scope.Film, EpisodeIds = scope.EpisodeIds.Order(StringComparer.Ordinal) },
             policy, lane, exhaust, options.UnknownMinutes, options.Slots, options.BackgroundSlots,
+            sources = sources.IsDefault ? [] : sources.Order(StringComparer.Ordinal).ToArray(),
             targets = targets.OrderBy(t => t.Id).Select(t => new
             {
                 t.Id, t.EpisodeId, t.Kind, t.ResolutionFloor, t.PreferredResolution, t.AudioLanguage,

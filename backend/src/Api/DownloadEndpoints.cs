@@ -28,6 +28,8 @@ internal static class DownloadEndpoints
             catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
         });
+        ReleaseReplacementEndpoints.Map(group);
+        TorrentSendEndpoints.Map(group);
         group.MapGet("/client/torrents", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.ListAsync(ct)));
         group.MapPost("/client/torrents", async (DownloadAction input, DownloadsApi api, CancellationToken ct) =>
@@ -144,7 +146,7 @@ internal static class DownloadEndpoints
         string? Provider = null, string? ProviderId = null, string? MediaType = null, string? Title = null, int? Year = null);
 }
 
-internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServiceScopeFactory scopes,
+internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownloads, IEngine engine, IServiceScopeFactory scopes,
     IConfiguration configuration)
 {
     private readonly SemaphoreSlim settingsGate = new(1, 1);
@@ -270,7 +272,15 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             var download = snapshot.Downloads.FirstOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
             if (download is null) continue;
             var ids = links.Where(l => l.DownloadId == download.Id).Select(l => l.TargetId).Distinct().ToArray();
-            if (ids.Length == 0) throw new ArgumentException("This raw download does not support target actions yet.");
+            if (ids.Length == 0 && download.RawIntentId is not null)
+            {
+                if (action == TargetAction.Remove) await rawDownloads.RemoveAsync(download.Hash, input.DeleteFiles, ct);
+                else if (action == TargetAction.DownloadNow)
+                    await rawDownloads.OrderAsync(download.Hash, new(Now: true, Paused: false), ct);
+                else await targets.RawActionAsync(download.RawIntentId, action, ct);
+                continue;
+            }
+            if (ids.Length == 0) throw new ArgumentException("This download no longer has an action.");
             if (input.DeleteFiles) await targets.DeleteDownloadFilesAsync(hash, ct);
             foreach (var id in ids) await targets.ActionAsync(id, action, ct);
         }

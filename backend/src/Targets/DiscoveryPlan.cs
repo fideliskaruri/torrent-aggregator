@@ -15,7 +15,8 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         PriorityLane lane, bool exhaust, CancellationToken cancellationToken,
         Func<CandidateBatch, Task>? onBatch = null,
         ImmutableArray<TargetRow>? actualTargets = null, ImmutableArray<OwnedItem> owned = default,
-        Func<TargetState, Task>? onStage = null, ImmutableHashSet<string>? excludedHashes = null)
+        Func<TargetState, Task>? onStage = null, ImmutableHashSet<string>? excludedHashes = null,
+        ImmutableArray<string> sourceIds = default)
     {
         var clock = Stopwatch.StartNew();
         var planSeconds = scope.Film ? 28 : scope.EpisodeIds.Length == 1 ? 26 : 54;
@@ -45,11 +46,11 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         }
         var stopping = new DiscoveryStopping(scopes, check);
         var scopeKey = DiscoveryStopping.ScopeKey(work, scope, policy, lane, exhaust, targets, owned,
-            excludedHashes, options);
+            excludedHashes, options, sourceIds);
         var previousStop = await stopping.ReadAsync(work.Work.Id, scopeKey, ct);
         var reusedStop = false;
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope, policy, lane,
-            SearchNamePhase.English, [], 0, 0) { Exhaust = exhaust };
+            SearchNamePhase.English, sourceIds.IsDefault ? [] : sourceIds, 0, 0) { Exhaust = exhaust };
         var feedback = Channel.CreateBounded<SearchFeedback>(new BoundedChannelOptions(1)
             { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true });
         var probes = Channel.CreateBounded<ProbeRequest>(10);

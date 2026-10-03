@@ -221,6 +221,34 @@ Sintel HTTP evidence is in `tools\.swap-proof\finish`.
 The fixture completes scheduler onboarding, uses magnets with local seeders (no private
 HTTP metadata fetch), and clears persisted discovery caches before restarting.
 
+The owner-only GET/POST `/api/client/torrents/{hash}/alternatives` and POST
+`/api/downloads/{transferId}/find-another` compose these same ports.
+`AlternativesAsync` and `ReplaceAsync` share recovery's Find/Check/Plan composition.
+A manual token restricts the candidate hash without changing persisted target intent;
+a site choice passes through Find's source filter and its discovery-stop identity.
+Both exclude Current and active blocks before checking, including a one-result pool.
+Tokens are protected, current-hash-bound and expire after ten minutes. GET releases
+retained probe capabilities; POST checks evidence again before admission. Manual
+replacement does not require the background scheduler to be enabled. Import review
+holds still apply; automatic recovery retains the scheduler gate.
+
+`RawDownloads` owns the raw admission, recovery, queue and completion lifecycle,
+extracted from the development harness rather than duplicating it for production.
+Owner-only `POST /api/torrent/send` validates the legacy input and delegates to it.
+Library owns raw destination and payload paths; Engine resolves URL-only torrent
+metadata with its existing public-address, redirect, size and timeout constraints.
+Unidentified files retain their original names in `Downloads/{hash}` under a confirmed
+root; Import can identify them without guessing a catalog identity at admission.
+An empty selected-file set means all torrent files. Duplicate hashes reuse the
+existing download. Failure rolls back raw/download intent and Engine ownership.
+The legacy durable raw ID prefix remains readable; the development routes now
+delegate this same service. Raw recovery and completion also run in production.
+Completed raw files are published before intent is marked Done. Download actions
+reuse the raw pause/resume, ordering and removal ports.
+
+Licensed real HTTP evidence and scoped contract results are in
+`tools\.aswap-proof\report.md`.
+
 ## Downloads HTTP adapter (4.5)
 
 `Api/DownloadEndpoints.cs` projects the persisted downloads and per-file Engine snapshots
@@ -255,8 +283,7 @@ owner-only `POST /api/desktop/downloads/pause|resume` call this one Targets acti
 Real HTTP verified-byte stop/resume and initially-paused admission evidence is in
 `tools\.tswap-proof\report.md` (OPS-769).
 
-Remaining: production raw magnet submission, pending unresolved-scope wanted rows,
-Find another promotion answers, and external client UI finishing/seeding controls. External recovery import
+Remaining: external client UI finishing/seeding controls. External recovery import
 adopts completed files or admits explicitly identified unfinished transfers.
 Download recovery restores persisted Engine bindings; it does not import another client's
 storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\finish\`.

@@ -2301,7 +2301,7 @@
                   "type": "null"
                 },
                 "lastError": {
-                  "type": "string"
+                  "type": ["string", "null"]
                 },
                 "version": {
                   "type": "number"
@@ -3825,7 +3825,7 @@
                 "additionalProperties": true
               },
               "quality": {
-                "type": "number",
+                "type": ["number", "null"],
                 "x-observedCount": 1
               },
               "sizeBytes": {
@@ -11290,7 +11290,7 @@
                   "type": "null"
                 },
                 "lastError": {
-                  "type": "string"
+                  "type": ["string", "null"]
                 },
                 "version": {
                   "type": "number"
