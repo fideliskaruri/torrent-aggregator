@@ -7,8 +7,9 @@ never adopted or overwritten. A reserve-full root returns `No drive has space`.
 
 `DownloadFiling` validates drained, hash-complete files, creates downloaded
 `MediaFile` proposals, handles interrupted publication from its stored digest,
-and deletes only the download's authorized paths after Engine drains. ISO media
-dimensions are read with bounded box traversal, not ffmpeg. Resolution is derived
+and deletes only the download's authorized paths after Engine drains. ISO,
+Matroska/WebM and AVI media dimensions are read with bounded container-header
+traversal, not ffmpeg. Resolution is derived
 from those dimensions when available, otherwise from the release's declared
 quality, **never from the requested quality**.
 
@@ -142,12 +143,17 @@ Destination collisions report import-specific guidance without changing download
 Confidence also requires a readable video duration and catalog runtime. Film
 duration must be within the larger of 25% or 20 minutes of the catalog runtime;
 episodes must be within 50% of their exact episode runtime. The existing bounded
-ISO media reader reads MP4/MOV dimensions and duration together. Other containers
-use optional `ffprobe` on PATH, with an eight-second timeout; if it is unavailable
-or the duration/catalog runtime cannot be read, the file remains NeedsPick and is
-never automatically adopted. Details are read once per unchanged file in a scan
+ISO media reader reads MP4/MOV dimensions and duration together. Matroska/WebM
+reads Segment Info Duration (four- or eight-byte float) with TimecodeScale,
+defaulting to 1,000,000 ns, and video Track dimensions. Unknown-sized Segments
+are bounded by the file; traversal stops after Info and Tracks or at the first
+Cluster, skips payloads by seeking, and shares a 4,096-element header budget.
+AVI reads `avih` frame timing, frame count and dimensions from the RIFF header.
+No external executable is invoked. Unsupported, absent or invalid duration or
+catalog runtime leaves the file NeedsPick and prevents automatic adoption.
+Details are read once per unchanged file in a scan
 and reused by adoption; explicit confirmation reads and stores current dimensions
-and runtime on MediaFile. No ffmpeg dependency is introduced.
+and runtime on MediaFile. Neither ffmpeg nor ffprobe is a production dependency.
 
 Nothing writes files or inventory before confirmation. Track-in-place retains the
 source path, with a null root outside enrolled roots. Move and copy reuse placement,
@@ -178,7 +184,7 @@ implemented here; the operations read endpoint exposes that limitation honestly.
 After conversion, Api composes the same Parser/Metadata import scan over enrolled
 roots before background workers start. `MediaImport.AdoptAsync` records confident,
 unchanged files in place using stat, name and duration evidence, without moving,
-renaming or deleting them. It reads bounded container metadata (or invokes ffprobe),
+renaming or deleting them. It reads bounded native container metadata,
 not a full payload digest. This is identity adoption, not full digest verification.
 Already-tracked physical paths are retained; ambiguous and unmatched files become
 durable reviews. Per-root and completion markers make startup replay idempotent.

@@ -16,6 +16,13 @@ internal static class VideoDimensions
     internal static (int? Width, int? Height, double? RuntimeSeconds) ReadDetails(string path)
     {
         using var stream = File.OpenRead(path);
+        Span<byte> signature = stackalloc byte[12];
+        if (stream.Length < signature.Length) return (null, null, null);
+        stream.ReadExactly(signature);
+        if (BinaryPrimitives.ReadUInt32BigEndian(signature) == 0x1a45dfa3)
+            return NativeContainerDetails.Matroska(stream);
+        if (signature[..4].SequenceEqual("RIFF"u8) && signature[8..].SequenceEqual("AVI "u8))
+            return NativeContainerDetails.Avi(stream);
         Span<byte> type = stackalloc byte[4];
         Span<byte> dimensions = stackalloc byte[8];
         double? runtime = null;
