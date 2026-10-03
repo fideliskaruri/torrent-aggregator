@@ -5,7 +5,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
 
-public sealed class LibraryRepository : ILibraryRepository
+public sealed partial class LibraryRepository : ILibraryDownloadRepository
 {
     private readonly TorrentFlowDbContext db;
     internal LibraryRepository(TorrentFlowDbContext db) => this.db = db;

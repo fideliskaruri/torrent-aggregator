@@ -224,19 +224,27 @@ internal sealed class DevDownloads(MonoTorrentEngine engine, IServiceScopeFactor
             f.PhysicalPath![..^".partial".Length], false)).ToImmutableArray();
         var permit = await engine.PrepareFilingAsync(new(Guid.NewGuid().ToString("N"), snapshot.DownloadId, final), ct);
         if (permit.Failure is not null) throw new InvalidOperationException(permit.Failure.Message);
-        foreach (var file in snapshot.Files)
+        var published = false;
+        try
         {
-            SafePath(file.PhysicalPath!);
-            if (file.Selected)
+            var publication = await engine.PublishFilingAsync(permit, ct);
+            if (!publication.Accepted) throw new IOException(publication.Failure?.Message);
+            foreach (var file in snapshot.Files)
             {
-                var path = file.PhysicalPath![..^".partial".Length];
-                if (File.Exists(file.PhysicalPath)) File.Move(file.PhysicalPath, path, false);
-                else if (!File.Exists(path)) throw new IOException("A completed file is missing.");
+                SafePath(file.PhysicalPath!);
+                if (file.Selected)
+                {
+                    var path = file.PhysicalPath![..^".partial".Length];
+                    if (!File.Exists(path)) throw new IOException("A completed file is missing.");
+                }
+                else if (File.Exists(file.PhysicalPath)) File.Delete(file.PhysicalPath!);
             }
-            else if (File.Exists(file.PhysicalPath)) File.Delete(file.PhysicalPath!);
+            PruneUnwanted(root, snapshot.Hash);
+            published = true;
         }
-        PruneUnwanted(root, snapshot.Hash);
-        await engine.CompleteFilingAsync(permit, true, ct);
+        finally { await engine.CompleteFilingAsync(permit, published, CancellationToken.None); }
+        // This raw harness has no per-file inventory. Preserve its completed-set detach.
+        await engine.DetachAsync(snapshot.DownloadId, ct);
         await engine.SaveDevStateAsync(ct);
     }
 

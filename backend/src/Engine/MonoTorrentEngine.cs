@@ -15,7 +15,7 @@ using TorrentFile = TorrentFlow.Domain.TorrentFile;
 namespace TorrentFlow.Engine;
 
 /// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
-public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine, IAsyncDisposable
+public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IProgressiveProbeEngine, IAsyncDisposable
 {
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
@@ -39,6 +39,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         public long ProgressBaseline { get; set; }
         public long Uploaded { get; set; }
         public long LastUploaded { get; set; }
+        public HashSet<int> Filed { get; } = [];
     }
 
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -52,7 +53,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
     private readonly Dictionary<string, EngineAdmissionClaim> claims = [];
     private readonly Dictionary<string, string> registered = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EngineFilingPermit> permits = [];
+    private readonly Dictionary<string, ImmutableArray<FileBinding>> filingBindings = [];
     private readonly Action<string> log;
+    private readonly IEngineFileState? fileState;
     private readonly string directory;
     private readonly int probeSlots;
     private readonly int maximumProbePieceBytes;
@@ -74,10 +77,12 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         ?? throw new NotSupportedException("MonoTorrent metadata cache API changed.");
 
     public MonoTorrentEngine(string dataDirectory, Action<string> log, int probeSlots = 10,
-        int maximumProbePieceBytes = 32 * 1024 * 1024, long probeDiskBudgetBytes = 40 * 1024 * 1024)
+        int maximumProbePieceBytes = 32 * 1024 * 1024, long probeDiskBudgetBytes = 40 * 1024 * 1024,
+        IEngineFileState? fileState = null)
     {
         directory = Path.Combine(dataDirectory, "engine");
         this.log = log;
+        this.fileState = fileState;
         this.probeSlots = Math.Clamp(probeSlots, 1, 10);
         if (maximumProbePieceBytes < 16 * 1024 || probeDiskBudgetBytes < Math.Max(4 * 1024 * 1024, maximumProbePieceBytes))
             throw new ArgumentOutOfRangeException(nameof(maximumProbePieceBytes),
@@ -180,6 +185,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
             MaximumDownloadRate = restoreDevState ? client.Settings.MaximumDownloadRate : 0,
         }.ToSettings());
         if (settings.Dht && dht is not null) await dht.StartAsync(ct);
+        var durableFiles = fileState is null ? ImmutableArray<EngineRecoveryFiles>.Empty : await fileState.ReadAsync(ct);
         foreach (var manager in client.Torrents.ToArray())
         {
             var hash = Hash(manager);
@@ -191,11 +197,17 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
             entries.Add(hash, entry);
             registered[hash] = entry.Id;
             WatchCompletion(manager);
-            if (!uncleanRecovery && manager.HasMetadata) await LoadResumeAsync(manager);
+            if (durableFiles.SingleOrDefault(f => f.DownloadId == entry.Id) is { } durable && manager.HasMetadata)
+            {
+                await BindAsync(manager, [.. durable.Files.Select(f => new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))]);
+                entry.Filed.UnionWith(durable.Files.Where(f => f.Filed).Select(f => f.FileIndex));
+                // Publication changes resume identities. Verify the rebound boundary pieces on replay.
+                await HashCheckBindingsAsync(entry);
+            }
+            if (!uncleanRecovery && manager.HasMetadata && entry.Filed.Count == 0) await LoadResumeAsync(manager);
             if (uncleanRecovery && manager.HasMetadata)
             {
-                await manager.SetNeedsHashCheckAsync();
-                await manager.HashCheckAsync(false);
+                await HashCheckBindingsAsync(entry);
                 log($"Unclean shutdown: rechecked {hash}; recovered {manager.Bitfield.TrueCount} verified pieces.");
             }
             log($"Restored engine artifact for {hash}, verified progress {manager.PartialProgress:F2}%.");
@@ -684,6 +696,14 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
             if (manager.HasMetadata)
             {
                 await CacheMetadataAsync(manager);
+                var durable = fileState is null ? null : (await fileState.ReadAsync(ct))
+                    .SingleOrDefault(f => f.DownloadId == entry.Id);
+                if (durable is not null)
+                {
+                    admission = admission with { Files = [.. durable.Files.Select(f =>
+                        new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))] };
+                    entry.Filed.UnionWith(durable.Files.Where(f => f.Filed).Select(f => f.FileIndex));
+                }
                 if (!admission.Files.IsDefaultOrEmpty)
                 {
                     try { await BindAsync(manager, admission.Files); }
@@ -698,10 +718,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
                 else
                     foreach (var file in manager.Files)
                         await manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
-                if (entry.Bound && recovery && uncleanRecovery)
+                if (entry.Bound && (recovery && uncleanRecovery || entry.Filed.Count > 0))
                 {
-                    await manager.SetNeedsHashCheckAsync();
-                    await manager.HashCheckAsync(false);
+                    await HashCheckBindingsAsync(entry);
                     log($"Unclean shutdown: rechecked {hash}; recovered {manager.Bitfield.TrueCount} verified pieces.");
                 }
                 else if (entry.Bound && recovery) await LoadResumeAsync(manager);
@@ -797,6 +816,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         {
             var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == downloadId);
             if (entry is null) return Rejected("not_attached", "Recover the download before changing its selection.");
+            if (files.Any(f => f.Selected && entry.Filed.Contains(f.FileIndex)))
+                return Rejected("filed", "An already filed file cannot be selected for download again.");
             if (permits.Values.Any(p => p.DownloadId == downloadId)) return Rejected("filing", "File publication is in progress.");
             await entry.Manager.StopAsync(TimeSpan.Zero);
             entry.Run = false;
@@ -862,7 +883,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         return new(entry.Id, Hash(manager), manager.HasMetadata, true, entry.Completed || SelectedComplete(manager),
             entry.MetadataStalled, entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
-            DateTimeOffset.UtcNow, manager.Error is null ? null : Fail("engine_error", manager.Error.Exception.Message))
+            DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
+                entry.Filed.Any(i => !manager.Files[i].BitField.AllTrue)
+                    ? Fail("file_changed", "A filed file or its boundary data changed. Check the library before resuming.") : null)
         {
             Active = entry.Run,
             Intent = entry.Completed ? DownloadIntent.Stopped : entry.Run ? DownloadIntent.Run :
@@ -951,25 +974,72 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         if (handle is not null) await ReleaseProbeAsync(handle, ct);
     }
 
-    // Phase 4.3 owns per-file rebind proof. Until then use the designed whole-selected-set fallback.
+    // MoveFileAsync serializes the no-overwrite rename and path update on MonoTorrent's I/O loop.
+    // Stop/flush fences boundary writes; the remaining selection resumes only after acknowledgement.
     public async Task<EngineFilingPermit> PrepareFilingAsync(EngineFilingRequest request, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
         {
             var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == request.DownloadId);
-            if (pair.Value is null || !SelectedComplete(pair.Value.Manager))
-                return new("", request.DownloadId, [], false, Fail("whole_set_required", "Wait until every selected file completes before filing."));
+            if (pair.Value is null)
+                return new("", request.DownloadId, [], false, Fail("not_attached", "Recover the download before filing."));
+            if (permits.Values.Any(p => p.DownloadId == request.DownloadId))
+                return new("", request.DownloadId, [], false, Fail("filing", "Another file is being published."));
             if (request.FinalBindings.IsDefaultOrEmpty || request.FinalBindings.Any(b =>
                 b.FileIndex < 0 || b.FileIndex >= pair.Value.Manager.Files.Count ||
                 !pair.Value.Manager.Files[b.FileIndex].BitField.AllTrue || !Path.IsPathFullyQualified(b.AbsolutePath)))
                 return new("", request.DownloadId, [], false, Fail("invalid_binding", "Every filing binding must name a complete torrent file and an absolute path."));
-            await RemoveManagerAsync(pair.Value, true);
-            entries.Remove(pair.Key);
+            foreach (var binding in request.FinalBindings)
+            {
+                RefusePayloadLinks(binding.AbsolutePath);
+                var file = pair.Value.Manager.Files[binding.FileIndex];
+                if (!string.Equals(Path.GetDirectoryName(file.FullPath), Path.GetDirectoryName(binding.AbsolutePath),
+                    StringComparison.OrdinalIgnoreCase))
+                    return new("", request.DownloadId, [], false, Fail("invalid_binding", "Publication must stay in the same folder."));
+                if (!string.Equals(file.FullPath, binding.AbsolutePath, StringComparison.OrdinalIgnoreCase) &&
+                    (File.Exists(binding.AbsolutePath) || Directory.Exists(binding.AbsolutePath)))
+                    return new("", request.DownloadId, [], false, Fail("file_collision", "A file already uses the destination name. Review the duplicate before filing."));
+            }
+            await StopDownloadAsync(pair.Value);
+            foreach (var binding in request.FinalBindings)
+            {
+                var file = pair.Value.Manager.Files[binding.FileIndex];
+                await pair.Value.Manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
+            }
             var permit = new EngineFilingPermit(Guid.NewGuid().ToString("N"), request.DownloadId,
-                [.. request.FinalBindings.Select(b => b.FileIndex)], true, null);
+                [.. request.FinalBindings.Select(b => b.FileIndex)], false, null);
             permits[permit.Token] = permit;
+            filingBindings[permit.Token] = request.FinalBindings;
             return permit;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<EngineResult> PublishFilingAsync(EngineFilingPermit permit, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (!permits.TryGetValue(permit.Token, out var issued) || issued != permit ||
+                !filingBindings.TryGetValue(permit.Token, out var bindings))
+                return Rejected("invalid_permit", "Prepare the file before publishing it.");
+            var entry = entries.Values.Single(e => !e.Probe && e.Id == permit.DownloadId);
+            foreach (var binding in bindings)
+            {
+                var file = entry.Manager.Files[binding.FileIndex];
+                RefusePayloadLinks(binding.AbsolutePath);
+                if (!file.BitField.AllTrue) return Rejected("hash_incomplete", "The file's boundary pieces are not verified.");
+                if (!string.Equals(file.FullPath, binding.AbsolutePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(binding.AbsolutePath) || Directory.Exists(binding.AbsolutePath))
+                        return Rejected("file_collision", "A file already uses the destination name. Review the duplicate before filing.");
+                    await entry.Manager.MoveFileAsync(file, binding.AbsolutePath);
+                }
+                entry.Filed.Add(binding.FileIndex);
+            }
+            await SaveResumeAsync(entry.Manager);
+            return new(true, await SnapshotAsync(entry), null);
         }
         finally { gate.Release(); }
     }
@@ -1006,6 +1076,14 @@ public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine
         {
             if (!permits.Remove(permit.Token, out var issued) || issued != permit)
                 return Rejected("invalid_permit", "The filing permit is no longer active.");
+            filingBindings.Remove(permit.Token);
+            var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == permit.DownloadId);
+            if (!published && entry is not null)
+                foreach (var index in permit.FileIndices.Where(i => !entry.Filed.Contains(i)))
+                    await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], Priority.Normal);
+            // A failed inventory commit leaves the final binding protected for retry;
+            // never reverse publication into a path that could collide with a new download.
+            await ReconcileQueueAsync();
             return new(true, null, null);
         }
         finally { gate.Release(); }

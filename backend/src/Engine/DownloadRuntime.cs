@@ -41,6 +41,9 @@ public sealed partial class MonoTorrentEngine
     private async Task ReconcileQueueAsync()
     {
         var ordered = entries.Values.Where(e => !e.Probe && e.WantsRun && !e.Completed &&
+                !permits.Values.Any(p => p.DownloadId == e.Id) &&
+                (!e.Bound || e.Manager.Files.Any(f => f.Priority != MonoTorrent.Priority.DoNotDownload)) &&
+                e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
                 (!e.Bound || !SelectedComplete(e.Manager)) &&
                 (!queueOrder.TryGetValue(e.Id, out var q) || q.Eligible))
             .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Rank ?? 0)
@@ -75,6 +78,24 @@ public sealed partial class MonoTorrentEngine
         if (entry.Manager.HasMetadata) await client.DiskManager.FlushAsync(entry.Manager);
         entry.LastReceived = entry.LastUploaded = 0;
         entry.Run = false;
+    }
+
+    private static async Task HashCheckBindingsAsync(Entry entry)
+    {
+        // MonoTorrent skips DoNotDownload files during a hash check. Include filed files
+        // for this read-only stopped check, then protect them again before payload starts.
+        foreach (var index in entry.Filed)
+            await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.Normal);
+        try
+        {
+            await entry.Manager.SetNeedsHashCheckAsync();
+            await entry.Manager.HashCheckAsync(false);
+        }
+        finally
+        {
+            foreach (var index in entry.Filed)
+                await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.DoNotDownload);
+        }
     }
 
     private static void UpdateUploaded(Entry entry)
@@ -181,6 +202,22 @@ public sealed partial class MonoTorrentEngine
         {
             await client.UpdateSettingsAsync(new EngineSettingsBuilder(client.Settings)
                 { MaximumDownloadRate = bytesPerSecond }.ToSettings());
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task PrioritizeDevFileAsync(string downloadId, int index, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            var entry = entries.Values.Single(e => !e.Probe && e.Id == downloadId);
+            if (index < 0 || index >= entry.Manager.Files.Count || entry.Filed.Contains(index) ||
+                entry.Manager.Files[index].Priority == MonoTorrent.Priority.DoNotDownload)
+                throw new ArgumentException("Choose a selected, unfinished file.");
+            await StopDownloadAsync(entry);
+            await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.Immediate);
+            await ReconcileQueueAsync();
         }
         finally { gate.Release(); }
     }

@@ -17,7 +17,8 @@ internal static class DevLibrary
     };
 
     internal static IServiceCollection AddDevLibrary(this IServiceCollection services) =>
-        services.AddScoped<ILibraryPlacement, LibraryPlacement>();
+        services.AddScoped<ILibraryPlacement, LibraryPlacement>()
+            .AddSingleton<DevFiling>().AddHostedService<DevFilingHost>();
 
     internal static async Task MapDevLibraryAsync(this WebApplication app)
     {
@@ -33,6 +34,7 @@ internal static class DevLibrary
             }
         }
         if (!app.Environment.IsDevelopment()) return;
+        DevFiling.Map(app);
         var group = app.MapGroup("/api/dev/library").AddEndpointFilter(async (context, next) =>
         {
             var http = context.HttpContext;
