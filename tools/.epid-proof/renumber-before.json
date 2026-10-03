@@ -1,0 +1,152 @@
+{
+  "episodes": [
+    {
+      "id": "legacy-a1c80f4fc0d628f58352a2d5a3f270b4",
+      "absoluteNumber": 1,
+      "airAt": "2013-12-03T03:30:00.0000000+00:00",
+      "airPrecision": "instant",
+      "createdAt": "1970-01-01T00:00:00.0000000+00:00",
+      "mappingStatus": "confirmed",
+      "number": 1,
+      "provider": "tvmaze",
+      "providerEpisodeId": "14308",
+      "runtimeMinutes": 30,
+      "seasonId": "legacy-9fe3d57d6f9309707f132b6c2fcd04f6",
+      "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/292/730352.jpg",
+      "synopsis": "Rick takes Morty to another dimension to get some seeds for him but Morty's parents are considering to put Rick in a retirement home for keeping Morty away from school to help him in his lab.",
+      "title": "Pilot",
+      "updatedAt": "2026-10-03T20:58:07.0953682+00:00",
+      "version": 2
+    },
+    {
+      "id": "legacy-c054baeae0e45d342cf08377542e1987",
+      "absoluteNumber": 2,
+      "airAt": "2013-12-10T03:30:00.0000000+00:00",
+      "airPrecision": "instant",
+      "createdAt": "1970-01-01T00:00:00.0000000+00:00",
+      "mappingStatus": "confirmed",
+      "number": 2,
+      "provider": "tvmaze",
+      "providerEpisodeId": "14309",
+      "runtimeMinutes": 30,
+      "seasonId": "legacy-9fe3d57d6f9309707f132b6c2fcd04f6",
+      "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/292/730780.jpg",
+      "synopsis": "Morty's small, white dog Snuffles gets on the nerves of the family, so Rick quickly builds a knowledge enhancing helmet for the dog. In the meantime, Rick and Morty decide to incept the dreams of Morty's math teacher, Mr. Goldenfold in order to convince him to give Morty A's in math. While the duo are sent on an epic dream world journey, Snuffles slowly gains sentience, which leads to a slew of even more problems.",
+      "title": "Lawnmower Dog",
+      "updatedAt": "2026-10-03T20:58:07.0953682+00:00",
+      "version": 2
+    },
+    {
+      "id": "legacy-bdbe7a19c97e2d0403f4ea0b6de898b7",
+      "absoluteNumber": 3,
+      "airAt": "2013-12-17T03:30:00.0000000+00:00",
+      "airPrecision": "instant",
+      "createdAt": "1970-01-01T00:00:00.0000000+00:00",
+      "mappingStatus": "confirmed",
+      "number": 3,
+      "provider": "tvmaze",
+      "providerEpisodeId": "14310",
+      "runtimeMinutes": 30,
+      "seasonId": "legacy-9fe3d57d6f9309707f132b6c2fcd04f6",
+      "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37914.jpg",
+      "synopsis": "It's around Christmas time and Jerry's parents are coming to visit so he wants everybody to have a normal holiday without technology and without Rick. Fortunately for him, Rick has other plans, involving building a molecular theme park inside of a friend of his named Ruben, and he shrinks down Morty and sends him in there to test it out.",
+      "title": "Anatomy Park",
+      "updatedAt": "2026-10-03T20:58:07.0953682+00:00",
+      "version": 2
+    }
+  ],
+  "references": {
+    "Target": [
+      {
+        "id": "cmurncgbubuopgqemrcsggunn",
+        "episodeId": "legacy-a1c80f4fc0d628f58352a2d5a3f270b4"
+      },
+      {
+        "id": "cmurncgc7buoqj0fw05n4gc9y",
+        "episodeId": "legacy-c054baeae0e45d342cf08377542e1987"
+      },
+      {
+        "id": "cmurncgc9buor89r86uzlncj3",
+        "episodeId": "legacy-bdbe7a19c97e2d0403f4ea0b6de898b7"
+      },
+      {
+        "id": "cmurncgcbbuosccusogs79idp",
+        "episodeId": "legacy-14824d20caa394d7d78bf51719396b0f"
+      },
+      {
+        "id": "cmurncgcdbuot5yuwhltqdj42",
+        "episodeId": "legacy-ddd96fc78cdd9c614865b2f9fb24245a"
+      },
+      {
+        "id": "cmurncgcfbuouqhixrx09ftjz",
+        "episodeId": "legacy-4b0749682896636adede8740683092fa"
+      },
+      {
+        "id": "cmurncgcgbuov4vsn6aev9egv",
+        "episodeId": "legacy-94f33d3c975c4cfd4506a8818255ffdc"
+      },
+      {
+        "id": "cmurncgckbuowvsxd1m0641j4",
+        "episodeId": "legacy-8de3e6d0065360f38d8e7d3c948aa2f6"
+      },
+      {
+        "id": "cmurncgclbuoxbj1kxhkhd5ag",
+        "episodeId": "legacy-8cc78830f657fcddff4fd3c2196b5786"
+      },
+      {
+        "id": "cmurncgcmbuoy85ii43qb78es",
+        "episodeId": "legacy-fc36aaa7e99727ef44629c33ac6178a5"
+      },
+      {
+        "id": "cmurncgcnbuozlvsrypxg5bun",
+        "episodeId": "legacy-4a05f1d2a0d20a5e5a6fb0625accea0d"
+      }
+    ],
+    "MediaFile": [
+      {
+        "id": "legacy-7a8acc6a0fe712fe5416ddf6a49230f9",
+        "episodeId": "legacy-14824d20caa394d7d78bf51719396b0f"
+      },
+      {
+        "id": "legacy-8498b34eda99edf21d8f8b0942fc10b2",
+        "episodeId": "legacy-4a05f1d2a0d20a5e5a6fb0625accea0d"
+      },
+      {
+        "id": "legacy-4617ba04ef1faa179520ae01b9d5a5de",
+        "episodeId": "legacy-4b0749682896636adede8740683092fa"
+      },
+      {
+        "id": "legacy-e76a03856cbda740ad7e3ece1e3b9e24",
+        "episodeId": "legacy-8cc78830f657fcddff4fd3c2196b5786"
+      },
+      {
+        "id": "legacy-47d2cd9021aa21f772d57d122553410e",
+        "episodeId": "legacy-8de3e6d0065360f38d8e7d3c948aa2f6"
+      },
+      {
+        "id": "legacy-cc466776d12dabda9a6d35143e8d94f7",
+        "episodeId": "legacy-94f33d3c975c4cfd4506a8818255ffdc"
+      },
+      {
+        "id": "legacy-23aa306000445774308a7575760ca1e1",
+        "episodeId": "legacy-a1c80f4fc0d628f58352a2d5a3f270b4"
+      },
+      {
+        "id": "legacy-595a8beea5037f130ad5de7a99a38b2e",
+        "episodeId": "legacy-bdbe7a19c97e2d0403f4ea0b6de898b7"
+      },
+      {
+        "id": "legacy-a4c8149a9419555591ccdcb3fbe7a4bc",
+        "episodeId": "legacy-c054baeae0e45d342cf08377542e1987"
+      },
+      {
+        "id": "legacy-3ea828c7d721ddd1a9307285ca58ddbb",
+        "episodeId": "legacy-ddd96fc78cdd9c614865b2f9fb24245a"
+      },
+      {
+        "id": "legacy-f679a557e7455ea53bfb97f132f97e76",
+        "episodeId": "legacy-fc36aaa7e99727ef44629c33ac6178a5"
+      }
+    ]
+  }
+}

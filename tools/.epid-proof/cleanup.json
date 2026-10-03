@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-03T21:05:16.3346675Z",
+  "proofPids": [
+    59904,
+    43680,
+    63364,
+    63324,
+    49896,
+    37000,
+    58972
+  ],
+  "proofPidsStillRunning": [],
+  "worktreeRemoved": true,
+  "dataRemoved": true,
+  "apiBinaryRemoved": true,
+  "converterBinaryRemoved": true,
+  "extraBinaryRemoved": true,
+  "port3967Released": true,
+  "livePid": 3188,
+  "liveAlive": true,
+  "liveStartTime": "2026-10-03T03:00:31.8524305+03:00"
+}

@@ -1,0 +1,4174 @@
+[
+  {
+    "path": "/tv/1434/season/2?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.3049919+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3822,
+      "name": "Season 2",
+      "season_number": 2,
+      "episodes": [
+        {
+          "id": 66068,
+          "name": "Peter, Peter, Caviar Eater",
+          "season_number": 2,
+          "episode_number": 1,
+          "air_date": "1999-09-23",
+          "runtime": 23
+        },
+        {
+          "id": 66070,
+          "name": "Holy Crap",
+          "season_number": 2,
+          "episode_number": 2,
+          "air_date": "1999-09-30",
+          "runtime": 23
+        },
+        {
+          "id": 66071,
+          "name": "Da Boom",
+          "season_number": 2,
+          "episode_number": 3,
+          "air_date": "1999-12-26",
+          "runtime": 23
+        },
+        {
+          "id": 66056,
+          "name": "Brian in Love",
+          "season_number": 2,
+          "episode_number": 4,
+          "air_date": "2000-03-07",
+          "runtime": 23
+        },
+        {
+          "id": 66060,
+          "name": "Love Thy Trophy",
+          "season_number": 2,
+          "episode_number": 5,
+          "air_date": "2000-03-14",
+          "runtime": 23
+        },
+        {
+          "id": 66057,
+          "name": "Death Is a Bitch",
+          "season_number": 2,
+          "episode_number": 6,
+          "air_date": "2000-03-21",
+          "runtime": 23
+        },
+        {
+          "id": 66064,
+          "name": "The King Is Dead",
+          "season_number": 2,
+          "episode_number": 7,
+          "air_date": "2000-03-28",
+          "runtime": 23
+        },
+        {
+          "id": 66074,
+          "name": "I Am Peter, Hear Me Roar",
+          "season_number": 2,
+          "episode_number": 8,
+          "air_date": "2000-03-28",
+          "runtime": 23
+        },
+        {
+          "id": 66063,
+          "name": "If I'm Dyin', I'm Lyin'",
+          "season_number": 2,
+          "episode_number": 9,
+          "air_date": "2000-04-04",
+          "runtime": 23
+        },
+        {
+          "id": 66072,
+          "name": "Running Mates",
+          "season_number": 2,
+          "episode_number": 10,
+          "air_date": "2000-04-11",
+          "runtime": 23
+        },
+        {
+          "id": 66061,
+          "name": "A Picture Is Worth a 1,000 Bucks",
+          "season_number": 2,
+          "episode_number": 11,
+          "air_date": "2000-04-18",
+          "runtime": 23
+        },
+        {
+          "id": 66065,
+          "name": "Fifteen Minutes of Shame",
+          "season_number": 2,
+          "episode_number": 12,
+          "air_date": "2000-04-25",
+          "runtime": 23
+        },
+        {
+          "id": 66062,
+          "name": "Road to Rhode Island",
+          "season_number": 2,
+          "episode_number": 13,
+          "air_date": "2000-05-30",
+          "runtime": 23
+        },
+        {
+          "id": 66076,
+          "name": "Let's Go to the Hop",
+          "season_number": 2,
+          "episode_number": 14,
+          "air_date": "2000-06-06",
+          "runtime": 23
+        },
+        {
+          "id": 66059,
+          "name": "Dammit Janet",
+          "season_number": 2,
+          "episode_number": 15,
+          "air_date": "2000-06-13",
+          "runtime": 23
+        },
+        {
+          "id": 66067,
+          "name": "There's Something About Paulie",
+          "season_number": 2,
+          "episode_number": 16,
+          "air_date": "2000-06-27",
+          "runtime": 23
+        },
+        {
+          "id": 66066,
+          "name": "He's Too Sexy for His Fat",
+          "season_number": 2,
+          "episode_number": 17,
+          "air_date": "2000-06-27",
+          "runtime": 23
+        },
+        {
+          "id": 66073,
+          "name": "E. Peterbus Unum",
+          "season_number": 2,
+          "episode_number": 18,
+          "air_date": "2000-07-12",
+          "runtime": 23
+        },
+        {
+          "id": 66058,
+          "name": "The Story on Page One",
+          "season_number": 2,
+          "episode_number": 19,
+          "air_date": "2000-07-18",
+          "runtime": 23
+        },
+        {
+          "id": 66075,
+          "name": "Wasted Talent",
+          "season_number": 2,
+          "episode_number": 20,
+          "air_date": "2000-07-25",
+          "runtime": 23
+        },
+        {
+          "id": 66069,
+          "name": "Fore Father",
+          "season_number": 2,
+          "episode_number": 21,
+          "air_date": "2000-08-01",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/0?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.3057562+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3831,
+      "name": "Specials",
+      "season_number": 0,
+      "episodes": [
+        {
+          "id": 66240,
+          "name": "The Life of Larry",
+          "season_number": 0,
+          "episode_number": 1,
+          "air_date": "1995-01-01",
+          "runtime": 11
+        },
+        {
+          "id": 66241,
+          "name": "Larry & Steve",
+          "season_number": 0,
+          "episode_number": 2,
+          "air_date": "1997-04-28",
+          "runtime": 7
+        },
+        {
+          "id": 66242,
+          "name": "Family Guy (Pilot)",
+          "season_number": 0,
+          "episode_number": 3,
+          "air_date": "1998-12-20",
+          "runtime": 15
+        },
+        {
+          "id": 66252,
+          "name": "Behind the Scenes of Family Guy",
+          "season_number": 0,
+          "episode_number": 4,
+          "air_date": "1999-09-23",
+          "runtime": 22
+        },
+        {
+          "id": 66237,
+          "name": "Family Guy Live in Vegas: Stewie's Sexy Party",
+          "season_number": 0,
+          "episode_number": 5,
+          "air_date": "2005-04-26",
+          "runtime": 22
+        },
+        {
+          "id": 66238,
+          "name": "Family Guy Live in Vegas: The Making of Stewie's Sexy Party",
+          "season_number": 0,
+          "episode_number": 6,
+          "air_date": "2005-04-26",
+          "runtime": 22
+        },
+        {
+          "id": 66243,
+          "name": "Saving Family Guy",
+          "season_number": 0,
+          "episode_number": 7,
+          "air_date": "2005-05-01",
+          "runtime": 22
+        },
+        {
+          "id": 66255,
+          "name": "Stewie Griffin: The Untold Story",
+          "season_number": 0,
+          "episode_number": 8,
+          "air_date": "2006-05-21",
+          "runtime": 88
+        },
+        {
+          "id": 66239,
+          "name": "Webisode: Up Late with Stewie & Brian",
+          "season_number": 0,
+          "episode_number": 9,
+          "air_date": "2007-02-25",
+          "runtime": 22
+        },
+        {
+          "id": 66246,
+          "name": "Stewie & Brian Live at the Emmy's",
+          "season_number": 0,
+          "episode_number": 10,
+          "air_date": "2007-09-16",
+          "runtime": 4
+        },
+        {
+          "id": 66256,
+          "name": "The Family Guy 100th Episode Special",
+          "season_number": 0,
+          "episode_number": 11,
+          "air_date": "2007-11-04",
+          "runtime": 22
+        },
+        {
+          "id": 66251,
+          "name": "The List (Stewie's Banned Song)",
+          "season_number": 0,
+          "episode_number": 12,
+          "air_date": "2007-11-11",
+          "runtime": 3
+        },
+        {
+          "id": 66248,
+          "name": "Comic-Con 2008",
+          "season_number": 0,
+          "episode_number": 13,
+          "air_date": "2008-07-26",
+          "runtime": 22
+        },
+        {
+          "id": 66245,
+          "name": "The Story So Far...",
+          "season_number": 0,
+          "episode_number": 14,
+          "air_date": "2009-04-18",
+          "runtime": 28
+        },
+        {
+          "id": 66244,
+          "name": "Creating the Chaos...",
+          "season_number": 0,
+          "episode_number": 15,
+          "air_date": "2009-04-18",
+          "runtime": 28
+        },
+        {
+          "id": 66247,
+          "name": "Family Guy on Inside The Actors Studio",
+          "season_number": 0,
+          "episode_number": 16,
+          "air_date": "2009-09-14",
+          "runtime": 22
+        },
+        {
+          "id": 66249,
+          "name": "Family Guy Presents: Seth and Alex's Almost Live Comedy Show",
+          "season_number": 0,
+          "episode_number": 17,
+          "air_date": "2009-11-08",
+          "runtime": 22
+        },
+        {
+          "id": 66250,
+          "name": "Family Guy: The Top 20 Characters",
+          "season_number": 0,
+          "episode_number": 18,
+          "air_date": "2010-05-08",
+          "runtime": 22
+        },
+        {
+          "id": 1477902,
+          "name": "Partial Terms of Endearment",
+          "season_number": 0,
+          "episode_number": 19,
+          "air_date": "2010-06-20",
+          "runtime": 23
+        },
+        {
+          "id": 66253,
+          "name": "Ground Breaking Gags",
+          "season_number": 0,
+          "episode_number": 20,
+          "air_date": "2011-05-08",
+          "runtime": 27
+        },
+        {
+          "id": 66254,
+          "name": "200 Episodes Later",
+          "season_number": 0,
+          "episode_number": 21,
+          "air_date": "2012-11-11",
+          "runtime": 22
+        },
+        {
+          "id": 3864136,
+          "name": "New Phone, Who Dis?",
+          "season_number": 0,
+          "episode_number": 22,
+          "air_date": "2019-03-29",
+          "runtime": 22
+        },
+        {
+          "id": 5648073,
+          "name": "Family Guy COVID-19 Vaccine Awareness PSA",
+          "season_number": 0,
+          "episode_number": 23,
+          "air_date": "2021-09-21",
+          "runtime": 4
+        },
+        {
+          "id": 5511329,
+          "name": "Peter, Peter, Pumpkin Cheater",
+          "season_number": 0,
+          "episode_number": 24,
+          "air_date": "2024-10-14",
+          "runtime": 22
+        },
+        {
+          "id": 5511330,
+          "name": "Gift of the White Guy",
+          "season_number": 0,
+          "episode_number": 25,
+          "air_date": "2024-11-25",
+          "runtime": 22
+        },
+        {
+          "id": 6409016,
+          "name": "A Little Fright Music",
+          "season_number": 0,
+          "episode_number": 26,
+          "air_date": "2025-10-06",
+          "runtime": 22
+        },
+        {
+          "id": 6687140,
+          "name": "Holiday 2025: Disney's Hulu's Family Guy's Hallmark Channel's Lifetime's Unoriginal Holiday Movie",
+          "season_number": 0,
+          "episode_number": 27,
+          "air_date": "2025-11-28",
+          "runtime": 22
+        },
+        {
+          "id": 7814504,
+          "name": "Holiday 2026: Happy Hell-o-ween",
+          "season_number": 0,
+          "episode_number": 28,
+          "air_date": "2026-10-05",
+          "runtime": null
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/3?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.3008493+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3823,
+      "name": "Season 3",
+      "season_number": 3,
+      "episodes": [
+        {
+          "id": 66081,
+          "name": "The Thin White Line (1)",
+          "season_number": 3,
+          "episode_number": 1,
+          "air_date": "2001-07-11",
+          "runtime": 23
+        },
+        {
+          "id": 66077,
+          "name": "Brian Does Hollywood (2)",
+          "season_number": 3,
+          "episode_number": 2,
+          "air_date": "2001-07-18",
+          "runtime": 23
+        },
+        {
+          "id": 66083,
+          "name": "Mr. Griffin Goes to Washington",
+          "season_number": 3,
+          "episode_number": 3,
+          "air_date": "2001-07-25",
+          "runtime": 23
+        },
+        {
+          "id": 66079,
+          "name": "One If by Clam, Two If by Sea",
+          "season_number": 3,
+          "episode_number": 4,
+          "air_date": "2001-08-01",
+          "runtime": 23
+        },
+        {
+          "id": 66080,
+          "name": "And the Wiener Is...",
+          "season_number": 3,
+          "episode_number": 5,
+          "air_date": "2001-08-08",
+          "runtime": 23
+        },
+        {
+          "id": 66084,
+          "name": "Death Lives",
+          "season_number": 3,
+          "episode_number": 6,
+          "air_date": "2001-08-15",
+          "runtime": 23
+        },
+        {
+          "id": 66085,
+          "name": "Lethal Weapons",
+          "season_number": 3,
+          "episode_number": 7,
+          "air_date": "2001-08-22",
+          "runtime": 23
+        },
+        {
+          "id": 66082,
+          "name": "The Kiss Seen Around the World",
+          "season_number": 3,
+          "episode_number": 8,
+          "air_date": "2001-08-29",
+          "runtime": 23
+        },
+        {
+          "id": 66086,
+          "name": "Mr. Saturday Knight",
+          "season_number": 3,
+          "episode_number": 9,
+          "air_date": "2001-09-05",
+          "runtime": 23
+        },
+        {
+          "id": 66087,
+          "name": "Fish Out of Water",
+          "season_number": 3,
+          "episode_number": 10,
+          "air_date": "2001-09-19",
+          "runtime": 23
+        },
+        {
+          "id": 66090,
+          "name": "Emission Impossible",
+          "season_number": 3,
+          "episode_number": 11,
+          "air_date": "2001-10-08",
+          "runtime": 23
+        },
+        {
+          "id": 66089,
+          "name": "To Love and Die in Dixie",
+          "season_number": 3,
+          "episode_number": 12,
+          "air_date": "2001-11-15",
+          "runtime": 23
+        },
+        {
+          "id": 66088,
+          "name": "Screwed the Pooch",
+          "season_number": 3,
+          "episode_number": 13,
+          "air_date": "2001-11-29",
+          "runtime": 23
+        },
+        {
+          "id": 66092,
+          "name": "Peter Griffin: Husband, Father... Brother?",
+          "season_number": 3,
+          "episode_number": 14,
+          "air_date": "2001-12-06",
+          "runtime": 23
+        },
+        {
+          "id": 66078,
+          "name": "Ready, Willing, and Disabled",
+          "season_number": 3,
+          "episode_number": 15,
+          "air_date": "2001-12-20",
+          "runtime": 23
+        },
+        {
+          "id": 66095,
+          "name": "A Very Special Family Guy Freakin' Christmas",
+          "season_number": 3,
+          "episode_number": 16,
+          "air_date": "2001-12-21",
+          "runtime": 23
+        },
+        {
+          "id": 66094,
+          "name": "Brian Wallows and Peter's Swallows",
+          "season_number": 3,
+          "episode_number": 17,
+          "air_date": "2002-01-17",
+          "runtime": 23
+        },
+        {
+          "id": 66093,
+          "name": "From Method to Madness",
+          "season_number": 3,
+          "episode_number": 18,
+          "air_date": "2002-01-24",
+          "runtime": 23
+        },
+        {
+          "id": 66091,
+          "name": "Stuck Together, Torn Apart",
+          "season_number": 3,
+          "episode_number": 19,
+          "air_date": "2002-01-31",
+          "runtime": 23
+        },
+        {
+          "id": 66098,
+          "name": "Road to Europe",
+          "season_number": 3,
+          "episode_number": 20,
+          "air_date": "2002-02-07",
+          "runtime": 23
+        },
+        {
+          "id": 66096,
+          "name": "Family Guy Viewer Mail #1",
+          "season_number": 3,
+          "episode_number": 21,
+          "air_date": "2002-02-14",
+          "runtime": 23
+        },
+        {
+          "id": 66097,
+          "name": "When You Wish Upon a Weinstein",
+          "season_number": 3,
+          "episode_number": 22,
+          "air_date": "2004-12-10",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/1?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.3020659+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3821,
+      "name": "Season 1",
+      "season_number": 1,
+      "episodes": [
+        {
+          "id": 66050,
+          "name": "Death Has a Shadow",
+          "season_number": 1,
+          "episode_number": 1,
+          "air_date": "1999-01-31",
+          "runtime": 23
+        },
+        {
+          "id": 66049,
+          "name": "I Never Met the Dead Man",
+          "season_number": 1,
+          "episode_number": 2,
+          "air_date": "1999-04-11",
+          "runtime": 23
+        },
+        {
+          "id": 66052,
+          "name": "Chitty Chitty Death Bang",
+          "season_number": 1,
+          "episode_number": 3,
+          "air_date": "1999-04-18",
+          "runtime": 23
+        },
+        {
+          "id": 66051,
+          "name": "Mind Over Murder",
+          "season_number": 1,
+          "episode_number": 4,
+          "air_date": "1999-04-25",
+          "runtime": 23
+        },
+        {
+          "id": 66053,
+          "name": "A Hero Sits Next Door",
+          "season_number": 1,
+          "episode_number": 5,
+          "air_date": "1999-05-01",
+          "runtime": 23
+        },
+        {
+          "id": 66054,
+          "name": "The Son Also Draws",
+          "season_number": 1,
+          "episode_number": 6,
+          "air_date": "1999-05-02",
+          "runtime": 23
+        },
+        {
+          "id": 66055,
+          "name": "Brian: Portrait of a Dog",
+          "season_number": 1,
+          "episode_number": 7,
+          "air_date": "1999-05-15",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/6?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.4655639+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3826,
+      "name": "Season 6",
+      "season_number": 6,
+      "episodes": [
+        {
+          "id": 66150,
+          "name": "Blue Harvest",
+          "season_number": 6,
+          "episode_number": 1,
+          "air_date": "2007-09-23",
+          "runtime": 48
+        },
+        {
+          "id": 66149,
+          "name": "Movin' Out (Brian's Song)",
+          "season_number": 6,
+          "episode_number": 2,
+          "air_date": "2007-09-30",
+          "runtime": 22
+        },
+        {
+          "id": 66148,
+          "name": "Believe It or Not, Joe's Walking on Air",
+          "season_number": 6,
+          "episode_number": 3,
+          "air_date": "2007-10-07",
+          "runtime": 22
+        },
+        {
+          "id": 66152,
+          "name": "Stewie Kills Lois (1)",
+          "season_number": 6,
+          "episode_number": 4,
+          "air_date": "2007-11-04",
+          "runtime": 21
+        },
+        {
+          "id": 66147,
+          "name": "Lois Kills Stewie (2)",
+          "season_number": 6,
+          "episode_number": 5,
+          "air_date": "2007-11-11",
+          "runtime": 22
+        },
+        {
+          "id": 66156,
+          "name": "Padre de Familia",
+          "season_number": 6,
+          "episode_number": 6,
+          "air_date": "2007-11-18",
+          "runtime": 22
+        },
+        {
+          "id": 66151,
+          "name": "Peter's Daughter",
+          "season_number": 6,
+          "episode_number": 7,
+          "air_date": "2007-11-25",
+          "runtime": 22
+        },
+        {
+          "id": 66158,
+          "name": "McStroke",
+          "season_number": 6,
+          "episode_number": 8,
+          "air_date": "2008-01-13",
+          "runtime": 22
+        },
+        {
+          "id": 66153,
+          "name": "Back to the Woods",
+          "season_number": 6,
+          "episode_number": 9,
+          "air_date": "2008-02-17",
+          "runtime": 22
+        },
+        {
+          "id": 66154,
+          "name": "Play It Again, Brian",
+          "season_number": 6,
+          "episode_number": 10,
+          "air_date": "2008-03-02",
+          "runtime": 22
+        },
+        {
+          "id": 66155,
+          "name": "The Former Life of Brian",
+          "season_number": 6,
+          "episode_number": 11,
+          "air_date": "2008-04-27",
+          "runtime": 22
+        },
+        {
+          "id": 66157,
+          "name": "Long John Peter",
+          "season_number": 6,
+          "episode_number": 12,
+          "air_date": "2008-05-04",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/5?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.4624281+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3825,
+      "name": "Season 5",
+      "season_number": 5,
+      "episodes": [
+        {
+          "id": 66134,
+          "name": "Stewie Loves Lois",
+          "season_number": 5,
+          "episode_number": 1,
+          "air_date": "2006-09-10",
+          "runtime": 22
+        },
+        {
+          "id": 66138,
+          "name": "Mother Tucker",
+          "season_number": 5,
+          "episode_number": 2,
+          "air_date": "2006-09-17",
+          "runtime": 22
+        },
+        {
+          "id": 66142,
+          "name": "Hell Comes to Quahog",
+          "season_number": 5,
+          "episode_number": 3,
+          "air_date": "2006-09-24",
+          "runtime": 22
+        },
+        {
+          "id": 66135,
+          "name": "Saving Private Brian",
+          "season_number": 5,
+          "episode_number": 4,
+          "air_date": "2006-11-05",
+          "runtime": 22
+        },
+        {
+          "id": 66136,
+          "name": "Whistle While Your Wife Works",
+          "season_number": 5,
+          "episode_number": 5,
+          "air_date": "2006-11-12",
+          "runtime": 22
+        },
+        {
+          "id": 66143,
+          "name": "Prick Up Your Ears",
+          "season_number": 5,
+          "episode_number": 6,
+          "air_date": "2006-11-19",
+          "runtime": 22
+        },
+        {
+          "id": 66131,
+          "name": "Chick Cancer",
+          "season_number": 5,
+          "episode_number": 7,
+          "air_date": "2006-11-26",
+          "runtime": 22
+        },
+        {
+          "id": 66130,
+          "name": "Barely Legal",
+          "season_number": 5,
+          "episode_number": 8,
+          "air_date": "2006-12-17",
+          "runtime": 22
+        },
+        {
+          "id": 66129,
+          "name": "Road to Rupert",
+          "season_number": 5,
+          "episode_number": 9,
+          "air_date": "2007-01-28",
+          "runtime": 22
+        },
+        {
+          "id": 66146,
+          "name": "Peter's Two Dads",
+          "season_number": 5,
+          "episode_number": 10,
+          "air_date": "2007-02-11",
+          "runtime": 22
+        },
+        {
+          "id": 66132,
+          "name": "The Tan Aquatic with Steve Zissou",
+          "season_number": 5,
+          "episode_number": 11,
+          "air_date": "2007-02-18",
+          "runtime": 22
+        },
+        {
+          "id": 66133,
+          "name": "Airport '07",
+          "season_number": 5,
+          "episode_number": 12,
+          "air_date": "2007-03-04",
+          "runtime": 22
+        },
+        {
+          "id": 66139,
+          "name": "Bill & Peter's Bogus Journey",
+          "season_number": 5,
+          "episode_number": 13,
+          "air_date": "2007-03-11",
+          "runtime": 22
+        },
+        {
+          "id": 66140,
+          "name": "No Meals on Wheels",
+          "season_number": 5,
+          "episode_number": 14,
+          "air_date": "2007-03-25",
+          "runtime": 22
+        },
+        {
+          "id": 66145,
+          "name": "Boys Do Cry",
+          "season_number": 5,
+          "episode_number": 15,
+          "air_date": "2007-04-29",
+          "runtime": 22
+        },
+        {
+          "id": 66144,
+          "name": "No Chris Left Behind",
+          "season_number": 5,
+          "episode_number": 16,
+          "air_date": "2007-05-06",
+          "runtime": 22
+        },
+        {
+          "id": 66137,
+          "name": "It Takes a Village Idiot, and I Married One",
+          "season_number": 5,
+          "episode_number": 17,
+          "air_date": "2007-05-13",
+          "runtime": 22
+        },
+        {
+          "id": 66141,
+          "name": "Meet the Quagmires",
+          "season_number": 5,
+          "episode_number": 18,
+          "air_date": "2007-05-20",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/7?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.4872221+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3827,
+      "name": "Season 7",
+      "season_number": 7,
+      "episodes": [
+        {
+          "id": 66159,
+          "name": "Love Blactually",
+          "season_number": 7,
+          "episode_number": 1,
+          "air_date": "2008-09-28",
+          "runtime": 22
+        },
+        {
+          "id": 66161,
+          "name": "I Dream of Jesus",
+          "season_number": 7,
+          "episode_number": 2,
+          "air_date": "2008-10-05",
+          "runtime": 22
+        },
+        {
+          "id": 66162,
+          "name": "Road to Germany",
+          "season_number": 7,
+          "episode_number": 3,
+          "air_date": "2008-10-19",
+          "runtime": 22
+        },
+        {
+          "id": 66164,
+          "name": "Baby Not On Board",
+          "season_number": 7,
+          "episode_number": 4,
+          "air_date": "2008-11-02",
+          "runtime": 22
+        },
+        {
+          "id": 66165,
+          "name": "The Man with Two Brians",
+          "season_number": 7,
+          "episode_number": 5,
+          "air_date": "2008-11-09",
+          "runtime": 22
+        },
+        {
+          "id": 66166,
+          "name": "Tales of a Third Grade Nothing",
+          "season_number": 7,
+          "episode_number": 6,
+          "air_date": "2008-11-16",
+          "runtime": 22
+        },
+        {
+          "id": 66163,
+          "name": "Ocean's Three and a Half",
+          "season_number": 7,
+          "episode_number": 7,
+          "air_date": "2009-02-15",
+          "runtime": 22
+        },
+        {
+          "id": 66172,
+          "name": "Family Gay",
+          "season_number": 7,
+          "episode_number": 8,
+          "air_date": "2009-03-08",
+          "runtime": 22
+        },
+        {
+          "id": 66160,
+          "name": "The Juice Is Loose",
+          "season_number": 7,
+          "episode_number": 9,
+          "air_date": "2009-03-15",
+          "runtime": 22
+        },
+        {
+          "id": 66173,
+          "name": "FOX-y Lady",
+          "season_number": 7,
+          "episode_number": 10,
+          "air_date": "2009-03-22",
+          "runtime": 22
+        },
+        {
+          "id": 66168,
+          "name": "Not All Dogs Go to Heaven",
+          "season_number": 7,
+          "episode_number": 11,
+          "air_date": "2009-03-29",
+          "runtime": 22
+        },
+        {
+          "id": 66167,
+          "name": "420",
+          "season_number": 7,
+          "episode_number": 12,
+          "air_date": "2009-04-19",
+          "runtime": 22
+        },
+        {
+          "id": 66169,
+          "name": "Stew-Roids",
+          "season_number": 7,
+          "episode_number": 13,
+          "air_date": "2009-04-26",
+          "runtime": 22
+        },
+        {
+          "id": 66170,
+          "name": "We Love You, Conrad",
+          "season_number": 7,
+          "episode_number": 14,
+          "air_date": "2009-05-03",
+          "runtime": 22
+        },
+        {
+          "id": 66171,
+          "name": "Three Kings",
+          "season_number": 7,
+          "episode_number": 15,
+          "air_date": "2009-05-10",
+          "runtime": 22
+        },
+        {
+          "id": 66174,
+          "name": "Peter's Progress",
+          "season_number": 7,
+          "episode_number": 16,
+          "air_date": "2009-05-17",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/4?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.4548537+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3824,
+      "name": "Season 4",
+      "season_number": 4,
+      "episodes": [
+        {
+          "id": 66121,
+          "name": "North by North Quahog",
+          "season_number": 4,
+          "episode_number": 1,
+          "air_date": "2005-05-01",
+          "runtime": 22
+        },
+        {
+          "id": 66104,
+          "name": "Fast Times at Buddy Cianci Jr. High",
+          "season_number": 4,
+          "episode_number": 2,
+          "air_date": "2005-05-08",
+          "runtime": 22
+        },
+        {
+          "id": 66099,
+          "name": "Blind Ambition",
+          "season_number": 4,
+          "episode_number": 3,
+          "air_date": "2005-05-15",
+          "runtime": 22
+        },
+        {
+          "id": 66117,
+          "name": "Don't Make Me Over",
+          "season_number": 4,
+          "episode_number": 4,
+          "air_date": "2005-06-05",
+          "runtime": 22
+        },
+        {
+          "id": 66122,
+          "name": "The Cleveland\u2013Loretta Quagmire",
+          "season_number": 4,
+          "episode_number": 5,
+          "air_date": "2005-06-12",
+          "runtime": 22
+        },
+        {
+          "id": 66108,
+          "name": "Petarded",
+          "season_number": 4,
+          "episode_number": 6,
+          "air_date": "2005-06-19",
+          "runtime": 23
+        },
+        {
+          "id": 66111,
+          "name": "Brian the Bachelor",
+          "season_number": 4,
+          "episode_number": 7,
+          "air_date": "2005-06-26",
+          "runtime": 22
+        },
+        {
+          "id": 66109,
+          "name": "8 Simple Rules for Buying My Teenage Daughter",
+          "season_number": 4,
+          "episode_number": 8,
+          "air_date": "2005-07-10",
+          "runtime": 22
+        },
+        {
+          "id": 66123,
+          "name": "Breaking Out Is Hard to Do",
+          "season_number": 4,
+          "episode_number": 9,
+          "air_date": "2005-07-17",
+          "runtime": 22
+        },
+        {
+          "id": 66103,
+          "name": "Model Misbehavior",
+          "season_number": 4,
+          "episode_number": 10,
+          "air_date": "2005-07-24",
+          "runtime": 22
+        },
+        {
+          "id": 66113,
+          "name": "Peter's Got Woods",
+          "season_number": 4,
+          "episode_number": 11,
+          "air_date": "2005-09-11",
+          "runtime": 22
+        },
+        {
+          "id": 66118,
+          "name": "Perfect Castaway",
+          "season_number": 4,
+          "episode_number": 12,
+          "air_date": "2005-09-18",
+          "runtime": 22
+        },
+        {
+          "id": 66120,
+          "name": "Jungle Love",
+          "season_number": 4,
+          "episode_number": 13,
+          "air_date": "2005-09-25",
+          "runtime": 22
+        },
+        {
+          "id": 66105,
+          "name": "PTV",
+          "season_number": 4,
+          "episode_number": 14,
+          "air_date": "2005-11-06",
+          "runtime": 23
+        },
+        {
+          "id": 66114,
+          "name": "Brian Goes Back to College",
+          "season_number": 4,
+          "episode_number": 15,
+          "air_date": "2005-11-13",
+          "runtime": 22
+        },
+        {
+          "id": 66124,
+          "name": "The Courtship of Stewie's Father",
+          "season_number": 4,
+          "episode_number": 16,
+          "air_date": "2005-11-20",
+          "runtime": 22
+        },
+        {
+          "id": 66106,
+          "name": "The Fat Guy Strangler",
+          "season_number": 4,
+          "episode_number": 17,
+          "air_date": "2005-11-27",
+          "runtime": 24
+        },
+        {
+          "id": 66112,
+          "name": "The Father, the Son, and the Holy Fonz",
+          "season_number": 4,
+          "episode_number": 18,
+          "air_date": "2005-12-18",
+          "runtime": 22
+        },
+        {
+          "id": 66125,
+          "name": "Brian Sings and Swings",
+          "season_number": 4,
+          "episode_number": 19,
+          "air_date": "2006-01-08",
+          "runtime": 22
+        },
+        {
+          "id": 66107,
+          "name": "Patriot Games",
+          "season_number": 4,
+          "episode_number": 20,
+          "air_date": "2006-01-29",
+          "runtime": 22
+        },
+        {
+          "id": 66119,
+          "name": "I Take Thee Quagmire",
+          "season_number": 4,
+          "episode_number": 21,
+          "air_date": "2006-03-12",
+          "runtime": 23
+        },
+        {
+          "id": 66110,
+          "name": "Sibling Rivalry",
+          "season_number": 4,
+          "episode_number": 22,
+          "air_date": "2006-03-26",
+          "runtime": 24
+        },
+        {
+          "id": 66100,
+          "name": "Deep Throats",
+          "season_number": 4,
+          "episode_number": 23,
+          "air_date": "2006-04-09",
+          "runtime": 24
+        },
+        {
+          "id": 66102,
+          "name": "Peterotica",
+          "season_number": 4,
+          "episode_number": 24,
+          "air_date": "2006-04-23",
+          "runtime": 23
+        },
+        {
+          "id": 66101,
+          "name": "You May Now Kiss the... Uh... Guy Who Receives",
+          "season_number": 4,
+          "episode_number": 25,
+          "air_date": "2006-04-30",
+          "runtime": 22
+        },
+        {
+          "id": 66115,
+          "name": "Petergeist",
+          "season_number": 4,
+          "episode_number": 26,
+          "air_date": "2006-05-07",
+          "runtime": 24
+        },
+        {
+          "id": 66116,
+          "name": "The Griffin Family History",
+          "season_number": 4,
+          "episode_number": 27,
+          "air_date": "2006-05-14",
+          "runtime": 24
+        },
+        {
+          "id": 66127,
+          "name": "Stewie B. Goode",
+          "season_number": 4,
+          "episode_number": 28,
+          "air_date": "2006-05-21",
+          "runtime": 22
+        },
+        {
+          "id": 66128,
+          "name": "Bango Was His Name Oh!",
+          "season_number": 4,
+          "episode_number": 29,
+          "air_date": "2006-05-21",
+          "runtime": 21
+        },
+        {
+          "id": 66126,
+          "name": "Stu & Stewie's Excellent Adventure",
+          "season_number": 4,
+          "episode_number": 30,
+          "air_date": "2006-05-21",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/8?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.6312129+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3828,
+      "name": "Season 8",
+      "season_number": 8,
+      "episodes": [
+        {
+          "id": 66175,
+          "name": "Road to the Multiverse",
+          "season_number": 8,
+          "episode_number": 1,
+          "air_date": "2009-09-27",
+          "runtime": 22
+        },
+        {
+          "id": 66181,
+          "name": "Family Goy",
+          "season_number": 8,
+          "episode_number": 2,
+          "air_date": "2009-10-04",
+          "runtime": 22
+        },
+        {
+          "id": 66179,
+          "name": "Spies Reminiscent of Us",
+          "season_number": 8,
+          "episode_number": 3,
+          "air_date": "2009-10-11",
+          "runtime": 22
+        },
+        {
+          "id": 66178,
+          "name": "Brian's Got a Brand New Bag",
+          "season_number": 8,
+          "episode_number": 4,
+          "air_date": "2009-11-08",
+          "runtime": 22
+        },
+        {
+          "id": 66176,
+          "name": "Hannah Banana",
+          "season_number": 8,
+          "episode_number": 5,
+          "air_date": "2009-11-08",
+          "runtime": 22
+        },
+        {
+          "id": 66177,
+          "name": "Quagmire's Baby",
+          "season_number": 8,
+          "episode_number": 6,
+          "air_date": "2009-11-15",
+          "runtime": 22
+        },
+        {
+          "id": 66180,
+          "name": "Jerome Is the New Black",
+          "season_number": 8,
+          "episode_number": 7,
+          "air_date": "2009-11-22",
+          "runtime": 22
+        },
+        {
+          "id": 66182,
+          "name": "Dog Gone",
+          "season_number": 8,
+          "episode_number": 8,
+          "air_date": "2009-11-29",
+          "runtime": 22
+        },
+        {
+          "id": 66183,
+          "name": "Business Guy",
+          "season_number": 8,
+          "episode_number": 9,
+          "air_date": "2009-12-13",
+          "runtime": 22
+        },
+        {
+          "id": 66187,
+          "name": "Big Man on Hippocampus",
+          "season_number": 8,
+          "episode_number": 10,
+          "air_date": "2010-01-03",
+          "runtime": 22
+        },
+        {
+          "id": 66188,
+          "name": "Dial Meg for Murder",
+          "season_number": 8,
+          "episode_number": 11,
+          "air_date": "2010-01-31",
+          "runtime": 22
+        },
+        {
+          "id": 66184,
+          "name": "Extra Large Medium",
+          "season_number": 8,
+          "episode_number": 12,
+          "air_date": "2010-02-14",
+          "runtime": 22
+        },
+        {
+          "id": 66185,
+          "name": "Go, Stewie, Go!",
+          "season_number": 8,
+          "episode_number": 13,
+          "air_date": "2010-03-14",
+          "runtime": 22
+        },
+        {
+          "id": 66186,
+          "name": "Peter-assment",
+          "season_number": 8,
+          "episode_number": 14,
+          "air_date": "2010-03-21",
+          "runtime": 22
+        },
+        {
+          "id": 66192,
+          "name": "Brian Griffin's House of Payne",
+          "season_number": 8,
+          "episode_number": 15,
+          "air_date": "2010-03-28",
+          "runtime": 22
+        },
+        {
+          "id": 66191,
+          "name": "April in Quahog",
+          "season_number": 8,
+          "episode_number": 16,
+          "air_date": "2010-04-11",
+          "runtime": 22
+        },
+        {
+          "id": 66189,
+          "name": "Brian & Stewie",
+          "season_number": 8,
+          "episode_number": 17,
+          "air_date": "2010-05-02",
+          "runtime": 22
+        },
+        {
+          "id": 66190,
+          "name": "Quagmire's Dad",
+          "season_number": 8,
+          "episode_number": 18,
+          "air_date": "2010-05-09",
+          "runtime": 22
+        },
+        {
+          "id": 66195,
+          "name": "The Splendid Source",
+          "season_number": 8,
+          "episode_number": 19,
+          "air_date": "2010-05-16",
+          "runtime": 22
+        },
+        {
+          "id": 66193,
+          "name": "Something, Something, Something, Dark Side",
+          "season_number": 8,
+          "episode_number": 20,
+          "air_date": "2010-05-23",
+          "runtime": 55
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/10?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.6374495+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3830,
+      "name": "Season 10",
+      "season_number": 10,
+      "episodes": [
+        {
+          "id": 66214,
+          "name": "Lottery Fever",
+          "season_number": 10,
+          "episode_number": 1,
+          "air_date": "2011-09-25",
+          "runtime": 22
+        },
+        {
+          "id": 66215,
+          "name": "Seahorse Seashell Party (II)",
+          "season_number": 10,
+          "episode_number": 2,
+          "air_date": "2011-10-02",
+          "runtime": 22
+        },
+        {
+          "id": 66216,
+          "name": "Screams of Silence: The Story of Brenda Q",
+          "season_number": 10,
+          "episode_number": 3,
+          "air_date": "2011-10-30",
+          "runtime": 22
+        },
+        {
+          "id": 66217,
+          "name": "Stewie Goes for a Drive",
+          "season_number": 10,
+          "episode_number": 4,
+          "air_date": "2011-11-06",
+          "runtime": 22
+        },
+        {
+          "id": 66218,
+          "name": "Back to the Pilot",
+          "season_number": 10,
+          "episode_number": 5,
+          "air_date": "2011-11-13",
+          "runtime": 22
+        },
+        {
+          "id": 66219,
+          "name": "Thanksgiving",
+          "season_number": 10,
+          "episode_number": 6,
+          "air_date": "2011-11-20",
+          "runtime": 22
+        },
+        {
+          "id": 66220,
+          "name": "Amish Guy",
+          "season_number": 10,
+          "episode_number": 7,
+          "air_date": "2011-11-27",
+          "runtime": 22
+        },
+        {
+          "id": 66221,
+          "name": "Cool Hand Peter",
+          "season_number": 10,
+          "episode_number": 8,
+          "air_date": "2011-12-04",
+          "runtime": 22
+        },
+        {
+          "id": 66222,
+          "name": "Grumpy Old Man",
+          "season_number": 10,
+          "episode_number": 9,
+          "air_date": "2011-12-11",
+          "runtime": 22
+        },
+        {
+          "id": 66223,
+          "name": "Meg and Quagmire",
+          "season_number": 10,
+          "episode_number": 10,
+          "air_date": "2012-01-08",
+          "runtime": 22
+        },
+        {
+          "id": 66224,
+          "name": "The Blind Side",
+          "season_number": 10,
+          "episode_number": 11,
+          "air_date": "2012-01-15",
+          "runtime": 22
+        },
+        {
+          "id": 66225,
+          "name": "Livin' on a Prayer",
+          "season_number": 10,
+          "episode_number": 12,
+          "air_date": "2012-01-29",
+          "runtime": 22
+        },
+        {
+          "id": 66226,
+          "name": "Tom Tucker: The Man and His Dream",
+          "season_number": 10,
+          "episode_number": 13,
+          "air_date": "2012-02-12",
+          "runtime": 22
+        },
+        {
+          "id": 66227,
+          "name": "Be Careful What You Fish For",
+          "season_number": 10,
+          "episode_number": 14,
+          "air_date": "2012-02-19",
+          "runtime": 22
+        },
+        {
+          "id": 66228,
+          "name": "Burning Down the Bayit",
+          "season_number": 10,
+          "episode_number": 15,
+          "air_date": "2012-03-04",
+          "runtime": 22
+        },
+        {
+          "id": 66229,
+          "name": "Killer Queen",
+          "season_number": 10,
+          "episode_number": 16,
+          "air_date": "2012-03-11",
+          "runtime": 22
+        },
+        {
+          "id": 66230,
+          "name": "Forget-Me-Not",
+          "season_number": 10,
+          "episode_number": 17,
+          "air_date": "2012-03-18",
+          "runtime": 22
+        },
+        {
+          "id": 66231,
+          "name": "You Can't Do That on Television, Peter",
+          "season_number": 10,
+          "episode_number": 18,
+          "air_date": "2012-04-01",
+          "runtime": 22
+        },
+        {
+          "id": 66232,
+          "name": "Mr. & Mrs. Stewie",
+          "season_number": 10,
+          "episode_number": 19,
+          "air_date": "2012-04-29",
+          "runtime": 22
+        },
+        {
+          "id": 66233,
+          "name": "Leggo My Meg-O",
+          "season_number": 10,
+          "episode_number": 20,
+          "air_date": "2012-05-06",
+          "runtime": 22
+        },
+        {
+          "id": 66234,
+          "name": "Tea Peter",
+          "season_number": 10,
+          "episode_number": 21,
+          "air_date": "2012-05-13",
+          "runtime": 22
+        },
+        {
+          "id": 66235,
+          "name": "Viewer Mail #2",
+          "season_number": 10,
+          "episode_number": 22,
+          "air_date": "2012-05-20",
+          "runtime": 22
+        },
+        {
+          "id": 66236,
+          "name": "Internal Affairs",
+          "season_number": 10,
+          "episode_number": 23,
+          "air_date": "2012-05-20",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/11?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.6505684+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3832,
+      "name": "Season 11",
+      "season_number": 11,
+      "episodes": [
+        {
+          "id": 66257,
+          "name": "Into Fat Air",
+          "season_number": 11,
+          "episode_number": 1,
+          "air_date": "2012-09-30",
+          "runtime": 22
+        },
+        {
+          "id": 66258,
+          "name": "Ratings Guy",
+          "season_number": 11,
+          "episode_number": 2,
+          "air_date": "2012-10-07",
+          "runtime": 22
+        },
+        {
+          "id": 66259,
+          "name": "The Old Man and the Big 'C'",
+          "season_number": 11,
+          "episode_number": 3,
+          "air_date": "2012-11-04",
+          "runtime": 22
+        },
+        {
+          "id": 66275,
+          "name": "Yug Ylimaf",
+          "season_number": 11,
+          "episode_number": 4,
+          "air_date": "2012-11-11",
+          "runtime": 22
+        },
+        {
+          "id": 66276,
+          "name": "Joe's Revenge",
+          "season_number": 11,
+          "episode_number": 5,
+          "air_date": "2012-11-18",
+          "runtime": 22
+        },
+        {
+          "id": 66267,
+          "name": "Lois Comes Out of Her Shell",
+          "season_number": 11,
+          "episode_number": 6,
+          "air_date": "2012-11-25",
+          "runtime": 22
+        },
+        {
+          "id": 66272,
+          "name": "Friends Without Benefits",
+          "season_number": 11,
+          "episode_number": 7,
+          "air_date": "2012-12-09",
+          "runtime": 22
+        },
+        {
+          "id": 66266,
+          "name": "Jesus, Mary and Joseph!",
+          "season_number": 11,
+          "episode_number": 8,
+          "air_date": "2012-12-23",
+          "runtime": 22
+        },
+        {
+          "id": 66260,
+          "name": "Space Cadet",
+          "season_number": 11,
+          "episode_number": 9,
+          "air_date": "2013-01-06",
+          "runtime": 22
+        },
+        {
+          "id": 66263,
+          "name": "Brian's Play",
+          "season_number": 11,
+          "episode_number": 10,
+          "air_date": "2013-01-13",
+          "runtime": 22
+        },
+        {
+          "id": 66261,
+          "name": "The Giggity Wife",
+          "season_number": 11,
+          "episode_number": 11,
+          "air_date": "2013-01-27",
+          "runtime": 22
+        },
+        {
+          "id": 66264,
+          "name": "Valentine's Day in Quahog",
+          "season_number": 11,
+          "episode_number": 12,
+          "air_date": "2013-02-10",
+          "runtime": 22
+        },
+        {
+          "id": 66262,
+          "name": "Chris Cross",
+          "season_number": 11,
+          "episode_number": 13,
+          "air_date": "2013-02-17",
+          "runtime": 22
+        },
+        {
+          "id": 66277,
+          "name": "Call Girl",
+          "season_number": 11,
+          "episode_number": 14,
+          "air_date": "2013-03-10",
+          "runtime": 22
+        },
+        {
+          "id": 66265,
+          "name": "Turban Cowboy",
+          "season_number": 11,
+          "episode_number": 15,
+          "air_date": "2013-03-17",
+          "runtime": 22
+        },
+        {
+          "id": 66274,
+          "name": "12 and a Half Angry Men",
+          "season_number": 11,
+          "episode_number": 16,
+          "air_date": "2013-03-24",
+          "runtime": 22
+        },
+        {
+          "id": 66270,
+          "name": "Bigfat",
+          "season_number": 11,
+          "episode_number": 17,
+          "air_date": "2013-04-14",
+          "runtime": 22
+        },
+        {
+          "id": 66273,
+          "name": "Total Recall",
+          "season_number": 11,
+          "episode_number": 18,
+          "air_date": "2013-04-28",
+          "runtime": 22
+        },
+        {
+          "id": 66271,
+          "name": "Save the Clam",
+          "season_number": 11,
+          "episode_number": 19,
+          "air_date": "2013-05-05",
+          "runtime": 22
+        },
+        {
+          "id": 66268,
+          "name": "Farmer Guy",
+          "season_number": 11,
+          "episode_number": 20,
+          "air_date": "2013-05-12",
+          "runtime": 22
+        },
+        {
+          "id": 66278,
+          "name": "Roads to Vegas",
+          "season_number": 11,
+          "episode_number": 21,
+          "air_date": "2013-05-19",
+          "runtime": 22
+        },
+        {
+          "id": 66269,
+          "name": "No Country Club for Old Men",
+          "season_number": 11,
+          "episode_number": 22,
+          "air_date": "2013-05-19",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/9?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.7596449+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3829,
+      "name": "Season 9",
+      "season_number": 9,
+      "episodes": [
+        {
+          "id": 66196,
+          "name": "And Then There Were Fewer",
+          "season_number": 9,
+          "episode_number": 1,
+          "air_date": "2010-09-26",
+          "runtime": 50
+        },
+        {
+          "id": 66210,
+          "name": "Excellence in Broadcasting",
+          "season_number": 9,
+          "episode_number": 2,
+          "air_date": "2010-10-03",
+          "runtime": 22
+        },
+        {
+          "id": 66197,
+          "name": "Welcome Back Carter",
+          "season_number": 9,
+          "episode_number": 3,
+          "air_date": "2010-10-10",
+          "runtime": 22
+        },
+        {
+          "id": 66198,
+          "name": "Halloween on Spooner Street",
+          "season_number": 9,
+          "episode_number": 4,
+          "air_date": "2010-11-07",
+          "runtime": 22
+        },
+        {
+          "id": 66202,
+          "name": "Baby, You Knock Me Out",
+          "season_number": 9,
+          "episode_number": 5,
+          "air_date": "2010-11-14",
+          "runtime": 22
+        },
+        {
+          "id": 66203,
+          "name": "Brian Writes a Bestseller",
+          "season_number": 9,
+          "episode_number": 6,
+          "air_date": "2010-11-21",
+          "runtime": 22
+        },
+        {
+          "id": 66205,
+          "name": "Road to the North Pole",
+          "season_number": 9,
+          "episode_number": 7,
+          "air_date": "2010-12-12",
+          "runtime": 44
+        },
+        {
+          "id": 66199,
+          "name": "New Kidney in Town",
+          "season_number": 9,
+          "episode_number": 8,
+          "air_date": "2011-01-09",
+          "runtime": 22
+        },
+        {
+          "id": 66206,
+          "name": "And I'm Joyce Kinney",
+          "season_number": 9,
+          "episode_number": 9,
+          "air_date": "2011-01-16",
+          "runtime": 22
+        },
+        {
+          "id": 66213,
+          "name": "Friends of Peter G.",
+          "season_number": 9,
+          "episode_number": 10,
+          "air_date": "2011-02-13",
+          "runtime": 22
+        },
+        {
+          "id": 66207,
+          "name": "German Guy",
+          "season_number": 9,
+          "episode_number": 11,
+          "air_date": "2011-02-20",
+          "runtime": 22
+        },
+        {
+          "id": 66211,
+          "name": "The Hand That Rocks the Wheelchair",
+          "season_number": 9,
+          "episode_number": 12,
+          "air_date": "2011-03-06",
+          "runtime": 22
+        },
+        {
+          "id": 66212,
+          "name": "Trading Places",
+          "season_number": 9,
+          "episode_number": 13,
+          "air_date": "2011-03-20",
+          "runtime": 22
+        },
+        {
+          "id": 66200,
+          "name": "Tiegs for Two",
+          "season_number": 9,
+          "episode_number": 14,
+          "air_date": "2011-04-10",
+          "runtime": 22
+        },
+        {
+          "id": 66209,
+          "name": "Brothers & Sisters",
+          "season_number": 9,
+          "episode_number": 15,
+          "air_date": "2011-04-17",
+          "runtime": 22
+        },
+        {
+          "id": 66204,
+          "name": "The Big Bang Theory",
+          "season_number": 9,
+          "episode_number": 16,
+          "air_date": "2011-05-08",
+          "runtime": 22
+        },
+        {
+          "id": 66208,
+          "name": "Foreign Affairs",
+          "season_number": 9,
+          "episode_number": 17,
+          "air_date": "2011-05-15",
+          "runtime": 22
+        },
+        {
+          "id": 66201,
+          "name": "It's a Trap!",
+          "season_number": 9,
+          "episode_number": 18,
+          "air_date": "2011-05-22",
+          "runtime": 44
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/12?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.8035647+00:00",
+    "complete": true,
+    "payload": {
+      "id": 3833,
+      "name": "Season 12",
+      "season_number": 12,
+      "episodes": [
+        {
+          "id": 66280,
+          "name": "Finders Keepers",
+          "season_number": 12,
+          "episode_number": 1,
+          "air_date": "2013-09-29",
+          "runtime": 22
+        },
+        {
+          "id": 66281,
+          "name": "Vestigial Peter",
+          "season_number": 12,
+          "episode_number": 2,
+          "air_date": "2013-10-06",
+          "runtime": 22
+        },
+        {
+          "id": 66282,
+          "name": "Quagmire's Quagmire",
+          "season_number": 12,
+          "episode_number": 3,
+          "air_date": "2013-11-03",
+          "runtime": 22
+        },
+        {
+          "id": 66283,
+          "name": "A Fistful of Meg",
+          "season_number": 12,
+          "episode_number": 4,
+          "air_date": "2013-11-10",
+          "runtime": 22
+        },
+        {
+          "id": 969922,
+          "name": "Boopa-Dee Bappa-Dee",
+          "season_number": 12,
+          "episode_number": 5,
+          "air_date": "2013-11-17",
+          "runtime": 22
+        },
+        {
+          "id": 969923,
+          "name": "Life of Brian",
+          "season_number": 12,
+          "episode_number": 6,
+          "air_date": "2013-11-24",
+          "runtime": 22
+        },
+        {
+          "id": 968814,
+          "name": "Into Harmony's Way",
+          "season_number": 12,
+          "episode_number": 7,
+          "air_date": "2013-12-08",
+          "runtime": 22
+        },
+        {
+          "id": 969004,
+          "name": "Christmas Guy",
+          "season_number": 12,
+          "episode_number": 8,
+          "air_date": "2013-12-15",
+          "runtime": 22
+        },
+        {
+          "id": 970224,
+          "name": "Peter Problems",
+          "season_number": 12,
+          "episode_number": 9,
+          "air_date": "2014-01-05",
+          "runtime": 22
+        },
+        {
+          "id": 970225,
+          "name": "Grimm Job",
+          "season_number": 12,
+          "episode_number": 10,
+          "air_date": "2014-01-12",
+          "runtime": 22
+        },
+        {
+          "id": 970855,
+          "name": "Brian's a Bad Father",
+          "season_number": 12,
+          "episode_number": 11,
+          "air_date": "2014-01-26",
+          "runtime": 22
+        },
+        {
+          "id": 972585,
+          "name": "Mom's the Word",
+          "season_number": 12,
+          "episode_number": 12,
+          "air_date": "2014-03-09",
+          "runtime": 22
+        },
+        {
+          "id": 972979,
+          "name": "3 Acts of God",
+          "season_number": 12,
+          "episode_number": 13,
+          "air_date": "2014-03-16",
+          "runtime": 22
+        },
+        {
+          "id": 973255,
+          "name": "Fresh Heir",
+          "season_number": 12,
+          "episode_number": 14,
+          "air_date": "2014-03-23",
+          "runtime": 22
+        },
+        {
+          "id": 973272,
+          "name": "Secondhand Spoke",
+          "season_number": 12,
+          "episode_number": 15,
+          "air_date": "2014-03-30",
+          "runtime": 22
+        },
+        {
+          "id": 973776,
+          "name": "Herpe, the Love Sore",
+          "season_number": 12,
+          "episode_number": 16,
+          "air_date": "2014-04-06",
+          "runtime": 22
+        },
+        {
+          "id": 974020,
+          "name": "The Most Interesting Man in the World",
+          "season_number": 12,
+          "episode_number": 17,
+          "air_date": "2014-04-13",
+          "runtime": 22
+        },
+        {
+          "id": 974419,
+          "name": "Baby Got Black",
+          "season_number": 12,
+          "episode_number": 18,
+          "air_date": "2014-04-27",
+          "runtime": 22
+        },
+        {
+          "id": 974840,
+          "name": "Meg Stinks!",
+          "season_number": 12,
+          "episode_number": 19,
+          "air_date": "2014-05-04",
+          "runtime": 22
+        },
+        {
+          "id": 975279,
+          "name": "He's Bla-ack!",
+          "season_number": 12,
+          "episode_number": 20,
+          "air_date": "2014-05-11",
+          "runtime": 22
+        },
+        {
+          "id": 975280,
+          "name": "Chap Stewie",
+          "season_number": 12,
+          "episode_number": 21,
+          "air_date": "2014-05-18",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/13?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.8129917+00:00",
+    "complete": true,
+    "payload": {
+      "id": 62024,
+      "name": "Season 13",
+      "season_number": 13,
+      "episodes": [
+        {
+          "id": 1000649,
+          "name": "The Simpsons Guy",
+          "season_number": 13,
+          "episode_number": 1,
+          "air_date": "2014-09-28",
+          "runtime": 46
+        },
+        {
+          "id": 1010480,
+          "name": "The Book of Joe",
+          "season_number": 13,
+          "episode_number": 2,
+          "air_date": "2014-10-05",
+          "runtime": 24
+        },
+        {
+          "id": 1010482,
+          "name": "Baking Bad",
+          "season_number": 13,
+          "episode_number": 3,
+          "air_date": "2014-10-19",
+          "runtime": 24
+        },
+        {
+          "id": 1012097,
+          "name": "Brian the Closer",
+          "season_number": 13,
+          "episode_number": 4,
+          "air_date": "2014-11-09",
+          "runtime": 24
+        },
+        {
+          "id": 1013212,
+          "name": "Turkey Guys",
+          "season_number": 13,
+          "episode_number": 5,
+          "air_date": "2014-11-16",
+          "runtime": 24
+        },
+        {
+          "id": 1017825,
+          "name": "The 2,000-Year-Old Virgin",
+          "season_number": 13,
+          "episode_number": 6,
+          "air_date": "2014-12-07",
+          "runtime": 24
+        },
+        {
+          "id": 1023633,
+          "name": "Stewie, Chris & Brian's Excellent Adventure",
+          "season_number": 13,
+          "episode_number": 7,
+          "air_date": "2015-01-04",
+          "runtime": 24
+        },
+        {
+          "id": 1027219,
+          "name": "Our Idiot Brian",
+          "season_number": 13,
+          "episode_number": 8,
+          "air_date": "2015-01-11",
+          "runtime": 24
+        },
+        {
+          "id": 1029706,
+          "name": "This Little Piggy",
+          "season_number": 13,
+          "episode_number": 9,
+          "air_date": "2015-01-25",
+          "runtime": 24
+        },
+        {
+          "id": 1035916,
+          "name": "Quagmire's Mom",
+          "season_number": 13,
+          "episode_number": 10,
+          "air_date": "2015-02-08",
+          "runtime": 24
+        },
+        {
+          "id": 1038252,
+          "name": "Encyclopedia Griffin",
+          "season_number": 13,
+          "episode_number": 11,
+          "air_date": "2015-02-15",
+          "runtime": 23
+        },
+        {
+          "id": 1041753,
+          "name": "Stewie Is Enceinte",
+          "season_number": 13,
+          "episode_number": 12,
+          "air_date": "2015-03-08",
+          "runtime": 24
+        },
+        {
+          "id": 1043389,
+          "name": "Dr. C and the Women",
+          "season_number": 13,
+          "episode_number": 13,
+          "air_date": "2015-03-15",
+          "runtime": 24
+        },
+        {
+          "id": 1044669,
+          "name": "#JOLO",
+          "season_number": 13,
+          "episode_number": 14,
+          "air_date": "2015-04-12",
+          "runtime": 23
+        },
+        {
+          "id": 1048907,
+          "name": "Once Bitten",
+          "season_number": 13,
+          "episode_number": 15,
+          "air_date": "2015-04-19",
+          "runtime": 24
+        },
+        {
+          "id": 1050113,
+          "name": "Roasted Guy",
+          "season_number": 13,
+          "episode_number": 16,
+          "air_date": "2015-04-26",
+          "runtime": 24
+        },
+        {
+          "id": 1050972,
+          "name": "Fighting Irish",
+          "season_number": 13,
+          "episode_number": 17,
+          "air_date": "2015-05-03",
+          "runtime": 24
+        },
+        {
+          "id": 1054815,
+          "name": "Take My Wife",
+          "season_number": 13,
+          "episode_number": 18,
+          "air_date": "2015-05-17",
+          "runtime": 24
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/14?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.8293784+00:00",
+    "complete": true,
+    "payload": {
+      "id": 68069,
+      "name": "Season 14",
+      "season_number": 14,
+      "episodes": [
+        {
+          "id": 1106280,
+          "name": "Pilling Them Softly",
+          "season_number": 14,
+          "episode_number": 1,
+          "air_date": "2015-09-27",
+          "runtime": 25
+        },
+        {
+          "id": 1107944,
+          "name": "Papa Has a Rollin' Son",
+          "season_number": 14,
+          "episode_number": 2,
+          "air_date": "2015-10-04",
+          "runtime": 22
+        },
+        {
+          "id": 1110714,
+          "name": "Guy Robot",
+          "season_number": 14,
+          "episode_number": 3,
+          "air_date": "2015-10-11",
+          "runtime": 22
+        },
+        {
+          "id": 1080754,
+          "name": "Peternormal Activity",
+          "season_number": 14,
+          "episode_number": 4,
+          "air_date": "2015-10-25",
+          "runtime": 22
+        },
+        {
+          "id": 1135358,
+          "name": "Peter, Chris & Brian",
+          "season_number": 14,
+          "episode_number": 5,
+          "air_date": "2015-11-08",
+          "runtime": 22
+        },
+        {
+          "id": 1135810,
+          "name": "Peter's Sister",
+          "season_number": 14,
+          "episode_number": 6,
+          "air_date": "2015-11-15",
+          "runtime": 22
+        },
+        {
+          "id": 1135811,
+          "name": "Hot Pocket-Dial",
+          "season_number": 14,
+          "episode_number": 7,
+          "air_date": "2015-11-22",
+          "runtime": 23
+        },
+        {
+          "id": 1144425,
+          "name": "Brokeback Swanson",
+          "season_number": 14,
+          "episode_number": 8,
+          "air_date": "2015-12-06",
+          "runtime": 23
+        },
+        {
+          "id": 1146782,
+          "name": "A Shot in the Dark",
+          "season_number": 14,
+          "episode_number": 9,
+          "air_date": "2015-12-13",
+          "runtime": 23
+        },
+        {
+          "id": 1151763,
+          "name": "Candy, Quahog Marshmallow",
+          "season_number": 14,
+          "episode_number": 10,
+          "air_date": "2016-01-03",
+          "runtime": 24
+        },
+        {
+          "id": 1155708,
+          "name": "The Peanut Butter Kid",
+          "season_number": 14,
+          "episode_number": 11,
+          "air_date": "2016-01-10",
+          "runtime": 24
+        },
+        {
+          "id": 1157688,
+          "name": "Scammed Yankees",
+          "season_number": 14,
+          "episode_number": 12,
+          "air_date": "2016-01-17",
+          "runtime": 24
+        },
+        {
+          "id": 1160475,
+          "name": "An App a Day",
+          "season_number": 14,
+          "episode_number": 13,
+          "air_date": "2016-02-14",
+          "runtime": 22
+        },
+        {
+          "id": 1167497,
+          "name": "Underage Peter",
+          "season_number": 14,
+          "episode_number": 14,
+          "air_date": "2016-02-21",
+          "runtime": 22
+        },
+        {
+          "id": 1172005,
+          "name": "A Lot Going On Upstairs",
+          "season_number": 14,
+          "episode_number": 15,
+          "air_date": "2016-03-06",
+          "runtime": 23
+        },
+        {
+          "id": 1172006,
+          "name": "The Heartbreak Dog",
+          "season_number": 14,
+          "episode_number": 16,
+          "air_date": "2016-03-13",
+          "runtime": 22
+        },
+        {
+          "id": 1186937,
+          "name": "Take a Letter",
+          "season_number": 14,
+          "episode_number": 17,
+          "air_date": "2016-04-17",
+          "runtime": 22
+        },
+        {
+          "id": 1189953,
+          "name": "The New Adventures of Old Tom",
+          "season_number": 14,
+          "episode_number": 18,
+          "air_date": "2016-05-08",
+          "runtime": 23
+        },
+        {
+          "id": 1189954,
+          "name": "Run, Chris, Run",
+          "season_number": 14,
+          "episode_number": 19,
+          "air_date": "2016-05-15",
+          "runtime": 23
+        },
+        {
+          "id": 1189955,
+          "name": "Road to India",
+          "season_number": 14,
+          "episode_number": 20,
+          "air_date": "2016-05-22",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/15?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.9292159+00:00",
+    "complete": true,
+    "payload": {
+      "id": 80358,
+      "name": "Season 15",
+      "season_number": 15,
+      "episodes": [
+        {
+          "id": 1225227,
+          "name": "The Boys in the Band",
+          "season_number": 15,
+          "episode_number": 1,
+          "air_date": "2016-09-25",
+          "runtime": 24
+        },
+        {
+          "id": 1225228,
+          "name": "Bookie of the Year",
+          "season_number": 15,
+          "episode_number": 2,
+          "air_date": "2016-10-02",
+          "runtime": 22
+        },
+        {
+          "id": 1230261,
+          "name": "American Gigg-olo",
+          "season_number": 15,
+          "episode_number": 3,
+          "air_date": "2016-10-16",
+          "runtime": 22
+        },
+        {
+          "id": 1233552,
+          "name": "Inside Family Guy",
+          "season_number": 15,
+          "episode_number": 4,
+          "air_date": "2016-10-23",
+          "runtime": 22
+        },
+        {
+          "id": 1237136,
+          "name": "Chris Has Got a Date, Date, Date, Date, Date",
+          "season_number": 15,
+          "episode_number": 5,
+          "air_date": "2016-11-06",
+          "runtime": 22
+        },
+        {
+          "id": 1237137,
+          "name": "Hot Shots",
+          "season_number": 15,
+          "episode_number": 6,
+          "air_date": "2016-11-13",
+          "runtime": 22
+        },
+        {
+          "id": 1241192,
+          "name": "High School English",
+          "season_number": 15,
+          "episode_number": 7,
+          "air_date": "2016-11-20",
+          "runtime": 22
+        },
+        {
+          "id": 1241193,
+          "name": "Carter and Tricia",
+          "season_number": 15,
+          "episode_number": 8,
+          "air_date": "2016-12-04",
+          "runtime": 22
+        },
+        {
+          "id": 1246439,
+          "name": "How the Griffin Stole Christmas",
+          "season_number": 15,
+          "episode_number": 9,
+          "air_date": "2016-12-11",
+          "runtime": 24
+        },
+        {
+          "id": 1248435,
+          "name": "Passenger Fatty-Seven",
+          "season_number": 15,
+          "episode_number": 10,
+          "air_date": "2017-01-08",
+          "runtime": 24
+        },
+        {
+          "id": 1254287,
+          "name": "Gronkowsbees",
+          "season_number": 15,
+          "episode_number": 11,
+          "air_date": "2017-01-15",
+          "runtime": 22
+        },
+        {
+          "id": 1267433,
+          "name": "Peter's Def Jam",
+          "season_number": 15,
+          "episode_number": 12,
+          "air_date": "2017-02-12",
+          "runtime": 23
+        },
+        {
+          "id": 1273370,
+          "name": "The Finer Strings",
+          "season_number": 15,
+          "episode_number": 13,
+          "air_date": "2017-02-19",
+          "runtime": 24
+        },
+        {
+          "id": 1279799,
+          "name": "The Dating Game",
+          "season_number": 15,
+          "episode_number": 14,
+          "air_date": "2017-03-05",
+          "runtime": 22
+        },
+        {
+          "id": 1279802,
+          "name": "Cop and a Half-Wit",
+          "season_number": 15,
+          "episode_number": 15,
+          "air_date": "2017-03-12",
+          "runtime": 22
+        },
+        {
+          "id": 1285409,
+          "name": "Saturated Fat Guy",
+          "season_number": 15,
+          "episode_number": 16,
+          "air_date": "2017-03-19",
+          "runtime": 22
+        },
+        {
+          "id": 1288894,
+          "name": "Peter's Lost Youth",
+          "season_number": 15,
+          "episode_number": 17,
+          "air_date": "2017-03-26",
+          "runtime": 22
+        },
+        {
+          "id": 1310427,
+          "name": "The Peter Principal",
+          "season_number": 15,
+          "episode_number": 18,
+          "air_date": "2017-04-30",
+          "runtime": 23
+        },
+        {
+          "id": 1310693,
+          "name": "Dearly Deported",
+          "season_number": 15,
+          "episode_number": 19,
+          "air_date": "2017-05-22",
+          "runtime": 23
+        },
+        {
+          "id": 1310694,
+          "name": "A House Full of Peters",
+          "season_number": 15,
+          "episode_number": 20,
+          "air_date": "2017-05-22",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/17?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.9781535+00:00",
+    "complete": true,
+    "payload": {
+      "id": 109932,
+      "name": "Season 17",
+      "season_number": 17,
+      "episodes": [
+        {
+          "id": 1579959,
+          "name": "Married... with Cancer (1)",
+          "season_number": 17,
+          "episode_number": 1,
+          "air_date": "2018-09-30",
+          "runtime": 23
+        },
+        {
+          "id": 1579968,
+          "name": "Dead Dog Walking (2)",
+          "season_number": 17,
+          "episode_number": 2,
+          "air_date": "2018-10-07",
+          "runtime": 23
+        },
+        {
+          "id": 1579972,
+          "name": "Pal Stewie",
+          "season_number": 17,
+          "episode_number": 3,
+          "air_date": "2018-10-14",
+          "runtime": 23
+        },
+        {
+          "id": 1579975,
+          "name": "Big Trouble in Little Quahog",
+          "season_number": 17,
+          "episode_number": 4,
+          "air_date": "2018-10-21",
+          "runtime": 23
+        },
+        {
+          "id": 1601221,
+          "name": "Regarding Carter",
+          "season_number": 17,
+          "episode_number": 5,
+          "air_date": "2018-11-04",
+          "runtime": 23
+        },
+        {
+          "id": 1601222,
+          "name": "Stand By Meg",
+          "season_number": 17,
+          "episode_number": 6,
+          "air_date": "2018-11-11",
+          "runtime": 23
+        },
+        {
+          "id": 1614425,
+          "name": "The Griffin Winter Games",
+          "season_number": 17,
+          "episode_number": 7,
+          "air_date": "2018-11-18",
+          "runtime": 23
+        },
+        {
+          "id": 1614426,
+          "name": "Con Heiress",
+          "season_number": 17,
+          "episode_number": 8,
+          "air_date": "2018-12-02",
+          "runtime": 23
+        },
+        {
+          "id": 1620742,
+          "name": "Pawtucket Pete",
+          "season_number": 17,
+          "episode_number": 9,
+          "air_date": "2018-12-09",
+          "runtime": 23
+        },
+        {
+          "id": 1640620,
+          "name": "Hefty Shades of Gray",
+          "season_number": 17,
+          "episode_number": 10,
+          "air_date": "2019-01-06",
+          "runtime": 23
+        },
+        {
+          "id": 1648387,
+          "name": "Trump Guy",
+          "season_number": 17,
+          "episode_number": 11,
+          "air_date": "2019-01-13",
+          "runtime": 23
+        },
+        {
+          "id": 1677232,
+          "name": "Bri, Robot",
+          "season_number": 17,
+          "episode_number": 12,
+          "air_date": "2019-02-10",
+          "runtime": 23
+        },
+        {
+          "id": 1704780,
+          "name": "Trans-Fat",
+          "season_number": 17,
+          "episode_number": 13,
+          "air_date": "2019-02-17",
+          "runtime": 23
+        },
+        {
+          "id": 1708833,
+          "name": "Family Guy Lite",
+          "season_number": 17,
+          "episode_number": 14,
+          "air_date": "2019-03-03",
+          "runtime": 23
+        },
+        {
+          "id": 1708834,
+          "name": "No Giggity, No Doubt",
+          "season_number": 17,
+          "episode_number": 15,
+          "air_date": "2019-03-10",
+          "runtime": 23
+        },
+        {
+          "id": 1718140,
+          "name": "You Can't Handle the Booth",
+          "season_number": 17,
+          "episode_number": 16,
+          "air_date": "2019-03-24",
+          "runtime": 23
+        },
+        {
+          "id": 1722905,
+          "name": "Island Adventure",
+          "season_number": 17,
+          "episode_number": 17,
+          "air_date": "2019-03-31",
+          "runtime": 23
+        },
+        {
+          "id": 1764744,
+          "name": "Throw It Away",
+          "season_number": 17,
+          "episode_number": 18,
+          "air_date": "2019-04-28",
+          "runtime": 23
+        },
+        {
+          "id": 1764745,
+          "name": "Girl, Internetted",
+          "season_number": 17,
+          "episode_number": 19,
+          "air_date": "2019-05-05",
+          "runtime": 23
+        },
+        {
+          "id": 1764746,
+          "name": "Adam West High",
+          "season_number": 17,
+          "episode_number": 20,
+          "air_date": "2019-05-12",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/16?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.9776181+00:00",
+    "complete": true,
+    "payload": {
+      "id": 93251,
+      "name": "Season 16",
+      "season_number": 16,
+      "episodes": [
+        {
+          "id": 1371661,
+          "name": "Emmy-Winning Episode",
+          "season_number": 16,
+          "episode_number": 1,
+          "air_date": "2017-10-01",
+          "runtime": 23
+        },
+        {
+          "id": 1371662,
+          "name": "Foxx in the Men House",
+          "season_number": 16,
+          "episode_number": 2,
+          "air_date": "2017-10-08",
+          "runtime": 23
+        },
+        {
+          "id": 1377372,
+          "name": "Nanny Goats",
+          "season_number": 16,
+          "episode_number": 3,
+          "air_date": "2017-10-15",
+          "runtime": 23
+        },
+        {
+          "id": 1377373,
+          "name": "Follow the Money",
+          "season_number": 16,
+          "episode_number": 4,
+          "air_date": "2017-10-22",
+          "runtime": 23
+        },
+        {
+          "id": 1382908,
+          "name": "Three Directors",
+          "season_number": 16,
+          "episode_number": 5,
+          "air_date": "2017-11-05",
+          "runtime": 23
+        },
+        {
+          "id": 1382909,
+          "name": "The D in Apartment 23",
+          "season_number": 16,
+          "episode_number": 6,
+          "air_date": "2017-11-12",
+          "runtime": 23
+        },
+        {
+          "id": 1382910,
+          "name": "Petey IV",
+          "season_number": 16,
+          "episode_number": 7,
+          "air_date": "2017-11-19",
+          "runtime": 23
+        },
+        {
+          "id": 1395283,
+          "name": "Crimes and Meg's Demeanor",
+          "season_number": 16,
+          "episode_number": 8,
+          "air_date": "2017-12-03",
+          "runtime": 23
+        },
+        {
+          "id": 1395284,
+          "name": "Don't Be a Dickens at Christmas",
+          "season_number": 16,
+          "episode_number": 9,
+          "air_date": "2017-12-10",
+          "runtime": 23
+        },
+        {
+          "id": 1415962,
+          "name": "Boy (Dog) Meets Girl (Dog)",
+          "season_number": 16,
+          "episode_number": 10,
+          "air_date": "2018-01-07",
+          "runtime": 23
+        },
+        {
+          "id": 1416893,
+          "name": "Dog Bites Bear",
+          "season_number": 16,
+          "episode_number": 11,
+          "air_date": "2018-01-14",
+          "runtime": 23
+        },
+        {
+          "id": 1437610,
+          "name": "Send in Stewie, Please",
+          "season_number": 16,
+          "episode_number": 12,
+          "air_date": "2018-03-18",
+          "runtime": 27
+        },
+        {
+          "id": 1415963,
+          "name": "V Is for Mystery",
+          "season_number": 16,
+          "episode_number": 13,
+          "air_date": "2018-03-25",
+          "runtime": 23
+        },
+        {
+          "id": 1445291,
+          "name": "Veteran Guy",
+          "season_number": 16,
+          "episode_number": 14,
+          "air_date": "2018-04-01",
+          "runtime": 23
+        },
+        {
+          "id": 1462047,
+          "name": "The Woof of Wall Street",
+          "season_number": 16,
+          "episode_number": 15,
+          "air_date": "2018-04-08",
+          "runtime": 23
+        },
+        {
+          "id": 1462048,
+          "name": "'Family Guy' Through The Years",
+          "season_number": 16,
+          "episode_number": 16,
+          "air_date": "2018-04-22",
+          "runtime": 23
+        },
+        {
+          "id": 1465383,
+          "name": "Switch the Flip",
+          "season_number": 16,
+          "episode_number": 17,
+          "air_date": "2018-04-29",
+          "runtime": 23
+        },
+        {
+          "id": 1477014,
+          "name": "HTTPete",
+          "season_number": 16,
+          "episode_number": 18,
+          "air_date": "2018-05-06",
+          "runtime": 23
+        },
+        {
+          "id": 1477015,
+          "name": "The Unkindest Cut",
+          "season_number": 16,
+          "episode_number": 19,
+          "air_date": "2018-05-13",
+          "runtime": 23
+        },
+        {
+          "id": 1477939,
+          "name": "Are You There God? It's Me, Peter",
+          "season_number": 16,
+          "episode_number": 20,
+          "air_date": "2018-05-20",
+          "runtime": 23
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/18?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:02.9966182+00:00",
+    "complete": true,
+    "payload": {
+      "id": 131144,
+      "name": "Season 18",
+      "season_number": 18,
+      "episodes": [
+        {
+          "id": 1905562,
+          "name": "Yacht Rocky",
+          "season_number": 18,
+          "episode_number": 1,
+          "air_date": "2019-09-29",
+          "runtime": 22
+        },
+        {
+          "id": 1932395,
+          "name": "Bri-Da",
+          "season_number": 18,
+          "episode_number": 2,
+          "air_date": "2019-10-06",
+          "runtime": 22
+        },
+        {
+          "id": 1945630,
+          "name": "Absolutely Babulous",
+          "season_number": 18,
+          "episode_number": 3,
+          "air_date": "2019-10-13",
+          "runtime": 22
+        },
+        {
+          "id": 1945631,
+          "name": "Disney's The Reboot",
+          "season_number": 18,
+          "episode_number": 4,
+          "air_date": "2019-10-20",
+          "runtime": 22
+        },
+        {
+          "id": 1945632,
+          "name": "Cat Fight",
+          "season_number": 18,
+          "episode_number": 5,
+          "air_date": "2019-11-03",
+          "runtime": 22
+        },
+        {
+          "id": 1947389,
+          "name": "Peter & Lois' Wedding",
+          "season_number": 18,
+          "episode_number": 6,
+          "air_date": "2019-11-10",
+          "runtime": 22
+        },
+        {
+          "id": 1969347,
+          "name": "Heart Burn",
+          "season_number": 18,
+          "episode_number": 7,
+          "air_date": "2019-11-17",
+          "runtime": 22
+        },
+        {
+          "id": 1975376,
+          "name": "Shanksgiving",
+          "season_number": 18,
+          "episode_number": 8,
+          "air_date": "2019-11-24",
+          "runtime": 22
+        },
+        {
+          "id": 1994901,
+          "name": "Christmas Is Coming",
+          "season_number": 18,
+          "episode_number": 9,
+          "air_date": "2019-12-15",
+          "runtime": 22
+        },
+        {
+          "id": 2027414,
+          "name": "Connie's Celica",
+          "season_number": 18,
+          "episode_number": 10,
+          "air_date": "2020-01-05",
+          "runtime": 22
+        },
+        {
+          "id": 2046018,
+          "name": "Short Cuts",
+          "season_number": 18,
+          "episode_number": 11,
+          "air_date": "2020-02-16",
+          "runtime": 22
+        },
+        {
+          "id": 2046019,
+          "name": "Undergrounded",
+          "season_number": 18,
+          "episode_number": 12,
+          "air_date": "2020-02-23",
+          "runtime": 22
+        },
+        {
+          "id": 2178029,
+          "name": "Rich Old Stewie",
+          "season_number": 18,
+          "episode_number": 13,
+          "air_date": "2020-03-01",
+          "runtime": 22
+        },
+        {
+          "id": 2178030,
+          "name": "The Movement",
+          "season_number": 18,
+          "episode_number": 14,
+          "air_date": "2020-03-08",
+          "runtime": 22
+        },
+        {
+          "id": 2178031,
+          "name": "Baby Stewie",
+          "season_number": 18,
+          "episode_number": 15,
+          "air_date": "2020-03-15",
+          "runtime": 22
+        },
+        {
+          "id": 2203964,
+          "name": "Start Me Up",
+          "season_number": 18,
+          "episode_number": 16,
+          "air_date": "2020-04-19",
+          "runtime": 22
+        },
+        {
+          "id": 2234010,
+          "name": "Coma Guy",
+          "season_number": 18,
+          "episode_number": 17,
+          "air_date": "2020-04-26",
+          "runtime": 22
+        },
+        {
+          "id": 2234011,
+          "name": "Better Off Meg",
+          "season_number": 18,
+          "episode_number": 18,
+          "air_date": "2020-05-03",
+          "runtime": 22
+        },
+        {
+          "id": 2234012,
+          "name": "Holly Bibble",
+          "season_number": 18,
+          "episode_number": 19,
+          "air_date": "2020-05-10",
+          "runtime": 22
+        },
+        {
+          "id": 2266024,
+          "name": "Movin' In (Principal Shepherd's Song)",
+          "season_number": 18,
+          "episode_number": 20,
+          "air_date": "2020-05-17",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/19?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.0849839+00:00",
+    "complete": true,
+    "payload": {
+      "id": 164100,
+      "name": "Season 19",
+      "season_number": 19,
+      "episodes": [
+        {
+          "id": 2444780,
+          "name": "Stewie's First Word",
+          "season_number": 19,
+          "episode_number": 1,
+          "air_date": "2020-09-27",
+          "runtime": 22
+        },
+        {
+          "id": 2444781,
+          "name": "The Talented Mr. Stewie",
+          "season_number": 19,
+          "episode_number": 2,
+          "air_date": "2020-10-04",
+          "runtime": 22
+        },
+        {
+          "id": 2444782,
+          "name": "Boys & Squirrels",
+          "season_number": 19,
+          "episode_number": 3,
+          "air_date": "2020-10-11",
+          "runtime": 22
+        },
+        {
+          "id": 2444783,
+          "name": "CutawayLand",
+          "season_number": 19,
+          "episode_number": 4,
+          "air_date": "2020-11-01",
+          "runtime": 22
+        },
+        {
+          "id": 2490460,
+          "name": "La Famiglia Guy",
+          "season_number": 19,
+          "episode_number": 5,
+          "air_date": "2020-11-08",
+          "runtime": 22
+        },
+        {
+          "id": 2510140,
+          "name": "Meg's Wedding",
+          "season_number": 19,
+          "episode_number": 6,
+          "air_date": "2020-11-15",
+          "runtime": 22
+        },
+        {
+          "id": 2524154,
+          "name": "Wild Wild West",
+          "season_number": 19,
+          "episode_number": 7,
+          "air_date": "2020-11-22",
+          "runtime": 22
+        },
+        {
+          "id": 2528070,
+          "name": "Pawtucket Pat",
+          "season_number": 19,
+          "episode_number": 8,
+          "air_date": "2020-12-06",
+          "runtime": 22
+        },
+        {
+          "id": 2528072,
+          "name": "The First No L",
+          "season_number": 19,
+          "episode_number": 9,
+          "air_date": "2020-12-13",
+          "runtime": 22
+        },
+        {
+          "id": 2537303,
+          "name": "Fecal Matters",
+          "season_number": 19,
+          "episode_number": 10,
+          "air_date": "2021-01-17",
+          "runtime": 22
+        },
+        {
+          "id": 2635375,
+          "name": "Boy's Best Friend",
+          "season_number": 19,
+          "episode_number": 11,
+          "air_date": "2021-02-14",
+          "runtime": 22
+        },
+        {
+          "id": 2684273,
+          "name": "And Then There's Fraud",
+          "season_number": 19,
+          "episode_number": 12,
+          "air_date": "2021-02-28",
+          "runtime": 22
+        },
+        {
+          "id": 2684279,
+          "name": "PeTerminator",
+          "season_number": 19,
+          "episode_number": 13,
+          "air_date": "2021-03-07",
+          "runtime": 22
+        },
+        {
+          "id": 2722032,
+          "name": "The Marrying Kind",
+          "season_number": 19,
+          "episode_number": 14,
+          "air_date": "2021-03-14",
+          "runtime": 22
+        },
+        {
+          "id": 2772888,
+          "name": "Customer of the Week",
+          "season_number": 19,
+          "episode_number": 15,
+          "air_date": "2021-03-28",
+          "runtime": 22
+        },
+        {
+          "id": 2804545,
+          "name": "Who's Brian Now?",
+          "season_number": 19,
+          "episode_number": 16,
+          "air_date": "2021-04-11",
+          "runtime": 22
+        },
+        {
+          "id": 2821461,
+          "name": "Young Parent Trap",
+          "season_number": 19,
+          "episode_number": 17,
+          "air_date": "2021-04-18",
+          "runtime": 22
+        },
+        {
+          "id": 2845845,
+          "name": "Meg Goes to College",
+          "season_number": 19,
+          "episode_number": 18,
+          "air_date": "2021-05-02",
+          "runtime": 22
+        },
+        {
+          "id": 2845846,
+          "name": "Family Cat",
+          "season_number": 19,
+          "episode_number": 19,
+          "air_date": "2021-05-09",
+          "runtime": 22
+        },
+        {
+          "id": 2845847,
+          "name": "Tales of Former Sports Glory",
+          "season_number": 19,
+          "episode_number": 20,
+          "air_date": "2021-05-16",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/21?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.1475790+00:00",
+    "complete": true,
+    "payload": {
+      "id": 297016,
+      "name": "Season 21",
+      "season_number": 21,
+      "episodes": [
+        {
+          "id": 3777079,
+          "name": "Oscars Guy",
+          "season_number": 21,
+          "episode_number": 1,
+          "air_date": "2022-09-25",
+          "runtime": 22
+        },
+        {
+          "id": 3915347,
+          "name": "Bend or Blockbuster",
+          "season_number": 21,
+          "episode_number": 2,
+          "air_date": "2022-10-02",
+          "runtime": 22
+        },
+        {
+          "id": 3915348,
+          "name": "A Wife-Changing Experience",
+          "season_number": 21,
+          "episode_number": 3,
+          "air_date": "2022-10-09",
+          "runtime": 22
+        },
+        {
+          "id": 3915349,
+          "name": "The Munchurian Candidate",
+          "season_number": 21,
+          "episode_number": 4,
+          "air_date": "2022-10-16",
+          "runtime": 22
+        },
+        {
+          "id": 3915350,
+          "name": "Unzipped Code",
+          "season_number": 21,
+          "episode_number": 5,
+          "air_date": "2022-10-23",
+          "runtime": 22
+        },
+        {
+          "id": 3915351,
+          "name": "Happy Holo-ween",
+          "season_number": 21,
+          "episode_number": 6,
+          "air_date": "2022-10-30",
+          "runtime": 22
+        },
+        {
+          "id": 3915352,
+          "name": "The Stewaway",
+          "season_number": 21,
+          "episode_number": 7,
+          "air_date": "2022-11-13",
+          "runtime": 22
+        },
+        {
+          "id": 3915353,
+          "name": "Get Stewie",
+          "season_number": 21,
+          "episode_number": 8,
+          "air_date": "2022-11-20",
+          "runtime": 22
+        },
+        {
+          "id": 3915354,
+          "name": "Carny Knowledge",
+          "season_number": 21,
+          "episode_number": 9,
+          "air_date": "2022-12-04",
+          "runtime": 22
+        },
+        {
+          "id": 3915355,
+          "name": "The Candidate",
+          "season_number": 21,
+          "episode_number": 10,
+          "air_date": "2022-12-11",
+          "runtime": 22
+        },
+        {
+          "id": 4098820,
+          "name": "Love Story Guy",
+          "season_number": 21,
+          "episode_number": 11,
+          "air_date": "2023-01-08",
+          "runtime": 22
+        },
+        {
+          "id": 4109045,
+          "name": "Old West",
+          "season_number": 21,
+          "episode_number": 12,
+          "air_date": "2023-02-19",
+          "runtime": 22
+        },
+        {
+          "id": 4166378,
+          "name": "Single White Dad",
+          "season_number": 21,
+          "episode_number": 13,
+          "air_date": "2023-02-26",
+          "runtime": 22
+        },
+        {
+          "id": 4166381,
+          "name": "White Meg Can't Jump",
+          "season_number": 21,
+          "episode_number": 14,
+          "air_date": "2023-03-05",
+          "runtime": 22
+        },
+        {
+          "id": 4166383,
+          "name": "Adoptation",
+          "season_number": 21,
+          "episode_number": 15,
+          "air_date": "2023-03-12",
+          "runtime": 22
+        },
+        {
+          "id": 4166385,
+          "name": "The Bird Reich",
+          "season_number": 21,
+          "episode_number": 16,
+          "air_date": "2023-04-16",
+          "runtime": 22
+        },
+        {
+          "id": 4166386,
+          "name": "A Bottle Episode",
+          "season_number": 21,
+          "episode_number": 17,
+          "air_date": "2023-04-16",
+          "runtime": 22
+        },
+        {
+          "id": 4199342,
+          "name": "Vat Man & Rob 'Em",
+          "season_number": 21,
+          "episode_number": 18,
+          "air_date": "2023-04-23",
+          "runtime": 22
+        },
+        {
+          "id": 4199344,
+          "name": "From Russia With Love",
+          "season_number": 21,
+          "episode_number": 19,
+          "air_date": "2023-04-30",
+          "runtime": 22
+        },
+        {
+          "id": 4199350,
+          "name": "Adult Education",
+          "season_number": 21,
+          "episode_number": 20,
+          "air_date": "2023-05-07",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/23?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.2637620+00:00",
+    "complete": true,
+    "payload": {
+      "id": 439123,
+      "name": "Season 23",
+      "season_number": 23,
+      "episodes": [
+        {
+          "id": 5928118,
+          "name": "Fat Gun",
+          "season_number": 23,
+          "episode_number": 1,
+          "air_date": "2025-02-16",
+          "runtime": 22
+        },
+        {
+          "id": 5970367,
+          "name": "Live, Laugh, Love",
+          "season_number": 23,
+          "episode_number": 2,
+          "air_date": "2025-02-23",
+          "runtime": 22
+        },
+        {
+          "id": 5985526,
+          "name": "Drunk with Power",
+          "season_number": 23,
+          "episode_number": 3,
+          "air_date": "2025-03-02",
+          "runtime": 22
+        },
+        {
+          "id": 5985527,
+          "name": "Lois C.K.",
+          "season_number": 23,
+          "episode_number": 4,
+          "air_date": "2025-03-09",
+          "runtime": 22
+        },
+        {
+          "id": 5985528,
+          "name": "The Chicken or the Meg",
+          "season_number": 23,
+          "episode_number": 5,
+          "air_date": "2025-03-16",
+          "runtime": 22
+        },
+        {
+          "id": 5985529,
+          "name": "Dog Is My Co-Pilot",
+          "season_number": 23,
+          "episode_number": 6,
+          "air_date": "2025-03-23",
+          "runtime": 22
+        },
+        {
+          "id": 5985530,
+          "name": "Pitch Imperfect",
+          "season_number": 23,
+          "episode_number": 7,
+          "air_date": "2025-03-30",
+          "runtime": 22
+        },
+        {
+          "id": 6052051,
+          "name": "Hard Times at Adam West High",
+          "season_number": 23,
+          "episode_number": 8,
+          "air_date": "2025-04-06",
+          "runtime": 22
+        },
+        {
+          "id": 6052054,
+          "name": "The Elle Word",
+          "season_number": 23,
+          "episode_number": 9,
+          "air_date": "2025-04-13",
+          "runtime": 22
+        },
+        {
+          "id": 6129761,
+          "name": "A Real Who's Hulu",
+          "season_number": 23,
+          "episode_number": 10,
+          "air_date": "2025-04-27",
+          "runtime": 22
+        },
+        {
+          "id": 6166307,
+          "name": "China Doll",
+          "season_number": 23,
+          "episode_number": 11,
+          "air_date": "2025-05-04",
+          "runtime": 22
+        },
+        {
+          "id": 6166308,
+          "name": "One Foot in Front of the Mother",
+          "season_number": 23,
+          "episode_number": 12,
+          "air_date": "2025-05-11",
+          "runtime": 22
+        },
+        {
+          "id": 6166309,
+          "name": "The Fat Lotus",
+          "season_number": 23,
+          "episode_number": 13,
+          "air_date": "2025-05-18",
+          "runtime": 22
+        },
+        {
+          "id": 6182786,
+          "name": "Cool Hand Lois",
+          "season_number": 23,
+          "episode_number": 14,
+          "air_date": "2025-05-29",
+          "runtime": 22
+        },
+        {
+          "id": 6182792,
+          "name": "Martian Meg",
+          "season_number": 23,
+          "episode_number": 15,
+          "air_date": "2025-06-05",
+          "runtime": 22
+        },
+        {
+          "id": 6225012,
+          "name": "Row v. Wade",
+          "season_number": 23,
+          "episode_number": 16,
+          "air_date": "2025-07-03",
+          "runtime": 22
+        },
+        {
+          "id": 6272256,
+          "name": "Karenheit 451",
+          "season_number": 23,
+          "episode_number": 17,
+          "air_date": "2025-07-06",
+          "runtime": 22
+        },
+        {
+          "id": 6272257,
+          "name": "Twain's World",
+          "season_number": 23,
+          "episode_number": 18,
+          "air_date": "2025-07-17",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/20?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.2533594+00:00",
+    "complete": true,
+    "payload": {
+      "id": 188886,
+      "name": "Season 20",
+      "season_number": 20,
+      "episodes": [
+        {
+          "id": 3010853,
+          "name": "LASIK Instinct",
+          "season_number": 20,
+          "episode_number": 1,
+          "air_date": "2021-09-26",
+          "runtime": 22
+        },
+        {
+          "id": 3221051,
+          "name": "Rock Hard",
+          "season_number": 20,
+          "episode_number": 2,
+          "air_date": "2021-10-03",
+          "runtime": 22
+        },
+        {
+          "id": 3244613,
+          "name": "Must Love Dogs",
+          "season_number": 20,
+          "episode_number": 3,
+          "air_date": "2021-10-10",
+          "runtime": 22
+        },
+        {
+          "id": 3244614,
+          "name": "80's Guy",
+          "season_number": 20,
+          "episode_number": 4,
+          "air_date": "2021-10-17",
+          "runtime": 22
+        },
+        {
+          "id": 3294615,
+          "name": "Brief Encounter",
+          "season_number": 20,
+          "episode_number": 5,
+          "air_date": "2021-10-24",
+          "runtime": 22
+        },
+        {
+          "id": 3294619,
+          "name": "Cootie & The Blowhard",
+          "season_number": 20,
+          "episode_number": 6,
+          "air_date": "2021-11-07",
+          "runtime": 22
+        },
+        {
+          "id": 3294622,
+          "name": "Peterschmidt Manor",
+          "season_number": 20,
+          "episode_number": 7,
+          "air_date": "2021-11-14",
+          "runtime": 22
+        },
+        {
+          "id": 3294623,
+          "name": "The Birthday Bootlegger",
+          "season_number": 20,
+          "episode_number": 8,
+          "air_date": "2021-11-21",
+          "runtime": 22
+        },
+        {
+          "id": 3294625,
+          "name": "The Fatman Always Rings Twice",
+          "season_number": 20,
+          "episode_number": 9,
+          "air_date": "2021-11-28",
+          "runtime": 22
+        },
+        {
+          "id": 3294626,
+          "name": "Christmas Crime",
+          "season_number": 20,
+          "episode_number": 10,
+          "air_date": "2021-12-19",
+          "runtime": 22
+        },
+        {
+          "id": 3294627,
+          "name": "Mister Act",
+          "season_number": 20,
+          "episode_number": 11,
+          "air_date": "2022-01-09",
+          "runtime": 22
+        },
+        {
+          "id": 3294628,
+          "name": "The Lois Quagmire",
+          "season_number": 20,
+          "episode_number": 12,
+          "air_date": "2022-02-27",
+          "runtime": 22
+        },
+        {
+          "id": 3294630,
+          "name": "Lawyer Guy",
+          "season_number": 20,
+          "episode_number": 13,
+          "air_date": "2022-03-06",
+          "runtime": 22
+        },
+        {
+          "id": 3294631,
+          "name": "HBO-No",
+          "season_number": 20,
+          "episode_number": 14,
+          "air_date": "2022-03-13",
+          "runtime": 22
+        },
+        {
+          "id": 3294632,
+          "name": "Hard Boiled Meg",
+          "season_number": 20,
+          "episode_number": 15,
+          "air_date": "2022-03-20",
+          "runtime": 22
+        },
+        {
+          "id": 3294634,
+          "name": "Prescription Heroine",
+          "season_number": 20,
+          "episode_number": 16,
+          "air_date": "2022-03-27",
+          "runtime": 22
+        },
+        {
+          "id": 3294636,
+          "name": "All About Alana",
+          "season_number": 20,
+          "episode_number": 17,
+          "air_date": "2022-05-01",
+          "runtime": 22
+        },
+        {
+          "id": 3294637,
+          "name": "Girlfriend, Eh?",
+          "season_number": 20,
+          "episode_number": 18,
+          "air_date": "2022-05-08",
+          "runtime": 22
+        },
+        {
+          "id": 3294638,
+          "name": "First Blood",
+          "season_number": 20,
+          "episode_number": 19,
+          "air_date": "2022-05-15",
+          "runtime": 22
+        },
+        {
+          "id": 3294641,
+          "name": "The Jersey Bore",
+          "season_number": 20,
+          "episode_number": 20,
+          "air_date": "2022-05-22",
+          "runtime": 22
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/24?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.3202269+00:00",
+    "complete": true,
+    "payload": {
+      "id": 484484,
+      "name": "Season 24",
+      "season_number": 24,
+      "episodes": [
+        {
+          "id": 6676747,
+          "name": "The Edible Arrangement [450th episode]",
+          "season_number": 24,
+          "episode_number": 1,
+          "air_date": "2026-02-15",
+          "runtime": 22
+        },
+        {
+          "id": 6676748,
+          "name": "Pumpkin Spice Girls",
+          "season_number": 24,
+          "episode_number": 2,
+          "air_date": "2026-02-22",
+          "runtime": 22
+        },
+        {
+          "id": 6676749,
+          "name": "Man-Fest Destiny",
+          "season_number": 24,
+          "episode_number": 3,
+          "air_date": "2026-02-22",
+          "runtime": 22
+        },
+        {
+          "id": 6903259,
+          "name": "Bringing Up Brady",
+          "season_number": 24,
+          "episode_number": 4,
+          "air_date": "2026-03-01",
+          "runtime": 22
+        },
+        {
+          "id": 6925085,
+          "name": "Dear Francis",
+          "season_number": 24,
+          "episode_number": 5,
+          "air_date": "2026-03-01",
+          "runtime": 22
+        },
+        {
+          "id": 6972612,
+          "name": "Viewer DMs",
+          "season_number": 24,
+          "episode_number": 6,
+          "air_date": "2026-03-08",
+          "runtime": 22
+        },
+        {
+          "id": 6972613,
+          "name": "Scent of a Woman",
+          "season_number": 24,
+          "episode_number": 7,
+          "air_date": "2026-03-08",
+          "runtime": 22
+        },
+        {
+          "id": 6995253,
+          "name": "Play Time",
+          "season_number": 24,
+          "episode_number": 8,
+          "air_date": "2026-03-15",
+          "runtime": 22
+        },
+        {
+          "id": 6995256,
+          "name": "Phony Montana",
+          "season_number": 24,
+          "episode_number": 9,
+          "air_date": "2026-03-15",
+          "runtime": 22
+        },
+        {
+          "id": 7018833,
+          "name": "A Few More Ways to Die in the West",
+          "season_number": 24,
+          "episode_number": 10,
+          "air_date": "2026-04-12",
+          "runtime": 21
+        },
+        {
+          "id": 7018834,
+          "name": "Tall Stewie",
+          "season_number": 24,
+          "episode_number": 11,
+          "air_date": "2026-04-12",
+          "runtime": 22
+        },
+        {
+          "id": 7018835,
+          "name": "Lower G.I. Joe",
+          "season_number": 24,
+          "episode_number": 12,
+          "air_date": "2026-04-26",
+          "runtime": 21
+        },
+        {
+          "id": 7018836,
+          "name": "Friend's Best Man",
+          "season_number": 24,
+          "episode_number": 13,
+          "air_date": "2026-05-03",
+          "runtime": 21
+        },
+        {
+          "id": 7018845,
+          "name": "Let the Goodtimes Walk",
+          "season_number": 24,
+          "episode_number": 14,
+          "air_date": "2026-05-10",
+          "runtime": 21
+        },
+        {
+          "id": 7193771,
+          "name": "High School History",
+          "season_number": 24,
+          "episode_number": 15,
+          "air_date": "2026-05-17",
+          "runtime": 30
+        }
+      ]
+    }
+  },
+  {
+    "path": "/tv/1434/season/22?|{\"Id\":\"tmdb\",\"Enabled\":true,\"Tier\":2,\"Priority\":100,\"Kind\":\"metadata\",\"Type\":\"tmdb\",\"BaseUrl\":\"https://api.themoviedb.org/3\",\"Mirrors\":[],\"Categories\":[\"all\"],\"TimeoutMilliseconds\":10000,\"Concurrency\":2,\"StartSpacingMilliseconds\":250,\"Options\":{},\"Credential\":null}",
+    "fetchedAt": "2026-10-03T20:58:03.3094600+00:00",
+    "complete": true,
+    "payload": {
+      "id": 348835,
+      "name": "Season 22",
+      "season_number": 22,
+      "episodes": [
+        {
+          "id": 4583036,
+          "name": "Fertilized Megg",
+          "season_number": 22,
+          "episode_number": 1,
+          "air_date": "2023-10-01",
+          "runtime": 22
+        },
+        {
+          "id": 4725129,
+          "name": "Supermarket Pete",
+          "season_number": 22,
+          "episode_number": 2,
+          "air_date": "2023-10-08",
+          "runtime": 22
+        },
+        {
+          "id": 4725130,
+          "name": "A Stache from the Past",
+          "season_number": 22,
+          "episode_number": 3,
+          "air_date": "2023-10-22",
+          "runtime": 22
+        },
+        {
+          "id": 4871444,
+          "name": "Old World Harm",
+          "season_number": 22,
+          "episode_number": 4,
+          "air_date": "2023-11-05",
+          "runtime": 22
+        },
+        {
+          "id": 4808614,
+          "name": "Baby, It's Cold Inside",
+          "season_number": 22,
+          "episode_number": 5,
+          "air_date": "2023-11-12",
+          "runtime": 22
+        },
+        {
+          "id": 4855446,
+          "name": "Boston Stewie",
+          "season_number": 22,
+          "episode_number": 6,
+          "air_date": "2023-11-19",
+          "runtime": 22
+        },
+        {
+          "id": 4873902,
+          "name": "Snap(ple) Decision",
+          "season_number": 22,
+          "episode_number": 7,
+          "air_date": "2023-11-26",
+          "runtime": 22
+        },
+        {
+          "id": 4873490,
+          "name": "Baking Sad",
+          "season_number": 22,
+          "episode_number": 8,
+          "air_date": "2023-12-03",
+          "runtime": 22
+        },
+        {
+          "id": 4939492,
+          "name": "The Return of the King (of Queens)",
+          "season_number": 22,
+          "episode_number": 9,
+          "air_date": "2023-12-17",
+          "runtime": 22
+        },
+        {
+          "id": 4934397,
+          "name": "Cabin Pressure",
+          "season_number": 22,
+          "episode_number": 10,
+          "air_date": "2024-03-06",
+          "runtime": 22
+        },
+        {
+          "id": 5005875,
+          "name": "Teacher's Heavy Pet",
+          "season_number": 22,
+          "episode_number": 11,
+          "air_date": "2024-03-13",
+          "runtime": 22
+        },
+        {
+          "id": 5165210,
+          "name": "Take This Job and Love It",
+          "season_number": 22,
+          "episode_number": 12,
+          "air_date": "2024-03-20",
+          "runtime": 22
+        },
+        {
+          "id": 5165218,
+          "name": "Lifeguard Meg",
+          "season_number": 22,
+          "episode_number": 13,
+          "air_date": "2024-03-27",
+          "runtime": 22
+        },
+        {
+          "id": 5201213,
+          "name": "Fat Actor",
+          "season_number": 22,
+          "episode_number": 14,
+          "air_date": "2024-04-10",
+          "runtime": 22
+        },
+        {
+          "id": 5237636,
+          "name": "Faith No More",
+          "season_number": 22,
+          "episode_number": 15,
+          "air_date": "2024-04-17",
+          "runtime": 22
+        }
+      ]
+    }
+  }
+]

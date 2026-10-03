@@ -1,0 +1,1282 @@
+[
+  {
+    "id": "9e67ce7b72381ef2716331125e1a1d7c6f2caecdb284438a854a375c78f434a0",
+    "provider": "tmdb",
+    "providerEpisodeId": "1537580",
+    "number": 1,
+    "title": "Rick and Morty The Non-Canonical Adventures: The Thing",
+    "airAt": "2016-10-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "22b795ecf99ea1740e2efa0e171adb1d7944f02cfcec90822467098e5be076aa",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599918",
+    "number": 2,
+    "title": "Rick and Morty The Non-Canonical Adventures: The Fly",
+    "airAt": "2016-10-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "fb56ea40565185888bcc0698a6850442609328e9283f5e2fa834b7acbaf04b23",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599919",
+    "number": 3,
+    "title": "Rick and Morty The Non-Canonical Adventures: Honey, I Shrunk the Kids",
+    "airAt": "2016-10-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "24264cf9fe8bb2b808566ba6d314b9b49f77b08f9b248cf5c9c2ebe431c3edb3",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599920",
+    "number": 4,
+    "title": "Rick and Morty The Non-Canonical Adventures: Ex Machina",
+    "airAt": "2016-10-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "45b6d66cab023a02f3fe889d9b830fc415765ea32b145118b5e07a869c00b80e",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599921",
+    "number": 5,
+    "title": "Rick and Morty The Non-Canonical Adventures: Halloween",
+    "airAt": "2016-11-03T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "e88f01788e8324d65803fd7d3c6f94a6055bd8d90b275022da3e6d7e36f2381b",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599928",
+    "number": 6,
+    "title": "Rick and Morty The Non-Canonical Adventures: 2001: A Space Odyssey",
+    "airAt": "2017-07-08T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "605b9570a823da0838640c0bd4dbfaeb3574daddd790b878d043d49a87233fc8",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599929",
+    "number": 7,
+    "title": "Rick and Morty The Non-Canonical Adventures: Blade Runner",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "a20d318ee9a3498696189f1c2a577a6d0cc2f128f90219919a9cadb3464a2ca0",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599930",
+    "number": 8,
+    "title": "Rick and Morty The Non-Canonical Adventures: Poltergeist",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "f46c25e34efa789c3826dc8ef394c40eec7a2df6af829e049b72e519302486e7",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599931",
+    "number": 9,
+    "title": "Rick and Morty The Non-Canonical Adventures: Re-Animator",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "752745c44c749d1c1a47a6d005a05546dd9c93d76d139c68286e815b6c11c030",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599932",
+    "number": 10,
+    "title": "Rick and Morty The Non-Canonical Adventures: Aliens",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "bc0dd853e17ff376aee6624d38bdcdd7852c5829cb213bfae4c302f3a3841443",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599933",
+    "number": 11,
+    "title": "Rick and Morty The Non-Canonical Adventures: E.T. the Extra-Terrestrial",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "e1c7e6ebbe5a6a2518b11cf71ae384240b7f3255c70f5a13db372de8d3fb01b4",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599934",
+    "number": 12,
+    "title": "Rick and Morty The Non-Canonical Adventures: Gremlins",
+    "airAt": "2017-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "25e4ed39245a704473f90a6a5036e92a94daf26afc7a5e80bd1b62f877023485",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599935",
+    "number": 13,
+    "title": "Rick and Morty The Non-Canonical Adventures: A Clockwork Orange",
+    "airAt": "2017-07-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "15f0045a536b4a09841f05ce1d106ed8a30c879c5c0049838c2a7d5e0f081047",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599936",
+    "number": 14,
+    "title": "Rick and Morty The Non-Canonical Adventures: Body Snatchers",
+    "airAt": "2017-07-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "6c28616e24c50232c657258b7c765dbda437e97d9da00f7d4f14bf1309614eec",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599937",
+    "number": 15,
+    "title": "Rick and Morty The Non-Canonical Adventures: The Matrix",
+    "airAt": "2017-07-28T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "22fba188ea6207d6f606ce0499b58861495c1d8d108f0ae5f855d31068ded6a6",
+    "provider": "tmdb",
+    "providerEpisodeId": "1599938",
+    "number": 16,
+    "title": "Rick and Morty The Non-Canonical Adventures: Ghostbusters",
+    "airAt": "2017-07-30T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "ec38f9e941a29b7b1fa5477bca75000fc98b2d2fd567833f33d75a4c78175aac",
+    "provider": "tmdb",
+    "providerEpisodeId": "1518602",
+    "number": 17,
+    "title": "Bushworld Adventures",
+    "airAt": "2018-04-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "223dad9bf1ef15b8314a71c5edc36a74cc3453ff4caf65f14bbfa7f065501fa3",
+    "provider": "tmdb",
+    "providerEpisodeId": "1994899",
+    "number": 18,
+    "title": "Rick and Morty The Non-Canonical Halloween Adventures",
+    "airAt": "2019-10-31T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "6603a0ca798c0da2a8835b126cb982c0460aa9de6955db041fd8a198d0122af2",
+    "provider": "tmdb",
+    "providerEpisodeId": "2207024",
+    "number": 19,
+    "title": "Samurai & Shogun",
+    "airAt": "2020-03-29T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "6ad2ebabeb8a657bac2302a142ee5783084e9530a4cd0af225c6316bac7fd699",
+    "provider": "tmdb",
+    "providerEpisodeId": "2459559",
+    "number": 20,
+    "title": "Rick and Morty vs. Genocider",
+    "airAt": "2020-07-25T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "b1dfdf005b92655cb0b97fe9c61b5d096d67791b847e2bafc5f740d9010ad3fc",
+    "provider": "tmdb",
+    "providerEpisodeId": "2939778",
+    "number": 21,
+    "title": "Rick and Morty in the Eternal Nightmare Machine",
+    "airAt": "2021-05-08T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "4664f0116af5037b9471fb64a23e73e725e84480aba54dc92527b5141108f57e",
+    "provider": "tmdb",
+    "providerEpisodeId": "3103260",
+    "number": 22,
+    "title": "Summer Meets God (Rick Meets Evil)",
+    "airAt": "2021-08-02T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "efbe0a41bab84aede01db295ed9c3d4a5936736c53db913557204a09aaab2154",
+    "provider": "tmdb",
+    "providerEpisodeId": "3273810",
+    "number": 23,
+    "title": "The Great Yokai Battle of Akihabara",
+    "airAt": "2021-10-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "2cb20c6a033246f3424ab48c0ac3a6f99ed85643325a6aa4288d7cb848baec24",
+    "provider": "tmdb",
+    "providerEpisodeId": "3336418",
+    "number": 24,
+    "title": "Samurai and Shogun (2)",
+    "airAt": "2021-11-12T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "308e5d0314519dcce3310bcf7d6ffdff4ff5f2adfd038de64835ea6bc4c284eb",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848607",
+    "number": 25,
+    "title": "Vindicators 2: Rick Can Handle It",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "441cc37322cbf2e04813a09be9e6b18bea2d941e2b65500affca06d36ed8a7fd",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848608",
+    "number": 26,
+    "title": "Vindicators 2: Pro-Nouns",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "079bb4f34d9459088b0e1d38c2dc54c1f812f7eb6e2207aae028464b964c4097",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848609",
+    "number": 27,
+    "title": "Vindicators 2: The Dance",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "50c745ed705af581bc96245198e153a4677aec79a89f3fab967e27979e280793",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848610",
+    "number": 28,
+    "title": "Vindicators 2: Out of Gas",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "4b62f7313385ceb9d9f3eb6539939f4ccba83375f743839546d445bdc477b518",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848611",
+    "number": 29,
+    "title": "Vindicators 2: First Love",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "1b8fe1e466900ec3d5fa74f445e5f2746099e5cb0ca7e8f4b8ec1e40ce4d8e73",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848612",
+    "number": 30,
+    "title": "Vindicators 2: Mercy Kill",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "c7149fbbb1a8836485eb8666630ae97bcfc38be9556ef55c6a39916b934474c2",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848613",
+    "number": 31,
+    "title": "Vindicators 2: Girl's Night",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "1f96434de86e8e24c43719e0d2feaf44366d7626476a0e586b9f6c18f1a457d6",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848614",
+    "number": 32,
+    "title": "Vindicators 2: Kintsugi",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "a5ea4127b88bad9fa6f4e4893e75decff8fca7f4f7d2f5493f57281e8bc12b7c",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848615",
+    "number": 33,
+    "title": "Vindicators 2: Little Trains",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "2934816e1e7c7af0e3ade05c1876a466619b90c3a4c23cd9212a9c366e15ec72",
+    "provider": "tmdb",
+    "providerEpisodeId": "3848616",
+    "number": 34,
+    "title": "Vindicators 2: Heroes",
+    "airAt": "2022-07-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "b2e6c5cccd6e9f257177ca78ee296a3a4394ab631df33721c7b6b67fce03c005",
+    "provider": "tmdb",
+    "providerEpisodeId": "4024173",
+    "number": 35,
+    "title": "Summer's Sleepover",
+    "airAt": "2022-10-31T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "cebde0109fd8f0711ff448f1009d229dc97a8cd1e79e97bd110ca83d59cbfafa",
+    "provider": "tmdb",
+    "providerEpisodeId": "6086048",
+    "number": 36,
+    "title": "The Rick and Morty Playhouse Players Present: Portal People",
+    "airAt": "2025-04-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "ef57deada984c04e61b0dbe670be404c3082327c2e881422fd068ca9a90db6d6",
+    "provider": "tmdb",
+    "providerEpisodeId": "7029923",
+    "number": 37,
+    "title": "Rick and Morty MEGASPHERE",
+    "airAt": "2026-03-05T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 0
+  },
+  {
+    "id": "04caffadb006898a00a2185a63eef6cd608bef4f82dcb7188d498ca3b9b71907",
+    "provider": "tmdb",
+    "providerEpisodeId": "973400",
+    "number": 1,
+    "title": "Pilot",
+    "airAt": "2013-12-02T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "5972b4b7e1dc0092f0bc47b3c85bf6b97f33327bd765c1480c1bdb2e6cafb5b2",
+    "provider": "tmdb",
+    "providerEpisodeId": "973401",
+    "number": 2,
+    "title": "Lawnmower Dog",
+    "airAt": "2013-12-09T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "fcad629c3415b8daf75ca2f2fea10bc72e668cf908934dde040be349052e3c3a",
+    "provider": "tmdb",
+    "providerEpisodeId": "973402",
+    "number": 3,
+    "title": "Anatomy Park",
+    "airAt": "2013-12-16T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "cd6ad53fe846b16d24dff8f426187bc46b517f3aa3ebd493d04900cf6e14de3c",
+    "provider": "tmdb",
+    "providerEpisodeId": "973403",
+    "number": 4,
+    "title": "M. Night Shaym-Aliens!",
+    "airAt": "2014-01-13T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "0863271fa24e9bd77968381bdbe1c6f3523b1d36551344fff76d2d4cf2348f6d",
+    "provider": "tmdb",
+    "providerEpisodeId": "973404",
+    "number": 5,
+    "title": "Meeseeks and Destroy",
+    "airAt": "2014-01-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "798c2b9779f65aad3426fbb6fc98b04125e184b7400a8fb2fcf9171fae185b5c",
+    "provider": "tmdb",
+    "providerEpisodeId": "973405",
+    "number": 6,
+    "title": "Rick Potion #9",
+    "airAt": "2014-01-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "a5e9fb1656183d6464bc89344fba0a1aa933cf002a685927c978e1c19c1ea02d",
+    "provider": "tmdb",
+    "providerEpisodeId": "973406",
+    "number": 7,
+    "title": "Raising Gazorpazorp",
+    "airAt": "2014-03-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "4ad0962a6d1c1dcc51614e051b60774cb18df52cdc6360621ccca0f75a607ea9",
+    "provider": "tmdb",
+    "providerEpisodeId": "973407",
+    "number": 8,
+    "title": "Rixty Minutes",
+    "airAt": "2014-03-17T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "e307bc2e3357fa9365cc7d450827683e430f5767d1cbad547cb89c1603d2e885",
+    "provider": "tmdb",
+    "providerEpisodeId": "973462",
+    "number": 9,
+    "title": "Something Ricked This Way Comes",
+    "airAt": "2014-03-24T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "f803a27c6a4c2566e2f738108a6864e55fdce7189e2ae5a17c687496607dca50",
+    "provider": "tmdb",
+    "providerEpisodeId": "973676",
+    "number": 10,
+    "title": "Close Rick-Counters of the Rick Kind",
+    "airAt": "2014-04-07T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "7c690aa766f9de50e6dd13e306fddc79905c5a24dce6a1d913a25fa2e8e4338f",
+    "provider": "tmdb",
+    "providerEpisodeId": "974721",
+    "number": 11,
+    "title": "Ricksy Business",
+    "airAt": "2014-04-14T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 1
+  },
+  {
+    "id": "84c51a2fc12a0f5dd971f1b6f386934fb300c0f6fcfd5810c098a2389168aa03",
+    "provider": "tmdb",
+    "providerEpisodeId": "1061750",
+    "number": 1,
+    "title": "A Rickle in Time",
+    "airAt": "2015-07-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "f301b4b2678c3cf8cfa65a27685c1c922b81d1750978ad8ed48e2f227f62f14f",
+    "provider": "tmdb",
+    "providerEpisodeId": "1091840",
+    "number": 2,
+    "title": "Mortynight Run",
+    "airAt": "2015-08-02T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "c0a4a996f869e1fb61b4f7806d4902e3e6d4717da527c603760c367ae292fec4",
+    "provider": "tmdb",
+    "providerEpisodeId": "1091841",
+    "number": 3,
+    "title": "Auto Erotic Assimilation",
+    "airAt": "2015-08-09T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "8235803c6ae3163eb98e12f4830512f874306c31b0d41856029fcdc3d18cc09e",
+    "provider": "tmdb",
+    "providerEpisodeId": "1091844",
+    "number": 4,
+    "title": "Total Rickall",
+    "airAt": "2015-08-16T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "c067f0b1d19c75d168c3a3159c5b50f98df1381681aba2bf48e6216878411969",
+    "provider": "tmdb",
+    "providerEpisodeId": "1091843",
+    "number": 5,
+    "title": "Get Schwifty",
+    "airAt": "2015-08-23T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "0c4571caf9dfe4f784c7e1df18f58dbf11f3c4f2b87b5d1d1eec82b9903069f8",
+    "provider": "tmdb",
+    "providerEpisodeId": "1091842",
+    "number": 6,
+    "title": "The Ricks Must Be Crazy",
+    "airAt": "2015-08-30T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "a22b75670c5b2aaa7c0f68ece976dd5f5e18fec6d8537699093f3f5efc284396",
+    "provider": "tmdb",
+    "providerEpisodeId": "1106242",
+    "number": 7,
+    "title": "Big Trouble in Little Sanchez",
+    "airAt": "2015-09-13T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "fc7b9007411666bec5714689b6d9b26a0960dcceb913c94bafb2777cbe237612",
+    "provider": "tmdb",
+    "providerEpisodeId": "1106721",
+    "number": 8,
+    "title": "Interdimensional Cable 2: Tempting Fate",
+    "airAt": "2015-09-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "9ca6ccaa80f93e1b47e5e802cd408bd294796b11e9e6ec8154206be6dc97470d",
+    "provider": "tmdb",
+    "providerEpisodeId": "1109175",
+    "number": 9,
+    "title": "Look Who's Purging Now",
+    "airAt": "2015-09-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "8038807e659d50810466ff494cd9e79b659391fe6aafeda193a539adefd7c75b",
+    "provider": "tmdb",
+    "providerEpisodeId": "1109176",
+    "number": 10,
+    "title": "The Wedding Squanchers",
+    "airAt": "2015-10-04T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 2
+  },
+  {
+    "id": "832ff2ccf5e81605c98f38c35473bfad3cbcb4a16b2f8babfcb14d0d0dfee246",
+    "provider": "tmdb",
+    "providerEpisodeId": "1298227",
+    "number": 1,
+    "title": "The Rickshank Rickdemption",
+    "airAt": "2017-04-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "7124dfec91635647146f8b7f8b731499c9f1fbded081cb5c156e8a634db4c6ac",
+    "provider": "tmdb",
+    "providerEpisodeId": "1302008",
+    "number": 2,
+    "title": "Rickmancing the Stone",
+    "airAt": "2017-07-30T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "fd8f08cac0113fce6f754c050d44861efcc729cd11b1bf7db0a8ff8bf0af5b7b",
+    "provider": "tmdb",
+    "providerEpisodeId": "1340487",
+    "number": 3,
+    "title": "Pickle Rick",
+    "airAt": "2017-08-06T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "4ccb730f5384252956a598043359d13c4a6dc277052b8f8649594ebdefbd1a34",
+    "provider": "tmdb",
+    "providerEpisodeId": "1345587",
+    "number": 4,
+    "title": "Vindicators 3: The Return of Worldender",
+    "airAt": "2017-08-13T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "a87cc6679223b8f517b222fd387229c3712bda268bf2a2f3357058654b2434ab",
+    "provider": "tmdb",
+    "providerEpisodeId": "1345588",
+    "number": 5,
+    "title": "The Whirly Dirly Conspiracy",
+    "airAt": "2017-08-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "8872093ccb68c7a331342cb9f078ab4b145591dee44e8354e8f2ddfc118c87bf",
+    "provider": "tmdb",
+    "providerEpisodeId": "1345589",
+    "number": 6,
+    "title": "Rest and Ricklaxation",
+    "airAt": "2017-08-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "5a065a40b4810190d61e27a608750d3acc25538bf3897c8dc9c142f8fa93000a",
+    "provider": "tmdb",
+    "providerEpisodeId": "1345590",
+    "number": 7,
+    "title": "The Ricklantis Mixup",
+    "airAt": "2017-09-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "ffd3ee57b2ece1da1fbfc4b8a9f6e8a1e5072f8a7f17557ca2f15d9c823f5c92",
+    "provider": "tmdb",
+    "providerEpisodeId": "1345591",
+    "number": 8,
+    "title": "Morty's Mind Blowers",
+    "airAt": "2017-09-17T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "795c5c6f30f6436bc6329ce3608d0fd03caa9ab65d1caaa6893f96d6a239431b",
+    "provider": "tmdb",
+    "providerEpisodeId": "1360245",
+    "number": 9,
+    "title": "The ABC's of Beth",
+    "airAt": "2017-09-24T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "0386d156e4d55f77f4bf85061bd546f6be1739a6aa7f44a7e6546783516d01cb",
+    "provider": "tmdb",
+    "providerEpisodeId": "1360246",
+    "number": 10,
+    "title": "The Rickchurian Mortydate",
+    "airAt": "2017-10-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 3
+  },
+  {
+    "id": "a295dddfa54a69a92649bb73e9e6a0285449d6f5114cfea4b23f385056a75ff5",
+    "provider": "tmdb",
+    "providerEpisodeId": "1947767",
+    "number": 1,
+    "title": "Edge of Tomorty: Rick Die Rickpeat",
+    "airAt": "2019-11-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "d2472d4b7cb2870f5086834bbabd1d56bfd43fec1fc02f04a1e94240a59d212f",
+    "provider": "tmdb",
+    "providerEpisodeId": "1979602",
+    "number": 2,
+    "title": "The Old Man and the Seat",
+    "airAt": "2019-11-17T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "cee09513181c19d003b6150132cf0b72ea3261b52ddffb9122f1983704124233",
+    "provider": "tmdb",
+    "providerEpisodeId": "1979603",
+    "number": 3,
+    "title": "One Crew Over the Crewcoo's Morty",
+    "airAt": "2019-11-24T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "694dec3ed93e600938f0e4a2107a827cfe27a9272d43f82d1d0ce570fc93bcdb",
+    "provider": "tmdb",
+    "providerEpisodeId": "1979604",
+    "number": 4,
+    "title": "Claw and Hoarder: Special Ricktim's Morty",
+    "airAt": "2019-12-08T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "7ba852ef3b6b5814dad5a2c25026ee249e3f5d24274e73c83c9adce51704d859",
+    "provider": "tmdb",
+    "providerEpisodeId": "1979605",
+    "number": 5,
+    "title": "Rattlestar Ricklactica",
+    "airAt": "2019-12-15T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "c60d7bdbfb46e8dc1a481485660a5eecac12dc57c84c98e67e2bf094a3d20bbb",
+    "provider": "tmdb",
+    "providerEpisodeId": "2226346",
+    "number": 6,
+    "title": "Never Ricking Morty",
+    "airAt": "2020-05-03T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "1b39b187a13f5afbcb11ec1d34023e4f8c7e2e49c5c3250bdd00b4b86b302119",
+    "provider": "tmdb",
+    "providerEpisodeId": "2226348",
+    "number": 7,
+    "title": "Promortyus",
+    "airAt": "2020-05-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "7c9fd24350a8a07d6aa6566bd51249739c1f30d377e8e16bf05df81a03388351",
+    "provider": "tmdb",
+    "providerEpisodeId": "2226349",
+    "number": 8,
+    "title": "The Vat of Acid Episode",
+    "airAt": "2020-05-17T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "4d9b7bbed2c7af3dad25a988eadbf97bda2f998d8be48d0bfafd3f268d73b602",
+    "provider": "tmdb",
+    "providerEpisodeId": "2226351",
+    "number": 9,
+    "title": "Childrick of Mort",
+    "airAt": "2020-05-24T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "eaad929b3e290853f42fe7bd84d653d7fe55673735219a03def3e2e266b9354b",
+    "provider": "tmdb",
+    "providerEpisodeId": "2226352",
+    "number": 10,
+    "title": "Star Mort Rickturn of the Jerri",
+    "airAt": "2020-05-31T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 4
+  },
+  {
+    "id": "80c82ba7f4ea6e6ae7f1e6ab66384199bca0a6612c6b161249f61e16681ad6a8",
+    "provider": "tmdb",
+    "providerEpisodeId": "2839344",
+    "number": 1,
+    "title": "Mort Dinner Rick Andre",
+    "airAt": "2021-06-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "436c6e4dce7a8eb7827424e86e8210394860e9ed0b8b13ebcd228b64315991e8",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991268",
+    "number": 2,
+    "title": "Mortyplicity",
+    "airAt": "2021-06-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "0c8869d8ab45c8f004ff644ff6aff7cdaff286e8709479014a43fd3acffc63a6",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991270",
+    "number": 3,
+    "title": "A Rickconvenient Mort",
+    "airAt": "2021-07-04T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "b5c755ee84649ab1bb60b837e9a55c8b0a9918d7ea1663984e93fe3ab28777eb",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991269",
+    "number": 4,
+    "title": "Rickdependence Spray",
+    "airAt": "2021-07-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "2e7a333323b831dd702a8ff82aa2d5dc4434f538579ff4645a35ed18fb55b2d3",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991271",
+    "number": 5,
+    "title": "Amortycan Grickfitti",
+    "airAt": "2021-07-18T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "913a24228ec6c0e0db3a3fb04f7881a0526f195ee21217dc9b3957ebec664bcd",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991272",
+    "number": 6,
+    "title": "Rick & Morty's Thanksploitation Spectacular",
+    "airAt": "2021-07-25T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "17c63a3fca1a971af6d851ba866e9169e676cd4c947a91ebde367b6f320f7e19",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991273",
+    "number": 7,
+    "title": "Gotron Jerrysis Rickvangelion",
+    "airAt": "2021-08-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "0439198e8176724170cb9bd8a5df0f1f18d9f9cb76833f3f8086b1d84c061101",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991274",
+    "number": 8,
+    "title": "Rickternal Friendshine of the Spotless Mort",
+    "airAt": "2021-08-08T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "600555385dd3901b2f790579a5b5f2e8b6db8d19039ffe5c4f1bf7938a1e78da",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991275",
+    "number": 9,
+    "title": "Forgetting Sarick Mortshall",
+    "airAt": "2021-09-05T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "6a82369c46d5f649defaaf4879433f4626e5cf286f7c023557a161973336e069",
+    "provider": "tmdb",
+    "providerEpisodeId": "2991276",
+    "number": 10,
+    "title": "Rickmurai Jack",
+    "airAt": "2021-09-05T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 5
+  },
+  {
+    "id": "7d782cc7efd7cd8ceb0669875f8f45f359b850e44c2b7d65b4d4394b6b8408f7",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891529",
+    "number": 1,
+    "title": "Solaricks",
+    "airAt": "2022-09-04T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "f6c52279cbe94cebf54cade04499f73c01e29fc914722ac22f291282c7338b27",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891525",
+    "number": 2,
+    "title": "Rick: A Mort Well Lived",
+    "airAt": "2022-09-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "b49cc80cf8b418aa87493236e1a71b22f26a0f2f776b32693bfdee950de4352e",
+    "provider": "tmdb",
+    "providerEpisodeId": "3854678",
+    "number": 3,
+    "title": "Bethic Twinstinct",
+    "airAt": "2022-09-18T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "11280ee4ef61da11c1a1fe0cb406e4368762506b16c13243b2143b96f094d4f0",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891527",
+    "number": 4,
+    "title": "Night Family",
+    "airAt": "2022-09-25T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "6f7a10ee12f43527a28f6b3f836aae42796013108b35c5a953c7dfbf9ad0057d",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891511",
+    "number": 5,
+    "title": "Final DeSmithation",
+    "airAt": "2022-10-02T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "bf0d4236acd7ca65989d2a860c08e8fdeca4a249ba3d3f244ce11cd108458b5d",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891531",
+    "number": 6,
+    "title": "JuRicksic Mort",
+    "airAt": "2022-10-09T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "9815bed2df437de88ac8e92c5b52a100897823018e7c191ecf607500999f7a7d",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891510",
+    "number": 7,
+    "title": "Full Meta Jackrick",
+    "airAt": "2022-11-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "712da2394b8fc47f52d6cb96e42449aa4e7116744679e1020f03e0dad65bd7e6",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891530",
+    "number": 8,
+    "title": "Analyze Piss",
+    "airAt": "2022-11-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "0a88ba7e75f3c3184da49f817250bb95483685b85c0adbe0002059b34e0fc6bf",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891528",
+    "number": 9,
+    "title": "A Rick in King Mortur's Mort",
+    "airAt": "2022-12-04T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "c5789b90ec408d149ff2fddb10c9ac745b46ef1ccf0e70b7d89d49d5ee053395",
+    "provider": "tmdb",
+    "providerEpisodeId": "3891509",
+    "number": 10,
+    "title": "Ricktional Mortpoon's Rickmas Mortcation",
+    "airAt": "2022-12-11T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 6
+  },
+  {
+    "id": "3d770d6b976c6fbcd40d9a3db3bfbc5f97c49d11aa45ccf837a9be0836d25722",
+    "provider": "tmdb",
+    "providerEpisodeId": "4678377",
+    "number": 1,
+    "title": "How Poopy Got His Poop Back",
+    "airAt": "2023-10-15T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "90ecece26488f0a0c87fc3cbbfb78a62a3c68a09fccec67cfb990f44c72660f1",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694201",
+    "number": 2,
+    "title": "The Jerrick Trap",
+    "airAt": "2023-10-22T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "f34cf580992fbc45054e471cfa575f9b652eb3ea54ae63575f8347809641f426",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694202",
+    "number": 3,
+    "title": "Air Force Wong",
+    "airAt": "2023-10-29T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "ac8480a57cc63f0ba331851649854758105452ebdf65838ac35a9100cd1ebff1",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694203",
+    "number": 4,
+    "title": "That's Amorte",
+    "airAt": "2023-11-05T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "86aad5b14afe561b47723ac2cd82cbf7aea8341ab289bc2e50364fd48c9e720d",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694204",
+    "number": 5,
+    "title": "Unmortricken",
+    "airAt": "2023-11-12T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "b287777e5470b58fab95a47fa0648476a03399bd3f925834d99ca391642aab21",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694205",
+    "number": 6,
+    "title": "Rickfending Your Mort",
+    "airAt": "2023-11-19T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "2d2b8176fd176c3efedfa584a2b1806d4beafa5132dc9df3fdf52600a3e6b500",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694207",
+    "number": 7,
+    "title": "Wet Kuat Amortican Summer",
+    "airAt": "2023-11-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "3eb86e05e03fac31acd0584a8daefa462a1e9dffb9f228b6853e8de58e4469f2",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694208",
+    "number": 8,
+    "title": "Rise of the Numbericons: The Movie",
+    "airAt": "2023-12-03T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "a3a6b5a136ccd9716bf1404c972c0a1024d35474dee641ac4e590582c15064fc",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694209",
+    "number": 9,
+    "title": "Mort: Ragnarick",
+    "airAt": "2023-12-10T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "93fcda3cce6976bad7e5aa5cf5f364661b834a7aea4cb9ed1392daa9b471c038",
+    "provider": "tmdb",
+    "providerEpisodeId": "4694210",
+    "number": 10,
+    "title": "Fear No Mort",
+    "airAt": "2023-12-17T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 7
+  },
+  {
+    "id": "91a87eb46dafa32f654f32c7c8c7ed1c6300b3f59c20c4bdd7c96930c2b06b73",
+    "provider": "tmdb",
+    "providerEpisodeId": "6085790",
+    "number": 1,
+    "title": "Summer of All Fears",
+    "airAt": "2025-05-25T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "6b16b72dcc5bebc49ac3e76170c3537f52a5a1c3a72b50cbee2bd093e7c9eb09",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122200",
+    "number": 2,
+    "title": "Valkyrick",
+    "airAt": "2025-06-01T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "2dc4d95a18493e8c75aff7359288d25a2e67233cb104c4a4275195a2f7fb5322",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122201",
+    "number": 3,
+    "title": "The Rick, the Mort & the Ugly",
+    "airAt": "2025-06-08T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "5d13d20a0ef022db5e99b6878f9569d576cd4f66783e4c65ef8542f49ae2c9ba",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122203",
+    "number": 4,
+    "title": "The Last Temptation of Jerry",
+    "airAt": "2025-06-15T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "f5bdb0535455034d92cd90e5708868f0e1354f05ee87c05db429fb99b80c87e5",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122204",
+    "number": 5,
+    "title": "Cryo Mort a Rickver",
+    "airAt": "2025-06-22T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "f9747ae088b2cf42650206a186858db9233b5c17ff6ccf23ee11b6f0ec6ebef0",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122205",
+    "number": 6,
+    "title": "The CuRicksous Case of Bethjamin Button",
+    "airAt": "2025-06-29T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "beefee325a7a751d4379ba84a38b1719d96ddaccc56042e20debe2a4061b4850",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122207",
+    "number": 7,
+    "title": "Ricker than Fiction",
+    "airAt": "2025-07-06T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "87ffbf848fc99784739129d9b7cf3f92b2b87329f113933af22922e169642e20",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122208",
+    "number": 8,
+    "title": "Nomortland",
+    "airAt": "2025-07-13T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "2f27e8ae746092a636ac715ee3ca814be7e7c4c9d5c959e56e6e0c3d1009ccec",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122209",
+    "number": 9,
+    "title": "Morty Daddy",
+    "airAt": "2025-07-20T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "0b39ed8f7c64b3cb2d3c51f6620ef80090804321a05c6654a85572deb3d75a95",
+    "provider": "tmdb",
+    "providerEpisodeId": "6122210",
+    "number": 10,
+    "title": "Hot Rick",
+    "airAt": "2025-07-27T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 8
+  },
+  {
+    "id": "7476412ac278a91c7ff3cb8acb150d26996f59581fa3450850c6da7d46caa508",
+    "provider": "tmdb",
+    "providerEpisodeId": "7027105",
+    "number": 1,
+    "title": "There's Something About Morty",
+    "airAt": "2026-05-24T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "6d2f3a3d794f54342acc471484ff4dfef11808edf152a850df13a45755bb9991",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045602",
+    "number": 2,
+    "title": "Ricks Days, Seven Nights",
+    "airAt": "2026-05-31T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "da86d5bf55b9bdc63cb7498651f28665fd617de18b474104b05a482f069ee8af",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045603",
+    "number": 3,
+    "title": "Rick Fu Hustle",
+    "airAt": "2026-06-07T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "f3655828ceebafb0dfdd35d6e270b2309cb235977b54392eacd235683b33ca33",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045604",
+    "number": 4,
+    "title": "A Ricker Runs Through It",
+    "airAt": "2026-06-14T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "90916308429fbc8e62dad0df4a7e87d61fde8d9244ab8996eea9bb6c446d4d42",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045605",
+    "number": 5,
+    "title": "Jer Bud",
+    "airAt": "2026-06-21T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "67e4a591a98d26d95d38d66aa9ec2767f8e7a9012cc4479294accc607865d8e8",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045607",
+    "number": 6,
+    "title": "Erickerhead",
+    "airAt": "2026-06-28T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "d6b4f0f1a8e56ae915b662e96a4c32f6d9ea55c13b8c9a2fbfee822b70c6bfd6",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045608",
+    "number": 7,
+    "title": "Mortgully: The Last Rickforest",
+    "airAt": "2026-07-05T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "3d5522e23b0ee06510d1640601f9190df26e5805db0a30b40c4aeb9996dd2cd9",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045609",
+    "number": 8,
+    "title": "Rickuiem Mort a Dream",
+    "airAt": "2026-07-12T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "c4b73f54976a945fd3d78f55c8cbf3b0c44fd56d1f44913cdb06370dfdcbeba0",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045611",
+    "number": 9,
+    "title": "Salute Your Morts",
+    "airAt": "2026-07-19T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  },
+  {
+    "id": "b3d7ac7f2e80014c09583edff1194f2c24887bb75fbac35dd8e3baf54ca16c30",
+    "provider": "tmdb",
+    "providerEpisodeId": "7045613",
+    "number": 10,
+    "title": "Field of Dreams",
+    "airAt": "2026-07-26T00:00:00.0000000+00:00",
+    "mappingStatus": "confirmed",
+    "season": 9
+  }
+]

@@ -1,0 +1,13 @@
+  Determining projects to restore...
+  Restored D:\code\memtest\wt-epid\backend\tools\Convert\Convert.csproj (in 411 ms).
+  3 of 4 projects are up-to-date for restore.
+  Domain -> D:\code\memtest\bin-epid-convert\TorrentFlow.Domain.dll
+  Store -> D:\code\memtest\bin-epid-convert\TorrentFlow.Store.dll
+  Library -> D:\code\memtest\bin-epid-convert\TorrentFlow.Library.dll
+  Convert -> D:\code\memtest\bin-epid-convert\TorrentFlow.Convert.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.54

@@ -1,0 +1,47 @@
+{
+  "Target": {
+    "count": 90,
+    "unchangedAcrossRestarts": true,
+    "sha256": "d01604e956d5112be386582bd4980b910f103ec205efc6c39fb8840d7f985c4e"
+  },
+  "MediaFile": {
+    "count": 14,
+    "unchangedAcrossRestarts": true,
+    "sha256": "b518b20ecc9b7d7239569d793d3420b0a9b9e0c7eb59656afa2c2cc5a59b5b07"
+  },
+  "Download": {
+    "count": 30,
+    "unchangedAcrossRestarts": true,
+    "sha256": "e4c6d0dd862cd4425623a834119b9f858f9c0a73fca940f2fc4c88ba33467142"
+  },
+  "DownloadFile": {
+    "count": 12,
+    "unchangedAcrossRestarts": true,
+    "sha256": "9d2ed15eac0441c044a613b7cc4f8ccee9c42828b745ecc9b372d62c5c00ebaf"
+  },
+  "ImportReview": {
+    "count": 2,
+    "unchangedAcrossRestarts": true,
+    "sha256": "b70975a1e15fda3e7f131f5e20cc2aa52ac7bd645737a214445221fa1c67bcb8"
+  },
+  "ImportDecision": {
+    "count": 14,
+    "unchangedAcrossRestarts": true,
+    "sha256": "b2ce4ab7bb9b623a5f49f8ecbe7f1b375f052a4dacb4b7a1157485482b97fe37"
+  },
+  "WatchItem": {
+    "count": 2,
+    "unchangedAcrossRestarts": true,
+    "sha256": "54a83b7dd4e293bd418fb214d20bba14640c0d1b519a2ea6bd8f6754f58f7ac7"
+  },
+  "Follow": {
+    "count": 2,
+    "unchangedAcrossRestarts": true,
+    "sha256": "60d1568e0c57b6867ab8edf602510eaae73deecfebe7e9994fdcfed37e4fe4d0"
+  },
+  "uniqueErrors": 0,
+  "loggedErrors": 0,
+  "startupReadyCount": 5,
+  "integrity": "ok",
+  "fkFailures": 0
+}

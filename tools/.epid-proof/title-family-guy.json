@@ -1,0 +1,397 @@
+{
+  "workKey": "family-guy",
+  "title": "Family Guy",
+  "aliases": [
+    "\u10d2\u10e0\u10d8\u10e4\u10d8\u10dc\u10d4\u10d1\u10d8",
+    "Keluarga Pria",
+    "\u0645\u0631\u062f \u062e\u0627\u0646\u0647",
+    "\u062e\u0627\u0646\u0648\u0627\u062f\u0647\u200c \u062f\u0648\u0633\u062a",
+    "\uc1fc\ud0b9 \ud328\ubc00\ub9ac",
+    "\u092a\u0930\u093f\u0935\u093e\u0930\u0915\u094b \u0915\u0947\u091f\u093e",
+    "\u0421\u0456\u043c\u2019\u044f\u043d\u0438\u043d",
+    "\u0490\u0440\u0456\u0444\u0444\u0456\u043d\u0438"
+  ],
+  "names": [
+    {
+      "text": "Family Guy",
+      "kind": "english"
+    },
+    {
+      "text": "Family Guy",
+      "kind": "original"
+    },
+    {
+      "text": "\u10d2\u10e0\u10d8\u10e4\u10d8\u10dc\u10d4\u10d1\u10d8",
+      "kind": "synonym"
+    },
+    {
+      "text": "Keluarga Pria",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0645\u0631\u062f \u062e\u0627\u0646\u0647",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u062e\u0627\u0646\u0648\u0627\u062f\u0647\u200c \u062f\u0648\u0633\u062a",
+      "kind": "synonym"
+    },
+    {
+      "text": "\uc1fc\ud0b9 \ud328\ubc00\ub9ac",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u092a\u0930\u093f\u0935\u093e\u0930\u0915\u094b \u0915\u0947\u091f\u093e",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0421\u0456\u043c\u2019\u044f\u043d\u0438\u043d",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0490\u0440\u0456\u0444\u0444\u0456\u043d\u0438",
+      "kind": "synonym"
+    },
+    {
+      "text": "Family Guy",
+      "kind": "synonym"
+    }
+  ],
+  "ids": {
+    "tmdb": 1434,
+    "anilist": null,
+    "mal": null,
+    "imdb": "tt0182576"
+  },
+  "format": "series",
+  "originalLanguage": "en",
+  "provider": "tmdb",
+  "providerId": "1434",
+  "year": 1999,
+  "mediaType": "tv",
+  "isSeries": true,
+  "overview": "Sick, twisted, politically incorrect and Freakin' Sweet animated series featuring the adventures of the dysfunctional Griffin family. Bumbling Peter and long-suffering Lois have three kids. Stewie (a brilliant but sadistic baby bent on killing his mother and taking over the world), Meg (the oldest, and is the most unpopular girl in town) and Chris (the middle kid, he's not very bright but has a passion for movies). The final member of the family is Brian - a talking dog and much more than a pet, he keeps Stewie in check whilst sipping Martinis and sorting through his own life issues.",
+  "rating": 7.411,
+  "ratingSource": "tmdb",
+  "posterUrl": "https://image.tmdb.org/t/p/w500/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg",
+  "backdropUrl": "https://image.tmdb.org/t/p/w1280/l7wShoIdIUwaDIbsHno9pO5MZXT.jpg",
+  "releaseDate": "1999-01-31",
+  "availability": null,
+  "infoHash": null,
+  "owned": null,
+  "downloadFraction": null,
+  "transfer": null,
+  "seasons": [
+    {
+      "season": 1,
+      "knownEpisodes": 7,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 1,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 2,
+      "knownEpisodes": 21,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 3,
+      "knownEpisodes": 22,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 4,
+      "knownEpisodes": 30,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 5,
+      "knownEpisodes": 18,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 6,
+      "knownEpisodes": 12,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 7,
+      "knownEpisodes": 16,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 8,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 9,
+      "knownEpisodes": 18,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 10,
+      "knownEpisodes": 23,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 11,
+      "knownEpisodes": 22,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 12,
+      "knownEpisodes": 21,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 13,
+      "knownEpisodes": 18,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 14,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 15,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 16,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 17,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 18,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 19,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 20,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 21,
+      "knownEpisodes": 20,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 22,
+      "knownEpisodes": 15,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 23,
+      "knownEpisodes": 18,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    },
+    {
+      "season": 24,
+      "knownEpisodes": 15,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0
+    }
+  ],
+  "season": 1,
+  "episodes": [
+    {
+      "season": 1,
+      "episode": 5,
+      "label": "S01E05",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 4,
+      "label": "S01E04",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 2,
+      "label": "S01E02",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 7,
+      "label": "S01E07",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 3,
+      "label": "S01E03",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 6,
+      "label": "S01E06",
+      "availability": null,
+      "owned": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 1,
+      "label": "S01E01",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    }
+  ],
+  "episodesTruncated": false,
+  "library": {
+    "inLibrary": true,
+    "watchListItemId": "cmurpw4f8busyf2ap08vz5313",
+    "monitored": false,
+    "status": "watching",
+    "cursorSeason": null,
+    "cursorEpisode": null,
+    "addPayload": {
+      "mediaType": "tv",
+      "externalId": "1434",
+      "title": "Family Guy",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg",
+      "synopsis": "Sick, twisted, politically incorrect and Freakin' Sweet animated series featuring the adventures of the dysfunctional Griffin family. Bumbling Peter and long-suffering Lois have three kids. Stewie (a brilliant but sadistic baby bent on killing his mother and taking over the world), Meg (the oldest, and is the most unpopular girl in town) and Chris (the middle kid, he's not very bright but has a passion for movies). The final member of the family is Brian - a talking dog and much more than a pet, he keeps Stewie in check whilst sipping Martinis and sorting through his own life issues.",
+      "rating": 7.411,
+      "workKey": "family-guy",
+      "provider": "tmdb",
+      "providerId": "1434",
+      "format": "Series"
+    }
+  },
+  "known": true,
+  "generatedAt": "2026-10-03T20:55:45.6596406+00:00"
+}

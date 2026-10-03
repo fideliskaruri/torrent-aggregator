@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "intervalMinutes": 1,
+  "activeScopes": 8,
+  "backgroundScopes": 2,
+  "backgroundAdapters": 8,
+  "probeConcurrency": 10,
+  "backgroundProbes": 2,
+  "firstFullRootScanComplete": true,
+  "importReviewComplete": true
+}

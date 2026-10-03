@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cmurncgagbuonpg9clx427y9w",
+    "workId": "cmurncg9qbuom9jsyhu3rn32g",
+    "provider": "imdb",
+    "externalId": "tt2861424",
+    "mediaType": null,
+    "season": null,
+    "source": "provider",
+    "mappingVersion": "5958d5ffbed7",
+    "confidence": 1.0,
+    "verified": 1,
+    "rejected": 0,
+    "namesJson": null,
+    "createdAt": "2026-10-03T00:21:19.095+00:00",
+    "updatedAt": "2026-10-03T00:21:19.346+00:00"
+  },
+  {
+    "id": "cmurncgaybuoozizxdd982ayk",
+    "workId": "cmurncg9qbuom9jsyhu3rn32g",
+    "provider": "tvdb",
+    "externalId": "275274",
+    "mediaType": null,
+    "season": null,
+    "source": "provider",
+    "mappingVersion": "5958d5ffbed7",
+    "confidence": 1.0,
+    "verified": 1,
+    "rejected": 0,
+    "namesJson": null,
+    "createdAt": "2026-10-03T00:21:19.095+00:00",
+    "updatedAt": "2026-10-03T00:21:19.346+00:00"
+  },
+  {
+    "id": "cmurncghebup127esionnbwf9",
+    "workId": "cmurncg9qbuom9jsyhu3rn32g",
+    "provider": "tmdb",
+    "externalId": "60625",
+    "mediaType": "tv",
+    "season": null,
+    "source": "title-search",
+    "mappingVersion": "5958d5ffbed7",
+    "confidence": 0.7,
+    "verified": 0,
+    "rejected": 0,
+    "namesJson": "[{\"text\":\"Rick and Morty\",\"kind\":\"English\"}]",
+    "createdAt": "2026-10-03T00:21:19.346+00:00",
+    "updatedAt": "2026-10-03T00:21:19.346+00:00"
+  }
+]

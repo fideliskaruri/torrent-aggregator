@@ -1,0 +1,20 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Domain -> D:\code\memtest\bin-epid\TorrentFlow.Domain.dll
+  Plan -> D:\code\memtest\bin-epid\TorrentFlow.Plan.dll
+  Parser -> D:\code\memtest\bin-epid\TorrentFlow.Parser.dll
+  Engine -> D:\code\memtest\bin-epid\TorrentFlow.Engine.dll
+  Sources -> D:\code\memtest\bin-epid\TorrentFlow.Sources.dll
+  Check -> D:\code\memtest\bin-epid\TorrentFlow.Check.dll
+  Library -> D:\code\memtest\bin-epid\TorrentFlow.Library.dll
+  Store -> D:\code\memtest\bin-epid\TorrentFlow.Store.dll
+  Metadata -> D:\code\memtest\bin-epid\TorrentFlow.Metadata.dll
+  Find -> D:\code\memtest\bin-epid\TorrentFlow.Find.dll
+  Targets -> D:\code\memtest\bin-epid\TorrentFlow.Targets.dll
+  Api -> D:\code\memtest\bin-epid\TorrentFlow.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:04.86
