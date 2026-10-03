@@ -80,7 +80,7 @@ function RequesterCalendar() {
                         <div className="flex min-w-0 flex-1 flex-col gap-2">
                           <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>
                           <p className="text-xs text-muted-foreground">
-                            {entry.mediaType === "movie" ? "Film" : "Series"} · {releaseWording(entry.release, entry.mediaType)}{group.key === "due" ? "" : ` · ${entry.at ? timelineTime(entry.at, now) : "Date not known"}`}
+                            {entry.mediaType === "movie" ? "Film" : "Series"} · {releaseWording(entry.release, entry.mediaType)}{group.key === "due" || group.key === "library" ? "" : ` · ${entry.at ? timelineTime(entry.at, now) : "Date not known"}`}
                           </p>
                           <div className="self-start"><StateBadge state={entry.state} /></div>
                         </div>
@@ -256,7 +256,7 @@ function OwnerCalendar() {
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       <div className="flex min-w-0 flex-col gap-1 md:flex-row md:justify-between md:gap-4">
                         <h3 className="min-w-0 break-words text-sm font-medium text-foreground">{entry.title}</h3>
-                        {group.key === "due" ? null : entry.at ? (
+                        {group.key === "due" || group.key === "library" ? null : entry.at ? (
                           <time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}
                             className="shrink-0 text-xs tabular-nums text-muted-foreground">
                             {timelineTime(entry.at, now)}

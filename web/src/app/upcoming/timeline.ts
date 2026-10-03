@@ -46,15 +46,18 @@ export function groupByDay<T extends { at?: string | null; state?: CalendarState
     const valid = at && Number.isFinite(at.getTime());
     const day = valid ? new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime() : NaN;
     const diff = Math.round((day - today) / 86_400_000);
-    const due = valid && diff < 0 && entry.state !== "in_library";
-    const key = due ? "due" : valid ? String(day) : "none";
-    const label = due ? "Due now" : !valid ? "Date not known" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
+    // Already filed: not upcoming, so it never sits under a past release date or "Due now".
+    const filed = entry.state === "in_library";
+    const due = valid && diff < 0 && !filed;
+    const key = filed ? "library" : due ? "due" : valid ? String(day) : "none";
+    const label = filed ? "Recently added to your library" : due ? "Due now" : !valid ? "Date not known" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
       : at.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short",
         ...(at.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
     if (!map.has(key)) map.set(key, { key, label, entries: [] });
     map.get(key)!.entries.push(entry);
   }
-  return [...map.values()].sort((a, b) => (a.key === "due" ? -1 : b.key === "due" ? 1 : a.key === "none" ? 1 : b.key === "none" ? -1 : Number(a.key) - Number(b.key)));
+  const rank = (key: string) => (key === "due" ? 0 : key === "none" ? 2 : key === "library" ? 3 : 1);
+  return [...map.values()].sort((a, b) => rank(a.key) - rank(b.key) || Number(a.key) - Number(b.key));
 }
 
 export type TimelineResponse = { entries: TimelineEntry[]; airTimesUnavailable: boolean };
