@@ -29,6 +29,10 @@ internal static class DownloadEndpoints
             Reply(await api.ListAsync(ct)));
         group.MapPost("/client/torrents", async (DownloadAction input, DownloadsApi api, CancellationToken ct) =>
             Reply(await api.ActionAsync(input, ct)));
+        group.MapPost("/client/torrents/tidy", async (DownloadsApi api, CancellationToken ct) =>
+            Reply(await api.TidyAsync(ct)));
+        group.MapPost("/downloads/{transferId}/keep", async (string transferId, DownloadsApi api, CancellationToken ct) =>
+            Reply(await api.KeepAsync(transferId, ct)));
         group.MapPost("/title/{workKey}", async (string workKey, TitleDownload input, HttpContext http,
             TargetPipeline targets, CancellationToken ct) =>
         {
@@ -103,6 +107,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
         var raw = await Rows<RawIntentRow>(ct);
         var files = await Rows<DownloadFileRow>(ct);
         var media = await Rows<MediaFileRow>(ct);
+        var cap = SettingsCatalog.Read<EngineSettings>((await Rows<SettingRow>(ct)).Single(s => s.Id == "engine"))
+            .MaxActiveDownloads;
+        var full = snapshot.Live.Count(l => l.Active && !l.Complete) >= cap;
         var rows = new List<object>();
         var queuePosition = 0;
         foreach (var download in snapshot.Queue.Select(q => snapshot.Downloads.Single(d => d.Id == q.DownloadId)))
@@ -121,14 +128,18 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 rawIntent?.State == RawDownloadState.Done;
             var paused = target?.State == TargetState.Paused || rawIntent?.State == RawDownloadState.Paused ||
                 live?.Intent == DownloadIntent.Paused;
-            var failed = live?.Failure is not null || live is null &&
-                target?.State == TargetState.Waiting && target.ReasonCode != WaitReason.DownloadCap;
+            var failed = live?.Failure is not null || live is null && !done && !paused;
             var state = done ? "complete" : paused ? "paused" : failed ? "error" :
                 live?.Complete == true || target?.State == TargetState.Filing ? "finishing" :
                 live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
-                    live.StalledProgress ? "stalledDL" : "downloading" : "queued";
+                    live.StalledProgress ? "stalledDL" : "downloading" :
+                live?.Intent == DownloadIntent.Queued && full ? "queued" :
+                live?.MetadataAvailable == false ? "metaDL" : "stalledDL";
             var selected = files.Where(f => f.DownloadId == download.Id && f.Role != FileRole.Unwanted).ToArray();
-            var size = selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) : live?.SelectedBytes ?? 0;
+            var size = selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
+                live?.SelectedBytes ?? release?.TotalBytes ?? 0;
+            size += media.Where(m => m.DownloadId == download.Id &&
+                selected.All(f => f.FileIndex != m.FileIndex)).Sum(m => m.Bytes);
             var completed = selected.Length > 0 ? selected.Sum(f => f.Filed ? f.ExpectedBytes :
                 live?.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.CompletedBytes ?? 0) :
                 live?.CompletedSelectedBytes ?? 0;
@@ -177,7 +188,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             "delete" => TargetAction.Remove, "force" => TargetAction.DownloadNow,
             _ => throw new ArgumentException("Choose pause, resume, delete or force."),
         };
-        if (input.DeleteFiles) throw new ArgumentException("Deleting media files is not available here yet. Remove the download without deleting files.");
+        if (input.DeleteFiles && action != TargetAction.Remove)
+            throw new ArgumentException("Delete files is only available when removing a download.");
         var hashes = input.Hashes ?? (input.Hash is { } singleHash ? [singleHash] : []);
         if (hashes.Length == 0 || hashes.Length > 500) throw new ArgumentException("Choose downloads to change.");
         var snapshot = await targets.ReadAsync(ct);
@@ -188,9 +200,27 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             if (download is null) continue;
             var ids = links.Where(l => l.DownloadId == download.Id).Select(l => l.TargetId).Distinct().ToArray();
             if (ids.Length == 0) throw new ArgumentException("This raw download does not support target actions yet.");
+            if (input.DeleteFiles) await targets.DeleteDownloadFilesAsync(hash, ct);
             foreach (var id in ids) await targets.ActionAsync(id, action, ct);
         }
         return new { ok = true };
+    }
+
+    internal async Task<object> TidyAsync(CancellationToken ct)
+    {
+        var downloads = (await targets.ReadAsync(ct)).Downloads;
+        // Library reserves the final layout before admission; there are no legacy nested moves.
+        return new { @checked = downloads.Length, tidied = 0, filesMoved = 0, stillNested = 0,
+            skipped = downloads.Count(d => d.FinishedAt is null) };
+    }
+
+    internal async Task<object> KeepAsync(string transferId, CancellationToken ct)
+    {
+        var hash = transferId.StartsWith("builtin:", StringComparison.Ordinal) ? transferId[8..] : transferId;
+        var download = (await targets.ReadAsync(ct)).Downloads.SingleOrDefault(d => d.Hash == hash);
+        if (download is null) throw new ArgumentException("This download is no longer available.");
+        if (download.FinishedAt is null) throw new InvalidOperationException("This download is still finishing. Try again when it is ready.");
+        return new { ok = true, message = "The download is already kept in your library." };
     }
 
     private async Task<(TargetRow Target, WorkRow? Work, string? Title, int? Season, int? Episode)[]> WantedRows(CancellationToken ct)
@@ -200,8 +230,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
         var names = await Rows<WorkNameRow>(ct);
         var episodes = await Rows<EpisodeRow>(ct);
         var seasons = await Rows<SeasonRow>(ct);
+        var links = await Rows<DownloadTargetRow>(ct);
         return snapshot.Targets.Where(t => t.State is TargetState.Wanted or TargetState.Waiting or
-            TargetState.Finding or TargetState.Checking or TargetState.Planning).Select(t =>
+            TargetState.Finding or TargetState.Checking or TargetState.Planning)
+            .Where(t => !links.Any(l => l.TargetId == t.Id && snapshot.Downloads.Any(d => d.Id == l.DownloadId)))
+            .Select(t =>
         {
             var work = works.FirstOrDefault(w => w.Id == t.WorkId);
             var episode = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);

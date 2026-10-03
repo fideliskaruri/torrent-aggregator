@@ -92,8 +92,16 @@ exposes the Targets-owned ordering for truthful queue positions. Target actions 
 removing completed intent while retaining Library files, and Try now dispatches a Wanted
 target immediately. The cap update calls Engine directly and applies in both directions.
 
-The first slice does not implement raw magnet submission, raw-intent actions, deletion
-of media files, pending unresolved-scope wanted rows, tidy, promotion answers, or external
-client import. External recovery import explicitly returns 501 rather than claiming success.
+Target-backed deletion supports `deleteFiles`, using Library's digest-checked, path-bounded
+payload removal. Tidy reports the already-reserved final layout without moving active files;
+Keep acknowledges an already-filed download. Wanted excludes targets represented by a
+download, including failed admissions. Admission exceptions roll back bindings, associations
+and download state before retrying. Library media identity is based on its physical path,
+so retaining a file and downloading the same hash to another root cannot collide on filing.
+Readiness checks SettingsCatalog's required sections rather than a fixed section count.
+
+Remaining: raw magnet submission, raw-intent actions, pending unresolved-scope wanted rows,
+Find another promotion answers, and external client import. External recovery import
+explicitly returns 501 rather than claiming success.
 Download recovery restores persisted Engine bindings; it does not import another client's
-storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\`.
+storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\finish\`.

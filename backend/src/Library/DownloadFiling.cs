@@ -96,7 +96,9 @@ public sealed class DownloadFiling
         var path = binding.FinalPath!;
         LibraryPaths.NoLinks(path);
         (int? Width, int? Height) dimensions = binding.Role == FileRole.Video ? VideoDimensions.Read(path) : (null, null);
-        return new($"downloaded:{binding.DownloadId}:{binding.FileIndex}", target.WorkId, target.EpisodeId,
+        var physicalKey = LibraryPaths.PhysicalKey(path);
+        var identity = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(physicalKey)));
+        return new($"downloaded:{identity}", target.WorkId, target.EpisodeId,
             context.Download.RootId, path, LibraryPaths.PhysicalKey(path), binding.Role, null,
             binding.ExpectedBytes, File.GetLastWriteTimeUtc(path),
             VideoDimensions.Resolution(dimensions.Width, dimensions.Height) ?? context.Resolution, context.Source,

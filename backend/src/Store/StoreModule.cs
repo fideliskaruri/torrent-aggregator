@@ -104,7 +104,9 @@ public sealed class StoreDatabase
             foreach (var table in Schema.Tables)
                 _ = await db.Set<Dictionary<string, object>>(table.Name).AnyAsync(ct);
             var rows = await db.Set<Dictionary<string, object>>("Setting").AsNoTracking().ToListAsync(ct);
-            if (rows.Count != 10) return false;
+            var required = SettingsCatalog.Defaults(null, false).Select(s => s.Id).ToHashSet();
+            var actual = rows.Select(r => ((SettingRow)Schema.Table("Setting").ToRow(r)).Id).ToHashSet();
+            if (!actual.SetEquals(required)) return false;
             foreach (var row in rows) SettingsCatalog.Validate((SettingRow)Schema.Table("Setting").ToRow(row));
             return true;
         }

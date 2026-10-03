@@ -103,8 +103,16 @@ public sealed partial class LibraryRepository
             operation.ExpectedDigest != media.ContentDigest) return null;
         var claims = await db.Set<Dictionary<string, object>>("FilePathClaim").AsNoTracking()
             .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
+        var prior = (await MediaAsync(null, ct)).SingleOrDefault(m => m.PhysicalKey == media.PhysicalKey);
+        if (prior is not null)
+        {
+            if (prior.PhysicalKey != media.PhysicalKey || prior.ContentDigest != media.ContentDigest)
+                throw new IOException("The previous library file differs from this download. Review the existing file.");
+            media = media with { Id = prior.Id, Version = prior.Version + 1 };
+            after = after with { MediaFileId = prior.Id };
+        }
         return new FilingWriteProposal(before.TargetId,
-            [new(after, null, before), new(media, null, null),
+            [new(after, null, before), new(media, prior?.Version, null),
              new(operation with { State = FileOperationState.Done, MediaFileId = media.Id,
                  UpdatedAt = DateTimeOffset.UtcNow }, null, operation)],
             [.. claims.Select(r => new RowDelete(StoreTable.FilePathClaim, (string)r["id"], null,

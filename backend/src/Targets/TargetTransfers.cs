@@ -92,7 +92,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 if (!await repository.SavePlacementAsync(files, placement.Folders, ct))
                     throw new IOException("The library placement changed.");
                 var fresh = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
-                if (targets.Any(t => fresh.All(f => f.Id != t.Id || f.State != TargetState.Fetching))) return;
+                if (targets.Any(t => fresh.All(f => f.Id != t.Id || f.State != TargetState.Fetching)))
+                    throw new IOException("The download intent changed before it could start.");
                 var admission = new EngineAdmission(download, candidate,
                     [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
                 await engine.ApplyQueueAsync(new([])
@@ -121,7 +122,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         var affected = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), CancellationToken.None);
                         var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), CancellationToken.None);
                         await TargetPipeline.CommitAsync(store,
-                            [.. affected.Where(t => targets.Any(a => a.Id == t.Id) && t.ChosenReleaseHash == assignment.Hash)
+                            [.. affected.Where(t => targets.Any(a => a.Id == t.Id) && t.ChosenReleaseHash == assignment.Hash &&
+                                    t.State == TargetState.Fetching)
                                 .Select(t => new RowWrite(t with { State = TargetState.Wanted, ChosenReleaseHash = null,
                                     ResumeState = null, LeaseToken = null, LeaseUntil = null,
                                     UpdatedAt = DateTimeOffset.UtcNow, Version = t.Version + 1 }, t.Version, null))],
