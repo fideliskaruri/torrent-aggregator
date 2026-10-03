@@ -1,0 +1,6 @@
+{
+  "key": "OPS-821",
+  "title": "Library films have no Delete files control and deletion leaves Ready until polling",
+  "status": "needs_verification",
+  "description": "Backend lane cannot edit web. At 1280/390 the film card only renders Search and Remove from library; that confirmation explicitly tells the owner to use Delete files under More options, but More options is only rendered for series. Series deletion returns 200 and removes payload immediately, but the existing card retains Ready until its next 30-second poll. Evidence tools/.libdel-proof desktop screenshots and network requests; source web/src/app/watchlist/page.tsx."
+}

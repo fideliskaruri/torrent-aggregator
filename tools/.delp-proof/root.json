@@ -1,0 +1,32 @@
+{
+  "root": {
+    "path": "D:\\code\\memtest\\library-delp",
+    "physicalKey": "d:\\code\\memtest\\library-delp",
+    "kinds": [
+      "Movies",
+      "TV",
+      "Anime",
+      "AnimeMovies"
+    ],
+    "libraryFolders": {
+      "movies": "Movies",
+      "tv": "TV",
+      "anime": "Anime Series",
+      "animeMovies": "Anime Movies"
+    },
+    "volumeSerial": "06f43487",
+    "priority": 1,
+    "reserveBytes": 0,
+    "maxAllocatedBytes": null,
+    "enabled": true,
+    "online": true,
+    "reviewRequired": false,
+    "lastCheckedAt": "2026-10-03T23:32:39.5754962+03:00",
+    "lastError": null,
+    "createdAt": "2026-10-03T23:32:39.5754962+03:00",
+    "updatedAt": "2026-10-03T23:32:39.5754962+03:00",
+    "version": 1,
+    "id": "538bdda1cdac4b06a1e0aa7830de0f7b"
+  },
+  "failure": null
+}
