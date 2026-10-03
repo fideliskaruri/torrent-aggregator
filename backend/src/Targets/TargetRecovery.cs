@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
+using TorrentFlow.Library;
 
 namespace TorrentFlow.Targets;
 
@@ -67,10 +68,14 @@ public sealed partial class TargetPipeline
 
     private async Task<TargetActionReply> SwapAsync(string targetId, string? stall, CancellationToken ct)
     {
-        if (!await CanRunAsync(ct))
-            return new(false, 0, 0, [targetId], "Downloads are paused. Finish reviewing the library and enable downloads first.");
         var initial = await ReadAsync(ct);
         var first = initial.Targets.SingleOrDefault(t => t.Id == targetId);
+        await using var reviewScope = scopes.CreateAsyncScope();
+        if (first is not null &&
+            await reviewScope.ServiceProvider.GetRequiredService<ImportReviews>().HoldsAsync(first.WorkId, ct))
+            return new(false, 0, 0, [targetId], ImportReviews.HoldMessage);
+        if (!await CanRunAsync(ct, owner: stall is null))
+            return new(false, 0, 0, [targetId], "Downloads are paused. Finish reviewing the library and enable downloads first.");
         if (first is null || first.State != TargetState.Fetching || first.ChosenReleaseHash is null)
             return new(false, 0, 0, [targetId], "Only an unfinished download can find another release.");
         var old = initial.Downloads.Single(d => d.Hash == first.ChosenReleaseHash);

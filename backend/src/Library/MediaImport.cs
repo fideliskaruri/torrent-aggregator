@@ -28,6 +28,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             LibraryPaths.NoLinks(file);
             yield return file;
         }
+
         foreach (var folder in Directory.EnumerateDirectories(path))
         {
             if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) continue;
@@ -35,6 +36,40 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         }
     }
 
+    public async Task<ImportScanView> AdoptAsync(ImportScanView scan, ImportReviews reviews, CancellationToken ct)
+    {
+        var tracked = await inventory.MediaAsync(null, ct);
+        var roots = await placement.RootsAsync(ct);
+        foreach (var item in scan.Items)
+        {
+            var physical = LibraryPaths.PhysicalKey(item.Path);
+            if (tracked.Any(m => m.PhysicalKey == physical))
+            {
+                await reviews.DecideAsync(scan.Id, item.Id, "already-owned", ct);
+                continue;
+            }
+            if (item.Group != ImportConfidence.Confident || item.Candidates.Length != 1) continue;
+            LibraryPaths.NoLinks(item.Path);
+            var info = new FileInfo(item.Path);
+            if (!info.Exists || info.Length != item.Bytes || info.LastWriteTimeUtc != item.MtimeUtc.UtcDateTime)
+                continue;
+            var pick = item.Candidates[0];
+            var root = roots.Where(r => LibraryPaths.IsInside(r.Path, item.Path))
+                .OrderByDescending(r => r.Path.Length).FirstOrDefault();
+            var now = DateTimeOffset.UtcNow;
+            var quality = item.Parsed.Quality;
+            var file = new MediaFileRow("adopted:" + physical, pick.WorkId, pick.EpisodeId, root?.Id,
+                item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
+                quality.Resolution ?? item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(r => r is not null),
+                quality.Source, Path.GetExtension(item.Path).TrimStart('.'), null, null, null, null,
+                null, null, null, [], MediaOrigin.Imported, null, null, now, now, null,
+                FilePresence.Present, null, null, null, 1);
+            if (await placement.RecordAsync(file, null, ct) is null)
+                await reviews.DecideAsync(scan.Id, item.Id, "adopted", ct);
+        }
+        await reviews.SaveAsync(scan with { State = "complete" }, ct);
+        return (await reviews.GetAsync(scan.Id, ct))!;
+    }
     public async Task ScanAsync(string id, string path, Action<ImportScanView> report, CancellationToken ct)
     {
         var paths = Walk(path).Where(p => Videos.Contains(Path.GetExtension(p))).Take(10001).ToArray();

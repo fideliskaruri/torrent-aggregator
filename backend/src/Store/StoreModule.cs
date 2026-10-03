@@ -27,6 +27,7 @@ public static class StoreModule
         services.AddSingleton<ICheckRepository, CheckRepository>();
         services.AddScoped<ILibraryRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddScoped<ILibraryImportRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
+        services.AddScoped<ImportReviewRepository>(sp => new ImportReviewRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         return services;
     }
 }
@@ -59,6 +60,14 @@ public sealed class StoreDatabase
         await db.Database.OpenConnectionAsync(ct);
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", ct);
         await db.Database.MigrateAsync(ct);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS ImportReview(
+                id TEXT PRIMARY KEY, snapshot TEXT NOT NULL CHECK(json_valid(snapshot)));
+            CREATE TABLE IF NOT EXISTS ImportDecision(
+                reviewId TEXT NOT NULL REFERENCES ImportReview(id),
+                itemId TEXT NOT NULL, decision TEXT NOT NULL, decidedAt TEXT NOT NULL,
+                PRIMARY KEY(reviewId,itemId));
+            """, ct);
         var settings = db.Set<Dictionary<string, object>>("Setting");
         foreach (var row in SettingsCatalog.Defaults(tmdb, schedulerDisabled))
         {

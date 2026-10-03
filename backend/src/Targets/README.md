@@ -1,5 +1,20 @@
 # Targets
 
+## Switchover import review safety
+
+Pending Library adoption reviews pause automatic acquisition and background
+Find/Check, including follow/rule/hunter/request intent. Accepted automatic
+intent remains durable instead of being lost while paused. Existing waiting
+projections explain that Import review must finish first; the hold is computed
+from Library's durable reviews, not a second copied status store.
+
+An owner acquiring, resuming or trying a candidate work is refused with:
+`A file on disk may already be this. Review it in Import first.`
+Explicit owner acquisitions for other works use the existing durable Now priority,
+including retries, transfer filing and restart recovery. Worker claims and admission
+recheck review state; confirmed inventory is committed before its review is released.
+Dismissal explicitly releases a review without changing media.
+
 `TargetPipeline` owns accepted item intent and the bounded `PipelineWorker`. Its project
 references are exactly Domain, Find, Check, Plan, Engine, Library, Metadata and Store.
 HTTP performs validation and authorization only. `DiscoveryPlan` is the shared checked

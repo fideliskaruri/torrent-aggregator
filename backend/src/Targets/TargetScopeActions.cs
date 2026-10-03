@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
+using TorrentFlow.Library;
 
 namespace TorrentFlow.Targets;
 
@@ -15,6 +16,10 @@ public sealed partial class TargetPipeline
         var canonical = (await resolutionScope.ServiceProvider.GetRequiredService<IMetadata>()
             .GetWorkAsync(workKey, false, ct)).Work?.Work;
         if (canonical is null) return 0;
+        var reviews = resolutionScope.ServiceProvider.GetRequiredService<ImportReviews>();
+        if (action == TargetAction.TryNow && await reviews.HoldsAsync(canonical.Id, ct))
+            throw new ArgumentException(ImportReviews.HoldMessage);
+        var ownerNow = action == TargetAction.TryNow && await reviews.HasSwitchoverAsync(ct);
         if (canonical.Id != workKey && canonical.WorkKey != workKey)
         {
             var aliasCatalog = new CatalogState(resolutionScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"));
@@ -55,6 +60,7 @@ public sealed partial class TargetPipeline
                     ScopeData = action == TargetAction.Remove && season is not null && s.ScopeData.Seasons.Length > 1
                         ? s.ScopeData with { Seasons = [.. s.ScopeData.Seasons.Where(n => n != season)] } : s.ScopeData,
                     NextTryAt = now, UpdatedAt = now, Version = s.Version + 1,
+                    Now = ownerNow || s.Now,
                 }, s.Version, null))], [], ct);
             return affected + pending.Length;
         }

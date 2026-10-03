@@ -2,10 +2,13 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Threading.Channels;
 using TorrentFlow.Domain;
+using Microsoft.Extensions.DependencyInjection;
+using TorrentFlow.Library;
 
 namespace TorrentFlow.Targets;
 
-public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IParser parser, CheckOptions options)
+public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IParser parser, CheckOptions options,
+    IServiceScopeFactory scopes)
 {
     public const int ProbeBudget = 24;
     public async Task<DiscoveryResult> RunAsync(WorkSnapshot work, TargetScope scope, Policy policy,
@@ -26,6 +29,16 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
                 policy.ResolutionFloor, policy.PreferredResolution, policy.AudioLanguage, policy.MaxBytes,
                 false, 0, null, "dev", IntentOrigin.Owner, null, null, null, null, null, now,
                 0, null, 0, null, null, now, now, 0)).ToImmutableArray();
+        if (lane == PriorityLane.Background)
+        {
+            await using var reviewScope = scopes.CreateAsyncScope();
+            if (await reviewScope.ServiceProvider.GetRequiredService<ImportReviews>().HasSwitchoverAsync(ct))
+                return new(new("import-review", 0, [], [], true, SearchNamePhase.English, SourceTier.Core),
+                    [], new([], [.. targets.Select(t => new Rejection("", t.Id, "import_review",
+                        ImportReviews.BackgroundMessage))], [.. targets.Select(t => t.Id)]),
+                    new(null, null, null, clock.Elapsed.TotalMilliseconds), 0, 0, targets, 0,
+                    ImportReviews.BackgroundMessage);
+        }
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope, policy, lane,
             SearchNamePhase.English, [], 0, 0) { Exhaust = exhaust };
         var feedback = Channel.CreateBounded<SearchFeedback>(new BoundedChannelOptions(1)

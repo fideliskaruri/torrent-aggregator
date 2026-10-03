@@ -87,7 +87,9 @@ do not imply that Blender published a television series.
 
 `MediaImport` composes the Domain Parser, Metadata, inventory and placement ports.
 It does not depend on Engine or Targets. `Api\ImportEndpoints.cs` contains only HTTP
-composition and the bounded, session-local background scan handles. The existing
+composition and bounded background scan handles. Completed reviews and per-file
+confirm/dismiss decisions are persisted in Store, including paths, candidates,
+parse evidence and duplicate groups. The existing
 captured `/api/settings/download-recovery/sources` contract imports external torrent
 clients, not folders; it is unchanged.
 
@@ -97,6 +99,8 @@ All new routes are owner-only, including reads containing paths:
 |---|---|---|
 | POST | `/api/library/imports/scan` | `{"path":"D:\\Media"}`; 202 `{scanId,state}` immediately |
 | GET | `/api/library/imports/{scanId}` | `state`, `total`, `scanned`, `items`, `confident`, `needsPick`, `unmatched`, `duplicates`, optional `error` |
+| GET | `/api/library/imports` | Pending persisted scan IDs, paths, states and counts |
+| POST | `/api/library/imports/{scanId}/dismiss` | `{itemIds:["id"]}` explicitly leaves those files alone and releases their review |
 | POST | `/api/library/imports/{scanId}/confirm` | `{mode:"TrackInPlace"|"Move"|"Copy",rootId?,items:[{itemId,workId,episodeId?}]}` |
 | GET | `/api/library/imports/operations` | Interrupted operation paths, stages and reasons needing review |
 | POST | `/api/library/roots/{rootId}/rescan` | Present/offline/missing/dropped counts and drive status |
@@ -134,10 +138,24 @@ immediately exposes the same quality/ownership as downloaded media.
 
 SQLite FileOperation/FilePathClaim rows protect both ends across concurrent calls
 and survive interruptions. Completed operation references are released so they
-cannot prevent the 30-day missing-file expiry. Scan proposals expire on restart;
-an interrupted operation is left for explicit path review rather than guessed or
+cannot prevent the 30-day missing-file expiry. Completed scan proposals survive restart. Confirmed and dismissed items leave the
+pending projection, with decisions retained for audit. Interrupted scans are shown
+as failed and can be scanned again; an interrupted operation is left for explicit path review rather than guessed or
 destructively replayed. Automatic recovery of pre-inventory proposals is not
 implemented here; the operations read endpoint exposes that limitation honestly.
+
+After conversion, Api composes the same Parser/Metadata import scan over enrolled
+roots before background workers start. `MediaImport.AdoptAsync` records confident,
+unchanged files in place using stat evidence, without moving, renaming, deleting or
+reading payload bytes. This is identity adoption, not container/digest verification.
+Already-tracked physical paths are retained; ambiguous and unmatched files become
+durable reviews. Per-root and completion markers make startup replay idempotent.
+The completion marker acknowledges the first full scan. Store keeps the existing
+scheduler's import-review flag in sync with outstanding adoption decisions,
+without enabling the scheduler itself.
+Scanning the same root through the existing Import screen reopens its pending
+adoption review instead of creating another proposal. The pending-list endpoint
+also lets a UI discover review IDs without rescanning.
 
 Root reconciliation reuses marker/volume identity and mass-vanish protection.
 Incomplete or offline scans mark files offline and cannot confirm missing files.

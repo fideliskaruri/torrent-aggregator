@@ -22,6 +22,13 @@ and first-scan/import-review gates stay disabled. Legacy public work keys remain
 unchanged. Catalog rows sharing a public key collapse to one Work; provider
 identity conflicts stay suggested. The report lists old/new table counts and
 explicitly retained/dropped facts, without credentials.
+The converted host's first startup scans all enrolled media roots through the
+existing Parser/Metadata import composition. Confident files are adopted in place;
+ambiguous files become durable Import reviews. No payload is moved, renamed or
+deleted by this adoption step. Background acquisition remains paused while reviews
+are pending, even if the scheduler's legacy onboarding flags are acknowledged.
+Explicit owner downloads of candidate works are refused until their review is
+confirmed or dismissed; other explicit owner downloads remain available.
 Every watchlist follow, including disabled ones, retains its monitoring policy.
 New-only follows retain `newEpisodesSince` (falling back to creation time if absent);
 ongoing follows use the Unix epoch cutoff. A stored cursor takes precedence over the

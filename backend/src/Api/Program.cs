@@ -60,6 +60,13 @@ TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddDevLibrary();
+builder.Services.AddScoped(sp =>
+{
+    var repository = sp.GetRequiredService<ImportReviewRepository>();
+    return new TorrentFlow.Library.ImportReviews(repository.GetAsync, repository.ListAsync,
+        repository.SaveAsync, repository.DecideAsync, async (key, ct) =>
+            (await sp.GetRequiredService<TorrentFlow.Domain.IMetadata>().GetWorkAsync(key, false, ct)).Work?.Work.Id);
+});
 builder.Services.AddLocalFiles();
 builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,
     DesktopEnvironment.CurrentVersion(), dataDirectory, (urls ?? "http://127.0.0.1:3940").Split(';')[0], background));
@@ -89,6 +96,7 @@ try
     app.MapDownloads();
     app.MapDevCheck();
     await app.MapDevLibraryAsync();
+    await app.Services.GetRequiredService<ImportJobs>().AdoptConvertedAsync(dataDirectory, CancellationToken.None);
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>

@@ -24,17 +24,26 @@ internal static class ImportEndpoints
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             { return Results.BadRequest(new { error = "import_failed", message = ex.Message }); }
         });
-        group.MapPost("/imports/scan", (ImportScanInput input, ImportJobs jobs) =>
+        group.MapPost("/imports/scan", async (ImportScanInput input, ImportJobs jobs, ImportReviews reviews,
+            CancellationToken ct) =>
         {
-            var scan = jobs.Start(MediaImport.ValidateFolder(input.Path));
+            var path = MediaImport.ValidateFolder(input.Path);
+            var pending = (await reviews.ListAsync(ct)).FirstOrDefault(s => s.Id.StartsWith("adoption:",
+                StringComparison.Ordinal) && s.Path.Equals(path,
+                StringComparison.OrdinalIgnoreCase) && s.State == "complete" && !s.Items.IsEmpty);
+            var scan = pending ?? jobs.Start(path);
             return Results.Json(new { scanId = scan.Id, state = scan.State }, Json, statusCode: 202);
         });
         group.MapGet("/imports/operations", async (ILibraryImportRepository repository, CancellationToken ct) =>
             Results.Json(new { operations = (await repository.ImportOperationsAsync(ct))
                 .Where(o => o.State is not FileOperationState.Done and not FileOperationState.Superseded)
                 .Select(o => new { o.Id, o.SourcePath, o.DestinationPath, o.State, o.LastError, o.ExpectedBytes }) }, Json));
-        group.MapGet("/imports/{id}", (string id, ImportJobs jobs) =>
-            jobs.Get(id) is { } scan ? Results.Json(new
+        group.MapGet("/imports", async (ImportReviews reviews, CancellationToken ct) =>
+            Results.Json(new { scans = (await reviews.ListAsync(ct)).Where(s => !s.Items.IsEmpty ||
+                s.State is "queued" or "scanning" or "failed").Select(s => new { s.Id, s.Path, s.State,
+                    s.Error, pending = s.Items.Length }) }, Json));
+        group.MapGet("/imports/{id}", async (string id, ImportJobs jobs, CancellationToken ct) =>
+            await jobs.GetAsync(id, ct) is { } scan ? Results.Json(new
             {
                 scan.Id, scan.Path, scan.State, scan.Total, scan.Scanned, scan.Items, scan.Error,
                 confident = scan.Items.Where(i => i.Group == ImportConfidence.Confident),
@@ -48,10 +57,26 @@ internal static class ImportEndpoints
         {
             var input = await http.Request.ReadFromJsonAsync<ImportConfirmInput>(Json, ct) ??
                 throw new ArgumentException("Choose files and an import mode.");
-            var scan = jobs.Get(id);
-            if (scan is null) return Results.NotFound(new { message = "This scan expired. Scan the folder again." });
             using var held = await jobs.LockAsync(id, ct);
-            return Results.Json(await importer.ConfirmAsync(scan, input, ct), Json);
+            var scan = await jobs.GetAsync(id, ct);
+            if (scan is null) return Results.NotFound(new { message = "This scan does not exist. Scan the folder again." });
+            var result = await importer.ConfirmAsync(scan, input, ct);
+            await using var scope = jobs.CreateScope();
+            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
+            foreach (var item in result.Items.Where(i => i.Error is null && (i.Imported || i.AlreadyInLibrary)))
+                await reviews.DecideAsync(id, item.ItemId, "confirmed", ct);
+            return Results.Json(result, Json);
+        });
+        group.MapPost("/imports/{id}/dismiss", async (string id, ImportDismissInput input, ImportJobs jobs,
+            ImportReviews reviews, CancellationToken ct) =>
+        {
+            using var held = await jobs.LockAsync(id, ct);
+            var scan = await jobs.GetAsync(id, ct);
+            if (scan is null) return Results.NotFound();
+            if (input.ItemIds.Any(item => scan.Items.All(i => i.Id != item)))
+                throw new ArgumentException("Choose files from this review.");
+            foreach (var item in input.ItemIds) await reviews.DecideAsync(id, item, "dismissed", ct);
+            return Results.Ok(new { dismissed = input.ItemIds.Length });
         });
         group.MapPost("/roots/{id}/rescan", async (string id, MediaImport importer, CancellationToken ct) =>
             Results.Json(await importer.RescanAsync(id, ct), Json));
@@ -86,16 +111,60 @@ internal static class ImportEndpoints
     }
 }
 
+internal sealed record ImportDismissInput(string[] ItemIds);
+
 internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLifetime lifetime)
 {
     private readonly ConcurrentDictionary<string, ImportScanView> scans = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new();
     private readonly SemaphoreSlim scanning = new(2);
 
-    internal ImportScanView? Get(string id) => scans.GetValueOrDefault(id);
+    internal AsyncServiceScope CreateScope() => scopes.CreateAsyncScope();
+    internal async Task<ImportScanView?> GetAsync(string id, CancellationToken ct)
+    {
+        if (scans.TryGetValue(id, out var running) && running.State is "queued" or "scanning") return running;
+        await using var scope = scopes.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<ImportReviews>().GetAsync(id, ct) ?? running;
+    }
+    internal async Task AdoptConvertedAsync(string dataDirectory, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
+        foreach (var interrupted in (await reviews.ListAsync(ct)).Where(s =>
+            !s.Id.StartsWith("adoption:", StringComparison.Ordinal) && s.State is "queued" or "scanning"))
+            await reviews.SaveAsync(interrupted with { State = "failed",
+                Error = "The scan was interrupted. Scan the folder again." }, ct);
+        if (!File.Exists(Path.Combine(dataDirectory, "conversion-complete.json"))) return;
+        var importer = scope.ServiceProvider.GetRequiredService<MediaImport>();
+        if (await reviews.GetAsync("adoption:complete", ct) is not null) return;
+        var complete = true;
+        foreach (var root in await scope.ServiceProvider.GetRequiredService<ILibraryPlacement>().RootsAsync(ct))
+        {
+            var id = "adoption:" + root.Id;
+            var scan = await reviews.GetAsync(id, ct);
+            if (scan?.State == "complete") continue;
+            if (scan is null || scan.State is "queued" or "failed")
+            {
+                scan = new(id, root.Path, "queued", 0, 0, [], null);
+                await reviews.SaveAsync(scan, ct);
+                try { await importer.ScanAsync(id, MediaImport.ValidateFolder(root.Path), update => scan = update, ct); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    await reviews.SaveAsync(scan with { State = "failed", Error = ex.Message }, ct);
+                    complete = false;
+                    continue;
+                }
+                scan = scan with { State = "adopting" };
+                await reviews.SaveAsync(scan, ct);
+            }
+            await importer.AdoptAsync(scan, reviews, ct);
+        }
+        if (complete) await reviews.SaveAsync(new("adoption:complete", dataDirectory, "complete", 0, 0, [], null), ct);
+    }
     internal ImportScanView Start(string path)
     {
-        if (scans.Count >= 20) throw new ArgumentException("There are 20 scans in this session. Restart the app before scanning more folders.");
+        if (scans.Values.Count(s => s.State is "queued" or "scanning") >= 20)
+            throw new ArgumentException("There are 20 scans running. Wait for one to finish before scanning more folders.");
         var id = Guid.NewGuid().ToString("N");
         var scan = new ImportScanView(id, path, "queued", 0, 0, [], null);
         scans[id] = scan;
@@ -103,23 +172,29 @@ internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLi
         _ = Task.Run(async () =>
         {
             var acquired = false;
+            await using var scope = scopes.CreateAsyncScope();
+            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
             try
             {
+                await reviews.SaveAsync(scan, lifetime.ApplicationStopping);
                 await scanning.WaitAsync(lifetime.ApplicationStopping);
                 acquired = true;
-                await using var scope = scopes.CreateAsyncScope();
                 await scope.ServiceProvider.GetRequiredService<MediaImport>()
                     .ScanAsync(id, path, update => scans[id] = update, lifetime.ApplicationStopping);
+                await reviews.SaveAsync(scans[id], lifetime.ApplicationStopping);
             }
             catch (Exception ex)
-            { scans[id] = scans[id] with { State = "failed", Error = ex.Message }; }
+            {
+                scans[id] = scans[id] with { State = "failed", Error = ex.Message };
+                await reviews.SaveAsync(scans[id], CancellationToken.None);
+            }
             finally { if (acquired) scanning.Release(); }
         }, CancellationToken.None);
         return scan;
     }
     internal async Task<IDisposable> LockAsync(string id, CancellationToken ct)
     {
-        var gate = locks[id];
+        var gate = locks.GetOrAdd(id, _ => new(1));
         await gate.WaitAsync(ct);
         return new Releaser(gate);
     }
