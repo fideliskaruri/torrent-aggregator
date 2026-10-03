@@ -109,6 +109,16 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                 db.ChangeTracker.Clear();
                 return new(false, true, [.. conflicts]);
             }
+            // Release filtered unique Current/Replacement slots inside this transaction
+            // before EF orders promotions by primary key rather than logical role.
+            foreach (var write in commit.Writes.Where(w => w.Row is DownloadTargetRow
+                { Role: AssociationRole.Retired } && w.ExpectedRow is DownloadTargetRow
+                { Role: AssociationRole.Current or AssociationRole.Replacement }))
+            {
+                var link = (DownloadTargetRow)write.Row;
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE DownloadTarget SET role='retired' WHERE id={link.Id}", ct);
+            }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             events?.Publish([.. commit.Writes.Select(w => w.Row)]);

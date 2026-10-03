@@ -49,9 +49,19 @@ public sealed partial class MonoTorrentEngine
             .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Priority ?? TargetPriority.BackCatalogue)
             .ThenBy(e => queueOrder.GetValueOrDefault(e.Id)?.Rank ?? 0)
             .ThenBy(e => e.Id, StringComparer.Ordinal).ToArray();
-        var winners = ordered.Where(e => queueOrder.GetValueOrDefault(e.Id)?.Now != true)
+        string Slot(Entry e) => e.SharedSlotDownloadId is { } owner && ordered.Any(o => o.Id == owner)
+            ? owner : e.Id;
+        var slots = ordered.GroupBy(Slot).Select(g => new
+        {
+            Entries = g.ToArray(),
+            Owner = g.FirstOrDefault(e => e.Id == g.Key) ?? g.First(),
+        }).OrderBy(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Priority ?? TargetPriority.BackCatalogue)
+            .ThenBy(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Rank ?? 0)
+            .ThenBy(g => g.Owner.Id, StringComparer.Ordinal).ToArray();
+        var winners = slots.Where(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Now != true)
             .Take(settings.MaxActiveDownloads)
-            .Concat(ordered.Where(e => queueOrder.GetValueOrDefault(e.Id)?.Now == true))
+            .Concat(slots.Where(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Now == true))
+            .SelectMany(g => g.Entries)
             .ToHashSet();
         // Drain losers before starting winners: lowering a cap never transiently exceeds it.
         foreach (var entry in entries.Values.Where(e => !e.Probe && e.Run && !winners.Contains(e)))

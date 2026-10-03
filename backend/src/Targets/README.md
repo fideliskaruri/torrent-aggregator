@@ -78,10 +78,18 @@ download, replanning its still-fetching targets together.
 
 Development proof routes: `POST /api/dev/targets/{id}/swap` and
 `GET|PUT /api/dev/targets/recovery`. Production API composition can call these public
-methods directly. Multi-assignment pack replacements, shared logical-slot admission,
-and same-destination-name replacement placement remain follow-up work; those cases
-keep Current rather than discard it. Real fixture evidence and build output are in
-gitignored `tools\.swap-proof`; the local swarm admission proof is currently blocked.
+methods directly. Replacement claims last at most 90 seconds and borrow the active
+Current download's logical cap slot. Both managers can overlap while proving bytes,
+without a Now bypass or an extra logical slot; after detaching Current the replacement
+uses its own normal slot. Store retires old associations before promoting replacements
+inside the same transaction, preserving the filtered unique Current index regardless
+of hash ordering.
+
+Multi-assignment pack replacements and same-destination-name Library placement remain
+follow-up work (OPS-787); those cases keep Current rather than discard it. Real licensed
+Sintel HTTP evidence and a zero-warning build are in gitignored `tools\.swap-proof\finish`.
+The fixture completes scheduler onboarding, uses magnets with local seeders (no private
+HTTP metadata fetch), and clears persisted discovery caches before restarting.
 
 ## Downloads HTTP adapter (4.5)
 

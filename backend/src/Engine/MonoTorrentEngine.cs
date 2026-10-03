@@ -29,6 +29,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         public long Received { get; set; }
         public long LastReceived { get; set; }
         public bool WantsRun { get; set; }
+        public string? SharedSlotDownloadId { get; set; }
         public bool Bound { get; set; }
         public bool Completed { get; set; }
         public bool MetadataReported { get; set; }
@@ -581,6 +582,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             PruneClaims();
             if (claim.ExpiresAt <= DateTimeOffset.UtcNow || claim.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(90))
                 return Rejected("claim_expired", "Admission reservations last at most 90 seconds.");
+            if (claim.SharedSlotDownloadId is { } current &&
+                !entries.Values.Any(e => !e.Probe && e.Id == current && e.Run && e.Bound && !e.Completed))
+                return Rejected("replacement_slot", "The current download no longer owns an active slot.");
             if (claim.FromProbe is { } source && (source.Hash != claim.Hash || source.ExpiresAt <= DateTimeOffset.UtcNow ||
                 !handles.TryGetValue(source.Token, out var sourceOwner) || sourceOwner != source))
                 return Rejected("invalid_handle", "The metadata capability expired or belongs to another hash.");
@@ -641,6 +645,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             entry.ProbeReservation = 0;
             entry.Probe = false;
             entry.Id = admission.Download.Id;
+            entry.SharedSlotDownloadId = claims[admission.AdmissionToken].SharedSlotDownloadId;
             entry.Bound = true;
             WatchCompletion(entry.Manager);
             registered[handle.Hash] = entry.Id;
@@ -687,7 +692,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             else
                 manager = await client.AddAsync(magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
             var entry = new Entry(manager, admission.Download.Id, false)
-                { WantsRun = admission.Download.Intent == DownloadIntent.Run };
+                { WantsRun = admission.Download.Intent == DownloadIntent.Run,
+                    SharedSlotDownloadId = claims.GetValueOrDefault(admission.AdmissionToken)?.SharedSlotDownloadId };
             entries.Add(hash, entry);
             WatchCompletion(manager);
             registered[hash] = entry.Id;

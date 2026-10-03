@@ -42,14 +42,16 @@ internal sealed partial class TargetTransfers
             })];
             var now = DateTimeOffset.UtcNow;
             var download = new DownloadRow(id, assignment.Hash, DownloadIntent.Run, root.Id, now, null, token, null, null, 1);
-            if (!(await engine.ClaimAdmissionAsync(new(token, assignment.Hash, id, handle, now.AddMinutes(2)), ct)).Accepted)
+            if (!(await engine.ClaimAdmissionAsync(new(token, assignment.Hash, id, handle, now.AddSeconds(90))
+                { SharedSlotDownloadId = old.Id }, ct)).Accepted)
                 return false;
             await TargetPipeline.CommitAsync(store, [new(download, null, null),
                 .. targets.Select(t => new RowWrite(new DownloadTargetRow($"{id}:{t.Id}", id, t.Id,
                     AssociationRole.Replacement, now), null, null))], [], ct);
             inserted = true;
             if (!await repository.SavePlacementAsync(files, placement.Folders, ct)) return false;
-            await engine.ApplyQueueAsync(new([]) { Order = [new(id, 0, TargetPriority.Now, true, true)] }, ct);
+            await engine.ApplyQueueAsync(new([]) { Order = [new(id, targets.Min(t => t.Rank),
+                targets.Min(t => t.Priority), false, true)] }, ct);
             var admission = new EngineAdmission(download, candidate,
                 [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
             var start = handle is null ? await engine.StartAsync(admission, ct) :

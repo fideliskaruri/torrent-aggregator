@@ -315,7 +315,10 @@ public sealed record FileBinding(int FileIndex, string AbsolutePath, bool Select
 public sealed record EngineAdmission(DownloadRow Download, Candidate Candidate,
     ImmutableArray<FileBinding> Files, string AdmissionToken);
 public sealed record EngineAdmissionClaim(string Token, string Hash, string DownloadId,
-    ProbeHandle? FromProbe, DateTimeOffset ExpiresAt);
+    ProbeHandle? FromProbe, DateTimeOffset ExpiresAt)
+{
+    public string? SharedSlotDownloadId { get; init; }
+}
 public sealed record EngineResult(bool Accepted, EngineSnapshot? Snapshot, Failure? Failure);
 public sealed record QueueAdmission(string DownloadId, bool Run);
 public sealed record EngineQueuePolicy(ImmutableArray<QueueAdmission> Admissions)
