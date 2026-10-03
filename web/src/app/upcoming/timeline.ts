@@ -14,7 +14,47 @@ export type TimelineEntry = {
     until?: string | null;
     since?: string | null;
   };
+  workKey?: string | null;
+  targetId?: string | null;
+  state?: CalendarState;
+  release?: "episode" | "digital" | "physical" | "theatrical" | "release";
+  followed?: boolean;
+  grabNow?: boolean;
+  quality?: number | null;
+  mediaType?: "movie" | "tv" | null;
 };
+
+export type CalendarState = "pending" | "expected" | "searching" | "found" | "downloading" | "in_library";
+
+export type RequesterCalendarEntry = {
+  id: string; title: string; posterUrl?: string | null; at?: string | null;
+  state: CalendarState; mediaType: "movie" | "tv";
+};
+export type RequesterCalendarResponse = { entries?: RequesterCalendarEntry[] };
+
+export const stateLabels: Record<CalendarState, string> = {
+  pending: "Waiting for approval", expected: "Expected", searching: "Searching", found: "Found",
+  downloading: "Downloading", in_library: "In library",
+};
+
+/** One group per local calendar day; undated rows go last. */
+export function groupByDay<T extends { at?: string | null }>(entries: readonly T[], now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const map = new Map<string, { key: string; label: string; entries: T[] }>();
+  for (const entry of entries) {
+    const at = entry.at ? new Date(entry.at) : null;
+    const valid = at && Number.isFinite(at.getTime());
+    const day = valid ? new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime() : NaN;
+    const key = valid ? String(day) : "none";
+    const diff = Math.round((day - today) / 86_400_000);
+    const label = !valid ? "Date not known" : diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
+      : at.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short",
+        ...(at.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+    if (!map.has(key)) map.set(key, { key, label, entries: [] });
+    map.get(key)!.entries.push(entry);
+  }
+  return [...map.values()].sort((a, b) => (a.key === "none" ? 1 : b.key === "none" ? -1 : Number(a.key) - Number(b.key)));
+}
 
 export type TimelineResponse = { entries: TimelineEntry[]; airTimesUnavailable: boolean };
 export type TimelineGroup = { label: "Today" | "Tomorrow" | "Later"; entries: TimelineEntry[] };

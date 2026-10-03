@@ -7,7 +7,9 @@ namespace TorrentFlow.Api.Notifications;
 
 internal sealed record TimelineWaitReason(string Reason, string Text, DateTimeOffset? Until, DateTimeOffset? Since);
 internal sealed record TimelineEntry(string Id, string Kind, string Title, string? Episode, string? PosterUrl,
-    DateTimeOffset? At, DateTimeOffset? NextCheckAt, string Lane, int? QueuePosition, TimelineWaitReason WaitReason);
+    DateTimeOffset? At, DateTimeOffset? NextCheckAt, string Lane, int? QueuePosition, TimelineWaitReason WaitReason,
+    string? WorkKey = null, string? TargetId = null, string State = "expected", string Release = "episode",
+    bool Followed = false, bool GrabNow = false, int? Quality = null, string? MediaType = null);
 
 internal static class NotificationReadModels
 {
@@ -33,6 +35,13 @@ internal static class NotificationReadModels
             string? limit, string? cursor, CancellationToken ct) =>
             await PageAsync(db, null, limit, cursor, workKey, ct));
         app.MapGet("/api/timeline", TimelineAsync);
+        app.MapPost("/api/timeline/{targetId}/grab-now", async (string targetId,
+            TorrentFlow.Targets.TargetPipeline pipeline, CancellationToken ct) =>
+        {
+            try { return Results.Json(await pipeline.ActionAsync(targetId, TargetAction.DownloadNow, ct), CatalogProjection.Json); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            catch (KeyNotFoundException) { return Results.NotFound(new { error = "This item is no longer scheduled." }); }
+        });
     }
 
     private static async Task<IResult> PageAsync(NotificationRepository db, string? filter,
@@ -120,6 +129,7 @@ internal static class NotificationReadModels
         var names = await db.AllAsync<WorkNameRow>(ct);
         var episodes = await db.AllAsync<EpisodeRow>(ct);
         var seasons = await db.AllAsync<SeasonRow>(ct);
+        var followSet = (await db.AllAsync<FollowRow>(ct)).Where(f => f.Enabled).Select(f => f.WorkId).ToHashSet();
         var targets = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State is not (TargetState.Done or TargetState.Removed)
             && (workKey is null || works.Any(w => w.Id == t.WorkId && w.WorkKey == workKey))).ToArray();
         var entries = new List<TimelineEntry>();
@@ -145,13 +155,21 @@ internal static class NotificationReadModels
                 WaitReason.WaitingForSeeders => "WaitingForSeeders",
                 _ => t.NextTryAt > DateTimeOffset.UtcNow ? "NextCheckScheduled" : "None",
             };
+            var downloading = live.Any(s => s.Hash == t.ChosenReleaseHash && s.Active && !s.Complete);
+            var state = downloading ? "downloading" : t.State is TargetState.Filing ? "downloading" :
+                t.ChosenReleaseHash is not null || t.State is TargetState.Fetching or TargetState.Planning ? "found" :
+                future ? "expected" : "searching";
+            var release = ep is not null ? "episode" : expected == work.DigitalAt ? "digital" :
+                expected == work.PhysicalAt ? "physical" : "release";
             TimelineEntry Entry(string kind, DateTimeOffset? at) => new(kind + ":" + t.Id, kind,
                 Title(work, names), ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}",
                 work.PosterUrl, at, kind == "check" ? at : null,
                 t.Origin == IntentOrigin.Owner ? "owner" : "background",
                 kind == "queued" ? Array.IndexOf(queued, t) + 1 : null,
                 new(reason, future ? "Not aired yet" : t.ReasonText ?? "Ready",
-                    future ? expected : t.NextTryAt, null));
+                    future ? expected : t.NextTryAt, null),
+                work.WorkKey, t.Id, state, release, followSet.Contains(work.Id), t.NowAt is not null,
+                t.PreferredResolution ?? t.ResolutionFloor, work.Kind == WorkKind.Film ? "movie" : "tv");
             if (future) entries.Add(Entry("airs", expected));
             if (t.State == TargetState.Waiting && checksEnabled) entries.Add(Entry("check", t.NextTryAt));
             else if (queued.Contains(t)) entries.Add(Entry("queued", t.NextTryAt));
@@ -171,7 +189,31 @@ internal static class NotificationReadModels
             var season = seasons.FirstOrDefault(s => s.Id == next?.SeasonId);
             entries.Add(new("airs:work:" + work.Id, "airs", Title(work, names),
                 next is null ? null : $"S{season?.Number ?? 1:00}E{next.Number:00}", work.PosterUrl,
-                expected, null, "background", null, new("NotAiredYet", "Not aired yet", expected, null)));
+                expected, null, "background", null, new("NotAiredYet", "Not aired yet", expected, null),
+                work.WorkKey, null, "expected", next is not null ? "episode" : expected == work.DigitalAt ? "digital" :
+                    expected == work.PhysicalAt ? "physical" : "theatrical", followSet.Contains(work.Id), false, null,
+                work.Kind == WorkKind.Film ? "movie" : "tv"));
+            if (next is null && work.DigitalAt is { } digital && work.PhysicalAt is { } physical &&
+                physical > digital && physical > DateTimeOffset.UtcNow && expected == digital)
+                entries.Add(new("airs:physical:" + work.Id, "airs", Title(work, names), null, work.PosterUrl, physical,
+                    null, "background", null, new("NotAiredYet", "Not released yet", physical, null), work.WorkKey,
+                    null, "expected", "physical", followSet.Contains(work.Id), false, null, "movie"));
+        }
+        var recent = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State == TargetState.Done &&
+            t.UpdatedAt > DateTimeOffset.UtcNow.AddDays(-7) && (workKey is null ||
+            works.Any(w => w.Id == t.WorkId && w.WorkKey == workKey)));
+        foreach (var t in recent)
+        {
+            var work = works.FirstOrDefault(w => w.Id == t.WorkId);
+            if (work is null) continue;
+            var ep = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);
+            var season = seasons.FirstOrDefault(s => s.Id == ep?.SeasonId);
+            entries.Add(new("done:" + t.Id, "airs", Title(work, names),
+                ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}", work.PosterUrl,
+                t.ExpectedAt ?? ep?.AirAt ?? t.UpdatedAt, null, "background", null,
+                new("None", "In your library", null, null), work.WorkKey, t.Id, "in_library",
+                ep is null ? "release" : "episode", followSet.Contains(work.Id), false, null,
+                work.Kind == WorkKind.Film ? "movie" : "tv"));
         }
         return Results.Json(new { entries = entries.OrderBy(e => e.At ?? DateTimeOffset.MaxValue)
             .ThenBy(e => e.QueuePosition ?? int.MaxValue).ThenBy(e => e.Id, StringComparer.Ordinal),

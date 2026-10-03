@@ -57,9 +57,28 @@ internal static class RequestEndpoints
         {
             var rows = await service.Read<RequestRow>(CatalogState.Query(userId: AccessIdentity.UserId(http)), ct);
             var results = new List<object>();
-            foreach (var row in rows.Where(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved))
+            var entries = new List<object>();
+            var open = rows.Where(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved).ToArray();
+            var targets = open.Length == 0 ? [] : await service.Read<TargetRow>(CatalogState.Query(), ct);
+            var episodes = open.Length == 0 ? [] : await service.Read<EpisodeRow>(CatalogState.Query(), ct);
+            foreach (var row in open)
+            {
                 results.Add(await service.Project(row, false, ct));
-            return Reply(new { items = results });
+                var work = (await service.Read<WorkRow>(CatalogState.Query(row.WorkId), ct)).Single();
+                var name = (await service.Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct))
+                    .OrderBy(n => n.Ordinal).FirstOrDefault()?.Value ?? work.WorkKey;
+                var mine = targets.Where(t => t.WorkId == work.Id && t.Origin == IntentOrigin.Request).ToArray();
+                var expected = mine.Select(t => t.ExpectedAt ?? episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.AirAt)
+                    .Where(d => d is not null).Min() ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
+                var state = row.Decision == RequestDecision.Pending ? "pending" :
+                    mine.Length > 0 && mine.All(t => t.State == TargetState.Done) ? "in_library" :
+                    mine.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
+                    mine.Any(t => t.ChosenReleaseHash is not null) ? "found" :
+                    expected > DateTimeOffset.UtcNow ? "expected" : "searching";
+                entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state,
+                    mediaType = work.Kind == WorkKind.Film ? "movie" : "tv" });
+            }
+            return Reply(new { items = results, entries });
         });
         requester.MapPost("/requests", async (HttpContext http, RequestService service, CancellationToken ct) =>
         {

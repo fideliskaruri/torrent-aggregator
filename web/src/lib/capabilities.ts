@@ -20,7 +20,7 @@ export interface Capabilities {
   canRequest: boolean;
   /** The owner's inbox: approve, decline, auto-approve. */
   canReviewRequests: boolean;
-  /** Upcoming releases (reads the owner's timeline). */
+  /** Upcoming calendar: the owner's timeline, or a requester's own requests read-only. */
   canSeeUpcoming: boolean;
 }
 
@@ -35,7 +35,7 @@ export function capabilitiesFor(role: SessionRole): Capabilities {
     canSeeTransfers: owner,
     canRequest: !owner,
     canReviewRequests: owner,
-    canSeeUpcoming: owner,
+    canSeeUpcoming: true,
   };
 }
 
