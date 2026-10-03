@@ -141,6 +141,7 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
         var feedbackEnded = false;
         var needFallback = false;
         var stageStartRevision = 1L;
+        var englishHealthy = false;
         bool AllCovered() => request.Scope.Film ? filmCovered : request.Scope.EpisodeIds.All(covered.Contains);
         void Feedback()
         {
@@ -152,15 +153,17 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                 covered.UnionWith(next.CoveredEpisodeIds.Where(request.Scope.EpisodeIds.Contains));
                 filmCovered |= next.FilmCovered;
                 pool.Scrapes(next.ScrapedSeeders);
+                if (phase == SearchNamePhase.English)
+                    englishHealthy |= next.HasHealthyRelease || next.FilmCovered || !next.CoveredEpisodeIds.IsEmpty;
                 if (next.PoolRevision >= stageStartRevision) needFallback = next.NeedFallbackTier;
                 if (next.Stop && AllCovered()) early = true;
             }
             feedbackEnded = signals.Reader.Completion.IsCompleted;
-            early |= AllCovered();
         }
-        CandidateBatch Snapshot(bool complete) => new(request.SessionId, ++revision, pool.Candidates,
+        CandidateBatch Snapshot(bool complete, bool tierComplete = false) => new(request.SessionId, ++revision, pool.Candidates,
             [.. traces.Values.Select(t => t.Result)], complete, phase, tier)
         {
+            TierComplete = complete || tierComplete,
             Rejections = pool.Rejections,
             Queries = [.. traces.Values],
             FirstCandidateAt = first,
@@ -187,8 +190,12 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                         .Where(s => request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id))
                         .OrderByDescending(s => request.Work.Work.Anime == true &&
                             s.Categories.Contains("anime") && !s.Categories.Contains("all")).ToArray();
+                    var singleSeason = request.Scope.EpisodeIds.Length > 1 && request.Work.Episodes
+                        .Where(e => request.Scope.EpisodeIds.Contains(e.Id)).Select(e => e.SeasonId).Distinct().Count() == 1;
                     var plans = selected.SelectMany((source, index) => SearchQueries.Build(request.Work, request.Scope, name.Name,
                             configuration.GetValue<bool>($"TorrentFlow:Sources:{source.Id}:RequiresYear"))
+                        .Skip(tier == SourceTier.Fallback && singleSeason ? 1 : 0)
+                        .Take(tier == SourceTier.Fallback ? 1 : int.MaxValue)
                         .Select((query, ordinal) => (Source: source, Query: query, Ordinal: ordinal, Priority: index + ordinal)))
                         .OrderBy(plan => plan.Priority).ThenBy(plan => plan.Ordinal).Take(limit)
                         .Select(plan => (plan.Source, plan.Query)).ToArray();
@@ -198,7 +205,13 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                     using var tierCancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                     var results = Channel.CreateUnbounded<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)>(
                         new() { SingleReader = true, SingleWriter = false });
-                    var producers = ProduceTierAsync(request, phase, plans, requestBudget, scopePoolKey,
+                    var fallbackSources = settings.Count(s => s.Enabled && s.Tier == SourceTier.Fallback &&
+                        Supports(s, request.Work) && (request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id)));
+                    var reserve = fallbackSources == 0 ? 0 :
+                        Math.Min(fallbackSources + 1, request.Lane == PriorityLane.Owner ? limit / 2 : limit / 3);
+                    var tierBudget = tier == SourceTier.Core && reserve > 0
+                        ? new SourceRequestBudget(limit - reserve, requestBudget) : requestBudget;
+                    var producers = ProduceTierAsync(request, phase, plans, tierBudget, scopePoolKey,
                         results.Writer, tierCancel.Token);
                     try
                     {
@@ -231,8 +244,9 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                     {
                         await tierCancel.CancelAsync();
                         await producers;
+                        if (!ReferenceEquals(tierBudget, requestBudget)) tierBudget.Finish();
                     }
-                    yield return Snapshot(false);
+                    yield return Snapshot(false, true);
                     Feedback();
                     if (early || provisional) break;
                     // Let already-started checks answer at a tier boundary, at most twenty seconds.
@@ -247,11 +261,8 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                             Feedback();
                         }
                     }
-                    if (!request.Exhaust && !needFallback && (filmCovered || covered.Count > 0))
-                        break;
                 }
-                if (early || provisional || windowBudget.Used >= limit ||
-                    !request.Exhaust && !needFallback && (filmCovered || covered.Count > 0)) break;
+                if (early || provisional || windowBudget.Used >= limit || englishHealthy) break;
             }
             var final = Snapshot(true);
             lock (cacheSync)

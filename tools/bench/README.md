@@ -100,12 +100,15 @@ An explicitly selected `preferredQuality` is also the minimum, following the own
 quality-floor rule; `qualityFloor` can supply a separate owner's policy for diagnostics.
 Films have no coordinates; series numbering must be confirmed by Metadata.
 
-Find streams candidates into Check while source searches continue. Api's temporary
+Find streams candidates while source searches continue. Api's temporary
 `DiscoveryPlan` composition passes actual Plan feedback back to Find. Only complete
-scope coverage by **Good** assignments at exact preferred resolution or the explicit
-quality floor stops later tiers. Weak/Unknown never stop discovery; Unknown is deferred
+scope coverage by **Good**, gated releases at exact preferred resolution stops later
+tiers. After the source sweep, Good at the best available eligible quality also stops
+checks when no preferred-quality candidate exists. Weak/Unknown never stop discovery; Unknown is deferred
 until all Find tiers permitted by the request cap have finished. `exhaust=true`
-disables the coverage stop for diagnosis. The default `/api/dev/find` uses this same
+disables the coverage stop, not the probe/window bounds, for diagnosis. A healthy
+English result prevents original/romaji-name searches; English fallback sources still
+search uncovered gaps. The default `/api/dev/find` uses this same
 composition; its manually supplied feedback mode remains available.
 
 Responses contain monotonic first-candidate, first-verdict and plan-ready timings,
@@ -114,8 +117,35 @@ Check metrics, assignments with target/file selections and reasons, and all Find
 rejections. A null plan-ready means the scope is not fully covered. Candidate rows
 whose targets were already covered are explicitly marked as not probed; their Unknown
 placeholder is not a measured verdict. Probe submissions are hash-deduplicated, with
-up to three outstanding hashes per uncovered target and ten per owner scope (two for
-background); Check still owns shared-flight and physical lane admission.
+up to three outstanding equal-or-better-priority hashes per uncovered target and ten per owner scope (two for
+background); Check still owns shared-flight and physical lane admission. New checks
+wait for a completed source tier so early singleton listings cannot displace packs.
+Within a quality tier, packs/multi-episode releases lead by trusted seeds, then singles
+for gaps not covered by Good or a pending preferred pack.
+Zero/unknown listed-seed candidates wait for the source sweep, rather than occupying
+every slot before stronger later listings arrive; they are still checked when they
+are all that exists. Higher-value later candidates can use the reserved owner slots
+even when three lower-value multi-season probes are already in flight.
+
+Each plan allows **24 new hash submissions** and a **54-second season check window**
+(**28 seconds for films, 26 for single episodes**).
+Twenty-four allows two full ten-slot owner tranches plus four gap checks rather than
+hundreds of serial probes. The window leaves time for source completion and cleanup
+within a 60-second cold-season target and 30-second film target; it is not proof of complete or Good coverage.
+Good complete coverage cancels redundant outstanding checks immediately. Cached
+verdicts do not consume the submission budget. `submissions` counts new Check jobs;
+`probes` counts completed fresh measurements, excluding canceled redundant jobs.
+All candidates remain in the response. Unknown is chosen only with safe mapped files
+and no checked Good/Weak alternative for the item, and its reason explicitly reports
+an exhausted probe budget/window and any unchecked alternatives. An uncovered plan
+still has a null ready time. `stopReason` and `probeBudget` make the bound inspectable.
+
+Core pagination cannot consume the whole source cap: up to half the owner's existing
+12 requests (one-third of the background six) is reserved for enabled fallback
+sources and one detail fetch. Fallback uses one scope-focused query per source
+(`English show SNN` for a single season), leaving the broad English pool in Core.
+This preserves a chance for useful packs rather than drowning them in other seasons'
+singles. Every skipped/truncated source retains its real budget diagnostic.
 
 No Download/Target rows are admitted, and no admission capability is retained.
 Metadata, source caches, Release metadata and Verdict caches are the only permitted

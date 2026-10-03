@@ -69,6 +69,7 @@ internal static class DevDiscoveryPlan
                 sourceRequests = result.Find.SourceRequests, result.Find.WindowSourceRequests,
                 result.Find.RequestLimit, result.Find.RequestBudgetExhausted, result.Find.EarlyStopped,
                 result.Probes, result.Submissions, result.VerdictCacheHits,
+                probeBudget = DiscoveryPlan.ProbeBudget, result.StopReason,
                 result.Find.CachedPool,
                 sourceCacheHits = result.Find.Queries.Count(q => q.CacheHit),
                 verdictCounts = result.Evidence.GroupBy(e => e.Band).ToDictionary(g => g.Key.ToString(), g => g.Count()),
@@ -82,7 +83,7 @@ internal static class DevDiscoveryPlan
                     metrics = evidence.GetValueOrDefault(c.Release.Id),
                     checkedSwarm = evidence.ContainsKey(c.Release.Id),
                     checkReason = evidence.GetValueOrDefault(c.Release.Id)?.Reason ??
-                        "A preferred Good assignment already covered these targets before this candidate needed a probe."
+                        result.StopReason ?? "This candidate did not need a probe."
                 }),
                 plan = result.Plan,
                 rejections = result.Find.Rejections.Select(r => new

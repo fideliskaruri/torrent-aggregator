@@ -233,6 +233,7 @@ public sealed record SearchRequest(string SessionId, WorkSnapshot Work, TargetSc
 public sealed record SearchFeedback(long PoolRevision, ImmutableArray<string> CoveredEpisodeIds,
     bool FilmCovered, bool Stop, bool NeedFallbackTier)
 {
+    public bool HasHealthyRelease { get; init; }
     public ImmutableDictionary<string, int> ScrapedSeeders { get; init; } = ImmutableDictionary<string, int>.Empty;
 }
 public sealed record FindRejection(string Hash, string Name, string SourceId, string Query,
@@ -242,6 +243,7 @@ public sealed record FindQueryTrace(string Query, string SourceId, SearchNamePha
 public sealed record CandidateBatch(string SessionId, long PoolRevision, ImmutableArray<Candidate> Candidates,
     ImmutableArray<SourceResult> Sources, bool Complete, SearchNamePhase NamePhase, SourceTier Tier)
 {
+    public bool TierComplete { get; init; }
     public ImmutableArray<FindRejection> Rejections { get; init; } = [];
     public ImmutableArray<FindQueryTrace> Queries { get; init; } = [];
     public TimeSpan? FirstCandidateAt { get; init; }
@@ -284,6 +286,7 @@ public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, Immutab
     ImmutableArray<Candidate> Pool, ImmutableArray<SwarmEvidence> Evidence,
     ImmutableArray<OwnedItem> Owned, ImmutableArray<BlockRow> Blocks, DateTimeOffset Now)
 {
+    public string? UnknownFallbackReason { get; init; }
     public bool QueriesExhausted { get; init; }
     public WorkPreferenceRow? Preference { get; init; }
     public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];

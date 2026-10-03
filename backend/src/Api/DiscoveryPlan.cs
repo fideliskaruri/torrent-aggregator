@@ -8,13 +8,16 @@ namespace TorrentFlow.Api;
 // Phase 4 moves this composition to Targets; module policy remains in Find, Check and Plan.
 internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IParser parser, CheckOptions options)
 {
+    internal const int ProbeBudget = 24;
     internal async Task<DiscoveryResult> RunAsync(WorkSnapshot work, TargetScope scope, Policy policy,
         PriorityLane lane, bool exhaust, CancellationToken cancellationToken,
         Func<CandidateBatch, Task>? onBatch = null)
     {
         var clock = Stopwatch.StartNew();
+        var planSeconds = scope.Film ? 28 : scope.EpisodeIds.Length == 1 ? 26 : 54;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var ct = lifetime.Token;
+        using var checkLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var now = DateTimeOffset.UtcNow;
         var targets = (scope.Film ? new string?[] { null } : scope.EpisodeIds.Cast<string?>())
             .Select(id => new TargetRow("dry:" + (id ?? work.Work.Id), work.Work.Id, id,
@@ -37,9 +40,14 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
         var probeEnded = false;
         var inputEnded = false;
         var submissions = 0;
+        var deadlineReached = false;
+        var poolReady = false;
+        var sourceSweepReady = false;
+        string? stopReason = null;
         var plan = new PlanResult([], [], [.. targets.Select(t => t.Id)]);
         var findTask = PumpFind();
         var checkTask = PumpCheck();
+        var deadlineTask = Deadline();
         try
         {
             while (!findEnded || !probeEnded)
@@ -49,6 +57,8 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
                 {
                     case CandidateBatch batch:
                         last = batch;
+                        poolReady |= batch.TierComplete || batch.Complete;
+                        sourceSweepReady |= batch.Complete || batch.TierComplete && batch.Tier == SourceTier.Fallback;
                         if (!batch.Candidates.IsEmpty) firstCandidate ??= clock.Elapsed.TotalMilliseconds;
                         findEnded = batch.Complete;
                         var hashes = batch.Candidates.Where(c => !submitted.Contains(c.Release.Id))
@@ -73,80 +83,138 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
                     case string:
                         probeEnded = true;
                         break;
+                    case bool:
+                        deadlineReached = true;
+                        stopReason = $"The {planSeconds}-second planning window ended.";
+                        inputEnded = true;
+                        probes.Writer.TryComplete();
+                        await checkLifetime.CancelAsync();
+                        pending.Clear();
+                        break;
                 }
                 if (last is null) continue;
                 plan = Choose();
-                var goodTargets = PreferredGoodTargets(plan);
+                var goodTargets = GoodTargets();
                 var allGood = targets.All(t => goodTargets.Contains(t.Id));
-                if (allGood)
+                if (allGood && !exhaust)
+                {
                     ready ??= clock.Elapsed.TotalMilliseconds;
+                    stopReason = "Every missing item has a gated Good release at the preferred or best available quality.";
+                    inputEnded = true;
+                    probes.Writer.TryComplete();
+                    await checkLifetime.CancelAsync();
+                    pending.Clear();
+                }
                 // Three hashes per uncovered target, shared across pack coverage. Check owns lane admission.
                 // Refill only as measurements finish, so large season pools cannot expire in Check's queue.
                 if (!inputEnded)
                 {
-                    foreach (var candidate in last.Candidates.OrderByDescending(c => c.TrustedSeeders ?? -1)
+                    foreach (var candidate in last.Candidates
+                                 .OrderBy(c => QualityOrder(c))
+                                 .ThenBy(CoverageOrder)
+                                 .ThenByDescending(c => c.TrustedSeeders ?? -1)
+                                 .ThenByDescending(c => c.CoveredEpisodeIds.Length)
                                  .ThenBy(c => c.Release.Id, StringComparer.Ordinal))
                     {
+                        if (submissions >= ProbeBudget || !poolReady) break;
                         if (pending.Count >= (lane == PriorityLane.Background ?
                             Math.Clamp(options.BackgroundSlots, 1, 2) : Math.Clamp(options.Slots, 1, 10))) break;
                         if (submitted.Contains(candidate.Release.Id)) continue;
+                        if (!sourceSweepReady && candidate.TrustedSeeders is null or <= 0) continue;
+                        if (policy.ResolutionFloor is { } floor &&
+                            candidate.Release.Parsed.Quality.Resolution is { } resolution && resolution < floor) continue;
+                        if (candidate.Release.Parsed is { Unsafe: true } or { Cam: true } or { Sample: true }) continue;
                         var coverage = targets.Where(t => !goodTargets.Contains(t.Id) &&
                             (scope.Film || candidate.CoveredEpisodeIds.Contains(t.EpisodeId!))).ToArray();
                         if (!exhaust && coverage.Length == 0) continue;
+                        // Do not spend the singleton budget on items whose preferred pack is still being checked.
+                        if (!scope.Film && candidate.CoveredEpisodeIds.Length == 1 && coverage.All(t =>
+                            pending.Any(hash => last.Candidates.First(c => c.Release.Id == hash) is { } active &&
+                                active.CoveredEpisodeIds.Length > 1 && QualityOrder(active) == 0 &&
+                                active.CoveredEpisodeIds.Contains(t.EpisodeId!)))) continue;
                         if (coverage.Length > 0 && coverage.All(t => pending.Count(hash =>
-                                scope.Film || last.Candidates.First(c => c.Release.Id == hash)
-                                    .CoveredEpisodeIds.Contains(t.EpisodeId!)) >= 3)) continue;
+                                last.Candidates.First(c => c.Release.Id == hash) is { } active &&
+                                QualityOrder(active) <= QualityOrder(candidate) &&
+                                CoverageOrder(active) <= CoverageOrder(candidate) &&
+                                (scope.Film || active.CoveredEpisodeIds.Contains(t.EpisodeId!))) >= 3)) continue;
                         submitted.Add(candidate.Release.Id);
                         pending.Add(candidate.Release.Id);
                         submissions++;
                         await probes.Writer.WriteAsync(new(candidate, lane, false, true), ct);
                     }
-                    if (!findEnded)
-                        feedback.Writer.TryWrite(new(last.PoolRevision,
-                            allGood && !exhaust ? [.. targets.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)] : [],
-                            scope.Film && allGood && !exhaust, !exhaust && allGood, pending.Count == 0 && !allGood)
-                        {
-                            ScrapedSeeders = evidence.Values.Where(e => e.ScrapedSeeders is not null)
-                                .ToImmutableDictionary(e => e.Hash, e => e.ScrapedSeeders!.Value)
-                        });
-                    if (item is CandidateBatch update && onBatch is not null) await onBatch(update);
-                    if (findEnded && pending.Count == 0)
+                    if (findEnded && pending.Count == 0 &&
+                        (submissions >= ProbeBudget || !last.Candidates.Any(c => !submitted.Contains(c.Release.Id) &&
+                            QualityOrder(c) != int.MaxValue && (exhaust || targets.Any(t =>
+                                !goodTargets.Contains(t.Id) && (scope.Film || c.CoveredEpisodeIds.Contains(t.EpisodeId!)))))))
                     {
                         inputEnded = true;
+                        stopReason = submissions >= ProbeBudget ? "The 24-probe planning budget was used." :
+                            "The source sweep and relevant candidate checks completed.";
                         probes.Writer.TryComplete();
-                        if (plan.UncoveredTargetIds.IsEmpty) ready ??= clock.Elapsed.TotalMilliseconds;
                     }
                 }
+                if (!findEnded)
+                    feedback.Writer.TryWrite(new(last.PoolRevision,
+                        allGood && !exhaust ? [.. targets.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)] : [],
+                        scope.Film && allGood && !exhaust, !exhaust && allGood,
+                        deadlineReached || submissions >= ProbeBudget || pending.Count == 0 && !allGood)
+                    {
+                        HasHealthyRelease = plan.Assignments.Any(a => evidence.TryGetValue(a.Hash, out var e) &&
+                            e.Band is HealthBand.Good or HealthBand.Weak),
+                        ScrapedSeeders = evidence.Values.Where(e => e.ScrapedSeeders is not null)
+                            .ToImmutableDictionary(e => e.Hash, e => e.ScrapedSeeders!.Value)
+                    });
+                if (item is CandidateBatch update && onBatch is not null) await onBatch(update);
+                if (findEnded && inputEnded && plan.UncoveredTargetIds.IsEmpty)
+                    ready ??= clock.Elapsed.TotalMilliseconds;
             }
             plan = Choose();
             return new(last!, [.. evidence.Values], plan,
                 new(firstCandidate, firstVerdict, ready, clock.Elapsed.TotalMilliseconds),
                 submissions, evidence.Values.Count(e => !e.FromCache && !e.FromLiveTransfer && e.Window > TimeSpan.Zero),
-                targets, evidence.Values.Count(e => e.FromCache));
+                targets, evidence.Values.Count(e => e.FromCache), stopReason);
         }
         finally
         {
             probes.Writer.TryComplete();
             feedback.Writer.TryComplete();
             await lifetime.CancelAsync();
-            await Task.WhenAll(findTask, checkTask);
+            await Task.WhenAll(findTask, checkTask, deadlineTask);
         }
 
-        PlanResult Choose() => planner.Choose(new(work, AcquisitionMode.Catalog, [], targets,
-            last?.Candidates ?? [], [.. evidence.Values], [], [], DateTimeOffset.UtcNow)
+        PlanResult Choose(ImmutableArray<Candidate>? pool = null) => planner.Choose(new(work, AcquisitionMode.Catalog, [], targets,
+            pool ?? last?.Candidates ?? [], [.. evidence.Values], [], [], DateTimeOffset.UtcNow)
         {
-            QueriesExhausted = findEnded,
+            QueriesExhausted = findEnded && (inputEnded || pending.Count == 0),
+            UnknownFallbackReason = "Safe files; no checked Good or Weak alternative covers these items. " +
+                (deadlineReached ? $"The {planSeconds}-second planning window ended; unchecked alternatives remain. " :
+                    submissions >= ProbeBudget ? "The 24-probe budget was used; unchecked alternatives may remain. " :
+                    "The source sweep and relevant candidate checks completed. ") + "Waiting for seeders.",
             FileMetadata = [.. evidence.Values.Select(e => new PlanFileMetadata(e.Hash, e.PieceLength,
                 ImmutableDictionary<int, ParsedRelease>.Empty))]
         });
 
-        HashSet<string> PreferredGoodTargets(PlanResult result)
+        int QualityOrder(Candidate candidate)
+        {
+            var resolution = candidate.Release.Parsed.Quality.Resolution;
+            if (policy.ResolutionFloor is { } floor && resolution is { } known && known < floor ||
+                candidate.Release.Parsed is { Unsafe: true } or { Cam: true } or { Sample: true }) return int.MaxValue;
+            var preferred = policy.PreferredResolution ?? 1080;
+            return resolution == preferred ? 0 : resolution > preferred ? 1 : resolution is not null ? 2 : 3;
+        }
+
+        int CoverageOrder(Candidate candidate) =>
+            scope.Film || candidate.Release.Parsed.Kind == ReleaseKind.SeasonPack ? 0 :
+                candidate.CoveredEpisodeIds.Length > 1 ? 1 : 2;
+
+        HashSet<string> GoodTargets()
         {
             var covered = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var assignment in result.Assignments)
+            foreach (var candidate in last!.Candidates.Where(c => evidence.TryGetValue(c.Release.Id, out var e) &&
+                         e.Band == HealthBand.Good))
+            foreach (var assignment in Choose([candidate]).Assignments)
             {
                 if (!evidence.TryGetValue(assignment.Hash, out var measured) || measured.Band != HealthBand.Good) continue;
-                var candidate = last!.Candidates.First(c => c.Release.Id == assignment.Hash);
                 foreach (var id in assignment.TargetIds)
                 {
                     var target = targets.First(t => t.Id == id);
@@ -156,8 +224,14 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
                         .Where(f => f is not null).Select(f => parser.Parse(f!.RelativePath).Quality.Resolution).ToArray();
                     var resolution = candidate.Release.Parsed.Quality.Resolution ??
                         (selected.Length > 0 && selected.All(r => r is not null) ? selected.Min() : null);
-                    if (resolution == (target.PreferredResolution ?? 1080) ||
-                        target.ResolutionFloor is { } floor && resolution >= floor)
+                    var preferred = target.PreferredResolution ?? 1080;
+                    var available = last.Candidates.Where(c => QualityOrder(c) != int.MaxValue &&
+                        (scope.Film || c.CoveredEpisodeIds.Contains(target.EpisodeId!)))
+                        .Select(c => c.Release.Parsed.Quality.Resolution).OfType<int>().Distinct().ToArray();
+                    var best = available.Contains(preferred) ? preferred : available.Where(r => r > preferred)
+                        .Order().Cast<int?>().FirstOrDefault() ?? available.Where(r => r < preferred)
+                        .OrderDescending().Cast<int?>().FirstOrDefault();
+                    if (resolution == preferred || findEnded && resolution is not null && resolution == best)
                         covered.Add(id);
                 }
             }
@@ -178,12 +252,21 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
         {
             try
             {
-                await foreach (var measured in check.ProbeStreamAsync(probes.Reader.ReadAllAsync(ct), ct))
+                await foreach (var measured in check.ProbeStreamAsync(probes.Reader.ReadAllAsync(checkLifetime.Token), checkLifetime.Token))
                     await events.Writer.WriteAsync(measured, ct);
-                await events.Writer.WriteAsync("check-complete", ct);
+            }
+            catch (OperationCanceledException) when (checkLifetime.IsCancellationRequested) { }
+            catch (Exception ex) { events.Writer.TryWrite(ex); }
+            finally { events.Writer.TryWrite("check-complete"); }
+        }
+        async Task Deadline()
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(planSeconds), ct);
+                await events.Writer.WriteAsync(true, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-            catch (Exception ex) { events.Writer.TryWrite(ex); }
         }
     }
 }
@@ -192,4 +275,4 @@ internal sealed record DiscoveryTimeline(double? FirstCandidateMs, double? First
     double? PlanReadyMs, double CompleteMs);
 internal sealed record DiscoveryResult(CandidateBatch Find, ImmutableArray<SwarmEvidence> Evidence,
     PlanResult Plan, DiscoveryTimeline Timeline, int Submissions, int Probes,
-    ImmutableArray<TargetRow> Targets, int VerdictCacheHits);
+    ImmutableArray<TargetRow> Targets, int VerdictCacheHits, string? StopReason);

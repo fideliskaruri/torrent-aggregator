@@ -200,7 +200,7 @@ public sealed class ReleasePlanner : IPlan
             var files = g.SelectMany(o => o.Files).Distinct().ToImmutableArray();
             var torrentFiles = first.Evidence?.Files ?? first.Candidate.Release.Files ?? [];
             var text = first.Band == HealthBand.Unknown
-                ? "Safe files and all alternatives exhausted. Waiting for seeders."
+                ? input.UnknownFallbackReason ?? "Safe files and all alternatives exhausted. Waiting for seeders."
                 : $"{first.Band} measured health ({first.Evidence?.ByteSendingPeers ?? 0} byte-sending peers, {Delivery(first.Evidence):0} bytes/s); " +
                   (first.Resolution is { } resolution ? $"{resolution}p quality fit ({QualityFit(first.ResolutionClass)}); " : "quality not stated; ") +
                   $"{first.Candidate.Release.Parsed.Quality.Source ?? "source not stated"}; {g.Count()} missing item(s) covered.";
