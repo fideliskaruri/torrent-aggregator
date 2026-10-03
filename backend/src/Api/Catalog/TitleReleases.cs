@@ -128,10 +128,11 @@ internal static class TitleReleases
             if (accepted.TargetIds.IsEmpty)
                 return Results.Conflict(new { ok = false, message = accepted.Owned > 0 ?
                     "This title is already in your library." : "The episode list isn't ready. Reload the title and choose an episode." });
+            var queued = 0;
             foreach (var id in accepted.TargetIds)
-                await targets.PickAsync(id, choice.Hash, ct);
-            return Results.Ok(new { ok = true, message = accepted.Message, title = CatalogProjection.Title(work!),
-                infoHash = choice.Hash, queued = accepted.Queued > 0 });
+                queued += (await targets.PickAsync(id, choice.Hash, ct)).Queued;
+            return Results.Ok(new { ok = true, message = $"{queued} queued", title = CatalogProjection.Title(work!),
+                infoHash = choice.Hash, queued = queued > 0 });
         }
         catch (ArgumentException ex) { return Results.Conflict(new { ok = false, message = ex.Message }); }
         catch (InvalidOperationException ex) { return Results.Conflict(new { ok = false, message = ex.Message }); }
