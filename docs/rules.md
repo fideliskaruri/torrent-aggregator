@@ -60,3 +60,34 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - Never fill a control in the brand amber behind a glyph. Episode card pills stay neutral and frosted in every state (download, queued, downloading, done, retry). (2026-09-30)
 - **No workarounds.** When something is broken, don't hand the owner a workaround. Research the cause and brainstorm a proper fix with him (owner, 30 Sep: 'no workarounds please, we can research and brainstorm around this').
 - **'Debug, plan, critic' means carry on into the fix.** When the owner hands over bugs with debug -> plan -> critic, go straight into implementation after the critic using the recommended defaults; don't stop and wait for a separate go (owner, 1 Oct: 'i had also given you bugs and told you to fix them. what happened?').
+
+- **Rethink, not patch (2026-10-03).** Discovery got slower and picks got less healthy than the old Next.js build, while each lane added machinery (gates, journals, retry files, reconcilers). Keep what works (release swap, concurrent-download cap, the new UI); redesign how search, pick, download and file fit together before adding features. Measure against the old build: time to first result and seeders of the chosen release.
+- **Agents for the rebuild favour speed (owner, 2026-10-03, replaces 'no agents for the rethink').** Model choice matters less than the process: the best models gave poor results under a poor process. Implementation agents use GPT-6.1 Sol at low or medium effort (owner: relatively cheap), one phase at a time, each within its module contract. The coordinator reviews every phase against the design, the module contracts and the benchmark before the next phase starts.
+- **One download folder (2026-10-03).** Downloads go straight into their one final folder, as before. No staging folder and no move after completion. The rethink's File step only names and places within that folder.
+
+## Rebuild rules (2026-10-03, from the regression review)
+- **Fix the design, not the symptom.** Before adding a gate, ladder, journal, retry file or background service, show the flow is right; a new mechanism needs a reason the existing flow cannot cover.
+- **One source of truth per fact.** A download's state lives in one place; everything else reads it. No copied progress, no side JSON files.
+- **Few background services.** Each one has a single job that no other service does; adding one needs a reason.
+- **Measure every addition.** A new source, step or check ships only if the benchmark shows it helps (speed, seed health, correct picks).
+- **Port by behaviour, not by file.** When moving code, list what the old one did that worked and confirm the new one still does it.
+- **Test the real world.** Upgrade and end-to-end checks run on a copy of the owner's real data, downloads included, not a sanitized one.
+- **Done means it works for the owner.** A series actually downloads and lands in the library; builds, tests and reviews passing are not done.
+- **Benchmark gates.** The fixed test list runs before and after every phase; results are shown to the owner.
+- **Regression run after every merge,** on the real setup, before the next merge.
+- **One change at a time on shared code.** No parallel lanes touching the same subsystem.
+- **Review the whole design, not just the diff.** Each phase gets a system-level critique.
+- **Stop when the owner's real task fails.** Pause and fix that before anything else.
+- **Report plainly.** Say "stalled at 0%" when it is; never round a failure up.
+- **Fix the class, not the example.** A reported bug is one instance; find and fix every case of it.
+- **The swarm check is essential (owner, 2026-10-03).** No release is chosen on advertised seeders alone. Before anything is added, the top candidates are probed against the real swarm (connected peers, delivered bytes, file list) and given a verdict: good, weak, dead or unknown (unknown is not dead), cached about 6 h. It is the core of the release finder, built in the first build phase, and measured on the benchmark. The Next.js swarm-probe.ts (5824ed5~1) is the reference.
+
+- **Whole backend rebuild (owner, 2026-10-03).** The rebuild covers the whole server, not just the download core. The web app and its API contract stay; the server behind it is rebuilt to the rethink design, porting by behaviour.
+- **Unknown language is not checked for now (owner, 2026-10-03).** A release whose language can't be determined is treated as acceptable: no probe, no wait, no "English not confirmed" state. Only releases that clearly say they are foreign (for example RUS, LostFilm, VOSTFR, raws) are refused. Revisit after the rebuild.
+- **Separation of concerns (owner, 2026-10-03).** Each module has one job and talks to the others only through a small interface: Metadata (what exists), Sources (raw search results), Parser (release name to numbers), Find (queries and pooling), Check (swarm probe), Plan (choosing), Engine (bytes), Library (files and names), Targets (state), API (HTTP only, no logic). No module reaches into another's data or repeats its work. Pure logic (parser, ranking, plan) has no I/O.
+
+- **One kind of owned (owner, 2026-10-03).** Imported and downloaded media are the same to the user. Search results, title pages and episode rows show "In your library" and the quality for anything on disk, however it got there. Never show or ask about origin.
+
+- **English name first (owner, 2026-10-03).** Search every title by its English name. Only when no good release is found, search the original-language (or romaji) name.
+
+- **At most two agents at a time (owner, 2026-10-03).** No agent swarms: at most two agents run at once, plus the coordinator. Queue the rest.

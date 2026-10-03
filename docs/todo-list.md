@@ -125,3 +125,14 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - AniList anime episode lists.
 - Lowering the download cap re-queues running downloads.
 - PWA, auto-approve, timeline, notifications.
+
+## Architecture rethink (2026-10-03): whole backend rebuild
+- [ ] Phase 0: connectivity control, benchmark harness, baseline (main and Next.js 5824ed5~1), API contract capture.
+- [ ] Phase 1: design doc (data model, pipeline, services) and system-level critique. Owner go.
+- [ ] Phase 2: new server skeleton serving the captured contract; settings, metadata, catalog.
+- [ ] Phase 3: Find (season-level, source trust, background budget) and swarm check.
+- [ ] Phase 4: Plan and Fetch (one state per target, stall watch, swap, cap).
+- [ ] Phase 5: File into the one folder (partial suffix, hidden unwanted files), Jellyfin names, stop seeding on done.
+- [ ] Phase 6: requests, notifications, timeline, remote access, desktop shell.
+- [ ] Phase 7: switch over on a copy of the real data, then live; delete the old server.
+- On hold until the rebuild lands: season-pool lane, OPS-641 lane, T5/T7 plan.
