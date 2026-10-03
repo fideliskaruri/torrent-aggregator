@@ -13,6 +13,8 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
     private static readonly HashSet<string> Subtitles = new(StringComparer.OrdinalIgnoreCase)
         { ".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx" };
 
+    public static bool IsVideo(string path) => Videos.Contains(Path.GetExtension(path));
+
     public static string ValidateFolder(string path)
     {
         if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Choose an absolute folder path.");
@@ -38,7 +40,8 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         }
     }
 
-    public async Task<ImportScanView> AdoptAsync(ImportScanView scan, ImportReviews reviews, CancellationToken ct)
+    public async Task<ImportScanView> AdoptAsync(ImportScanView scan, ImportReviews reviews, CancellationToken ct,
+        MediaOrigin origin = MediaOrigin.Imported)
     {
         var tracked = await inventory.MediaAsync(null, ct);
         var roots = await placement.RootsAsync(ct);
@@ -66,7 +69,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 VideoDimensions.Resolution(details.Width, details.Height) ??
                     quality.Resolution ?? item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(r => r is not null),
                 quality.Source, Path.GetExtension(item.Path).TrimStart('.'), quality.Codec, null, details.Width, details.Height,
-                null, details.RuntimeSeconds, null, [], MediaOrigin.Imported, null, null, now, now, null,
+                null, details.RuntimeSeconds, null, [], origin, null, null, now, now, null,
                 FilePresence.Present, null, null, null, 1);
             if (await placement.RecordAsync(file, null, ct) is null)
                 await reviews.DecideAsync(scan.Id, item.Id, "adopted", ct);
@@ -74,9 +77,14 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         await reviews.SaveAsync(scan with { State = "complete" }, ct);
         return (await reviews.GetAsync(scan.Id, ct))!;
     }
-    public async Task ScanAsync(string id, string path, Action<ImportScanView> report, CancellationToken ct)
+    public Task ScanAsync(string id, string path, Action<ImportScanView> report, CancellationToken ct) =>
+        ScanFilesAsync(id, path, Walk(path), report, ct);
+
+    public async Task ScanFilesAsync(string id, string path, IEnumerable<string> files,
+        Action<ImportScanView> report, CancellationToken ct)
     {
-        var paths = Walk(path).Where(p => Videos.Contains(Path.GetExtension(p))).Take(10001).ToArray();
+        var paths = files.Where(IsVideo).Distinct(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).Take(10001).ToArray();
         if (paths.Length > 10000) throw new IOException("This folder has more than 10,000 videos. Scan a smaller folder.");
         var tracked = await inventory.MediaAsync(null, ct);
         var items = ImmutableArray.CreateBuilder<ImportReviewItem>();
@@ -86,6 +94,8 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         foreach (var file in paths)
         {
             ct.ThrowIfCancellationRequested();
+            LibraryPaths.NoLinks(file);
+            if (!LibraryPaths.IsInside(path, file)) throw new IOException("The file is outside its original download folder.");
             var info = new FileInfo(file);
             var parsed = parser.Parse(Path.GetFileNameWithoutExtension(file)) with { RawName = Path.GetFileName(file) };
             var parents = ImmutableArray.CreateBuilder<ParsedRelease>();
@@ -459,7 +469,9 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 Path.GetExtension(destination).TrimStart('.'), i == 0 ? quality.Codec : null,
                 null, i == 0 ? details.Width : null, i == 0 ? details.Height : null,
                 i == 0 ? quality.Hdr : null, i == 0 ? details.RuntimeSeconds : null, null, [],
-                MediaOrigin.Imported, null, null, now, now, null, FilePresence.Present, null, now, digest, 1));
+                scanId.StartsWith(ExternalMediaAdoption.ReviewPrefix, StringComparison.Ordinal)
+                   ? MediaOrigin.Adopted : MediaOrigin.Imported,
+                null, null, now, now, null, FilePresence.Present, null, now, digest, 1));
         }
         var committedOps = opRows.Select((o, i) => o with { State = FileOperationState.InventoryCommitted,
             MediaFileId = media[i].Id, UpdatedAt = DateTimeOffset.UtcNow }).ToImmutableArray();

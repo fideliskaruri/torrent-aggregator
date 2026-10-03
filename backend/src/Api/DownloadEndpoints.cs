@@ -5,6 +5,8 @@ using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
 using TorrentFlow.Domain;
+using TorrentFlow.Engine;
+using TorrentFlow.Library;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
@@ -77,20 +79,31 @@ internal static class DownloadEndpoints
             Reply(await api.RecoveryAsync(false, ct)));
         group.MapPost("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(true, ct)));
-        group.MapGet("/settings/download-recovery/sources", () => Results.Ok(new
+        group.MapGet("/settings/download-recovery/sources", async (IConfiguration configuration,
+            MediaImport importer, ImportReviews reviews, ILibraryRepository inventory, CancellationToken ct) =>
         {
-            candidates = Array.Empty<object>(),
-            warnings = new[] { "Importing downloads from other clients is not available in this build." },
-        }));
-        group.MapPost("/settings/download-recovery/sources", (RecoverySourcesInput input) =>
+            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
+            var adoption = new ExternalMediaAdoption(importer, reviews, inventory);
+            var candidates = new List<object>();
+            foreach (var row in scan.Candidates)
+                candidates.Add(new { row.Id, row.Source, row.Hash, row.Name, row.SizeBytes, row.SavePath,
+                    row.DataExists, row.Complete, alreadyImported = await adoption.AlreadyOwnedAsync(row.Files, ct) });
+            return Reply(new { candidates, scan.Warnings });
+        });
+        group.MapPost("/settings/download-recovery/sources", async (RecoverySourcesInput input,
+            IConfiguration configuration, MediaImport importer, ImportReviews reviews,
+            ILibraryRepository inventory, CancellationToken ct) =>
         {
             if (!input.Acknowledged)
                 return Results.BadRequest(new { error = "Confirm that the other client will not write to these files." });
             if (input.Ids is null || input.Ids.Length > 500 || input.Ids.Any(string.IsNullOrWhiteSpace))
                 return Results.BadRequest(new { error = "Select between 1 and 500 torrents to import." });
-            if (input.Ids.Length > 0)
-                return Results.Json(new { error = "Importing downloads from other clients is not available in this build. Keep using the original client." }, statusCode: 501);
-            return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
+            if (input.Ids.Length == 0)
+                return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
+            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
+            var adoption = new ExternalMediaAdoption(importer, reviews, inventory);
+            return Reply(await adoption.ImportAsync(input.Ids, [.. scan.Candidates.Select(c =>
+                new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))], ct));
         });
     }
 

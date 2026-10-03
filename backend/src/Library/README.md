@@ -106,7 +106,35 @@ composition and bounded background scan handles. Completed reviews and per-file
 confirm/dismiss decisions are persisted in Store, including paths, candidates,
 parse evidence and duplicate groups. The existing
 captured `/api/settings/download-recovery/sources` contract imports external torrent
-clients, not folders; it is unchanged.
+clients, not folders; its wire shape is unchanged.
+
+External-client recovery composes Engine's read-only `ExternalDownloadScanner`
+(qBittorrent BT_backup and Transmission torrent/resume formats) with Library's
+`ExternalMediaAdoption`. The format adapter lives under Engine because MonoTorrent
+already owns bencoded torrent decoding there; Library retains its Domain-only
+dependency and receives exact physical paths, never torrent/release identity guesses.
+`TorrentFlow:ExternalDownloadScan:ScanRoot` overrides discovery for isolated fixtures.
+GET reads source files without changing them; POST rescans selected stable IDs, checks
+the acknowledgement and adopts complete video payloads through the same Metadata,
+runtime and durable-review flow as folder import, with `MediaOrigin.Adopted`.
+Only the torrent's exact video files are scanned, not unrelated files in its save folder.
+MediaFile remains the ownership truth; no WatchItem or duplicate Download is created.
+Ambiguous matches enter the existing `adoption:external:*` review and acquisition hold.
+Empty acknowledged selections retain the 200 no-op response.
+
+**Missing Targets boundary:** there is no public external-transfer admission taking
+hash-bound torrent metadata, original per-file paths and an explicit finishing/seeding
+intent. `AcquireAsync` discovers a new release and cannot safely stand in for it;
+the internal `TargetTransfers.AdmitAsync` creates new placement bindings. Consequently
+unfinished transfers are reported individually as failed with guidance to finish in
+the original client. Completed payload adoption does not start or seed a transfer.
+Finishing/seeding handover is blocked on that owning-module interface, not implemented
+by direct Api Store writes or a second admission path.
+That port must accept full hash-bound torrent bytes (retained privately by the scanner),
+indexed original paths and Metadata-confirmed item IDs; persist/recover admission through
+Targets, hash-check original bytes without overwriting inventory, and support explicit
+finish/seed versus paused intent. A resume without full torrent metadata is reported
+as a scan warning with export guidance, never guessed from a release name.
 
 All new routes are owner-only, including reads containing paths:
 
