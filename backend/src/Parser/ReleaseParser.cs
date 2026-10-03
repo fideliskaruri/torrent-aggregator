@@ -58,6 +58,9 @@ public sealed class ReleaseParser : IParser
     private static readonly Regex SubtitleOnly = R(@"\b(?:VOSTFR|CHS|CHT|MULTI\s*[- ]\s*Subs?|Portuguese\s+Subs?|Chinese\s+softsub|SUB\s+ITA|Subtitulado\s+Esp)\b");
     private static readonly Regex Source = R(@"\b(?:WEB\s*-?\s*DL(?:RIP)?|WEB\s*-?\s*RIP|WEBMUX|WEB|WEBDL(?:RIP)?|WEBCAP|Blu\s*-?\s*Ray|BDRIP|BRRIP|BDREMUX|BDMV|ITBD|BD|HDTV(?:RIP)?|TVRIP|DVDSCR|DVDRIP|DVD|HDCAM|CAMRIP|CAM|HDTS|TS|TELESYNC|TELECINE)\b|BD(?:1080|720)p");
     private static readonly Regex Codec = R(@"\b(?:[HX]\s*26[456]|HEVC|AVC|AV1|XVID|DIVX|VC[- ]?\s*1|VP9|VVC)\b");
+    private static readonly Regex AudioFormat = R(@"\b(?:MP3|FLAC|AAC)\d*\b");
+    private static readonly Regex Music = R(@"\b(?:OST|soundtracks?|albums?|discography|themes?|(?:OP|ED)\d*[- ]*(?:songs?|singles?|themes?)|(?:songs?|singles?|themes?)[- ]*(?:OP|ED)\d*)\b|主題歌|キャラクターソング|テーマ");
+    private static readonly Regex VideoResolution = R(@"\b\d{3,4}[pi]\b|\b\d{3,4}[x×]\d{3,4}\b|\b(?:4K|UHD|FHD)\b");
     private static readonly Regex Hdr = R(@"\bHDR10\+|\b(?:HDR10|HDR|DOLBY\s*VISION|DV|SDR)\b");
 
     public ParsedRelease Parse(string releaseName)
@@ -223,12 +226,17 @@ public sealed class ReleaseParser : IParser
         var hasEpisodes = episodes.Count + absolute.Count + episodeRanges.Count + absoluteRanges.Count > 0;
         var scopeText = R(@"\([^)]*\bw/\s*[^)]*\)").Replace(text, "");
         var special = Special.Match(scopeText);
-        var other = Other.IsMatch(scopeText) || Software.IsMatch(scopeText) ||
+        var videoEvidence = Source.IsMatch(scopeText) || Codec.IsMatch(scopeText) ||
+            Resolution.IsMatch(scopeText) || VideoResolution.IsMatch(scopeText);
+        var music = Music.IsMatch(scopeText);
+        var nonFeatureText = videoEvidence && !music ? AudioFormat.Replace(scopeText, " ") : scopeText;
+        var other = Other.IsMatch(nonFeatureText) || Software.IsMatch(scopeText) || music ||
             R(@"主題歌|キャラクターソング|テーマ[「『]|[\[(]\s*(?:album|albulm)\s*[\])]|\bNC(?:OP|ED)(?:\d+)?(?:v\d+)?\b|\b(?:subs?|subtitles?)[- ]?only(?:\s+packs?)?\b").IsMatch(scopeText);
         if (R(@"\b(?:Specials?|Soundtracks?)\s*\+|\+\s*(?:Specials?|Soundtracks?|Extras)\b|\bwith\b").IsMatch(scopeText) &&
             (seasons.Count > 0 || hasEpisodes))
             other = false;
-        if (R(@"\bchapter\s+\d|MP3\s*[@\d]").IsMatch(scopeText)) other = true;
+        if (R(@"\bchapter\s+\d").IsMatch(scopeText)) other = true;
+        if (music && AudioFormat.IsMatch(scopeText)) other = true;
         if (other)
         {
             episodes.Clear(); absolute.Clear(); episodeRanges.Clear(); absoluteRanges.Clear();

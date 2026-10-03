@@ -1,9 +1,9 @@
 {
   "Corpus": "D:\\code\\platformApps-worktrees\\rebuild\\backend\\corpus\\names.tsv",
   "Iterations": 10,
-  "ParseMilliseconds": 1877.8651,
-  "NamesPerSecond": 18824.568388858177,
-  "StressMilliseconds": 10.4454,
+  "ParseMilliseconds": 1904.0074,
+  "NamesPerSecond": 18566.10431240971,
+  "StressMilliseconds": 15.4159,
   "GatePassed": true,
   "Accuracy": [
     {
