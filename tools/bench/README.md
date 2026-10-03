@@ -42,8 +42,8 @@ diagnostics are still reported honestly, not counted as gate passes.
 
 ## HTTP benchmark
 
-The isolated Phase 6 contract sandbox on loopback port 3962 is also allowed.
-Live port 3930 remains forbidden; other ports outside 3921–3940 remain rejected.
+Any loopback HTTP sandbox port is allowed, including isolated ports 3962, 3963
+and 3969. Live port 3930 is always forbidden.
 
 ```powershell
 dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baseline --search-only
@@ -57,7 +57,7 @@ dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baselin
 ## Measurement
 
 - Identity discovery: `GET /api/search/titles`, followed by the title and its extras. Match year, episodic/movie shape and TMDB ID or exact normalized English name; ambiguity fails closed.
-- Release discovery: `GET /api/search?q=...&pageSize=100`, paging through the returned pool. `pool_size` is the API's total count, `pool_returned` is actually collected rows. The response uses the web's `TorrentResult` shape (`web/src/lib/torrents/types.ts`). It is **atomic JSON**, not a stream: first-result timing is the time the first nonempty response finishes. Empty searches have no first-result time. Catalog-search time is a separate column.
+- Release discovery: `GET /api/dev/find?workKey=...&lane=owner` (plus `season` for series), using the rebuild's Find/Check/Plan diagnostic pool. The web calls `/api/search/titles`, not the retired `/api/search` release route. Both pool columns count returned candidates; there is no pagination. It is **atomic JSON**, not a stream: first-result timing is the time the first nonempty response finishes. Empty searches have no first-result time. Catalog-search time is separate. Checked-pool response latency is **not comparable** to the old unchecked `/api/search` first-result benchmark. This diagnostic requires Development mode.
 - Download: the exact title-page POST contract in `web/src/components/title/title-action-request.ts` and `title-detail.tsx`. Films use `scope: title`; seasons send the aired episode inventory with `scope: season`.
 - Poll Downloads, Wanted and title progress once a second. "All targets" requires every expected target to have delivered bytes, completed, or show an actual visible wait reason, on two consecutive polls. Merely calling a row `downloading` at 0% with no bytes does **not** pass. Failed rows do not count as honest waiting.
 - Capture every selected hash, name, source-pool listed seed count, connected peers/seeds when exposed, peak connections, first-byte time and sample age. CSV contains one title row and a JSON array of releases so episode-specific evidence is not lost.
@@ -67,7 +67,7 @@ dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baselin
 
 ## Safety and cleanup
 
-- Only loopback HTTP on ports 3921–3940 is accepted; **3930 is always rejected**. No server is started or stopped. Redirects are disabled.
+- Only loopback HTTP is accepted on any port except **3930, which is always rejected**. No server is started or stopped. Redirects are disabled.
 - Never run against a live data directory or concurrently with another mutating client.
 - Refuse a full measurement if the scope has pre-existing downloads, wanted rows or acquisition state. This avoids deleting someone else's rows. Search-only remains safe on a populated copy.
 - Non-free titles stop and pause at the first **observed** delivered bytes, then are removed. They do not wait 120 seconds if doing so would fetch the whole title. Polling is not a byte-perfect transfer cap; sample timestamps and early termination are explicit. Only the fixed Sintel/Big Buck Bunny/Tears of Steel name/year pairs with `freelyLicensed: true` may continue to completion.

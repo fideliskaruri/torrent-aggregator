@@ -112,16 +112,15 @@ internal static class Bench
         result.SearchQuery = query;
         var searchClock = Stopwatch.StartNew();
         // This JSON API is atomic: first visible result arrives with the completed response.
-        var poolResponse = await api.Get($"/api/search?q={E(query)}&pageSize=100");
-        var pool = Rows(poolResponse, "results").ToList();
+        var findPath = $"/api/dev/find?workKey={E(result.WorkKey)}&lane=owner" +
+            (title.Season is null ? "" : $"&season={title.Season}");
+        var poolResponse = await api.Get(findPath);
+        var pool = Rows(poolResponse?["result"], "candidates").ToList();
         result.FirstResultMs = pool.Count > 0 ? searchClock.ElapsedMilliseconds : null;
         result.SearchResponseMs = searchClock.ElapsedMilliseconds;
-        result.PoolSize = (int)(Number(poolResponse, "totalCount") ?? pool.Count);
-        var pages = (int)(Number(poolResponse, "totalPages") ?? 1);
-        for (var page = 2; page <= pages; page++)
-            pool.AddRange(Rows(await api.Get($"/api/search?q={E(query)}&pageSize=100&page={page}"), "results"));
+        result.PoolSize = pool.Count;
         result.PoolReturned = pool.Count;
-        result.Notes.Add("Search is an atomic JSON response; first-result latency is response completion, not an internal provider time. Search warms the cache before Download.");
+        result.Notes.Add("Catalog identity uses the web's /api/search/titles route. Release discovery uses the rebuild's /api/dev/find diagnostic route, measured by Check and Plan, not the retired /api/search unchecked pool. Atomic response latency is not comparable to the old unchecked first-result benchmark. Search warms the cache before Download.");
         if (result.ResolvedTitle != title.Name) result.Notes.Add($"Catalog name: {result.ResolvedTitle}; release query and Download title remain English: {title.Name}.");
         if (options.SearchOnly) { result.Status = "search-only"; result.Cleanup = "not-needed"; return; }
         if (expected.Count == 0) throw new InvalidOperationException("No season episode inventory; refusing to claim all targets are accounted for.");
@@ -183,12 +182,12 @@ internal static class Bench
                 {
                     var hash = Text(row, "hash");
                     var name = Text(row, "name");
-                    var listed = pool.FirstOrDefault(p => Text(p, "infoHash").Equals(hash, StringComparison.OrdinalIgnoreCase));
+                    var listed = pool.FirstOrDefault(p => Text(p, "hash").Equals(hash, StringComparison.OrdinalIgnoreCase));
                     var sample = new Sample
                     {
                         Hash = hash, Name = name, State = Text(row, "state"),
                         Episode = (int?)Number(row, "episode"),
-                        ListedSeeds = Number(listed, "indexerSeeders") ?? Number(listed, "seeders"),
+                        ListedSeeds = Number(listed, "conservativeListedSeeders"),
                         ConnectedPeers = Number(row["health"], "connectedPeers") ?? Number(row, "peers"),
                         ConnectedSeeds = Number(row["health"], "connectedSeeds") ?? Number(row, "seeds"),
                         Progress = Number(row, "progress"), Speed = Number(row, "dlspeed"),
@@ -496,9 +495,9 @@ internal sealed record Options(Uri Base, string Label, string? Titles, int WaitS
         }
         if (help) return new(new Uri("http://127.0.0.1:3931"), "help", null, 120, true, null, true, "");
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || !uri.IsLoopback || uri.Scheme != "http" ||
-            (uri.Port is < 3921 or > 3940 && uri.Port != 3962) || uri.Port == 3930 || uri.AbsolutePath != "/" || uri.Query.Length > 0 ||
+            uri.Port == 3930 || uri.AbsolutePath != "/" || uri.Query.Length > 0 ||
             uri.UserInfo.Length > 0 || uri.Fragment.Length > 0)
-            throw new ArgumentException("--base must be a loopback HTTP sandbox on ports 3921–3940 or the isolated contract port 3962, never live port 3930.");
+            throw new ArgumentException("--base must be a loopback HTTP sandbox, never live port 3930.");
         if (string.IsNullOrWhiteSpace(label) || !Regex.IsMatch(label, @"^[A-Za-z0-9][A-Za-z0-9_-]*$"))
             throw new ArgumentException("--label must contain only letters, digits, underscores or hyphens.");
         if (wait is < 1 or > 3600) throw new ArgumentException("--wait-seconds must be 1–3600.");
