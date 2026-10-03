@@ -31,60 +31,6 @@ references are exactly Domain, Find, Check, Plan, Engine, Library, Metadata and 
 HTTP performs validation and authorization only. `DiscoveryPlan` is the shared checked
 Find -> Check -> Plan composition used by the worker and `/api/dev/plan`.
 
-## Owned-item quality sweep (OPS-857)
-
-Targets owns the quality sweep, not Library or the hunter's HTTP adapter.
-The bounded worker schedules one film/season sweep at a time using the existing
-Find/Check background lane and scope budget. It considers only Library-owned
-items below their work/global preferred quality; it never acquires an item.
-Confirmed episodes share a season discovery pool. All offers must pass the
-normal Plan gates as Replace/Upgrade targets against current Library inventory
-and have a fresh Good swarm verdict. Weak, unknown, blocked and rejected
-releases never become upgrade offers.
-
-`UpgradeEvidence` is the durable result, unique per film/episode. Positive
-evidence expires with its Check verdict (normally six hours); a completed
-negative search with a successful source expires after thirty minutes, matching
-the source-cache window. A failed search cannot claim best available.
-Preference changes invalidate either result, and a changed owned resolution
-invalidates a negative result. Title reads do not search or probe: they compose
-inventory and evidence, read the stored candidate via Find's selection port,
-and rerun pure Plan against current Check evidence and policy. Seeder counts
-come from Check/Find, not another copied counter.
-
-Owner-only actions:
-
-- `POST /api/title/{workKey}/check-again`, body `{}` for the title, or
-  `{"season":1,"episode":2}` for an episode (`season` alone is supported).
-  Runs discovery in the owner lane and returns `{items:[{episodeId,upgrade?,
-  bestAvailable?}]}`. The title read remains the UI source of truth.
-- `POST /api/title/{workKey}/upgrade`, same scope, returns the existing
-  `TargetActionReply`. Only fresh gated offers create deterministic Replace
-  targets with `replacementMode: upgrade`, the chosen hash and the old
-  MediaFile ID. Repeated acceptance returns Already queued.
-
-The existing one-Target-per-item database identity is retained: an existing
-Acquire/history target becomes Replace, and its old Current association is
-retired before a new Current is admitted. Acquiring again after file deletion
-restores Acquire on that same item row. Filed fallback inventory is not removed
-by the generic partial-swap cleanup.
-
-The regular transfer path admits Replace targets even though the item is
-owned; Acquire still skips it. Library's existing replacement placement and
-filing are reused. The old video and recorded sidecars stay until the new
-target is Done and its exact filed binding proves the better inventory file.
-Only then does the existing digest-checked Library removal path retire the old
-payload. A failed, paused or removed upgrade leaves the old file untouched;
-failed cleanup retains it and retries without blocking unrelated downloads.
-Store issues the same snapshot-checked removal proposal for both ordinary
-removal and upgrade retirement. Targets commits clearing the old MediaFile
-reference and deleting inventory/bindings in one transaction, so the restrictive
-foreign key cannot leave an untracked payload or a permanently referenced row.
-
-The additive catalog contract and real HTTP proof are described in
-`tools\.upg-proof\report.md`. Upgrade-watch notifications are owned by the
-separate hunter lane; this sweep never downloads automatically.
-
 ## Phase 4.2 HTTP proof surface
 
 Development, trusted loopback owner only:
@@ -171,66 +117,27 @@ the target state and commits that proposal, the target version CAS and filing hi
 one Store transaction. The standalone Library filing harness no longer writes Target state.
 
 Dynamic priority is persisted and refreshed as dates age: owner now, owner rank, fresh
-episode (six hours before through 48 hours after air time), request, back catalogue,
-upgrade/watch. Rank orders targets within a priority. `ExpectedAt` comes from Metadata;
+episode (six hours before through 48 hours after air time), request and back catalogue.
+Rank orders targets within a priority. `ExpectedAt` comes from Metadata;
 release retries run at five minutes around release, then 15 minutes, one hour, six hours
 and one day as the release ages. File/drive/cap retries retain their short recovery delay.
 
 Targeted real HTTP evidence is in gitignored `tools\.targets-proof\finish-summary.json`.
 No unit tests or full hard-set reruns are required for this slice.
 
-## Swap and recovery (4.4)
+## Find another and recovery
 
-`FindAnotherAsync(targetId)` keeps Current while the shared Find/Check/Plan runs with
-Current and active work/global blocks excluded. A complete checked replacement plan
-admits all assignments together and proves 64 KiB hash-valid selected bytes for every
-assigned target before one version-fenced Current switch. Only then is the old manager detached and its hash
-blocked for this work for six hours. Old partials remain fallback bytes until replacement
-filing completes, then exact recorded paths and bindings are removed. Failure or no
-alternative keeps Current. Interrupted Replacement associations are cleaned on restart.
+`POST /api/downloads/{transferId}/find-another` marks the current release blocked for
+the affected target, detaches and removes the current download and its partial files,
+then returns the target to Wanted so the normal pipeline can select another release.
+Automatic stall recovery uses the same behavior. Import review holds still apply.
 
 `RecoverySettingsAsync` and `UpdateRecoverySettingsAsync` persist thresholds (default
 180 seconds without metadata, 600 seconds below 1 MiB progress), enablement, maximum
 automatic attempts (3) and backoff (3600 seconds). Existing Engine active-time signals
-drive recovery; paused, queued and completed transfers do not accrue stalls. Swap
-Attempts record NoMetadata/NoProgress. The bounded worker launches one recovery per
-download, replanning its still-fetching targets together.
-
-Development proof routes: `POST /api/dev/targets/{id}/swap` and
-`GET|PUT /api/dev/targets/recovery`. Production API composition can call these public
-methods directly. Replacement claims last at most 90 seconds and borrow the active
-Current download's logical cap slot. Both managers can overlap while proving bytes,
-without a Now bypass or an extra logical slot; after detaching Current the replacement
-uses its own normal slot. Store retires old associations before promoting replacements
-inside the same transaction, preserving the filtered unique Current index regardless
-of hash ordering.
-
-Library alone reserves same-name replacement finals and their adjacent partials, using
-the full replacement hash as the disambiguator. Targets never rewrites Library paths.
-Filing completeness considers only the active download's bindings, not retired fallback
-bindings for the same target. Failed grouped admission drains and rolls back every prepared
-replacement without changing Current. A pack's old payload is retained until all replaced
-targets are filed, including when the new plan splits the pack across multiple downloads.
-After final retirement commits Download deletion, Targets calls Engine's
-`IEngineRetirement.ForgetAsync` to release the old hash for a new identity.
-Temporary detach deliberately retains ownership. Admission rollback, orphan
-cleanup and whole-download deletion use that same final-retirement boundary.
-Real licensed same-name, two-target pack, two-assignment split, rollback and only-candidate
-HTTP evidence is in gitignored `tools\.tswap-proof\report.md`. Earlier single-assignment
-Sintel HTTP evidence is in `tools\.swap-proof\finish`.
-The fixture completes scheduler onboarding, uses magnets with local seeders (no private
-HTTP metadata fetch), and clears persisted discovery caches before restarting.
-
-The owner-only GET/POST `/api/client/torrents/{hash}/alternatives` and POST
-`/api/downloads/{transferId}/find-another` compose these same ports.
-`AlternativesAsync` and `ReplaceAsync` share recovery's Find/Check/Plan composition.
-A manual token restricts the candidate hash without changing persisted target intent;
-a site choice passes through Find's source filter and its discovery-stop identity.
-Both exclude Current and active blocks before checking, including a one-result pool.
-Tokens are protected, current-hash-bound and expire after ten minutes. GET releases
-retained probe capabilities; POST checks evidence again before admission. Manual
-replacement does not require the background scheduler to be enabled. Import review
-holds still apply; automatic recovery retains the scheduler gate.
+drive recovery; paused, queued and completed transfers do not accrue stalls.
+The bounded worker routes a stalled download through Find another for its affected
+target.
 
 `RawDownloads` owns the raw admission, recovery, queue and completion lifecycle,
 extracted from the development harness rather than duplicating it for production.

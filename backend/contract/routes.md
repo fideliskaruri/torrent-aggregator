@@ -36,8 +36,6 @@ No EventSource, Hono/RPC, axios or React Query query-key callers were found in w
 | GET | /api/client/torrents | none | {torrents:ClientTorrent[],...} (web\src\app\downloads\types.ts:1) | Downloads; title transfer actions | False | captured | ;  | server\TorrentFlow.Engine\Controllers\ClientTorrentsController.cs:43 |
 | POST | /api/client/torrents | body: {action:pause/resume/delete/force,hash?:string,hashes?:string[],ownerClientType,deleteFiles?}; hashes is bulk delete | {ok:boolean,results?:unknown[],...} (web\src\app\downloads\page.tsx:168) | Downloads bulk and row actions | True | from source, not captured | ;  | server\TorrentFlow.Engine\Controllers\ClientTorrentsController.cs:297 |
 | POST | /api/client/torrents/tidy | none | TidyResult (web\src\app\downloads\page.tsx:169) | Downloads tidy | True | from source, not captured | ;  | server\TorrentFlow.Engine\Controllers\LayoutTidyController.cs:10 |
-| GET | /api/client/torrents/{hash}/alternatives | source?:source id | ReleaseAlternatives (web\src\components\releases\release-swap-dialog.tsx:67) | Find another source dialog | False | captured | ;  | server\TorrentFlow.Library\Features\Grabs\ReleaseSwapController.cs:8 |
-| POST | /api/client/torrents/{hash}/alternatives | body: {token?,allowBlocked?,best?,source?} | {ok:boolean,message?:string,hash?:string} (web\src\components\releases\release-swap-dialog.tsx:7) | Find another source dialog | True | from source, not captured | ;  | server\TorrentFlow.Library\Features\Grabs\ReleaseSwapController.cs:21 |
 
 ## desktop
 

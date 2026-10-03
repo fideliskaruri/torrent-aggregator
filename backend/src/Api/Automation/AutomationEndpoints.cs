@@ -32,7 +32,7 @@ internal static class AutomationEndpoints
         });
         app.MapPost("/api/rules/run", async (Hunter hunter, CancellationToken ct) =>
         {
-            var pass = await hunter.RunAsync(false, ct);
+            var pass = await hunter.RunAsync(ct);
             return Reply(new { ok = !pass.Busy, offline = false, message = $"{pass.Items.Count(i => i.Status == "queued")} queued",
                 summary = pass.Items, pass.Owned, pass.Existing });
         });
@@ -40,7 +40,7 @@ internal static class AutomationEndpoints
             Results.Ok(new { follows = await db.ReadAsync<FollowRow>(ct) }));
         app.MapPost("/api/automation/run", async (Hunter hunter, AutomationRepository db, CancellationToken ct) =>
         {
-            var pass = await hunter.RunAsync(false, ct);
+            var pass = await hunter.RunAsync(ct);
             var rules = await db.ReadAsync<AutoRuleRow>(ct);
             var queued = pass.Items.Count(i => i.Status == "queued");
             var message = pass.Busy ? "Automatic checks are already running." : $"{queued} queued";
@@ -61,12 +61,11 @@ internal static class AutomationEndpoints
             return Reply(new { ok = true, offline = false, message, summary });
         });
         app.MapPut("/api/follows/{workKey}", SaveFollow);
-        app.MapPut("/api/quality-watches/{workKey}", SaveQualityWatch);
         app.MapPost("/api/dev/hunter", async (HttpContext http, Hunter hunter, CancellationToken ct) =>
         {
             if (AccessIdentity.Via(http) != "local" || AccessIdentity.Role(http) != "owner")
                 return Results.Json(new { error = "Run automatic checks on the computer running TorrentFlow." }, statusCode: 403);
-            return Results.Ok(await hunter.RunAsync(http.Request.Query["probe"] == "true", ct));
+            return Results.Ok(await hunter.RunAsync(ct));
         });
     }
 
@@ -176,31 +175,6 @@ internal static class AutomationEndpoints
                 UpdatedAt = now, Version = old.Version + 1 };
         await db.SaveAsync(row, old?.Version, ct);
         return Results.Ok(new { follow = row });
-    }
-
-    private static async Task<IResult> SaveQualityWatch(string workKey, JsonElement body,
-        IMetadata metadata, AutomationRepository db, CancellationToken ct)
-    {
-        if (body.ValueKind != JsonValueKind.Object)
-            return Results.BadRequest(new { error = "Choose a resolution and whether to watch for it." });
-        var work = (await metadata.GetWorkAsync(workKey, false, ct)).Work;
-        if (work is null) return Results.NotFound(new { error = "Open the title before setting a quality watch." });
-        if (!body.TryGetProperty("enabled", out var enabled) || enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
-            !body.TryGetProperty("resolution", out var resolution) || resolution.ValueKind != JsonValueKind.Number ||
-            !resolution.TryGetInt32(out var floor) ||
-            floor is not (480 or 720 or 1080 or 2160))
-            return Results.BadRequest(new { error = "Choose a resolution and whether to watch for it." });
-        var old = (await db.ReadAsync<WatchItemRow>(ct)).FirstOrDefault(w => w.WorkId == work.Work.Id && w.UserId == "local");
-        var now = DateTimeOffset.UtcNow;
-        var row = old is null ? new WatchItemRow("watch:" + work.Work.Id, "local", work.Work.Id,
-            WatchStatus.Planned, enabled.GetBoolean(), now, now, 1)
-            : old with { UpgradeWatch = enabled.GetBoolean(), UpdatedAt = now, Version = old.Version + 1 };
-        var preference = (await db.ReadAsync<WorkPreferenceRow>(ct)).FirstOrDefault(p => p.WorkId == work.Work.Id);
-        var next = preference is null ? new WorkPreferenceRow("preference:" + work.Work.Id,
-            work.Work.Id, null, floor, null, null, null, now, 1)
-            : preference with { PreferredResolution = floor, UpdatedAt = now, Version = preference.Version + 1 };
-        await db.SaveAsync([new(row, old?.Version, null), new(next, preference?.Version, null)], ct);
-        return Results.Ok(new { watch = row, resolution = floor, notificationOnly = true });
     }
 
     private static string? Text(JsonElement body, string key) =>

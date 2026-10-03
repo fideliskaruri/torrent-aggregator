@@ -85,9 +85,6 @@ if (!$Details) {
         $null=Capture title "$key-releases" "/api/title/$enc/releases?season=1&episode=1"
         $null=Capture library "$key-delete-plan" ("/api/library/delete?watchListItemId="+[Uri]::EscapeDataString($item.id)+'&scope=show')
     }
-    $client=(Get-Content "$out\captures\client\torrents.json" -Raw | ConvertFrom-Json -AsHashtable).body
-    $row=@($client.torrents | Where-Object { $_.hash } | Select-Object -First 1)
-    if($row.Count) { $null=Capture client alternatives ("/api/client/torrents/"+$row[0].hash+"/alternatives") }
     foreach($view in 'films','series','anime'){ $null=Capture browse $view "/api/browse?type=$view" }
     $null=Capture title sintel-detail '/api/title/sintel-2010?t=Sintel&y=2010&type=movie'
     $null=Capture title sintel-extras '/api/title/sintel-2010/extras?t=Sintel&y=2010&type=movie'

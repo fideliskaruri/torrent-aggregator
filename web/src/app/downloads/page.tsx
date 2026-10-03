@@ -7,7 +7,8 @@ import { toast } from "@/lib/toast";
 import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import {
   ArrowDownUp,
-  ChevronRight,  FolderTree,
+  ChevronRight,
+  FolderTree,
   HardDriveDownload,
   Magnet,
   MoreHorizontal,
@@ -15,7 +16,8 @@ import {
   Play,
   RefreshCw,
   Search,
-  Trash2,  ChevronDown,
+  Trash2,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
@@ -43,7 +45,8 @@ import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,  DropdownMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
@@ -58,7 +61,8 @@ import { useVisiblePoll } from "@/hooks/use-visible-poll";
 import { LookingSection } from "./looking-section";
 import { useMaxActiveDownloads } from "./use-max-active";
 import {
-  groupDownloads,  statusCounts,
+  groupDownloads,
+  statusCounts,
   isDownloading,
   isError,
   isPaused,
@@ -76,9 +80,12 @@ import {
 } from "./media-filter";
 import {
   releaseDisplayFacts,
-  titleWithYear,  pauseResumeTargets,
-  rollupChip,  transferLabel,
-  transfersLabel,  swapSubjectFor,} from "./release-display";
+  titleWithYear,
+  pauseResumeTargets,
+  rollupChip,
+  transferLabel,
+  transfersLabel,
+} from "./release-display";
 import {
   isValidTorrentSourceInput,
   parseTorrentSourceInput,
@@ -107,7 +114,6 @@ import {
   findLinkedDownload,
   withoutDownloadLink,
 } from "./download-link";
-import { ReleaseSwapDialog } from "@/components/releases/release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
@@ -246,7 +252,8 @@ export default function ClientPage() {
   const [loading, setLoading] = useState(true);
   const [openingHash, setOpeningHash] = useState<string | null>(null);
   const [tidying, setTidying] = useState(false);
-  const [swapTorrent, setSwapTorrent] = useState<ClientTorrent | null>(null);
+  const [findAnotherTorrent, setFindAnotherTorrent] = useState<ClientTorrent | null>(null);
+  const [findingAnother, setFindingAnother] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   // Wanted titles with no release yet, shown above the list: the page is not empty while any wait.
@@ -699,7 +706,7 @@ export default function ClientPage() {
   const rawSendAnyError = rawSendClientError || rawSendError?.message || null;
 
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
-    if (act === "swap") { setSwapTorrent(torrent); return; }
+    if (act === "find-another-release") { setFindAnotherTorrent(torrent); return; }
     if (act === "keep" || act === "find-another") { await decideHeld(act, torrent); return; }
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
@@ -740,6 +747,42 @@ export default function ClientPage() {
     const done = act === "keep" ? `Moved ${label} into your library` : `Looking for another release of ${label}`;
     toast.success(done);
     setAnnouncement(`${done}.`);
+  }
+
+  async function confirmFindAnother() {
+    const torrent = findAnotherTorrent;
+    if (!torrent || findingAnother) return;
+    setFindingAnother(true);
+    const label = transferLabel(torrent);
+    invalidateInFlight();
+    try {
+      const response = await fetch(`/api/downloads/${encodeURIComponent(torrent.transferId)}/find-another`, {
+        method: "POST",
+      });
+      const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
+      if (!response.ok || data?.ok !== true) {
+        toast.error(`Couldn't find another release for ${label}`, {
+          description: data?.message?.trim() || data?.error?.trim() || `TorrentFlow answered HTTP ${response.status}. Try again.`,
+        });
+        return;
+      }
+      setFindAnotherTorrent(null);
+      setSelected((previous) => {
+        if (!previous.has(torrent.transferId)) return previous;
+        const next = new Set(previous);
+        next.delete(torrent.transferId);
+        return next;
+      });
+      toast.success(`Looking for another release of ${label}`);
+      setAnnouncement(`Looking for another release of ${label}.`);
+      void load();
+    } catch {
+      toast.error(`Couldn't find another release for ${label}`, {
+        description: "Couldn't reach TorrentFlow. Try again.",
+      });
+    } finally {
+      setFindingAnother(false);
+    }
   }
 
   async function sendRawTorrent() {
@@ -1766,24 +1809,19 @@ export default function ClientPage() {
         />
       ) : null}
 
-      {swapTorrent ? (
-        <ReleaseSwapDialog
-          key={swapTorrent.hash}
-          subject={swapSubjectFor(swapTorrent)}
-          onClose={() => setSwapTorrent(null)}
-          onSwapped={(message) => {
-            invalidateInFlight();
-            const swapped = swapTorrent;
-            setSelected((previous) => {
-              if (!previous.has(swapped.transferId)) return previous;
-              const next = new Set(previous);
-              next.delete(swapped.transferId);
-              return next;
-            });
-            setSwapTorrent(null);
-            setAnnouncement(message);
-            void load();
+      {findAnotherTorrent ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !findingAnother) setFindAnotherTorrent(null);
           }}
+          title={`Find another release for ${transferLabel(findAnotherTorrent)}?`}
+          description="The current download and its partial files will be removed. TorrentFlow will search again."
+          variant="destructive"
+          busy={findingAnother}
+          confirmLabel="Find another"
+          confirmData={{ "data-find-another-confirm": true }}
+          onConfirm={() => void confirmFindAnother()}
         />
       ) : null}
 

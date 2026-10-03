@@ -57,7 +57,7 @@ public enum StoreTable
     DownloadFile, StorageRoot, MediaFile, FileOperation, User, Notification,
     PushSubscription, Setting, ScopeIntent, RawIntent, UpgradeEvidence, WorkFolder, FilePathClaim
 }
-public enum TargetAction { Acquire, Upgrade, Replace, CancelUpgrade, Pause, Resume, Remove, TryNow, DownloadNow, Rank, Swap, Pick }
+public enum TargetAction { Acquire, Pause, Resume, Remove, TryNow, DownloadNow, Rank, Pick }
 public enum RequestAction { Create, Approve, Decline, Cancel, Retry, Pick, DownloadNow }
 public enum LibraryAction { Scan, ConfirmImport, EnrollRoot, ConfirmRoot, Delete, MoveTitle, Open, Reveal, Tidy, AdoptExternal }
 public enum SystemArea { Settings, AutoApproval, Watchlist, Follow, Rules, Notifications, Push, Desktop, Users }

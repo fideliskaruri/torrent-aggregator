@@ -122,7 +122,7 @@ export function torrentRowMenuItems({
         </DropdownMenuItem>
       ) : null}
       {canFindAnotherSourceFor(t) ? (
-        <DropdownMenuItem onClick={() => handlers.onAction("swap", t)} data-find-release>
+        <DropdownMenuItem onClick={() => handlers.onAction("find-another-release", t)} data-find-release>
           <Search />
           {FIND_ANOTHER_SOURCE_LABEL}
         </DropdownMenuItem>

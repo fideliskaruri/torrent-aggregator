@@ -105,7 +105,7 @@ public sealed class ReleasePlanner : IPlan
                     .SelectMany(o => o.Videos).Where(v => v.Role == FileRole.Video &&
                         (v.Status is FilePresence.Present or FilePresence.Offline ||
                          v.Status == FilePresence.Missing && v.MissingConfirmedAt is null)).ToArray();
-                if (target.Kind == TargetKind.Acquire && owned.Length > 0)
+                if (owned.Length > 0)
                 { Refuse("already_owned", "This item is already in your library.", target.Id); continue; }
                 if (target.State is TargetState.Removed or TargetState.Paused || target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
                 { Refuse("inactive_target", "This item is not asking for a download.", target.Id); continue; }
@@ -140,13 +140,6 @@ public sealed class ReleasePlanner : IPlan
                     (fileParses.All(p => p?.Quality.Resolution is not null) ? fileParses.Min(p => p!.Quality.Resolution) : null);
                 if (floor is not null && (resolution is null || resolution < floor))
                 { Refuse("quality_floor", $"This item requires at least {floor}p.", target.Id); continue; }
-                if (target.Kind == TargetKind.Replace)
-                {
-                    var best = owned.Select(v => v.Resolution ?? 0).DefaultIfEmpty(0).Max();
-                    if (owned.Length == 0 || resolution is null || best == 0 ||
-                        (target.ReplacementMode == ReplacementMode.Upgrade ? resolution <= best : resolution < best))
-                    { Refuse("replacement_quality", "A replacement must retain the existing quality; an upgrade must improve it.", target.Id); continue; }
-                }
                 var language = AudioLanguage(target, input);
                 if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
                 { Refuse("foreign_language", LanguageRejection(language), target.Id); continue; }
@@ -171,10 +164,10 @@ public sealed class ReleasePlanner : IPlan
 
     private static PlanResult Select(PlanInput input, TargetRow[] targets, List<Option> options, List<Rejection> rejections)
     {
-        var missing = targets.Where(t => !(t.Kind == TargetKind.Acquire && input.Owned.Any(o =>
+        var missing = targets.Where(t => !input.Owned.Any(o =>
                 o.WorkId == t.WorkId && o.EpisodeId == t.EpisodeId && o.Videos.Any(v => v.Role == FileRole.Video &&
                     (v.Status is FilePresence.Present or FilePresence.Offline ||
-                     v.Status == FilePresence.Missing && v.MissingConfirmedAt is null)))))
+                     v.Status == FilePresence.Missing && v.MissingConfirmedAt is null))))
             .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
         var picked = new List<Option>();
         while (options.Count > 0)

@@ -24,9 +24,8 @@ parses names, reads files, probes a swarm, downloads, or persists a choice. Targ
   Target audio preferences override matching work preferences; missing/auto preferences
   default to English, never the work's original language. Callers must resolve the
   configured global setting into the target policy before invoking this pure planner.
-- Owned Acquire items, including offline and not-yet-confirmed-missing videos, are
-  excluded and are not reported as uncovered. Replace targets alone may bypass their
-  own ownership; Upgrade must increase known quality, Replace must retain it.
+- Owned items, including offline and not-yet-confirmed-missing videos, are excluded
+  and are not reported as uncovered.
 
 ## Ordering and files
 

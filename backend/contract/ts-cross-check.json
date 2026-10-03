@@ -168,14 +168,6 @@
     "method": "GET"
   },
   {
-    "capture": "captures\\client\\alternatives.json",
-    "route": "/api/client/torrents/{hash}/alternatives",
-    "expectedType": "ReleaseAlternatives",
-    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
-    "findings": [],
-    "method": "GET"
-  },
-  {
     "capture": "captures\\wanted\\all.json",
     "route": "/api/wanted",
     "expectedType": "{wanted:WantedRow[],queue:unknown}",
