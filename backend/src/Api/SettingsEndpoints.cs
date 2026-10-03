@@ -212,7 +212,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         var metadata = SettingsCatalog.Read<MetadataSettings>(await Row(store, "metadata", ct));
         settings = settings.AddRange(metadata.Sources);
         var source = settings.FirstOrDefault(s => s.Id == id);
-        if (source is null) return Results.NotFound();
+        if (source is null) return Results.NotFound(new { error = "Source not found." });
         var reference = source.Type == "tmdb"
             ? metadata.TmdbCredential : source.Credential;
         var credential = SecretFiles.Read(dataDirectory, reference) ??

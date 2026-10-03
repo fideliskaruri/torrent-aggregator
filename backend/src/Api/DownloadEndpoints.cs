@@ -197,7 +197,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 packEpisodes = items.Length > 1 ? (int?)items.Count(t => t.State != TargetState.Removed) : null,
             });
         }
-        var body = JsonSerializer.SerializeToNode(new { torrents = rows, clientType = "builtin",
+        var body = JsonSerializer.SerializeToNode(new { torrents = rows, clientType = "builtin", host = "",
             offline = false, hasExternal = false, externalClientType = (string?)null,
             partial = false, clientIssues = Array.Empty<object>() }, Json)!;
         foreach (var row in body["torrents"]!.AsArray())

@@ -81,7 +81,19 @@ internal static class TitleReleases
             language = candidate.Release.Parsed.LanguageMarkers.IsEmpty ? "Language not stated" :
                 string.Join(", ", candidate.Release.Parsed.LanguageMarkers),
             languageFit = candidate.Release.Parsed.ClearlyForeign ? "clash" : "neutral",
-            languages = (object?)null,
+            languages = new
+            {
+                audio = Array.Empty<string>(),
+                subtitles = Array.Empty<string>(), subtitleState = "unknown",
+                fit = candidate.Release.Parsed.ClearlyForeign ? "clash" : "neutral",
+                basis = candidate.Release.Parsed.LanguageMarkers.IsEmpty ? "none" : "name",
+                confidence = candidate.Release.Parsed.LanguageMarkers.IsEmpty ? "low" : "medium",
+                label = candidate.Release.Parsed.LanguageMarkers.IsEmpty ? "Language not stated" :
+                    string.Join(", ", candidate.Release.Parsed.LanguageMarkers),
+                english = candidate.Release.Parsed.ClearlyForeign ? "fail" : "unknown",
+                englishReason = candidate.Release.Parsed.ClearlyForeign ?
+                    "This release is labelled in another language." : "Language not stated",
+            },
             fits = scope.Film ? candidate.CoversFilm : !episodes.IsEmpty &&
                 episodes.All(id => candidate.CoveredEpisodeIds.Contains(id)),
             why = candidate.Release.Parsed.ClearlyForeign ? "This release is labelled in another language." :
@@ -105,7 +117,7 @@ internal static class TitleReleases
         Choice? choice;
         try { choice = JsonSerializer.Deserialize<Choice>(Protector(protection).Unprotect(token.GetString()!)); }
         catch (Exception ex) when (ex is CryptographicException or JsonException)
-        { return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." }); }
+        { return Results.BadRequest(new { ok = false, message = "That choice is invalid. Search again and choose a release." }); }
         var work = (await metadata.GetWorkAsync(workKey, false, ct)).Work;
         if (choice is null || choice.ExpiresAt <= DateTimeOffset.UtcNow || choice.WorkId != work?.Work.Id)
             return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." });
