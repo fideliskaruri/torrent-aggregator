@@ -46,6 +46,9 @@ function Get-SceneGroup([string]$name) {
     $null
 }
 function Get-Flags($row) {
+    if (@($row.PSObject.Properties | Where-Object { [string]$_.Value -match 'System\.Collections\.Generic\.List' }).Count) {
+        'powershell-list-stringification'
+    }
     $n = Normalize $row.name
     $completeUnderscore = $row.name -match '(?i)Complete.*S\d{1,2}_\d{1,2}'
     if ($row.kind -eq 'multi_season' -and -not $completeUnderscore -and (Get-SeasonEpisode $n)) { 'season-token-read-as-range' }

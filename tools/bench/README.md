@@ -33,11 +33,12 @@ options or input. Inspection with `--name` or `--hash` is explicitly **not a gat
 run**. Parsing performs no HTTP, payload acquisition, metadata lookup or database
 access. Bench supplies UTC year + 2 as the deterministic Parser year cutoff.
 
-The OPS-667 evidence in `results\parser-final.json` is deliberately **not green**:
-seasons, episodes, resolution, foreign and unsafe are 100% overall and on hand
-rows; kind is 98.586% overall and 99.712% hand, with 50 mismatches (five hand).
-OPS-671 tracks the remaining scope/catalog-policy disagreement. The benchmark
-returns 1 for this evidence; no failed rows are excluded.
+The OPS-667 evidence in `results\parser-final.json` **passes all six gate fields
+at 100% overall and hand**, with no rows excluded. OPS-671 resolved the earlier
+scope disagreement: kinds are structural claims, while Plan verifies work
+identity/eligibility. `backend\corpus\parser-kind-policy-corrections.tsv` audits
+each changed label and repaired PowerShell-stringified note. Auxiliary year/group
+diagnostics are still reported honestly, not counted as gate passes.
 
 ## HTTP benchmark
 

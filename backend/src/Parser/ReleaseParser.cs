@@ -46,9 +46,11 @@ public sealed class ReleaseParser : IParser
     private static readonly Regex Year = R(@"\b(19\d{2}|20\d{2})\b");
     private static readonly Regex Complete = R(@"\b(?:complete|batch|collection|season\s*pack)\b|合集");
     private static readonly Regex WholeSeries = R(@"\bcomplete\s+(?:TV\s+|cartoon\s+)?series\b");
+    private static readonly Regex UnqualifiedPack = R(@"\[\s*BD\s*\]|\b(?:BD[- ]?BOX|BluRay[- ]?BOX|box\s*set|batch|collection|complete)\b|合集");
     private static readonly Regex Special = R(@"\b(?:OVA|OAD|recap|specials?|SP|mini\s*anime)\b");
-    private static readonly Regex Other = R(@"\b(?:epub|pdf|cbz|cbr|manga|manhwa|comic|doujin|soundtracks?|OST|audiobook|discography|LP|FLAC\s+album|scans?|featurettes?|extras|bonus|henshu|digital|c\d{3}|v\d{2}[- ]|volumes?|book\s+\d|GNU\s+Linux|FitGirl|TENOKE|WinRAR|pngs|subtitle\s+pack|Subs\+Fonts|MP3|chapter[- ]+\d|tak\+cue|novel|DLCs|Read\s+by|Illustrated\s+Guide|Companion\s+Reader|Deleted\s+Scenes|Behind\s+the\s+Scenes|Making\s+of|Gag\s+Reel|Bloopers|Sample|Outtakes|XXX|18\+|AI\s+Generated|Activators|ML\+Key|PKG|Creditless|TVCM|OP\s+Single|TV\s+Size)\b|第\d+[-~]?\d*巻");
-    private static readonly Regex Dangerous = R(@"\.(?:exe|com|scr|bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|msi|lnk|url|pif|hta|cpl|jar|reg|chm)\b|\b(?:password|passworded|codec\s+required|install\s+codec|zip|rar|7z)\b|\bEXE\s*$");
+    private static readonly Regex Other = R(@"\b(?:epub|pdf|cbz|cbr|manga|manhwa|comic|doujin|soundtracks?|OST|audiobook|discography|LP|FLAC\s+album|scans?|featurettes?|extras|bonus|henshu|c\d{3}|v\d{2}[- ]|volumes?|book\s+\d|pngs|subtitle\s+pack|Subs\s*\+\s*Fonts|MP3|chapter[- ]+\d|tak\+cue|novel|Read\s+by|Illustrated\s+Guide|Companion\s+Reader|Deleted\s+Scenes|Behind\s+the\s+Scenes|Making\s+of|Gag\s+Reel|Bloopers|Sample|Outtakes|Creditless|TVCM|OP\s+Single|TV\s+Size|trailers?|teasers?|production\s+files|artbooks?|lyrics|NCOP|NCED|(?:ass\s*\+\s*)?fonts|subs[- ]only(?:\s+pack)?)\b|第\d+[-~]?\d*巻");
+    private static readonly Regex Dangerous = R(@"\.(?:exe|com|scr|bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|msi|lnk|url|pif|hta|cpl|jar|reg|chm)\b|\b(?:password|passworded|codec\s+required|install\s+codec|zip|rar|7z|EXE)\b");
+    private static readonly Regex Software = R(@"\bPC!|\bv\d{2,}(?:[ .-]\d+)+\b|\b(?:update|patch|setup|version)\s+v?\d+(?:[ .-]\d+)+\b|\b(?:GNU\s+Linux|FitGirl|TENOKE|WinRAR|installer|bootable|software|Activators|ML\+Key|PKG|DLCs)\b");
     private static readonly Regex Cam = R(@"\b(?:CAMRip|CAM|HDCAM|HDTS|TS|TC|telesync|telecine)\b");
     private static readonly Regex English = R(@"\b(?:ENG|English|EN)\b");
     private static readonly Regex Multi = R(@"\b(?:dual|multi)\b");
@@ -76,7 +78,7 @@ public sealed class ReleaseParser : IParser
         var episodeRanges = new List<NumberRange>();
         var absoluteRanges = new List<NumberRange>();
         var coordinates = new List<(int Start, int End)>();
-        foreach (Match date in R(@"\b(?:19|20)\d{2}[- ]\d{2}[- ]\d{2}\b|\b\d{2}[- ]\d{2}[- ](?:19|20)\d{2}\b|\(\d{2} \d{2} \d{2}\)").Matches(text))
+        foreach (Match date in R(@"\b(?:19|20)\d{2}[- ]\d{2}[- ]\d{2}\b|\b\d{2}[- ]\d{2}[- ](?:19|20)\d{2}\b|\b\d{2}[- ]\d{2}[- ]\d{2}\b").Matches(text))
             coordinates.Add((date.Index, date.Index + date.Length));
         var sceneMatches = Scene.Matches(text);
         foreach (Match m in sceneMatches)
@@ -221,36 +223,29 @@ public sealed class ReleaseParser : IParser
         var hasEpisodes = episodes.Count + absolute.Count + episodeRanges.Count + absoluteRanges.Count > 0;
         var scopeText = R(@"\([^)]*\bw/\s*[^)]*\)").Replace(text, "");
         var special = Special.Match(scopeText);
-        var other = Other.IsMatch(scopeText);
+        var other = Other.IsMatch(scopeText) || Software.IsMatch(scopeText) ||
+            R(@"主題歌|キャラクターソング|テーマ[「『]|[\[(]\s*(?:album|albulm)\s*[\])]|\bNC(?:OP|ED)(?:\d+)?(?:v\d+)?\b|\b(?:subs?|subtitles?)[- ]?only(?:\s+packs?)?\b").IsMatch(scopeText);
         if (R(@"\b(?:Specials?|Soundtracks?)\s*\+|\+\s*(?:Specials?|Soundtracks?|Extras)\b|\bwith\b").IsMatch(scopeText) &&
             (seasons.Count > 0 || hasEpisodes))
             other = false;
         if (R(@"\bchapter\s+\d|MP3\s*[@\d]").IsMatch(scopeText)) other = true;
-        if (R(@"\b(?:zip|rar|7z)\b").IsMatch(scopeText) && !Source.IsMatch(scopeText) &&
-            !R(@"\b(?:movie|BluRay|BDRIP)\b").IsMatch(scopeText)) other = true;
-        if (R(@"\bMP3\b").IsMatch(scopeText) && Source.IsMatch(scopeText) &&
-            !R(@"\b(?:soundtrack|discography|album)\b").IsMatch(scopeText)) other = false;
-        if (R(@"\bOST\b").IsMatch(scopeText) && (Resolution.IsMatch(scopeText) || Codec.IsMatch(scopeText) || Source.IsMatch(scopeText)) &&
-            !R(@"\b(?:soundtrack|discography|album|extras)\b").IsMatch(scopeText)) other = false;
         if (other)
         {
             episodes.Clear(); absolute.Clear(); episodeRanges.Clear(); absoluteRanges.Clear();
             hasEpisodes = false;
         }
-        var wholeSeries = WholeSeries.IsMatch(text);
+        var adjective = R(@"\b(?:a|the)\s+complete\s+([\p{L}]+)\b").Match(scopeText);
+        var titleAdjective = adjective.Success && !R(@"^(?:series|seasons?|collection)$").IsMatch(adjective.Groups[1].Value);
+        var wholeSeries = WholeSeries.IsMatch(text) ||
+            !hasEpisodes && seasonNumbers.Length == 0 && UnqualifiedPack.IsMatch(scopeText) && !titleAdjective;
         var kind = other ? ReleaseKind.Other :
             wholeSeries ? ReleaseKind.CompleteSeries :
             seasonNumbers.Length > 1 && sceneMatches.Count == 0 && !Cross.IsMatch(text) ? ReleaseKind.MultiSeason :
             seasonNumbers.Contains(0) || R(@"\bmini\s*anime\b").IsMatch(scopeText) ||
                 special.Success && !hasEpisodes && !R(@"\bTV\s*\+\s*SP\b").IsMatch(scopeText) ? ReleaseKind.Special :
             hasEpisodes ? ReleaseKind.Episode :
-            seasonNumbers.Length > 0 || R(@"\bTV\s*\+\s*SP\b").IsMatch(scopeText) ||
-                Complete.IsMatch(text) && !R(@"\b(?:movie|voice|unknown)\b").IsMatch(text) ? ReleaseKind.SeasonPack :
-            Year.IsMatch(text) || Source.IsMatch(text) || Resolution.IsMatch(text) ||
-                Codec.IsMatch(text) || English.IsMatch(text) ||
-                R(@"\bComplete\b\s*[\])]").IsMatch(text) ||
-                R(@"\b(?:movie|dub|dubbed|subs?|remux|VOSTFR|Vietsub)\b|\.(?:mkv|mp4|avi)\b").IsMatch(raw)
-                ? ReleaseKind.Movie : ReleaseKind.Other;
+            seasonNumbers.Length > 0 || R(@"\b(?:TV\s*\+\s*SP|season\s*pack)\b").IsMatch(scopeText) ? ReleaseKind.SeasonPack :
+            ReleaseKind.Movie;
         var languageText = text;
         if (group is not null && Normalize(group).Length > 0) languageText = languageText.Replace(Normalize(group),
             new string(' ', Normalize(group).Length), StringComparison.OrdinalIgnoreCase);
@@ -269,7 +264,8 @@ public sealed class ReleaseParser : IParser
         var cam = Cam.IsMatch(text);
         var safetyText = R(@"www\.[a-z0-9.-]+\.(?:com|org|net|to|me|tv)|\[[^\]]*\.(?:com|org|net|to|me|tv)[^\]]*\]|[a-z0-9._-]+\.(?:com|org|net|to|me|tv)\.(?:avi|mkv|mp4)").Replace(raw, " ");
         safetyText = R(@"\bNO[- ]RAR\b").Replace(safetyText, " ");
-        var unsafeName = Dangerous.IsMatch(safetyText) || cam;
+        var softwareIso = R(@"\biso\b").IsMatch(text) && Software.IsMatch(scopeText);
+        var unsafeName = Dangerous.IsMatch(safetyText) || cam || softwareIso;
         var yearMatch = Year.Matches(text).Cast<Match>().FirstOrDefault(m =>
             N(m, 1) <= latestReleaseYear && m.Index > 0 &&
             (text[..m.Index].Trim(' ', '[', '(').Length > 0 || text[m.Index - 1] is '[' or '(') &&
