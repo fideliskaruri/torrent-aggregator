@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
@@ -315,9 +316,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             var value = SettingsCatalog.Read<EngineSettings>(row);
             if (input is { } body)
             {
+                if (body.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("Send a settings object.");
                 if (body.TryGetProperty("maxActiveDownloads", out var cap))
                 {
-                    if (!cap.TryGetInt32(out var count) || count is < 1 or > 20)
+                    if (cap.ValueKind != JsonValueKind.Number || !cap.TryGetInt32(out var count) || count is < 1 or > 20)
                         throw new ArgumentException("Downloads at once must be a whole number from 1 to 20.");
                     value = value with { MaxActiveDownloads = count };
                 }
@@ -338,12 +341,27 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 (await store.ReadAsync<SettingRow>(AccessState.Query("scheduler"), ct)).Single());
             var media = await Rows<MediaFileRow>(ct);
             var maximum = roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes;
+            var rootPath = roots.FirstOrDefault(r => r.Enabled)?.Path;
+            var categories = new[] { "Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other" };
+            // The write contract is the editable form, not the richer read-only settings view.
+            if (input is not null)
+                return new { settings = new
+                {
+                    clientType = "builtin", externalClientType = "",
+                    host = "http://127.0.0.1:8080", username = "", password = "", category = "", savePath = "",
+                    baseDownloadPath = rootPath ?? "",
+                    maxStorageGb = (maximum / 1_000_000_000d ?? 0).ToString(CultureInfo.InvariantCulture),
+                    preferredResolution = quality.PreferredResolution, audioLanguage = quality.AudioLanguage ?? "auto",
+                    automationIntervalMinutes = scheduler.Enabled ? scheduler.IntervalMinutes : 0,
+                    maxActiveDownloads = value.MaxActiveDownloads,
+                    downloadWindows = Array.Empty<object>(), categories, pathRules = new { },
+                }, testResult = (object?)null, retentionWarning = (string?)null };
             return new { settings = new
             {
                 clientType = "builtin", externalClientType = (string?)null, externalClientsEnabled = false,
-                host = "", username = (string?)null, hasPassword = false, category = (string?)null,
-                savePath = (string?)null, baseDownloadPath = roots.FirstOrDefault(r => r.Enabled)?.Path,
-                maxStorageBytes = maximum, maxStorageGb = maximum / 1_000_000_000d,
+                host = "http://127.0.0.1:8080", username = (string?)null, hasPassword = false, category = (string?)null,
+                savePath = (string?)null, baseDownloadPath = rootPath,
+                maxStorageBytes = maximum, maxStorageGb = maximum / 1_000_000_000d ?? 0,
                 storageCapConfigured = maximum is not null,
                 setupComplete = value.SetupComplete, verboseDiagnostics = value.VerboseDiagnostics,
                 preferredResolution = quality.PreferredResolution, audioLanguage = quality.AudioLanguage ?? "auto",
@@ -351,11 +369,25 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 maxActiveDownloads = value.MaxActiveDownloads, maxActiveDownloadsDefault = 4,
                 effectiveMaxActive = value.MaxActiveDownloads, maxActiveSource = "setting",
                 downloadWindows = Array.Empty<object>(), downloadWindowOpen = true,
-                categories = new[] { "Movies", "TV", "Anime", "Other" }, pathRules = new { },
+                categories, pathRules = new { },
                 pathWarnings = Array.Empty<object>(), hasExternal = false,
                 defaultRetentionPolicy = "KEPT", defaultRetentionPolicyPersisted = true,
                 storageUsage = new { totalBytes = media.Sum(m => m.Bytes), keptBytes = media.Sum(m => m.Bytes),
-                    indeterminateBytes = 0, items = Array.Empty<object>() },
+                    indeterminateBytes = 0, items = Array.Empty<object>(),
+                    diskBytes = 0L, orphanBytes = 0L, orphans = Array.Empty<object>(),
+                    disk = new
+                    {
+                        root = rootPath, status = "not-scanned", authoritative = false,
+                        observedBytes = 0L, trackedBytes = media.Sum(m => m.Bytes), internalBytes = 0L,
+                        fileCount = 0, orphanFileCount = 0, truncated = false,
+                        truncatedBy = Array.Empty<string>(), groupsTruncated = false,
+                        unreadablePaths = Array.Empty<string>(), linksSkipped = 0, scannedAtMs = 0L,
+                    } },
+            }, defaults = new
+            {
+                categories, baseDownloadPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow"),
+                clientType = "builtin",
             } };
         }
         finally { settingsGate.Release(); }
