@@ -53,7 +53,7 @@ not standalone release fixtures.
 | `query` | Original cache query; for historical fixtures, the asserted or implied work-name target. A year in parentheses can distinguish film targets. Empty means no meaningful target was supplied. |
 | `title` | Human-readable work title extracted from the name, without group, year, coordinates or encoding jargon. Prefer the English alias **when actually present in the name**; do not invent it from the query or metadata. Preserve title numbers and cour/subtitle identity. `unknown` means no reliable title. Normalized spacing/punctuation is not a byte-level title assertion. |
 | `year` | Explicit four-digit year, or empty if unstated. For a stated year interval, the first year is retained and the interval explained in reviewed notes. Numeric titles such as `1917`, `2012` and `Blade Runner 2049` are not release years. |
-| `kind` | `movie`, `episode`, `season_pack`, `multi_season`, `complete_series`, `special`, or `other`. `episode` includes explicit episode ranges, with an `episode range` note; a range is not a single-acquisition target. `season_pack` means an implied whole season, such as bare S01, Season 1 or Complete S01, not an explicitly numbered partial range. `multi_season` states multiple seasons; `complete_series` requires explicit whole-series intent. `other` includes books, music, software, extras-only content and unresolved scope. |
+| `kind` | Structural only (OPS-671): `movie` is one unqualified title, not verified film identity; no coordinates/pack/non-feature markers defaults to movie, even for junk names or unusual containers. `episode` includes explicit episode ranges with an `episode range` note, not single-acquisition intent. `season_pack` means an implied whole season (bare S01, Season 1, Complete S01), never a partial episode range. `multi_season` states multiple seasons. `complete_series` includes explicit whole-series intent and unqualified [BD]/BD-box/Batch/Complete/Collection claims without season/episode facts. `special` retains explicit special intent. `other` requires explicit non-feature book/music/software/subtitle/font/extras markers; wrong work or unresolved catalog identity belongs to Plan. |
 | `seasons` | Explicit season number, inclusive range (`1-3`) or comma-separated list (`1,7`). Empty means no season stated. Conflicting labels can be retained as a list with a note, rather than silently choosing one. |
 | `episodes` | Explicit episode number, inclusive range or comma-separated coordinates. `a` prefixes absolute/unqualified anime numbering (`a33`, `a1-a28`). Both coordinate systems are retained when supplied: `8,a36` means seasonal episode 8 and absolute episode 36. Empty means no episode span stated. |
 | `resolution` | `2160`, `1080`, `720`, `480`, or `unknown`. 4K/UHD and FHD aliases are normalized; cropped 1920-wide anime encodes belong to the 1080 class. An explicit encoded 1080p wins over “4K remastered”. Out-of-schema values (360p/400p), absent evidence and mixed per-season qualities are `unknown`, not rounded up. |
@@ -85,13 +85,13 @@ Unknown audio language, in contrast, must not trigger a foreign-language gate.
 
 | Kind | Rows |
 | --- | ---: |
-| episode | 1,933 |
-| movie | 942 |
-| season_pack | 383 |
-| other | 193 |
+| episode | 1,935 |
+| movie | 1,012 |
+| season_pack | 382 |
+| other | 118 |
 | multi_season | 64 |
 | special | 15 |
-| complete_series | 5 |
+| complete_series | 9 |
 | **Total** | **3,535** |
 
 ### Origin and review
@@ -173,11 +173,31 @@ coordinates survive; subtitle-only tags do not prove foreign audio; archive and
 executable markers remain unsafe; a 1920-wide dimension is not a release year.
 The Kind counts above reflect this review, not the initial annotation totals.
 
-**Scope policy remains unresolved (OPS-671).** Some coordinate-free names are
-labelled movie or season_pack using known catalog identity; others with the same
-name-visible cues are labelled other. A pure parser cannot recover absent catalog
-facts. These disputed kind labels are left intact and their gate failures reported.
-The correction audit is not permission to alter uncertain labels merely to pass.
+### Approved structural-kind policy and note repair (OPS-671 / OPS-675)
+
+The coordinator resolved the earlier scope disagreement: a Parser never decides
+whether a name is the right work or junk. Plan compares Metadata names/year,
+runtime/size and file/unsafe evidence. An unqualified title defaults to movie;
+EXE/password/archive safety does not independently turn it into other. Explicit
+trailer/teaser/sample/extras/featurette/production-files, music, book, subtitle/font
+packs, NCOP/NCED and software-version markers do. An unqualified [BD]/BD-box or
+Batch/Complete/Collection cue claims complete_series, without catalog inference.
+Explicit main-feature bundles retain their season/episode intent; quality-only
+audio/container facts are never verified payload claims.
+
+`parser-kind-policy-corrections.tsv` lists **1,655 changed cells across 1,546
+rows**, including **106 kinds**, **three restored explicit absolute ranges**, and
+all changed notes. Inputs, queries, origins and annotation provenance remain
+unchanged. Trailer/production-files/subtitle-only rows are other; bare unknown
+titles and known films use the same structural default. Movie collections are
+unqualified collection claims rather than catalog-certified single films.
+
+Exactly **1,480 notes** contained `System.Collections.Generic.List` type names,
+not recoverable list contents. Only that corrupt placeholder was removed; surviving
+correction text remains. Empty notes honestly mean no surviving annotation.
+The validator now flags this token in **any column**; it rejected all 1,480
+corrupt rows before repair and reports zero flags after repair.
+
 Use `bench parse` for parser accuracy, separately from the structural validator.
 
 The initial external PowerShell validator checked encoding, schema and
