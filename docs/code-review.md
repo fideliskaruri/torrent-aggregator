@@ -77,8 +77,6 @@ There are 8 EF migrations of about 2.8k lines each. Collapse them into one initi
 
 ## Per-component review
 
-(Next: Targets, Library, Store, Engine, Api, Find/Sources/Check/Plan/Parser, Metadata, then the web areas.)
-
 ### Targets (3,340 lines, 22 files)
 
 The core job is small: an owner asks for a film or episodes, then find, check, plan, fetch and file each one, and skip what's owned. Most of the size comes from v1-cut features woven into that core path.
@@ -102,3 +100,99 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 | T15 | One `LegacyEvent` attempt row written per accepted target to feed the cut activity timeline. | `TargetPipeline.cs:194-195` | cut-v1 | low |
 
 **Simpler shape:** a target has the states Wanted, Searching, Fetching, Filing, Waiting(reason), Done and Removed; `DownloadNow` is a flag. Delete T1, T2, T3, T10, T11, T12 and T15, then split what's left into `Accept`, `Run` and `Actions`, each at most 300 lines. Estimated result: about 1,500 lines, down from 3,340.
+
+### Library (2,495 lines)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| L1 | `ScanFilesAsync` is one 157-line loop doing four jobs: walk files, parse name plus up to 4 parent folders, bare-episode guesses, metadata match (year-less fallback, file vs folder disagreement, runtime check, per-scan caches). The matching is wanted; it belongs in one pure `Match(evidence) -> candidates + confidence` function. | `MediaImport.cs:83-240` | refactor | high |
+| L2 | Import move/copy with a FileOperation journal, resume stages and a NeedsOwner state. Fakes a 33-field `TargetRow` positionally to reuse `PlaceAsync`. v1 is track in place only. | `MediaImport.cs:366-507`; `FileOperationRow` | cut-v1 | high |
+| L3 | `AdoptAsync` builds a 35-argument `MediaFileRow` that repeats the track-in-place path. Two ways to record one file. | `MediaImport.cs:43-79` | refactor | medium |
+| L4 | Duplicate review (`DuplicateKey`). | Library, Targets | cut-v1 | medium |
+| L5 | `ImportReviews` wraps injected delegates (a layer with no logic); `HasSwitchoverAsync` serves the cut switchover. | `ImportReviews.cs` | delete | low |
+| L6 | Hand-written MKV/AVI/MP4 parsers (284 lines) just to read runtime and size. | `NativeContainerDetails`, `VideoDimensions`, `VideoSignature` | keep | low |
+| L7 | `LibraryLayout.Names`: 121 lines of regex guessing which torrent folders to keep or strip. Name from catalog identity instead: `Title (Year)/Season 01/Title S01E02.ext`, subtitles share the stem. No guessing. | `LibraryLayout.cs` | refactor | high |
+| L8 | Root management (add, check, remove, configure, seed from legacy, ~200 lines) and a 142-line `PlaceAsync` with priority, reservations, volume-serial grouping, caps, pins and Replace suffixes. One root makes this ~40 lines. | `LibraryPlacement.cs:11-204,283-425` | cut-v1 | high |
+| L9 | `RawDownloadFiles` belongs to the second raw-magnet pipeline (T14). | `RawDownloadFiles.cs` | refactor | low |
+
+**Simpler shape:** `Scan` (walk + parse), `Match` (pure), `Track` (one write path), `Place` (one root, identity-named path). About 900 lines.
+
+### Store (20,789 lines, ~16k generated)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| S1 | A home-made row store on EF Core: `Set<Dictionary<string,object>>`, a reflection `Schema`, per-module "capabilities" with writable-table lists, Library "write proposals" validated in `CommitAsync`, a 500-row read cap with base64 cursors. 243 `ReadAsync<` and 109 `CommitAsync(` call sites. Replace with a typed `DbContext` and LINQ. | `Schema.cs` (158), `StoreCapabilities.cs` (239), `FindSelection` | refactor | critical |
+| S2 | Legacy conversion is dead (data wiped, fresh start): `LegacyConverter` (1,103), `tools/Convert`, `LegacyTorrentVerifier`, `LegacyActivityText`, `conversion-complete.json` checks, `AdoptConvertedAsync`, `ReadLegacySettingsAsync`, `SeedAsync`. Also makes the rehearsal/switchover phase moot. | `Store/Legacy*`, `HostPaths.cs:25`, `ImportEndpoints.cs:137` | delete | high |
+| S3 | 7 migrations + snapshot for an app that never shipped. Collapse to one `InitialSchema` after S1/S4. | `Migrations/` | delete | medium |
+| S4 | Wide positional records built with runs of nulls: `TargetRow` 33 fields, `MediaFileRow` 32, `WorkRow` 24, `RawIntentRow` 22, `FileOperationRow` 20, `AttemptRow` 17, `StorageRootRow` 17, `AutoRuleRow` 16. Use named properties; drop cut-feature fields. | `Store/Rows*` | refactor | high |
+
+### Engine (2,448 lines; `MonoTorrentEngine.cs` 1,532)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| E1 | Pre-download probing: metadata probes, piece observation, admission claims, probe-to-download handover, `ProbeIO`, `ProbeSampling`, `NetworkObservation`, plus Check (`SwarmCheck` 285, `CheckRepository` 110). ~1,200 lines. The download itself is the probe: start the best-seeded candidate, detect stalls, Find another. **Owner decision.** | `MonoTorrentEngine.cs:281-676`; `Check/` | delete? | critical |
+| E2 | Reflection into a MonoTorrent internal (`MetadataStart.Invoke`). Breaks on any library update. Goes with E1. | `MonoTorrentEngine.cs:273` | delete | high |
+| E3 | Filing permit protocol across Engine, Library, Store (`PrepareFilingAsync`, `PublishFilingAsync`, `PrepareDeleteAsync`, `CompleteFilingAsync`). Files already land at the final path + `.partial`: stop, rename, record. | `MonoTorrentEngine.cs:1055-1170` | refactor | high |
+| E4 | Dev-only engine code: `SaveDevStateAsync`, `RemoveDevAsync`, `PrioritizeDevFileAsync`, piece diagnostics. | `MonoTorrentEngine.cs:1292,1491` | delete | medium |
+| E5 | DHT tuning: `DhtBootstrap` (104, node cache), `ReliableDhtEngine` (35). Keep only the idempotent-start fix if still needed. | `Engine/Dht*` | cut-v1 | low |
+| E6 | `ExternalDownloadScanner` (181) reads other clients' resume files; `ExternalMediaAdoption` (99). A second import path. **Owner decision:** fold into folder import unless continuing other clients' partial downloads matters. | `Engine/External*` | delete? | medium |
+
+### Api (6,851 lines)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| A1 | Production wiring lives in files named Dev*: `AddDevEngine` registers the real engine, `AddDevLibrary` the real import, `MapDevLibraryAsync` maps real routes. Rename to `EngineModule`, `LibraryModule`, etc. | `DevEngine.cs:22-34`, `DevLibrary.cs:19-22`, `Program.cs:78-100` | refactor | high |
+| A2 | `DevFiling`: a separate dev add/read/remove pipeline with its own host; production endpoints inject it only for its semaphore; writes fake `LegacyEvent` receipts. Dev route files (`DevCheck`, `DevDiscoveryPlan`, `DevDownloads`, `DevFind`, `DevPlan`, `DevSources`, engine/filing routes) ~1,100 lines. | `DevFiling.cs`, `CatalogEndpoints.cs:466`, `LibraryEndpoints.cs:60` | delete | high |
+| A3 | `Hunter` (151) is a second scheduler beside `TargetPipeline`. Following a show should just create Wanted targets. Auto rules (`/api/rules`, 816-line web page) overlap with following; quality watches are cut. **Owner decision on rules.** | `Hunter.cs`, `RuleEndpoints` | refactor | medium |
+| A4 | Cut-v1 routes still mapped: calendar, request auto-approve, web push (`WebPush`, `VapidKeyStore`, `/push/*`). | `RequestEndpoints.cs:96,99,159-160` | cut-v1 | medium |
+| A5 | Business logic in Api: `RequestService` (258), `Hunter`, notifications. Move into modules. Desktop shell (~900) is fine. | `Api/` | refactor | low |
+
+### Find, Sources, Check, Plan, Parser
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| F1 | Two near-identical two-lane priority schedulers (`SearchBudget` 62, `PriorityGate` 155) plus three cache/dedupe layers (`SourceFlights` 260 in-flight + memory cache + retry revisions, `SearchCache` 133 DB cache + release observations). One user. Replace with one TTL cache + one per-host rate limiter (~250 lines). | `Find/`, `Sources/PriorityGate.cs` | refactor | high |
+| F2 | `CandidatePool` (137) is fine. | `Find/CandidatePool.cs` | keep | - |
+| F3 | Fallback sources (`AdditionalAdapters` 193) are off by default in v1; remove from the default path. | `Sources/AdditionalAdapters.cs` | cut-v1 | low |
+| P1 | `ReleasePlanner.Choose` is pure (good) but 160 lines; health bands rely on probe evidence (E1); audio-language parts belong to the cut per-target policy (T3). Split into filter, score, pick. | `ReleasePlanner.cs:13-172` | refactor | medium |
+| R1 | Parser (418) is the single name parser. Keep; the web should consume its output instead of re-parsing (W3). | `Parser/` | keep | - |
+
+### Metadata (3,013 lines)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| M1 | `MetadataService` is one partial class over 7 files (Browse, Catalog, CatalogFacts, CatalogPersistence, AnimeSeasons, ProviderMapping, core). A god class split by file, not by job. Split into `Catalog` (lookup + persistence), `Browse` (rails), `AnimeSeasons`. | `Metadata/*.cs` | refactor | high |
+| M2 | `Browse.cs` (488): rails, home-release cache, recommendations, extras, genre map; `RailAsync` alone ~110 lines. | `Browse.cs:164-276` | refactor | medium |
+| M3 | Three providers (TMDB, AniList, Cinemeta) + Fribb anime map behind `ProviderHttp` with stale/complete answers. Layering is reasonable; keep. | `Providers.cs`, `ProviderHttp.cs`, `FribbMap.cs` | keep | - |
+
+### Web (40,146 lines, 259 files)
+
+| # | Finding | Where | Tag | Sev |
+|---|---|---|---|---|
+| W1 | God components. `downloads/page.tsx` 1,957 lines (24 `useState`, 11 `useMemo`, 8 raw fetches, 9 inline components); `title-detail.tsx` 1,904 (18 inline components); `settings/page.tsx` 1,376 (22 `useState`); `watchlist/page.tsx` 1,373 (9 fetches); `episode-list.tsx` 1,218; `rules/page.tsx` 816. Rule: page = data hook + layout, components ≤ 300 lines. | listed files | refactor | critical |
+| W2 | No single API layer: raw `fetch(` in 34 files beside 47 `useApiQuery` uses and `sessionAwareFetch`. Error handling, timeouts and session expiry differ per screen. One typed client + `useApiQuery`/`useApiMutation`. | 34 files | refactor | high |
+| W3 | Identity guessed in the browser: `work-key.ts` (`workKeyFor`, `displayTitleFromWorkKey`, `titleHrefForName`), `work-identity.ts` (335), `episodes.ts` `parseEpisode`, `quality.ts` `parseResolution`/`parseSource`, `media-alias.ts`. Because 18 of 30 torrent rows arrive without a `workKey`. Server sends resolved identity, quality and episode on every row; delete these. | `components/title/work-key.ts`, `lib/torrents/*` | delete | critical |
+| W4 | `downloads/grouping.ts` (591) + `release-display.ts` (306): 30+ small state predicates and labels (`isDownloading`, `isHeld`, `stateLabel`, `waitReasonLabel`, `rollupChip`...) re-deriving server state. Server sends one `state` + `label`; grouping keys on `workKey`. | `app/downloads/` | refactor | high |
+| W5 | Essay comments: 35-50% of lines in `poll-schedule.ts` (166/374), `availability.ts` (230/604), `storage-override.ts` (119/376), `work-key.ts` (179/378), `types.ts` (256/503). Comments argue design instead of the code being obvious. | listed | delete | medium |
+| W6 | Polling policy module (350 lines) + `visible-poller.ts` + `connection-watch.ts` for "skip ticks when hidden or in flight". `useApiQuery` with `refetchInterval` and visibility check does this in ~30 lines. | `lib/observability/poll-schedule.ts` | refactor | medium |
+| W7 | `availability.ts` (548) decides which rail-card action is allowed from many fields. Server should send `action` + `disabledReason`. | `components/browse/availability.ts` | refactor | medium |
+| W8 | Cut-v1 UI still present: release swap dialog (565), storage override (354), upcoming/calendar (369), push/PWA (451), auto-approve, duplicate review, ranking/priority controls. | `components/releases`, `lib/library/storage-override.ts`, `app/upcoming`, `components/pwa` | cut-v1 | high |
+| W9 | `components/title/types.ts` (473) hand-mirrors server DTOs. Generate from the contract (OpenAPI) or keep one `api-types.ts`. | `components/title/types.ts` | refactor | medium |
+| W10 | No reusable list primitives: each page builds its own filter bar, row, bulk bar and empty state. Build `DataList<T>`, `FilterBar<T>`, `BulkBar`, `useSelection<T>` once; Downloads, Watchlist, Requests, Library use them. | pages | refactor | high |
+| W11 | `components/tf/*` is a decent start (empty, error, confirm, page header, query boundary). Keep and extend. | `components/tf` | keep | - |
+
+**Simpler shape:** `lib/api` (typed client + query hooks), `ui/` primitives, `features/<area>/` with one data hook each, no identity or state parsing in the browser. Target about 22k lines, down from 40k.
+
+## Totals
+
+| Area | Now | After | Main levers |
+|---|---|---|---|
+| Backend (excl. migrations) | ~27k | ~13k | S1, S2, E1, A2, T-cuts, L2/L8, F1 |
+| Migrations | ~16k | ~3k | S3 |
+| Web | ~40k | ~22k | W1, W3, W4, W8, W10 |
+
+## Open questions for the owner
+
+1. **E1:** drop pre-download probing (~1,200 lines) for "start best-seeded, detect stall, Find another"?
+2. **E6:** continue other clients' partial downloads, or only import finished files from folders?
+3. **A3:** keep auto-download rules, or is following a show enough?
