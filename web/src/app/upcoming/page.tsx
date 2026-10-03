@@ -111,7 +111,9 @@ function OwnerActions({ entry, onDone }: { entry: TimelineEntry; onDone: () => v
     } catch { setError("Can't reach TorrentFlow. Check that it's running and try again."); }
     finally { setBusy(false); }
   }
-  const canGrab = entry.targetId && !entry.grabNow && (entry.state === "expected" || entry.state === "searching");
+  // Once out, a searching film is already being grabbed the moment a release turns up.
+  const released = entry.at != null && Date.parse(entry.at) <= Date.now();
+  const canGrab = entry.targetId && !entry.grabNow && !released && (entry.state === "expected" || entry.state === "searching");
   const series = entry.mediaType === "tv" && entry.workKey;
   if (!series && !canGrab && !entry.grabNow) return null;
   return (

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -90,7 +90,7 @@ function groupName(g: LookingGroup): string {
  * "Looking for a release" and moves to the list below when a release is found.
  * Every row has a way out: pick a release yourself, try now, or remove it.
  */
-export function LookingSection() {
+export function LookingSection({ onCount }: { onCount?: (count: number) => void } = {}) {
   const { canManage } = useCapabilities();
   const { rows, setRows, reload } = useWantedRows();
 
@@ -98,6 +98,8 @@ export function LookingSection() {
     () => groupRows(rows).sort((a, b) => Number(b.looking) - Number(a.looking)),
     [rows],
   );
+
+  useEffect(() => onCount?.(groups.length), [groups.length, onCount]);
 
   if (!groups.length) return null;
 

@@ -249,6 +249,8 @@ export default function ClientPage() {
   const [swapTorrent, setSwapTorrent] = useState<ClientTorrent | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
+  // Wanted titles with no release yet, shown above the list: the page is not empty while any wait.
+  const [lookingCount, setLookingCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [mediaTab, setMediaTab] = useState<DownloadTab>(DEFAULT_DOWNLOAD_TAB);
   const [sort, setSort] = usePersistedState<DownloadSort>(
@@ -1119,7 +1121,9 @@ export default function ClientPage() {
   ];
 
   const summaryParts: { id: StatusFilter; label: string; hook: string }[] = [
-    { id: "all", label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" },
+    ...(stats.total > 0 || lookingCount === 0
+      ? [{ id: "all" as const, label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" }]
+      : [{ id: "all" as const, label: `${lookingCount} looking for a release`, hook: "looking" }]),
     ...(stats.downloading > 0 ? [{ id: "downloading" as const, label: `${stats.downloading} downloading`, hook: "downloading" }] : []),
     ...(stats.queued > 0 ? [{ id: "queued" as const, label: `${stats.queued} queued`, hook: "queued" }] : []),
     ...(stats.done > 0 ? [{ id: "ready" as const, label: `${stats.done} ready`, hook: "ready" }] : []),
@@ -1635,8 +1639,8 @@ export default function ClientPage() {
             asserts "No downloads yet" stays hidden — keep that structure if
             this section is ever flattened.
           */}
-          <LookingSection />
-          {!torrents.length && !loading ? (
+          <LookingSection onCount={setLookingCount} />
+          {!torrents.length && !loading && lookingCount === 0 ? (
             <div className="space-y-4">
             <TfEmptyState
               icon={HardDriveDownload}
@@ -1651,7 +1655,7 @@ export default function ClientPage() {
             />
             {isBuiltin && <DownloadRecovery mode="empty" onImported={() => void load()} />}
             </div>
-          ) : (
+          ) : !torrents.length && lookingCount > 0 ? null : (
             <>
             {isBuiltin &&
             torrents.length > 0 &&
