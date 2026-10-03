@@ -79,6 +79,13 @@ The existing scoped `/api/library/delete` adapter still resolves persisted
 WatchItems only. It needs to compose `LibraryRead` for file-only identifiers too;
 that adapter and the web's removal copy are outside this lane's allowed files.
 
+Library list watch chips are a read-time composition of the existing Jellyfin
+reader, not local watch history. The list and title page use the same provider/path
+matching and progress projection. A list reads one shared Jellyfin snapshot (paged
+items plus NextUp), under one 1.5-second deadline for the entire batch. Disconnected,
+unavailable and unmatched states omit `watchState` and `jellyfinNextUp`; no per-title
+Jellyfin HTTP calls or persistent watch-state copies are created.
+
 For a shared pack, the preview selects only the requested items' file indices.
 Targets drains the manager through Engine's public API, retires those bindings to
 unselected hidden boundary-fragment paths, removes their inventory and associations,

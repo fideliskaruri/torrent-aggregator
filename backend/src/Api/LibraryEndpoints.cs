@@ -10,6 +10,36 @@ namespace TorrentFlow.Api;
 
 internal static class LibraryEndpoints
 {
+    internal static async Task<IResult> List(HttpContext h, CatalogState state, IMetadata metadata,
+        ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
+    {
+        var actor = AccessIdentity.UserId(h);
+        var rows = await LibraryRead.ItemsAsync(actor,
+            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct), inventory, library, ct);
+        var works = new List<(WatchItemRow Item, WorkSnapshot Work)>();
+        foreach (var item in rows)
+            if ((await metadata.GetWorkAsync(item.WorkId, false, ct)).Work is { } work)
+                works.Add((item, work));
+        var watch = await JellyfinEndpoints.ReadLibrary(h,
+            works.Select(w => w.Work), inventory, ct);
+        var items = new System.Text.Json.Nodes.JsonArray();
+        foreach (var (item, work) in works)
+        {
+            var node = JsonSerializer.SerializeToNode(
+                await CatalogEndpoints.WatchProjection(item, work, state, library, ct),
+                CatalogProjection.Json)!.AsObject();
+            if (watch.GetValueOrDefault(work.Work.Id) is { } jellyfin)
+            {
+                if (jellyfin.Film is not null)
+                    node["watchState"] = JsonSerializer.SerializeToNode(jellyfin.Film, CatalogProjection.Json);
+                if (jellyfin.NextUp is not null)
+                    node["jellyfinNextUp"] = JsonSerializer.SerializeToNode(jellyfin.NextUp, CatalogProjection.Json);
+            }
+            items.Add(node);
+        }
+        return Results.Json(new { items }, CatalogProjection.Json);
+    }
+
     internal static void MapLibraryActions(this WebApplication app)
     {
         var group = app.MapGroup("/api/library").AddEndpointFilter(async (context, next) =>

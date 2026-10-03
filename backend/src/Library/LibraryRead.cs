@@ -1,10 +1,23 @@
 using System.Collections.Immutable;
 using TorrentFlow.Domain;
+using TorrentFlow.Library.Jellyfin;
 
 namespace TorrentFlow.Library;
 
 public static class LibraryRead
 {
+    public static async Task<ImmutableDictionary<string, JellyfinTitleState>> WatchAsync(
+        JellyfinWatchState reader, JellyfinSettings settings, string? key,
+        IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
+    {
+        if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(settings.UserId) ||
+            string.IsNullOrWhiteSpace(key))
+            return ImmutableDictionary<string, JellyfinTitleState>.Empty;
+        var files = (await inventory.MediaAsync(null, ct)).ToLookup(f => f.WorkId);
+        return await reader.ReadBatchAsync(settings, key,
+            works.Select(w => (w, files[w.Work.Id].ToImmutableArray())), ct);
+    }
+
     public static string ItemId(string workId) => "library:" + workId;
 
     public static WatchItemRow OwnedItem(string userId, string workId, IEnumerable<MediaFileRow> files)

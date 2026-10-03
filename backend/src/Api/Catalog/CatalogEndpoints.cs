@@ -40,7 +40,7 @@ internal static class CatalogEndpoints
             workKey, transfer = (object?)null, seasonTransfers = new Dictionary<string, object>(),
             episodeTransfers = new Dictionary<string, object>(), generatedAt = DateTimeOffset.UtcNow,
         }));
-        app.MapGet("/api/watchlist", Watchlist);
+        app.MapGet("/api/watchlist", LibraryEndpoints.List);
         app.MapPost("/api/watchlist", SaveWatch);
         app.MapPatch("/api/watchlist", SaveWatch);
         app.MapDelete("/api/watchlist", RemoveWatch);
@@ -356,20 +356,6 @@ internal static class CatalogEndpoints
     private static string? Text(JsonElement body, string key) => body.TryGetProperty(key, out var value) ?
         value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.ToString() : null : null;
 
-    private static async Task<IResult> Watchlist(HttpContext h, CatalogState state, IMetadata metadata,
-        ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
-    {
-        var rows = await LibraryRead.ItemsAsync(ActorId(h),
-            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct),
-            inventory, library, ct);
-        var items = new List<object>();
-        foreach (var item in rows.OrderByDescending(w => w.UpdatedAt))
-        {
-            var w = (await metadata.GetWorkAsync(item.WorkId, false, ct)).Work;
-            if (w is not null) items.Add(await WatchProjection(item, w, state, library, ct));
-        }
-        return Json(new { items });
-    }
     private static async Task<IResult> SaveWatch(HttpContext h, CatalogState state, IMetadata metadata,
         ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
@@ -450,7 +436,7 @@ internal static class CatalogEndpoints
         return item is null ? Json(new { error = "The item changed. Try saving again." }, 409) :
             Json(new { item = await WatchProjection(item, w, state, library, ct), existed = prior is not null });
     }
-    private static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, CatalogState state,
+    internal static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, CatalogState state,
         ILibraryPlacement library, CancellationToken ct) =>
         CatalogProjection.Watch(item, w, !(await library.OwnedAsync(new(w.Work.Id, [], false), ct)).IsEmpty,
             (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault(),

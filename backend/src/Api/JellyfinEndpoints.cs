@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Library;
 using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Store;
 
@@ -84,6 +85,13 @@ internal static class JellyfinEndpoints
         var settings = await Settings(h, ct);
         return await Adapter.ReadAsync(settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), work, files, ct);
+    }
+    internal static async Task<System.Collections.Immutable.ImmutableDictionary<string, JellyfinTitleState>>
+        ReadLibrary(HttpContext h, IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
+    {
+        var settings = await Settings(h, ct);
+        return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
+            h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
     }
     private static IStore Store(HttpContext h) => h.RequestServices.GetRequiredKeyedService<IStore>("targets");
     private static async Task<JellyfinSettings> Settings(HttpContext h, CancellationToken ct) =>

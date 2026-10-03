@@ -47,9 +47,14 @@ public sealed class JellyfinWatchState
 
     public async Task<JellyfinTitleState?> ReadAsync(JellyfinSettings settings, string? key,
         WorkSnapshot work, ImmutableArray<MediaFileRow> files, CancellationToken ct)
+        => (await ReadBatchAsync(settings, key, [(work, files)], ct)).GetValueOrDefault(work.Work.Id);
+
+    public async Task<ImmutableDictionary<string, JellyfinTitleState>> ReadBatchAsync(
+        JellyfinSettings settings, string? key,
+        IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct)
     {
         if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(settings.UserId) || string.IsNullOrWhiteSpace(key))
-            return null;
+            return ImmutableDictionary<string, JellyfinTitleState>.Empty;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
         var locked = false;
@@ -75,7 +80,7 @@ public sealed class JellyfinWatchState
                     items.AddRange(page.Items);
                     start += page.Items.Length;
                 } while (page.Items.Length > 0 && start < page.TotalRecordCount && start < 100000);
-                if (start < page.TotalRecordCount) return null;
+                if (start < page.TotalRecordCount) return ImmutableDictionary<string, JellyfinTitleState>.Empty;
                 var next = await GetAsync<Page>(server, key, "Shows/NextUp?UserId=" +
                     Uri.EscapeDataString(settings.UserId) + "&Fields=ProviderIds,Path&EnableUserData=true&Limit=1000",
                     deadline.Token);
@@ -85,38 +90,15 @@ public sealed class JellyfinWatchState
                     now, now.AddSeconds(15), null, null, true, "jellyfin");
                 cache = snapshot;
             }
-            if (!snapshot.Complete) return null;
+            if (!snapshot.Complete) return ImmutableDictionary<string, JellyfinTitleState>.Empty;
             var data = snapshot.Payload.Deserialize<Snapshot>(Json)!;
-            var series = Unique(data.Items.Where(i => i.Type == "Series" && ProviderMatch(i, work.Links)));
-            Item? Match(EpisodeRow? episode)
+            var result = ImmutableDictionary.CreateBuilder<string, JellyfinTitleState>();
+            foreach (var (work, files) in works)
             {
-                var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode")).ToArray();
-                var byId = episode is null ? candidates.Where(i => ProviderMatch(i, work.Links)) :
-                    candidates.Where(i => EpisodeProviderMatch(i, episode) || series is not null &&
-                        i.SeriesId == series.Id && i.IndexNumber == episode.Number &&
-                        i.ParentIndexNumber == work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId)?.Number);
-                var identified = Unique(byId);
-                if (identified is not null) return identified;
-                // A conflicting provider match is not made less ambiguous by a filesystem guess.
-                if (byId.Any()) return null;
-                var paths = files.Where(f => f.EpisodeId == episode?.Id).Select(f => NormalizePath(f.Path)).ToHashSet();
-                return Unique(candidates.Where(i => i.Path is not null && paths.Contains(NormalizePath(i.Path))));
+                deadline.Token.ThrowIfCancellationRequested();
+                result[work.Work.Id] = Project(data, work, files);
             }
-            var episodes = ImmutableDictionary.CreateBuilder<string, JellyfinProgress>();
-            JellyfinNextEpisode? nextUp = null;
-            foreach (var episode in work.Episodes)
-            {
-                var item = Match(episode);
-                if (item is null) continue;
-                if (item.UserData is not null) episodes[episode.Id] = Progress(item);
-                if (nextUp is null && data.Next.Any(n => n.Id == item.Id))
-                {
-                    var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
-                    if (season is not null) nextUp = new(episode.Id, season.Number, episode.Number);
-                }
-            }
-            var film = work.Work.Kind == WorkKind.Film ? Match(null) : null;
-            return new(film?.UserData is null ? null : Progress(film), episodes.ToImmutable(), nextUp);
+            return result.ToImmutable();
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or ArgumentException)
         {
@@ -127,9 +109,43 @@ public sealed class JellyfinWatchState
                     JsonSerializer.SerializeToElement(new Snapshot([], [])),
                     now, now.AddSeconds(5), null, null, false, "jellyfin");
             }
-            return null;
+            return ImmutableDictionary<string, JellyfinTitleState>.Empty;
         }
         finally { if (locked) gate.Release(); }
+    }
+
+    private static JellyfinTitleState Project(Snapshot data, WorkSnapshot work, ImmutableArray<MediaFileRow> files)
+    {
+        var series = Unique(data.Items.Where(i => i.Type == "Series" && ProviderMatch(i, work.Links)));
+        Item? Match(EpisodeRow? episode)
+        {
+            var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode")).ToArray();
+            var byId = episode is null ? candidates.Where(i => ProviderMatch(i, work.Links)) :
+                candidates.Where(i => EpisodeProviderMatch(i, episode) || series is not null &&
+                    i.SeriesId == series.Id && i.IndexNumber == episode.Number &&
+                    i.ParentIndexNumber == work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId)?.Number);
+            var identified = Unique(byId);
+            if (identified is not null) return identified;
+            // A conflicting provider match is not made less ambiguous by a filesystem guess.
+            if (byId.Any()) return null;
+            var paths = files.Where(f => f.EpisodeId == episode?.Id).Select(f => NormalizePath(f.Path)).ToHashSet();
+            return Unique(candidates.Where(i => i.Path is not null && paths.Contains(NormalizePath(i.Path))));
+        }
+        var episodes = ImmutableDictionary.CreateBuilder<string, JellyfinProgress>();
+        JellyfinNextEpisode? nextUp = null;
+        foreach (var episode in work.Episodes)
+        {
+            var item = Match(episode);
+            if (item is null) continue;
+            if (item.UserData is not null) episodes[episode.Id] = Progress(item);
+            if (nextUp is null && data.Next.Any(n => n.Id == item.Id))
+            {
+                var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
+                if (season is not null) nextUp = new(episode.Id, season.Number, episode.Number);
+            }
+        }
+        var film = work.Work.Kind == WorkKind.Film ? Match(null) : null;
+        return new(film?.UserData is null ? null : Progress(film), episodes.ToImmutable(), nextUp);
     }
 
     private async Task<T> GetAsync<T>(string server, string key, string path, CancellationToken ct)
