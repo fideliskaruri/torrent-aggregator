@@ -1,0 +1,52 @@
+{
+  "ownershipIdentical": true,
+  "season1Owned": 11,
+  "resolution": 1080,
+  "admissions": "Both keys owned=1 queued=0",
+  "canonicalLinks": [
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "tvmaze",
+      "externalId": "216",
+      "status": "verified"
+    },
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "imdb",
+      "externalId": "tt2861424",
+      "status": "verified"
+    },
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "tvdb",
+      "externalId": "275274",
+      "status": "verified"
+    },
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "imdb",
+      "externalId": "tt2861424",
+      "status": "verified"
+    },
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "tvdb",
+      "externalId": "275274",
+      "status": "verified"
+    },
+    {
+      "id": "cmurncg9qbuom9jsyhu3rn32g",
+      "workKey": "rick-and-morty-2013",
+      "provider": "tmdb",
+      "externalId": "60625",
+      "status": "verified"
+    }
+  ],
+  "integrity": "ok",
+  "foreignKeyViolations": 0
+}

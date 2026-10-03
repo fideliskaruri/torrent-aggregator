@@ -1,0 +1,79 @@
+{
+  "MediaFile": {
+    "before": {
+      "count": 16,
+      "sha256": "5254f05245d8901991e73bac517c8c6e636765a540614cb552fef50973bc5c9e"
+    },
+    "after": {
+      "count": 16,
+      "sha256": "5254f05245d8901991e73bac517c8c6e636765a540614cb552fef50973bc5c9e"
+    },
+    "unchanged": true
+  },
+  "Target": {
+    "before": {
+      "count": 90,
+      "sha256": "ed217f93905edd38cba202ebcadd702f585d16eea8f7099b7930a9e20728ff8e"
+    },
+    "after": {
+      "count": 90,
+      "sha256": "ed217f93905edd38cba202ebcadd702f585d16eea8f7099b7930a9e20728ff8e"
+    },
+    "unchanged": true
+  },
+  "WatchItem": {
+    "before": {
+      "count": 2,
+      "sha256": "54a83b7dd4e293bd418fb214d20bba14640c0d1b519a2ea6bd8f6754f58f7ac7"
+    },
+    "after": {
+      "count": 2,
+      "sha256": "54a83b7dd4e293bd418fb214d20bba14640c0d1b519a2ea6bd8f6754f58f7ac7"
+    },
+    "unchanged": true
+  },
+  "Follow": {
+    "before": {
+      "count": 2,
+      "sha256": "60d1568e0c57b6867ab8edf602510eaae73deecfebe7e9994fdcfed37e4fe4d0"
+    },
+    "after": {
+      "count": 2,
+      "sha256": "60d1568e0c57b6867ab8edf602510eaae73deecfebe7e9994fdcfed37e4fe4d0"
+    },
+    "unchanged": true
+  },
+  "WorkFolder": {
+    "before": {
+      "count": 4,
+      "sha256": "cfbd522ff297a4942f6f126a179760de68bba89b2e3718a1fd1315abb743aebd"
+    },
+    "after": {
+      "count": 4,
+      "sha256": "cfbd522ff297a4942f6f126a179760de68bba89b2e3718a1fd1315abb743aebd"
+    },
+    "unchanged": true
+  },
+  "Download": {
+    "before": {
+      "count": 30,
+      "sha256": "e4c6d0dd862cd4425623a834119b9f858f9c0a73fca940f2fc4c88ba33467142"
+    },
+    "after": {
+      "count": 30,
+      "sha256": "e4c6d0dd862cd4425623a834119b9f858f9c0a73fca940f2fc4c88ba33467142"
+    },
+    "unchanged": true
+  },
+  "DownloadFile": {
+    "before": {
+      "count": 12,
+      "sha256": "c4b4981b0cac7cfc201d6af0dd14e9bc9b122c0841ab87974931ceaa5bbed8b4"
+    },
+    "after": {
+      "count": 12,
+      "sha256": "c4b4981b0cac7cfc201d6af0dd14e9bc9b122c0841ab87974931ceaa5bbed8b4"
+    },
+    "unchanged": true
+  }
+}

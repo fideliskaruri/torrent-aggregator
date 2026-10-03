@@ -22,6 +22,11 @@ and first-scan/import-review gates stay disabled. Legacy public work keys remain
 unchanged. Catalog rows sharing a public key collapse to one Work; provider
 identity conflicts stay suggested. The report lists old/new table counts and
 explicitly retained/dropped facts, without credentials.
+Legacy browse listings whose provider identity already appears on an existing
+canonical WorkLink are archived instead of creating another Work. A suggested
+link is not promoted by conversion: Metadata must confirm it through provider
+external IDs. Previously converted catalog-only duplicates are reconciled by
+Metadata's existing catalog commit, retaining the work that owns files/intent.
 The converted host's first startup scans all enrolled media roots through the
 existing Parser/Metadata import composition. Confident files are adopted in place;
 ambiguous files become durable Import reviews. No payload is moved, renamed or

@@ -374,7 +374,6 @@ public sealed class LegacyConverter
     private void Catalog()
     {
         foreach (var row in Rows("Work")) Work(row);
-        foreach (var row in Rows("CatalogEntry")) Work(row);
         foreach (var row in Rows("Work"))
         {
             var work = ResolveWork(row);
@@ -396,6 +395,27 @@ public sealed class LegacyConverter
                 double.TryParse(S(row, "confidence"), CultureInfo.InvariantCulture, out var confidence) ? confidence : 0,
                 N(row, "season") is { } number ? Season(work, (int)number) : null);
             if (links.Count > before && S(row, "namesJson") is { } names) Names(work, names, work, S(row, "id"));
+        }
+        foreach (var row in Rows("CatalogEntry"))
+        {
+            using var claim = destination.CreateCommand();
+            claim.Transaction = transaction;
+            claim.CommandText = """
+                SELECT COUNT(*) FROM WorkLink
+                WHERE provider=$provider AND externalId=$external AND status <> 'rejected'
+                AND (providerKind=$kind OR providerKind IS NULL
+                    OR providerKind IN ('tv','series') AND $kind IN ('tv','series')
+                    OR providerKind IN ('movie','film') AND $kind IN ('movie','film'))
+                """;
+            claim.Parameters.AddWithValue("$provider", (object?)S(row, "provider") ?? DBNull.Value);
+            claim.Parameters.AddWithValue("$external", (object?)S(row, "providerId") ?? DBNull.Value);
+            claim.Parameters.AddWithValue("$kind", (object?)S(row, "mediaType") ?? DBNull.Value);
+            if (Convert.ToInt64(claim.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+            {
+                report.Add($"Catalog listing {S(row, "workKey")} already has a canonical link; listing archived without a second Work. Suggested links still require provider verification.");
+                continue;
+            }
+            Work(row);
         }
     }
     private string Season(string work, int number)

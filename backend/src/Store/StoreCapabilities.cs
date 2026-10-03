@@ -121,6 +121,17 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                 db.ChangeTracker.Clear();
                 return new(false, true, [.. conflicts]);
             }
+            // Vacate verified identities before EF promotes the surviving catalog link.
+            if (owner == StoreOwner.Metadata)
+            {
+                foreach (var delete in commit.Deletes.Where(d => d.Table == StoreTable.WorkLink &&
+                    d.ExpectedRow is WorkLinkRow { Status: LinkStatus.Verified }))
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"UPDATE WorkLink SET status='suggested' WHERE id={delete.Id}", ct);
+                foreach (var delete in commit.Deletes.Where(d => d.Table == StoreTable.Episode))
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"UPDATE Episode SET providerEpisodeId=NULL WHERE id={delete.Id}", ct);
+            }
             // Release filtered unique Current/Replacement slots inside this transaction
             // before EF orders promotions by primary key rather than logical role.
             foreach (var write in commit.Writes.Where(w => w.Row is DownloadTargetRow

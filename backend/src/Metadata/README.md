@@ -33,6 +33,16 @@ payload file writes, or additional hosted service.
   An enrichment identity already claimed by another work remains suggested, rather
   than failing the refresh or silently moving targets between works. A conflicted
   commit is re-read and merged once before a refresh failure is returned.
+  Provider-confirmed cross-links also reconcile an unreferenced duplicate catalog
+  shell into the existing referenced work, preserving that work's public key,
+  episode IDs and all inventory/intent references. The obsolete shell's catalog
+  rows are removed in the same CAS commit; Store vacates deleted verified-link
+  and provider-episode uniqueness slots inside that transaction. Conflicting
+  kinds, years, provider IDs, or two referenced works are refused, not guessed.
+  A cached provider-reported conflicting link forces this reconciliation instead
+  of returning a fresh but disconnected shell. Name-only suggested links never
+  establish equivalence. Process-local partial/query answers are invalidated
+  when the canonical work changes.
   Suggested/conflicted enrichment does not replace the anchor provider's episode
   listing: a TMDB listing claimed by another work cannot be copied into a TVmaze
   work. Refresh reserves provider episode identities before matching legacy

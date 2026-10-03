@@ -55,16 +55,45 @@ internal sealed partial class MetadataService
         {
             var existingLinks = await store.AllAsync<WorkLinkRow>(null, ct);
             var matchingWorkIds = existingLinks.Where(l => l.Status == LinkStatus.Verified &&
-                proposed.Links.Any(p => p.Status == LinkStatus.Verified && l.Provider == p.Provider &&
-                    l.ExternalId == p.ExternalId && l.ProviderKind == p.ProviderKind))
+                proposed.Links.Any(p => p.Status == LinkStatus.Verified &&
+                    SameId(l, new(p.Provider, p.ExternalId, p.ProviderKind))))
+                .Select(l => l.WorkId).Distinct().ToArray();
+            var directWorkIds = existingLinks.Where(l => l.Status == LinkStatus.Verified && l.SeasonId is null &&
+                proposed.Links.Any(p => p.Status == LinkStatus.Verified && p.Source == "provider" &&
+                    p.SeasonId is null && SameId(l, new(p.Provider, p.ExternalId, p.ProviderKind))))
                 .Select(l => l.WorkId).Distinct().ToArray();
             var primary = proposed.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified);
             anchorWorkId ??= primary is null ? null : existingLinks.FirstOrDefault(l =>
                 l.Status == LinkStatus.Verified && SameId(l,
                     new(primary.Provider, primary.ExternalId, primary.ProviderKind)))?.WorkId;
-            if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
+            var duplicates = new List<WorkSnapshot>();
+            if (directWorkIds.Length > 1)
+            {
+                var snapshots = new List<WorkSnapshot>();
+                foreach (var id in directWorkIds)
+                    if (await store.SnapshotAsync(id, ct) is { } snapshot) snapshots.Add(snapshot);
+                var retained = new List<WorkSnapshot>();
+                foreach (var snapshot in snapshots)
+                    if (await HasReferencesAsync(snapshot, ct)) retained.Add(snapshot);
+                if (retained.Count > 1) return null;
+                var owner = retained.SingleOrDefault() ?? snapshots.FirstOrDefault(s => s.Work.Id == anchorWorkId)
+                    ?? snapshots.OrderBy(s => s.Work.CreatedAt).First();
+                if (snapshots.Any(s => s.Work.Kind != owner.Work.Kind ||
+                    s.Work.Year is { } year && owner.Work.Year is { } ownerYear && year != ownerYear))
+                    return null;
+                if (snapshots.SelectMany(s => s.Links).Where(l => l.Status == LinkStatus.Verified &&
+                    l.SeasonId is null && l.Source != "fribb").GroupBy(l => (l.Provider, l.ProviderKind))
+                    .Any(g => g.Select(l => l.ExternalId).Distinct().Count() > 1))
+                    return null;
+                anchorWorkId = owner.Work.Id;
+                duplicates.AddRange(snapshots.Where(s => s.Work.Id != owner.Work.Id));
+                existingLinks = [.. existingLinks.Where(l => duplicates.All(d => d.Work.Id != l.WorkId))];
+            }
+            else if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
             var previous = anchorWorkId is not null ? await store.SnapshotAsync(anchorWorkId, ct) :
                 matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
+            if (previous is null && matchingWorkIds.Length == 1)
+                previous = await store.SnapshotAsync(matchingWorkIds[0], ct);
             if (previous is null)
             {
                 var rows = proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)
@@ -109,6 +138,10 @@ internal sealed partial class MetadataService
                 l.MappingVersion != map.Version).ToArray();
             foreach (var old in previous.Links.Where(l => !links.Any(p => p.Id == l.Id) &&
                 !retired.Contains(l))) links.Add(old);
+            foreach (var duplicate in duplicates)
+                foreach (var old in duplicate.Links.Where(l => !links.Any(p => p.Provider == l.Provider &&
+                    p.ProviderKind == l.ProviderKind && p.ExternalId == l.ExternalId)))
+                    links.Add(old with { WorkId = work.Id, SeasonId = null, IsPrimary = false });
             var names = proposed.Names.Where(n => n.LinkId is null || links.Any(l => l.Id == linkMap[n.LinkId] &&
                 l.Status == LinkStatus.Verified)).Select(n => n with
             {
@@ -209,8 +242,23 @@ internal sealed partial class MetadataService
                 .Concat(previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id))
                     .Select(e => new RowDelete(StoreTable.Episode, e.Id, e.Version, null)))
                 .Concat(previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id))
-                    .Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)));
+                    .Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)))
+                .Concat(duplicates.SelectMany(d => d.Names.Select(n => new RowDelete(StoreTable.WorkName, n.Id, null, n))
+                    .Concat(d.Links.Where(l => links.All(p => p.Id != l.Id))
+                        .Select(l => new RowDelete(StoreTable.WorkLink, l.Id, null, l)))
+                    .Concat(d.Episodes.Select(e => new RowDelete(StoreTable.Episode, e.Id, e.Version, null)))
+                    .Concat(d.Seasons.Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)))
+                    .Append(new RowDelete(StoreTable.Work, d.Work.Id, d.Work.Version, null))));
             var result = await store.CommitAsync(writes, deletes, ct);
+            if (result.Applied && duplicates.Count > 0)
+            {
+                var changedIds = duplicates.Select(d => d.Work.Id).Append(work.Id).ToHashSet();
+                foreach (var cached in partialAnswers.Where(p => p.Value.Result.Work is { } snapshot &&
+                    changedIds.Contains(snapshot.Work.Id)))
+                    partialAnswers.TryRemove(cached);
+                foreach (var cached in resolvedQueries.Where(p => changedIds.Contains(p.Value.WorkId)))
+                    resolvedQueries.TryRemove(cached);
+            }
             return result.Applied ? new(work, [.. names.OrderBy(n => n.Ordinal)], [.. links],
                 [.. seasons.OrderBy(s => s.Number)], [.. episodes]) : null;
 
@@ -218,12 +266,29 @@ internal sealed partial class MetadataService
             {
                 foreach (var row in rows)
                 {
-                    var old = oldRows.FirstOrDefault(p => p.Id == row.Id);
+                    var old = oldRows.FirstOrDefault(p => p.Id == row.Id)
+                        ?? duplicates.SelectMany(d => d.Links.Cast<StoreRow>()).OfType<T>()
+                            .FirstOrDefault(p => p.Id == row.Id);
                     if (!Equals(row, old)) writes.Add(new(row, null, old));
                 }
             }
         }
         finally { commits.Release(); }
+    }
+
+    private async Task<bool> HasReferencesAsync(WorkSnapshot work, CancellationToken ct)
+    {
+        var query = CatalogStore.Query(workId: work.Work.Id);
+        return !(await store.AllAsync<MediaFileRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<TargetRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<WatchItemRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<FollowRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<WorkPreferenceRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<ScopeIntentRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<RequestRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<AttemptRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<WorkFolderRow>(query, ct)).IsEmpty ||
+            !(await store.AllAsync<UpgradeEvidenceRow>(query, ct)).IsEmpty;
     }
 
     public async Task<MetadataResult> ChangeLinkAsync(LinkCommand command, CancellationToken cancellationToken)

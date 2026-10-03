@@ -1,0 +1,407 @@
+{
+  "workKey": "rick-and-morty-2013",
+  "title": "Rick and Morty",
+  "aliases": [
+    "Rick e Morty",
+    "\u745e\u514b\u548c\u83ab\u8482",
+    "\u745e\u514b\u4e0e\u83ab\u8482",
+    "Rick et Morty",
+    "\u05e8\u05d9\u05e7 \u05d5\u05de\u05d5\u05e8\u05d8\u05d9",
+    "\u0631\u06cc\u06a9 \u0648 \u0645\u0648\u0631\u062a\u06cc",
+    "\u0631\u06cc\u06a9 \u0627\u0646\u062f \u0645\u0648\u0631\u062a\u06cc",
+    "\u30ea\u30c3\u30af\u30fb\u30a2\u30f3\u30c9\u30fb\u30e2\u30fc\u30c6\u30a3",
+    "\ub9ad \uc564 \ubaa8\ud2f0",
+    "\u0420\u0438\u043a \u041c\u043e\u0440\u0442\u0438 \u0445\u043e\u0451\u0440",
+    "\u0420\u0456\u043a \u0456 \u041c\u043e\u0440\u0442\u0456",
+    "Vindicators 2",
+    "Vindicators 2: Last Stand Between Earth and Doom"
+  ],
+  "names": [
+    {
+      "text": "Rick and Morty",
+      "kind": "english"
+    },
+    {
+      "text": "Rick and Morty",
+      "kind": "original"
+    },
+    {
+      "text": "Rick e Morty",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u745e\u514b\u548c\u83ab\u8482",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u745e\u514b\u4e0e\u83ab\u8482",
+      "kind": "synonym"
+    },
+    {
+      "text": "Rick et Morty",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u05e8\u05d9\u05e7 \u05d5\u05de\u05d5\u05e8\u05d8\u05d9",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0631\u06cc\u06a9 \u0648 \u0645\u0648\u0631\u062a\u06cc",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0631\u06cc\u06a9 \u0627\u0646\u062f \u0645\u0648\u0631\u062a\u06cc",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u30ea\u30c3\u30af\u30fb\u30a2\u30f3\u30c9\u30fb\u30e2\u30fc\u30c6\u30a3",
+      "kind": "synonym"
+    },
+    {
+      "text": "\ub9ad \uc564 \ubaa8\ud2f0",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0420\u0438\u043a \u041c\u043e\u0440\u0442\u0438 \u0445\u043e\u0451\u0440",
+      "kind": "synonym"
+    },
+    {
+      "text": "\u0420\u0456\u043a \u0456 \u041c\u043e\u0440\u0442\u0456",
+      "kind": "synonym"
+    },
+    {
+      "text": "Vindicators 2",
+      "kind": "synonym"
+    },
+    {
+      "text": "Vindicators 2: Last Stand Between Earth and Doom",
+      "kind": "synonym"
+    },
+    {
+      "text": "Rick and Morty",
+      "kind": "synonym"
+    }
+  ],
+  "ids": {
+    "tmdb": 60625,
+    "anilist": null,
+    "mal": null,
+    "imdb": "tt2861424"
+  },
+  "format": "series",
+  "originalLanguage": "en",
+  "provider": "tvmaze",
+  "providerId": "216",
+  "year": 2013,
+  "mediaType": "tv",
+  "isSeries": true,
+  "overview": "Follows a sociopathic genius scientist who drags his inherently timid grandson on adventures across the universe.",
+  "rating": 8.681,
+  "ratingSource": "tmdb",
+  "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg",
+  "backdropUrl": "https://image.tmdb.org/t/p/w1280/5BDNWWHweQL0q1fmTv7gmRXfnl4.jpg",
+  "releaseDate": "2013-12-02",
+  "availability": null,
+  "infoHash": null,
+  "owned": null,
+  "upgrade": null,
+  "bestAvailable": null,
+  "downloadFraction": null,
+  "transfer": null,
+  "seasons": [
+    {
+      "season": 1,
+      "knownEpisodes": 11,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 11,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 2,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 1,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 3,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 4,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 5,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 6,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 7,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 8,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 0,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    },
+    {
+      "season": 9,
+      "knownEpisodes": 10,
+      "pack": null,
+      "transfer": null,
+      "downloadedEpisodes": 1,
+      "downloadingEpisodes": 0,
+      "upgradeableEpisodes": 0
+    }
+  ],
+  "season": 1,
+  "episodes": [
+    {
+      "season": 1,
+      "episode": 4,
+      "label": "S01E04",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 11,
+      "label": "S01E11",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 6,
+      "label": "S01E06",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 9,
+      "label": "S01E09",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 8,
+      "label": "S01E08",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 7,
+      "label": "S01E07",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 1,
+      "label": "S01E01",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 3,
+      "label": "S01E03",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 2,
+      "label": "S01E02",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 5,
+      "label": "S01E05",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    },
+    {
+      "season": 1,
+      "episode": 10,
+      "label": "S01E10",
+      "availability": "ready",
+      "owned": {
+        "resolution": 1080
+      },
+      "upgrade": null,
+      "bestAvailable": null,
+      "infoHash": null,
+      "filePath": null,
+      "downloadFraction": null,
+      "nextUp": false,
+      "fromPack": false,
+      "transfer": null
+    }
+  ],
+  "episodesTruncated": false,
+  "library": {
+    "inLibrary": true,
+    "watchListItemId": "cmurnijn4burek4bdlif7w2jo",
+    "monitored": false,
+    "status": "watching",
+    "cursorSeason": null,
+    "cursorEpisode": null,
+    "addPayload": {
+      "mediaType": "tv",
+      "externalId": "216",
+      "title": "Rick and Morty",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg",
+      "synopsis": "Follows a sociopathic genius scientist who drags his inherently timid grandson on adventures across the universe.",
+      "rating": 8.681,
+      "workKey": "rick-and-morty-2013",
+      "provider": "tvmaze",
+      "providerId": "216",
+      "format": "Series"
+    }
+  },
+  "known": true,
+  "generatedAt": "2026-10-03T21:59:38.0056683+00:00"
+}

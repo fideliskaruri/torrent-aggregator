@@ -1,0 +1,48 @@
+[00:54:38 INF] TorrentFlow rebuild data directory: D:\code\memtest\canon-data\converted
+[00:54:38 WRN] Web build is missing. Run pnpm build in web before using the browser.
+[00:54:39 INF] Unclean shutdown: invalidated 0 fast-resume artifacts for every hash, including detached downloads.
+[00:54:39 INF] DHT started with 68 cached nodes and 5 router endpoints.
+[00:54:39 INF] Engine ready on 57948; global peers 400, payload peers 120, probe slots 10.
+[00:54:39 INF] Now listening on: http://127.0.0.1:3961
+[00:54:39 INF] Application started. Press Ctrl+C to shut down.
+[00:54:39 INF] Hosting environment: Development
+[00:54:39 INF] Content root path: D:\code
+[00:54:39 INF] Ready in 2347 ms; working set 139489280 bytes
+[00:55:11 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:60625?season=1 - application/json null
+[00:55:11 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:14 INF] Writing value of type 'JsonObject' as Json.
+[00:55:14 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:14 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:60625?season=1 - 200 null application/json; charset=utf-8 2952.1453ms
+[00:55:14 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?season=1 - application/json null
+[00:55:14 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:14 INF] Writing value of type 'JsonObject' as Json.
+[00:55:14 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:14 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?season=1 - 200 null application/json; charset=utf-8 89.602ms
+[00:55:14 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:60625 - application/json 56
+[00:55:14 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[00:55:14 INF] Setting HTTP status code 200.
+[00:55:14 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[00:55:14 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[00:55:14 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:60625 - 200 null application/json; charset=utf-8 244.3506ms
+[00:55:14 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/rick-and-morty-2013 - application/json 56
+[00:55:14 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[00:55:14 INF] Setting HTTP status code 200.
+[00:55:14 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[00:55:14 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[00:55:14 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/rick-and-morty-2013 - 200 null application/json; charset=utf-8 173.477ms
+[00:55:14 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/search/titles?q=Rick%20and%20Morty - application/json null
+[00:55:14 INF] Executing endpoint 'HTTP: GET /api/search/titles => Search'
+[00:55:15 INF] Setting HTTP status code 200.
+[00:55:15 INF] Writing value of type '<>f__AnonymousType27`7' as Json.
+[00:55:15 INF] Executed endpoint 'HTTP: GET /api/search/titles => Search'
+[00:55:15 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/search/titles?q=Rick%20and%20Morty - 200 null application/json; charset=utf-8 864.6672ms
+[00:55:15 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv&y=2013&provider=tvmaze&providerId=216 - application/json null
+[00:55:15 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:15 INF] Writing value of type 'JsonObject' as Json.
+[00:55:15 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:55:15 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv&y=2013&provider=tvmaze&providerId=216 - 200 null application/json; charset=utf-8 56.7929ms
+[00:55:15 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/watchlist - application/json null
+[00:55:15 INF] Executing endpoint 'HTTP: GET /api/watchlist => List'
+[00:55:15 INF] Writing value of type '<>f__AnonymousType66`1' as Json.
+[00:55:15 INF] Executed endpoint 'HTTP: GET /api/watchlist => List'
+[00:55:15 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/watchlist - 200 null application/json; charset=utf-8 79.3958ms

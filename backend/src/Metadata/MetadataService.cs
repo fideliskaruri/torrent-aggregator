@@ -93,7 +93,7 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                     refresh, cancellationToken);
             return Missing("not_found", "This title is not in the catalog. Search for it again.", true);
         }
-        if (!refresh && CurrentPresentation(cached) && cached.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1) && !cached.Seasons.Any(s =>
+        if (!refresh && !HasProviderConflict(cached) && CurrentPresentation(cached) && cached.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1) && !cached.Seasons.Any(s =>
             s.MappingStatus != MappingStatus.Confirmed)) return new(await WithPremiereAsync(cached, cancellationToken), null, true, false);
         var primary = cached.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified);
         if (primary is null) return new(cached, null, false, true);
@@ -162,7 +162,7 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             var knownWork = await store.SnapshotAsync(known.WorkId, ct);
             if (knownWork is not null && (identity.ProviderKind is null ||
                 knownWork.Work.Kind == (identity.ProviderKind is "tv" or "series" ? WorkKind.Series : WorkKind.Film))
-                && CurrentPresentation(knownWork) && knownWork.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1)
+                && !HasProviderConflict(knownWork) && CurrentPresentation(knownWork) && knownWork.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1)
                 && (knownWork.Work.Kind == WorkKind.Film || !knownWork.Seasons.IsEmpty)
                 && knownWork.Seasons.All(s => s.MappingStatus == MappingStatus.Confirmed))
                 return new(await WithPremiereAsync(knownWork, ct), null, true, false);
@@ -427,6 +427,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         link.ExternalId == id.ExternalId && (id.ProviderKind is null || link.Provider is "imdb" or "tvmaze"
             || link.ProviderKind == id.ProviderKind
             || id.ProviderKind == "series" && link.ProviderKind == "tv");
+
+    private static bool HasProviderConflict(WorkSnapshot work) =>
+        work.Links.Any(l => l.Status == LinkStatus.Suggested && l.Source == "provider");
 
     private static MetadataResult Missing(string code, string message, bool complete) =>
         new(null, new(code, message, null, false), complete, false);

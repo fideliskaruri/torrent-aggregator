@@ -1,0 +1,70 @@
+[00:59:21 INF] TorrentFlow rebuild data directory: D:\code\memtest\canon-fresh\converted
+[00:59:22 WRN] Web build is missing. Run pnpm build in web before using the browser.
+[00:59:22 INF] Unclean shutdown: invalidated 0 fast-resume artifacts for every hash, including detached downloads.
+[00:59:22 INF] DHT started with 184 cached nodes and 5 router endpoints.
+[00:59:22 INF] Engine ready on 32703; global peers 400, payload peers 120, probe slots 10.
+[00:59:23 INF] Now listening on: http://127.0.0.1:3961
+[00:59:23 INF] Application started. Press Ctrl+C to shut down.
+[00:59:23 INF] Hosting environment: Development
+[00:59:23 INF] Content root path: D:\code
+[00:59:23 INF] Ready in 3069 ms; working set 135901184 bytes
+[00:59:36 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:60625?season=1 - application/json null
+[00:59:37 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:37 INF] Writing value of type 'JsonObject' as Json.
+[00:59:37 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:37 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:60625?season=1 - 200 null application/json; charset=utf-8 1177.0306ms
+[00:59:37 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?season=1 - application/json null
+[00:59:37 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:38 INF] Writing value of type 'JsonObject' as Json.
+[00:59:38 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:38 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?season=1 - 200 null application/json; charset=utf-8 99.8188ms
+[00:59:38 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:60625 - application/json 56
+[00:59:38 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[00:59:38 INF] Setting HTTP status code 200.
+[00:59:38 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[00:59:38 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[00:59:38 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:60625 - 200 null application/json; charset=utf-8 291.5544ms
+[00:59:38 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/rick-and-morty-2013 - application/json 56
+[00:59:38 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[00:59:38 INF] Setting HTTP status code 200.
+[00:59:38 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[00:59:38 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[00:59:38 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/rick-and-morty-2013 - 200 null application/json; charset=utf-8 232.6553ms
+[00:59:38 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/search/titles?q=Rick%20and%20Morty - application/json null
+[00:59:38 INF] Executing endpoint 'HTTP: GET /api/search/titles => Search'
+[00:59:39 INF] Setting HTTP status code 200.
+[00:59:39 INF] Writing value of type '<>f__AnonymousType27`7' as Json.
+[00:59:39 INF] Executed endpoint 'HTTP: GET /api/search/titles => Search'
+[00:59:39 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/search/titles?q=Rick%20and%20Morty - 200 null application/json; charset=utf-8 932.2733ms
+[00:59:39 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv&y=2013&provider=tvmaze&providerId=216 - application/json null
+[00:59:39 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:39 INF] Writing value of type 'JsonObject' as Json.
+[00:59:39 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[00:59:39 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv&y=2013&provider=tvmaze&providerId=216 - 200 null application/json; charset=utf-8 67.0993ms
+[00:59:39 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/watchlist - application/json null
+[00:59:39 INF] Executing endpoint 'HTTP: GET /api/watchlist => List'
+[00:59:39 INF] Writing value of type '<>f__AnonymousType66`1' as Json.
+[00:59:39 INF] Executed endpoint 'HTTP: GET /api/watchlist => List'
+[00:59:39 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/watchlist - 200 null application/json; charset=utf-8 81.6727ms
+[01:00:18 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/family-guy - null null
+[01:00:18 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[01:00:18 INF] Writing value of type 'JsonObject' as Json.
+[01:00:18 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[01:00:18 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/family-guy - 200 null application/json; charset=utf-8 184.5891ms
+[01:00:18 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/family-guy - application/json 56
+[01:00:18 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[01:00:18 INF] Setting HTTP status code 200.
+[01:00:18 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[01:00:18 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[01:00:18 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/family-guy - 200 null application/json; charset=utf-8 370.2109ms
+[01:00:18 INF] Request starting HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:1434 - null null
+[01:00:18 INF] Executing endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[01:00:18 INF] Writing value of type 'JsonObject' as Json.
+[01:00:18 INF] Executed endpoint 'HTTP: GET /api/title/{workKey} => Detail'
+[01:00:18 INF] Request finished HTTP/1.1 GET http://127.0.0.1:3961/api/title/tmdb:tv:1434 - 200 null application/json; charset=utf-8 185.2217ms
+[01:00:18 INF] Request starting HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:1434 - application/json 56
+[01:00:18 INF] Executing endpoint 'HTTP: POST /api/title/{workKey}'
+[01:00:19 INF] Setting HTTP status code 200.
+[01:00:19 INF] Writing value of type '<>f__AnonymousType10`6' as Json.
+[01:00:19 INF] Executed endpoint 'HTTP: POST /api/title/{workKey}'
+[01:00:19 INF] Request finished HTTP/1.1 POST http://127.0.0.1:3961/api/title/tmdb:tv:1434 - 200 null application/json; charset=utf-8 379.6574ms
