@@ -272,7 +272,12 @@ public sealed record Assignment(string Hash, ImmutableArray<string> TargetIds,
 public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, ImmutableArray<int> OwnerSelectedFiles,
     ImmutableArray<TargetRow> Targets,
     ImmutableArray<Candidate> Pool, ImmutableArray<SwarmEvidence> Evidence,
-    ImmutableArray<OwnedItem> Owned, ImmutableArray<BlockRow> Blocks, DateTimeOffset Now);
+    ImmutableArray<OwnedItem> Owned, ImmutableArray<BlockRow> Blocks, DateTimeOffset Now)
+{
+    public bool QueriesExhausted { get; init; }
+    public WorkPreferenceRow? Preference { get; init; }
+    public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];
+}
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,
     ImmutableArray<string> UncoveredTargetIds);
 public sealed record EngineFileSnapshot(int Index, long Bytes, long CompletedBytes, long AllocatedBytes,

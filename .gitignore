@@ -100,3 +100,4 @@ docs/.autopilot.json
 tools/.engine-proof/
 tools/.find-proof/
 tools/.check-proof/
+tools/.plan-proof/
