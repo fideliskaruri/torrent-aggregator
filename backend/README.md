@@ -371,6 +371,11 @@ episode targets. It preserves the requested season and episode and returns the
 web's existing waiting-for-season-list label, rather than presenting a missing
 episode catalog as a failed release search. Concrete targets still use their
 recorded finder state and reason.
+
+Wanted targets awaiting their first attempt or retried after admission rollback
+remain "Looking for a release" (OPS-798). Only Waiting targets imply a failed
+attempt; a queued target does not mean the release finder found nothing.
+
 Pending-scope removal/retry still requires a Targets action contract (OPS-796);
 the concrete-target action adapter cannot cancel a scope intent.
 

@@ -252,7 +252,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
             mediaType = r.Work?.Kind == WorkKind.Series ? "tv" : "movie", season = r.Season, episode = r.Episode,
             error = (string?)null, why = r.Target.ReasonText,
-            looking = r.Target.State is TargetState.Finding or TargetState.Checking or TargetState.Planning,
+            looking = r.Target.State is TargetState.Wanted or TargetState.Finding or TargetState.Checking or TargetState.Planning,
             nextAttemptAt = r.Target.NextTryAt,
         }).ToList();
         var snapshot = await targets.ReadAsync(ct);
