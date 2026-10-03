@@ -146,6 +146,10 @@ Filing completeness considers only the active download's bindings, not retired f
 bindings for the same target. Failed grouped admission drains and rolls back every prepared
 replacement without changing Current. A pack's old payload is retained until all replaced
 targets are filed, including when the new plan splits the pack across multiple downloads.
+After final retirement commits Download deletion, Targets calls Engine's
+`IEngineRetirement.ForgetAsync` to release the old hash for a new identity.
+Temporary detach deliberately retains ownership. Admission rollback, orphan
+cleanup and whole-download deletion use that same final-retirement boundary.
 Real licensed same-name, two-target pack, two-assignment split, rollback and only-candidate
 HTTP evidence is in gitignored `tools\.tswap-proof\report.md`. Earlier single-assignment
 Sintel HTTP evidence is in `tools\.swap-proof\finish`.
@@ -191,6 +195,17 @@ Find another promotion answers, and external client import. External recovery im
 explicitly returns 501 rather than claiming success.
 Download recovery restores persisted Engine bindings; it does not import another client's
 storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\finish\`.
+
+External unfinished handover (OPS-808) still needs an in-place Library filing
+capability. Original external paths must be both the Engine binding and the final
+path. Store's current `BeginFilingAsync` reserves source and destination as two
+distinct physical claims, so an identical-path handover cannot finish inventory
+commit. That must be fixed by the Library/Store owner, not by inventing a partial
+filename, moving the foreign payload, or writing inventory from Api.
+A truncated container can also lack its runtime metadata; catalog identity then
+requires an explicit Import pick before admission, not speculative ownership of
+an incomplete video. The isolated experiment, exact blocker and unshipped port
+source are preserved in `tools\.eadm-proof\report.md`.
 
 ## Library deletion
 

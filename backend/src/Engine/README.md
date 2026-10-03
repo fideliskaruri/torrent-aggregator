@@ -23,6 +23,20 @@ permit. Queued or paused managers never retain stall flags; stall observations
 apply only during an active run. Run and Queued admissions both retain runnable
 intent, independently of whether the current cap grants a physical slot.
 
+Late magnet metadata is usable only once MonoTorrent has populated its complete
+file list. Engine drains the metadata-only mode and unselects that list before
+exposing it for caller-supplied path binding. An empty early list cannot become a
+bound download; an unbound manager cannot report payload completion or retain a
+payload queue slot. The same readiness boundary applies to resumed magnets and
+retained metadata capabilities (OPS-851).
+
+`IEngineRetirement.ForgetAsync` is distinct from temporary `DetachAsync`: it drains
+any remaining manager and releases hash registration, admission claims and queue
+identity. Targets calls it only after final Download deletion commits. Detaching
+a swap fallback must retain its registration until final retirement (OPS-850).
+Three cold paused/resumed magnets and swap-then-raw-hash reuse are proved in
+`tools\.eadm-proof\report.md`.
+
 The optional progressive observation port takes Check's predicate; Engine never
 decides a health band. An early stop uses the same stop, disk flush, capability
 rotation and release cleanup as a full probe. Observation duration excludes the

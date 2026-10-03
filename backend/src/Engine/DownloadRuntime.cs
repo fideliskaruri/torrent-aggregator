@@ -41,6 +41,7 @@ public sealed partial class MonoTorrentEngine
     private async Task ReconcileQueueAsync()
     {
         var ordered = entries.Values.Where(e => !e.Probe && e.WantsRun && !e.Completed &&
+                (e.Bound || !MetadataReady(e.Manager)) &&
                 !permits.Values.Any(p => p.DownloadId == e.Id) &&
                 (!e.Bound || e.Manager.Files.Any(f => f.Priority != MonoTorrent.Priority.DoNotDownload)) &&
                 e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
@@ -134,12 +135,18 @@ public sealed partial class MonoTorrentEngine
             await CompleteDownloadAsync(entry);
             return;
         }
-        if (entry.Manager.HasMetadata && !entry.MetadataReported)
+        // HasMetadata becomes true before MonoTorrent finishes building its file list.
+        // A metadata-only manager must be drained before that list is exposed for binding.
+        if (!entry.Bound && MetadataReady(entry.Manager))
+        {
+            if (entry.Manager.State != TorrentState.Stopped)
+                await StopDownloadAsync(entry);
+            foreach (var file in entry.Manager.Files)
+                await entry.Manager.SetFilePriorityAsync(file, MonoTorrent.Priority.DoNotDownload);
+        }
+        if (MetadataReady(entry.Manager) && !entry.MetadataReported)
         {
             entry.MetadataReported = true;
-            if (!entry.Bound)
-                foreach (var file in entry.Manager.Files)
-                    await entry.Manager.SetFilePriorityAsync(file, MonoTorrent.Priority.DoNotDownload);
             await EmitAsync(entry, "metadata");
         }
         if (!entry.Run) return;

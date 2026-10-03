@@ -146,6 +146,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                                     null, null))],
                             [.. links.Where(l => l.DownloadId == id).Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                                 new(StoreTable.Download, id, persisted.Version, null)], CancellationToken.None);
+                        await ((IEngineRetirement)engine).ForgetAsync(id, CancellationToken.None);
                     }
                 }
                 finally { stateGate.Release(); }
@@ -192,6 +193,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             await TargetPipeline.CommitAsync(store, [], [.. retired.Where(l => l.DownloadId == orphan.Id)
                 .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                 new(StoreTable.Download, orphan.Id, orphan.Version, null)], ct);
+            await ((IEngineRetirement)engine).ForgetAsync(orphan.Id, ct);
         }
         var resumable = downloads.Where(d => bindings.Any(f => f.DownloadId == d.Id) &&
             targets.Any(t => t.ChosenReleaseHash == d.Hash &&
@@ -245,6 +247,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     await TargetPipeline.CommitAsync(store, [], [.. associations.Where(a => a.DownloadId == download.Id)
                         .Select(a => new RowDelete(StoreTable.DownloadTarget, a.Id, null, a)),
                         new(StoreTable.Download, download.Id, download.Version, null)], ct);
+                    await ((IEngineRetirement)engine).ForgetAsync(download.Id, ct);
                     if (engine is MonoTorrentEngine removedEngine) await removedEngine.SaveDevStateAsync(ct);
                     continue;
                 }

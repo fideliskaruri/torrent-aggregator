@@ -15,7 +15,7 @@ using TorrentFile = TorrentFlow.Domain.TorrentFile;
 namespace TorrentFlow.Engine;
 
 /// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
-public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IProgressiveProbeEngine, IAsyncDisposable
+public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IProgressiveProbeEngine, IEngineRetirement, IAsyncDisposable
 {
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
@@ -265,7 +265,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     private static Task StartMetadataAsync(TorrentManager manager) => (Task)MetadataStart.Invoke(manager, [true])!;
     private static Failure Fail(string code, string message) => new(code, message, null, false);
     private static EngineResult Rejected(string code, string message) => new(false, null, Fail(code, message));
-    private static ImmutableArray<TorrentFile>? Files(TorrentManager manager) => !manager.HasMetadata ? null :
+    private static bool MetadataReady(TorrentManager manager) => manager.HasMetadata &&
+        manager.Files.Count > 0 && manager.Files.Count == manager.Torrent!.Files.Count;
+    private static ImmutableArray<TorrentFile>? Files(TorrentManager manager) => !MetadataReady(manager) ? null :
         [.. manager.Files.Select((f, i) => new TorrentFile(i, f.Path, f.Length, f.OffsetInTorrent))];
 
     public Task<ProbeAttachment> AttachProbeAsync(Candidate candidate, CancellationToken ct) =>
@@ -781,7 +783,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
 
     private async Task BindAsync(TorrentManager manager, ImmutableArray<FileBinding> bindings)
     {
-        if (bindings.Length != manager.Files.Count || bindings.Select(b => b.FileIndex).Distinct().Count() != bindings.Length ||
+        if (!MetadataReady(manager) || bindings.Length != manager.Files.Count ||
+            bindings.Select(b => b.FileIndex).Distinct().Count() != bindings.Length ||
             bindings.Select(b => Path.GetFullPath(b.AbsolutePath)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != bindings.Length ||
             bindings.Any(b => b.FileIndex < 0 || b.FileIndex >= manager.Files.Count || !Path.IsPathFullyQualified(b.AbsolutePath)))
             throw new ArgumentException("Bind every torrent file once to an absolute Library path.");
@@ -868,6 +871,29 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         finally { gate.Release(); }
     }
 
+    public async Task ForgetAsync(string downloadId, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (permits.Values.Any(p => p.DownloadId == downloadId))
+                throw new InvalidOperationException("Finish file publication before retiring this download.");
+            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == downloadId);
+            if (pair.Value is not null)
+            {
+                await RemoveManagerAsync(pair.Value, false);
+                entries.Remove(pair.Key);
+            }
+            foreach (var hash in registered.Where(p => p.Value == downloadId).Select(p => p.Key).ToArray())
+                registered.Remove(hash);
+            foreach (var token in claims.Where(p => p.Value.DownloadId == downloadId).Select(p => p.Key).ToArray())
+                claims.Remove(token);
+            queueOrder.Remove(downloadId);
+            await ReconcileQueueAsync();
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken ct)
     {
         await gate.WaitAsync(ct);
@@ -901,7 +927,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         var bytes = selected.Sum(f => f.Bytes);
         var completed = selected.Sum(f => f.CompletedBytes);
         UpdateUploaded(entry);
-        return new(entry.Id, Hash(manager), manager.HasMetadata, true, entry.Completed || SelectedComplete(manager),
+        return new(entry.Id, Hash(manager), MetadataReady(manager), true, entry.Completed || entry.Bound && SelectedComplete(manager),
             entry.Run && entry.MetadataStalled, entry.Run && entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
             DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
@@ -1342,7 +1368,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         try
         {
             if (!shuttingDown && entries.TryGetValue(Hash(manager), out var entry) &&
-                !entry.Probe && ReferenceEquals(entry.Manager, manager) && SelectedComplete(manager))
+                !entry.Probe && entry.Bound && ReferenceEquals(entry.Manager, manager) && SelectedComplete(manager))
             {
                 await CompleteDownloadAsync(entry);
                 await ReconcileQueueAsync();
@@ -1365,6 +1391,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         }
         finally { gate.Release(); }
         await manager.WaitForMetadataAsync(ct);
+        while (!MetadataReady(manager)) await Task.Delay(10, ct);
         await gate.WaitAsync(ct);
         try
         {

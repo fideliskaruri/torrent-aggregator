@@ -142,7 +142,7 @@ internal sealed partial class TargetTransfers
         }
     }
 
-    private static async Task CleanRetiredAsync(IStore store, ILibraryDownloadRepository repository,
+    private async Task CleanRetiredAsync(IStore store, ILibraryDownloadRepository repository,
         DownloadRow download, ImmutableArray<DownloadFileRow> files,
         ImmutableArray<DownloadTargetRow> links, CancellationToken ct)
     {
@@ -156,5 +156,6 @@ internal sealed partial class TargetTransfers
         await TargetPipeline.CommitAsync(store, [], [.. links.Where(l => l.DownloadId == download.Id)
             .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
             new(StoreTable.Download, download.Id, download.Version, null)], ct);
+        await ((IEngineRetirement)engine).ForgetAsync(download.Id, ct);
     }
 }

@@ -102,6 +102,7 @@ internal sealed partial class TargetTransfers
             await TargetPipeline.CommitAsync(store, [],
                 [.. links.Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                      new(StoreTable.Download, download.Id, download.Version + 1, null)], ct);
+            await ((TorrentFlow.Engine.IEngineRetirement)engine).ForgetAsync(download.Id, ct);
         }
         if (engine is TorrentFlow.Engine.MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
     }
