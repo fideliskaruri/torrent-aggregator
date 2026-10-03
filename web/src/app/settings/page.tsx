@@ -727,6 +727,12 @@ export default function SettingsPage() {
       <TfPageHeader
         title="Settings"
         description="Most defaults are ready. Change only what matters to you."
+        meta={
+          <Link to="/settings/library" className="inline-flex min-h-11 items-center gap-1.5 text-[13px] text-foreground underline-offset-4 hover:underline md:min-h-0">
+            <HardDrive className="size-3.5" aria-hidden />
+            Drives and import
+          </Link>
+        }
         actions={
           isDirty ? (
             <Badge variant="outline">Unsaved changes</Badge>

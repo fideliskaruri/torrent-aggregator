@@ -80,10 +80,17 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             }
             var candidates = ImmutableArray.CreateBuilder<ImportCandidate>();
             var confident = false;
+            var guessed = false;
             if (match?.Work is { } work)
             {
                 candidates.AddRange(Candidates(work, parsed, parents.ToImmutable()));
-                confident = candidates.Count == 1 && (!series || candidates[0].EpisodeId is not null) && match.Complete &&
+                if (series && candidates is [{ EpisodeId: null }])
+                {
+                    candidates.Clear();
+                    candidates.AddRange(Candidates(work, parsed, parents.ToImmutable(), true));
+                    guessed = true;
+                }
+                confident = !guessed && candidates.Count == 1 && (!series || candidates[0].EpisodeId is not null) && match.Complete &&
                     work.Names.Any(n => evidence.Any(p => p.Title.Trim().Equals(n.Value.Trim(), StringComparison.OrdinalIgnoreCase))) &&
                     parsed.Episodes.Length <= 1 && parsed.AbsoluteNumbers.Length <= 1 && !parsed.Unsafe && !parsed.Sample;
             }
@@ -92,7 +99,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 var found = await metadata.SearchAsync(new(matchedName.Title, series ? "series" : "films", 6), ct);
                 foreach (var workCandidate in found.Works) candidates.AddRange(Candidates(workCandidate, parsed, parents.ToImmutable()));
             }
-            var chosen = candidates.Count == 1 ? candidates[0] : null;
+            var chosen = candidates.Count == 1 && !guessed ? candidates[0] : null;
             var duplicateKey = chosen is not null && (!series || chosen.EpisodeId is not null)
                 ? chosen.WorkId + ":" + (chosen.EpisodeId ?? "film") : null;
             var already = tracked.Any(m => m.PhysicalKey == LibraryPaths.PhysicalKey(file));
@@ -110,19 +117,47 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 parents.ToImmutable(), candidates.Count == 0 ? ImportConfidence.Unmatched :
                     confident ? ImportConfidence.Confident : ImportConfidence.NeedsPick,
                 candidates.ToImmutable(), sidecars, already, duplicateKey,
-                already ? "Already in your library" : match?.Failure?.Message ??
-                    (series && chosen?.EpisodeId is null ? "Choose the exact episode from the catalog." : null)));
+                Reason(already, candidates.ToImmutable(), parsed, parents.ToImmutable(), match, confident, guessed)));
             report(new(id, path, "scanning", paths.Length, items.Count, items.ToImmutable(), null));
         }
         var duplicates = items.Where(i => i.DuplicateKey is not null).GroupBy(i => i.DuplicateKey)
             .Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         report(new(id, path, "complete", paths.Length, items.Count,
             [.. items.Select(i => duplicates.Contains(i.DuplicateKey) ? i with
-                { Group = ImportConfidence.NeedsPick, Message = "Several files match this item. Choose which one to import." } : i)], null));
+                { Group = ImportConfidence.NeedsPick, Message = i.Candidates[0].EpisodeId is null
+                    ? "Two files for the same film" : "Two files for the same episode" } : i)], null));
+    }
+
+    // One short, plain reason per review item, shown as is on the review screen.
+    private static string Reason(bool already, ImmutableArray<ImportCandidate> candidates, ParsedRelease parsed,
+        ImmutableArray<ParsedRelease> parents, MetadataResult? match, bool confident, bool guessed)
+    {
+        if (already) return "Already in your library";
+        if (candidates.IsEmpty)
+            return match?.Failure?.Code == "CatalogUnavailable" ? "The catalog did not answer. Scan again later"
+                : "No title matched this name";
+        var first = candidates[0];
+        var label = first.Year is null ? first.Title : $"{first.Title} ({first.Year})";
+        if (confident)
+            return first.EpisodeId is null ? $"Matched {label}" : $"Matched {first.Title}, season {first.Season} episode {first.Episode}";
+        var works = candidates.Select(c => c.WorkId).Distinct().Count();
+        if (works > 1) return $"{works} titles match this name";
+        if (parsed.Episodes.Length > 1 || parsed.AbsoluteNumbers.Length > 1) return "This file holds several episodes";
+        if (parsed.Sample) return "This looks like a sample clip";
+        if (guessed)
+        {
+            var season = parsed.Seasons.IsEmpty ? parents.FirstOrDefault(p => !p.Seasons.IsEmpty)?.Seasons ?? [] : parsed.Seasons;
+            if (candidates.All(c => c.Season == candidates[0].Season) && candidates[0].Season is { } number &&
+                (season.IsEmpty || season.Contains(number)))
+                return $"Season {number} has {candidates.Length} episodes";
+            return parsed.Episodes.IsEmpty && parsed.AbsoluteNumbers.IsEmpty
+                ? "No episode number in this name" : "That episode is not in the catalog";
+        }
+        return $"The name only partly matches {label}";
     }
 
     private static ImmutableArray<ImportCandidate> Candidates(WorkSnapshot work, ParsedRelease parsed,
-        ImmutableArray<ParsedRelease> parents)
+        ImmutableArray<ParsedRelease> parents, bool guesses = false)
     {
         var title = work.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ??
             work.Names.FirstOrDefault()?.Value ?? work.Work.WorkKey;
@@ -133,6 +168,14 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             (parsed.AbsoluteNumbers.Contains(e.AbsoluteNumber ?? -1) ||
              parsed.Episodes.Contains(e.Number) && work.Seasons.Any(s => s.Id == e.SeasonId &&
                  s.MappingStatus == MappingStatus.Confirmed && seasons.Contains(s.Number)))).ToArray();
+        if (episodes.Length == 0 && guesses)
+        {
+            // Offer the season's episodes (or the whole show) so the owner can pick the right one.
+            var seasonIds = work.Seasons.Where(s => s.MappingStatus == MappingStatus.Confirmed &&
+                (seasons.IsEmpty || seasons.Contains(s.Number))).Select(s => s.Id).ToHashSet();
+            episodes = [.. work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed && seasonIds.Contains(e.SeasonId))
+                .OrderBy(e => work.Seasons.Single(s => s.Id == e.SeasonId).Number).ThenBy(e => e.Number).Take(200)];
+        }
         return episodes.Length == 0
             ? [new(work.Work.Id, title, work.Work.Year, WorkKind.Series, null, null, null, work.Work.WorkKey)]
             : [.. episodes.Select(e => new ImportCandidate(work.Work.Id, title, work.Work.Year, WorkKind.Series,

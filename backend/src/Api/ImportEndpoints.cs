@@ -55,10 +55,34 @@ internal static class ImportEndpoints
         });
         group.MapPost("/roots/{id}/rescan", async (string id, MediaImport importer, CancellationToken ct) =>
             Results.Json(await importer.RescanAsync(id, ct), Json));
+        group.MapGet("/roots", async (ILibraryPlacement library, CancellationToken ct) =>
+            Results.Json(new { roots = (await library.RootsAsync(ct)).OrderBy(r => r.Priority).Select(RootView) }, Json));
+        group.MapPost("/roots", async (HttpContext http, ILibraryPlacement library, CancellationToken ct) =>
+            RootReply(await library.AddRootAsync(await http.Request.ReadFromJsonAsync<LibraryRootInput>(Json, ct) ??
+                throw new ArgumentException("Choose a folder path."), ct)));
+        group.MapPut("/roots/{id}", async (string id, HttpContext http, ILibraryPlacement library, CancellationToken ct) =>
+            RootReply(await library.ConfigureRootAsync(id, await http.Request.ReadFromJsonAsync<LibraryRootConfiguration>(Json, ct) ??
+                throw new ArgumentException("Choose the drive settings."), ct)));
+        group.MapDelete("/roots/{id}", async (string id, ILibraryPlacement library, CancellationToken ct) =>
+            RootReply(await library.RemoveRootAsync(id, ct)));
         group.MapGet("/owned/{workId}", async (string workId, string? episodeId, bool? film,
             ILibraryPlacement library, CancellationToken ct) =>
             Results.Json(new { items = (await library.OwnedAsync(new(workId,
                 episodeId is null ? [] : [episodeId], film == true), ct)).Select(LibraryPlacement.PublicOwned) }, Json));
+    }
+
+    private static IResult RootReply(LibraryRootResult result) =>
+        Results.Json(new { root = result.Root is null ? null : RootView(result.Root), result.Failure }, Json,
+            statusCode: result.Failure is null ? 200 : 409);
+
+    // Free space is read live from the drive; it is never stored.
+    private static object RootView(StorageRootRow root)
+    {
+        long? free = null;
+        try { if (root.Online && Directory.Exists(root.Path)) free = new DriveInfo(root.Path).AvailableFreeSpace; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+        return new { root.Id, root.Path, root.Kinds, root.Priority, root.ReserveBytes, root.Enabled, root.Online,
+            root.ReviewRequired, root.LastCheckedAt, root.LastError, root.Version, freeBytes = free };
     }
 }
 
