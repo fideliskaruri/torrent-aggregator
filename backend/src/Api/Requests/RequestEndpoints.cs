@@ -23,12 +23,21 @@ internal static class RequestEndpoints
         var requester = app.MapGroup("/api/requester");
         var owner = app.MapGroup("/api/requests");
         requester.AddEndpointFilter(async (context, next) => AccessIdentity.Role(context.HttpContext) == "requester"
-            ? await Filter(context, next) : Results.StatusCode(403));
+            ? await Filter(context, next) : Results.Json(new
+            {
+                error = "Only people you share TorrentFlow with use these; the owner adds titles directly.",
+                code = "requester_only",
+            }, statusCode: 403));
         owner.AddEndpointFilter(async (context, next) => AccessIdentity.Role(context.HttpContext) == "owner"
             ? await Filter(context, next) : Results.StatusCode(403));
-        requester.MapGet("/seasons", async (string provider, string providerId, string mediaType,
-            string? title, int? year, IMetadata metadata, CancellationToken ct) =>
+        requester.MapGet("/seasons", async (HttpContext http, IMetadata metadata, CancellationToken ct) =>
         {
+            var provider = http.Request.Query["source"].FirstOrDefault() ?? http.Request.Query["provider"].FirstOrDefault();
+            var providerId = http.Request.Query["sourceId"].FirstOrDefault() ?? http.Request.Query["providerId"].FirstOrDefault();
+            var title = http.Request.Query["title"].FirstOrDefault();
+            int? year = int.TryParse(http.Request.Query["year"], out var parsedYear) ? parsedYear : null;
+            if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(providerId))
+                return Results.BadRequest(new { error = "Choose a catalog title to load its seasons." });
             var result = await metadata.ResolveAsync(new(new(provider, providerId, "tv"),
                 title, year, WorkKind.Series), ct);
             return result.Work is null ? Results.Json(new { error = "The season list isn't available. Try again.",

@@ -98,7 +98,11 @@ internal static class NotificationReadModels
                 ["magnet"] = release?.Magnet, ["infoHash"] = a.ReleaseHash, ["savePath"] = null,
                 ["category"] = work is null ? null : work.Kind == WorkKind.Film ? "movie" : "tv",
                 ["context"] = a.LegacyContext?.ToString(), ["clientType"] = "builtin", ["sendKind"] = null,
-                ["createdAt"] = a.EndedAt ?? a.StartedAt, ["rung"] = null, ["language"] = null,
+                ["createdAt"] = a.EndedAt ?? a.StartedAt,
+                ["rung"] = work is null ? a.Kind.ToString().ToLowerInvariant() :
+                    (work.Kind == WorkKind.Film ? "film: " : "series: ") + Title(work, names),
+                ["language"] = release?.Parsed.LanguageMarkers is { IsEmpty: false } markers
+                    ? string.Join(", ", markers) : "Language not stated",
             });
         }
         return rows.OrderByDescending(r => (DateTimeOffset)r["createdAt"]!)

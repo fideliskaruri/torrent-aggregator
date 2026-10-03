@@ -10,7 +10,7 @@ namespace TorrentFlow.Api.Notifications;
 public sealed record PushSubscriptionInput(string? Endpoint, string? P256dh, string? Auth);
 public sealed record NotificationView(string Id, string Kind, string Title, string? Body, string? Link,
     DateTimeOffset CreatedAt, DateTimeOffset? ReadAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? PosterUrl);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PosterUrl);
 
 public static class NotificationEndpoints
 {

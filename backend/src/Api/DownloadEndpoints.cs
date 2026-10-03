@@ -34,15 +34,25 @@ internal static class DownloadEndpoints
         group.MapPost("/downloads/{transferId}/keep", async (string transferId, DownloadsApi api, CancellationToken ct) =>
             Reply(await api.KeepAsync(transferId, ct)));
         group.MapPost("/title/{workKey}", async (string workKey, TitleDownload input, HttpContext http,
-            TargetPipeline targets, CancellationToken ct) =>
+            TargetPipeline targets, IMetadata metadata, CancellationToken ct) =>
         {
             if (input.Season is < 0 or > 999 || input.Episode is < 1 or > 99999 ||
                 input.PreferredResolution is < 1 or > 4320)
                 return Results.BadRequest(new { message = "Choose a valid season, episode and quality." });
-            var reply = await targets.AcquireAsync(new(workKey, input.Season, input.Episode,
+            var work = (await metadata.GetWorkAsync(workKey, false, ct)).Work;
+            if (work is null && input.Provider is { } provider && input.ProviderId is { } providerId)
+            {
+                if (provider is not ("tmdb" or "anilist" or "cinemeta" or "tvmaze" or "itunes"))
+                    return Results.BadRequest(new { ok = false, message = "A supported title provider is required." });
+                work = (await metadata.ResolveAsync(new(new(provider, providerId,
+                    input.MediaType == "movie" ? "movie" : "tv"), input.Title, input.Year,
+                    input.MediaType == "movie" ? WorkKind.Film : WorkKind.Series), ct)).Work;
+            }
+            var resolvedKey = work?.Work.WorkKey ?? workKey;
+            var reply = await targets.AcquireAsync(new(resolvedKey, input.Season, input.Episode,
                 input.PreferredResolution), AccessIdentity.Actor(http).UserId, ct);
             return Results.Ok(new { ok = reply.Accepted, queued = reply.Queued, owned = reply.Owned,
-                message = reply.Message });
+                message = reply.Message, workKey = resolvedKey });
         });
         group.MapPut("/client/torrents/rank", async (TargetEndpoints.RankInput input,
             TargetPipeline targets, CancellationToken ct) =>
@@ -79,7 +89,8 @@ internal static class DownloadEndpoints
 
     internal sealed record DownloadAction(string Action, string? Hash = null, string[]? Hashes = null,
         string? OwnerClientType = null, bool DeleteFiles = false);
-    internal sealed record TitleDownload(int? Season = null, int? Episode = null, int? PreferredResolution = null);
+    internal sealed record TitleDownload(int? Season = null, int? Episode = null, int? PreferredResolution = null,
+        string? Provider = null, string? ProviderId = null, string? MediaType = null, string? Title = null, int? Year = null);
 }
 
 internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServiceScopeFactory scopes,
@@ -120,8 +131,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             var target = items.FirstOrDefault(t => t.State != TargetState.Removed);
             var live = snapshot.Live.FirstOrDefault(l => l.DownloadId == download.Id);
             var rawIntent = raw.FirstOrDefault(r => r.Id == download.RawIntentId);
-            var work = works.FirstOrDefault(w => w.Id == target?.WorkId);
-            var episode = episodes.FirstOrDefault(e => e.Id == target?.EpisodeId);
+            var libraryFile = media.FirstOrDefault(m => m.DownloadId == download.Id && m.Role == FileRole.Video);
+            var work = works.FirstOrDefault(w => w.Id == (target?.WorkId ?? libraryFile?.WorkId));
+            var episode = episodes.FirstOrDefault(e => e.Id == (target?.EpisodeId ?? libraryFile?.EpisodeId));
             var season = seasons.FirstOrDefault(s => s.Id == episode?.SeasonId);
             var release = releases.FirstOrDefault(r => r.Id == download.Hash);
             var done = download.FinishedAt is not null || target?.State == TargetState.Done ||
@@ -174,8 +186,13 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                 packEpisodes = items.Length > 1 ? (int?)items.Count(t => t.State != TargetState.Removed) : null,
             });
         }
-        return new { torrents = rows, clientType = "builtin", host = (string?)null, offline = false, hasExternal = false,
-            externalClientType = (string?)null, partial = false, clientIssues = Array.Empty<object>() };
+        var body = JsonSerializer.SerializeToNode(new { torrents = rows, clientType = "builtin",
+            offline = false, hasExternal = false, externalClientType = (string?)null,
+            partial = false, clientIssues = Array.Empty<object>() }, Json)!;
+        foreach (var row in body["torrents"]!.AsArray())
+            foreach (var key in new[] { "eta", "queuePosition" })
+                if (row![key] is null) row.AsObject().Remove(key);
+        return body;
     }
 
     internal async Task<object> ActionAsync(DownloadEndpoints.DownloadAction input, CancellationToken ct)
@@ -274,7 +291,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                     looking = false, nextAttemptAt = intent.NextTryAt,
                 });
         }
-        return new { wanted = rows, queue = new { } };
+        return new { wanted = rows, queue = snapshot.Queue };
     }
 
     internal async Task<object> WantedActionAsync(string key, int? season, int? episode, TargetAction action, CancellationToken ct)

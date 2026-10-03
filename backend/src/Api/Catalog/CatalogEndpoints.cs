@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Targets;
@@ -9,8 +10,11 @@ namespace TorrentFlow.Api.Catalog;
 
 internal static class CatalogEndpoints
 {
-    internal static void AddCatalog(this IServiceCollection services) =>
+    internal static void AddCatalog(this IServiceCollection services)
+    {
         services.AddScoped(sp => new CatalogState(sp.GetRequiredKeyedService<IStore>("targets")));
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+    }
     private static IResult Json(object body, int status = 200) =>
         Results.Json(body, CatalogProjection.Json, statusCode: status);
     private static string? Param(HttpContext h, string key) => h.Request.Query[key].FirstOrDefault();
@@ -28,6 +32,8 @@ internal static class CatalogEndpoints
         app.MapGet("/api/title/{workKey}", Detail);
         app.MapGet("/api/title/{workKey}/extras", Extras);
         app.MapGet("/api/title/{workKey}/links", Links);
+        app.MapDelete("/api/title/{workKey}/links/{provider}/{externalId}", Unlink);
+        TitleReleases.Map(app);
         app.MapGet("/api/title/{workKey}/progress", (string workKey) => Json(new
         {
             workKey, transfer = (object?)null, seasonTransfers = new Dictionary<string, object>(),
@@ -268,6 +274,8 @@ internal static class CatalogEndpoints
         };
         var node = JsonSerializer.SerializeToNode(payload, CatalogProjection.Json)!;
         if (extras?.PartOf is null) node.AsObject().Remove("partOf");
+        foreach (var episode in node["episodes"]!.AsArray())
+            if (episode!["airStamp"] is null) episode.AsObject().Remove("airStamp");
         return Json(node);
     }
     private static object Similar(WorkSnapshot w) => new { w.Work.WorkKey, href = CatalogProjection.Href(w),
@@ -295,6 +303,24 @@ internal static class CatalogEndpoints
                 _ => (string?)null,
             },
         }).ToArray() ?? [] });
+    }
+
+    private static async Task<IResult> Unlink(string workKey, string provider, string externalId,
+        HttpContext h, IMetadata metadata, CancellationToken ct)
+    {
+        var work = (await metadata.GetWorkAsync(workKey, false, ct)).Work;
+        var link = work?.Links.FirstOrDefault(l => l.Provider == provider.Trim().ToLowerInvariant() &&
+            l.ExternalId == externalId.Trim() && l.Status != LinkStatus.Rejected);
+        if (work is null || link is null)
+            return Json(new { ok = false, message = "That link was not found. Reload the page and try again." }, 404);
+        var result = await metadata.ChangeLinkAsync(new(work.Work.Id, link.Id, true, work.Work.Version), ct);
+        if (result.Failure is { } failure)
+            return Json(new { ok = false, message = failure.Message }, failure.Code == "not_found" ? 404 : 409);
+        var response = await Links(workKey, h, metadata, ct);
+        if (response is not IValueHttpResult { Value: { } value }) return response;
+        var body = JsonSerializer.SerializeToNode(value, CatalogProjection.Json)!;
+        body["ok"] = true;
+        return Json(body);
     }
 
     private static async Task<IResult> Artwork(HttpContext h, IMetadata metadata, CancellationToken ct)
