@@ -1,0 +1,31 @@
+  Determining projects to restore...
+  Restored D:\code\memtest\wt-dlopen\backend\src\Library\Library.csproj (in 124 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Domain\Domain.csproj (in 105 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Parser\Parser.csproj (in 124 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Metadata\Metadata.csproj (in 124 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Plan\Plan.csproj (in 124 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Sources\Sources.csproj (in 241 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Find\Find.csproj (in 242 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Engine\Engine.csproj (in 245 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Check\Check.csproj (in 245 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Targets\Targets.csproj (in 272 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Api\Api.csproj (in 272 ms).
+  Restored D:\code\memtest\wt-dlopen\backend\src\Store\Store.csproj (in 330 ms).
+  Domain -> D:\code\memtest\bin-dlopen\TorrentFlow.Domain.dll
+  Parser -> D:\code\memtest\bin-dlopen\TorrentFlow.Parser.dll
+  Plan -> D:\code\memtest\bin-dlopen\TorrentFlow.Plan.dll
+  Sources -> D:\code\memtest\bin-dlopen\TorrentFlow.Sources.dll
+  Library -> D:\code\memtest\bin-dlopen\TorrentFlow.Library.dll
+  Engine -> D:\code\memtest\bin-dlopen\TorrentFlow.Engine.dll
+  Store -> D:\code\memtest\bin-dlopen\TorrentFlow.Store.dll
+  Check -> D:\code\memtest\bin-dlopen\TorrentFlow.Check.dll
+  Metadata -> D:\code\memtest\bin-dlopen\TorrentFlow.Metadata.dll
+  Find -> D:\code\memtest\bin-dlopen\TorrentFlow.Find.dll
+  Targets -> D:\code\memtest\bin-dlopen\TorrentFlow.Targets.dll
+  Api -> D:\code\memtest\bin-dlopen\TorrentFlow.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:06.57

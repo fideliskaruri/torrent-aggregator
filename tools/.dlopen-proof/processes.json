@@ -1,0 +1,32 @@
+[
+  {
+    "ProcessId": 40496,
+    "ParentProcessId": 37992,
+    "Name": "dotnet.exe",
+    "CommandLine": "\"C:\\Program Files\\dotnet\\dotnet.exe\" D:\\code\\memtest\\bin-dlopen\\TorrentFlow.dll --urls http://127.0.0.1:3963 --TorrentFlow:DataDirectory D:\\code\\memtest\\dlopen-data --TorrentFlow:WebRoot D:\\code\\memtest\\wt-dlopen\\web\\dist --TorrentFlow:Scheduler:Disabled true --background --no-browser"
+  },
+  {
+    "ProcessId": 50620,
+    "ParentProcessId": 32140,
+    "Name": "pwsh.exe",
+    "CommandLine": "\"pwsh.exe\" -NoProfile -NoLogo -NonInteractive -Command \"try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}; try { if (Get-Variable -Name PSStyle -ErrorAction Ignore) { $PSStyle.OutputRendering = 'PlainText' } } catch {}; $global:LASTEXITCODE = 0; $__copilotCommandFinished = $false; $__copilotSuccess = $false; try { $global:LASTEXITCODE = 0\nSet-Location D:\\code\\platformApps-worktrees\\rebuild; .\\tools\\.jelly-proof\\Seed.ps1 -FixtureDirectory D:\\code\\memtest\\dlopen-fixture -ServerUrl http://127.0.0.1:3963\n$__copilotSuccess = $?\n$__copilotCommandFinished = $true\n } finally { if ($__copilotCommandFinished) { if (-not $__copilotSuccess -and $LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { $host.SetShouldExit($LASTEXITCODE) } elseif (-not $__copilotSuccess) { $host.SetShouldExit(1) } else { $host.SetShouldExit(0) } } }\""
+  },
+  {
+    "ProcessId": 62824,
+    "ParentProcessId": 50620,
+    "Name": "dotnet.exe",
+    "CommandLine": "\"C:\\Program Files\\dotnet\\dotnet.exe\" run --project D:\\code\\platformApps-worktrees\\rebuild\\tools\\.jelly-proof\\Seeder\\Seeder.csproj --configuration Release -- D:\\code\\memtest\\dlopen-fixture http://127.0.0.1:3963"
+  },
+  {
+    "ProcessId": 19320,
+    "ParentProcessId": 62824,
+    "Name": "Seeder.exe",
+    "CommandLine": "\"D:\\code\\platformApps-worktrees\\rebuild\\tools\\.jelly-proof\\Seeder\\bin\\Release\\net10.0\\Seeder.exe\"  D:\\code\\memtest\\dlopen-fixture http://127.0.0.1:3963"
+  },
+  {
+    "ProcessId": 62552,
+    "ParentProcessId": 32140,
+    "Name": "pwsh.exe",
+    "CommandLine": "\"pwsh.exe\" -NoProfile -NoLogo -NonInteractive -Command \"try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch {}; try { if (Get-Variable -Name PSStyle -ErrorAction Ignore) { $PSStyle.OutputRendering = 'PlainText' } } catch {}; $global:LASTEXITCODE = 0; $__copilotCommandFinished = $false; $__copilotSuccess = $false; try { $global:LASTEXITCODE = 0\n$proof='D:\\code\\platformApps-worktrees\\rebuild\\tools\\.dlopen-proof'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*dlopen-fixture*' -or $_.CommandLine -like '*bin-dlopen*' } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Depth 5 | Tee-Object \\\"$proof\\processes.json\\\"; Get-Content D:\\code\\platformApps-worktrees\\rebuild\\backend\\README.md | Select-Object -Skip 48 -First 54; git -C D:\\code\\memtest\\wt-dlopen status --short\n$__copilotSuccess = $?\n$__copilotCommandFinished = $true\n } finally { if ($__copilotCommandFinished) { if (-not $__copilotSuccess -and $LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { $host.SetShouldExit($LASTEXITCODE) } elseif (-not $__copilotSuccess) { $host.SetShouldExit(1) } else { $host.SetShouldExit(0) } } }\""
+  }
+]

@@ -1,0 +1,72 @@
+{
+  "restored": {
+    "ok": true,
+    "mode": "open",
+    "fileName": "Sintel.mp4",
+    "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+    "launched": false
+  },
+  "refusals": [
+    {
+      "response": {
+        "ok": false,
+        "reason": "invalid-id",
+        "error": "That is not a download id.",
+        "message": "Reload the page and try again."
+      },
+      "status": 400,
+      "id": "invalid"
+    },
+    {
+      "response": {
+        "ok": false,
+        "reason": "not-found",
+        "error": "That download is no longer in TorrentFlow.",
+        "message": "Reload the page."
+      },
+      "status": 404,
+      "id": "builtin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "response": {
+        "ok": false,
+        "reason": "other-client",
+        "error": "This download belongs to another torrent app.",
+        "message": "Open it from that app instead."
+      },
+      "status": 409,
+      "id": "qbittorrent:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    },
+    {
+      "response": {
+        "ok": false,
+        "reason": "invalid-mode",
+        "field": "mode",
+        "error": "mode must be \"open\" or \"reveal\"",
+        "message": "Choose open or show in folder."
+      },
+      "status": 400,
+      "id": "builtin:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    },
+    {
+      "response": {
+        "ok": false,
+        "reason": "files-missing",
+        "error": "This file isn't on disk any more.",
+        "message": "It was deleted or moved outside TorrentFlow. Delete the download, or download it again."
+      },
+      "status": 410,
+      "id": "builtin:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    },
+    {
+      "response": {
+        "ok": false,
+        "reason": "files-missing",
+        "error": "This file isn't on disk any more.",
+        "message": "It was deleted or moved outside TorrentFlow. Delete the download, or download it again."
+      },
+      "status": 410,
+      "id": "builtin:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+[
+  {
+    "width": 390,
+    "open": {
+      "ok": true,
+      "mode": "open",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "reveal": {
+      "ok": true,
+      "mode": "reveal",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "layout": {
+      "width": 390,
+      "scroll": 382
+    },
+    "consoleErrors": []
+  },
+  {
+    "width": 768,
+    "open": {
+      "ok": true,
+      "mode": "open",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "reveal": {
+      "ok": true,
+      "mode": "reveal",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "layout": {
+      "width": 768,
+      "scroll": 760
+    },
+    "consoleErrors": []
+  },
+  {
+    "width": 1280,
+    "open": {
+      "ok": true,
+      "mode": "open",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "reveal": {
+      "ok": true,
+      "mode": "reveal",
+      "fileName": "Sintel.mp4",
+      "path": "D:\\code\\memtest\\dlopen-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+      "launched": false
+    },
+    "layout": {
+      "width": 1280,
+      "scroll": 1272
+    },
+    "consoleErrors": []
+  }
+]

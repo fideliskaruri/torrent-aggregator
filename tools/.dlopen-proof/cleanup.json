@@ -1,0 +1,32 @@
+{
+  "survivingOwnedPids": [],
+  "http3963Listening": 0,
+  "paths": [
+    {
+      "exists": false,
+      "path": "D:\\code\\memtest\\wt-dlopen"
+    },
+    {
+      "exists": false,
+      "path": "D:\\code\\memtest\\dlopen-fixture"
+    },
+    {
+      "exists": false,
+      "path": "D:\\code\\memtest\\dlopen-data"
+    },
+    {
+      "exists": false,
+      "path": "D:\\code\\memtest\\dlopen-library"
+    },
+    {
+      "exists": false,
+      "path": "D:\\code\\memtest\\bin-dlopen"
+    }
+  ],
+  "stoppedPids": [
+    40496,
+    19320,
+    62824,
+    62528
+  ]
+}
