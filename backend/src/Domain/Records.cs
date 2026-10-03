@@ -188,7 +188,10 @@ public sealed record RawRelease(string Name, string Hash, long? Bytes, int? List
     int? ListedLeechers, string SourceId, string? SourceItemId, string? Magnet, string? TorrentUri,
     DateTimeOffset? UploadedAt, ImmutableArray<string> WebSeeds);
 public sealed record SourceQuery(string Query, string Category, ProviderId? Identity,
-    PriorityLane Lane, int Limit, DateTimeOffset DeadlineAt, long SourceRevision, long CredentialRevision);
+    PriorityLane Lane, int Limit, DateTimeOffset DeadlineAt, long SourceRevision, long CredentialRevision)
+{
+    public string? FlightId { get; init; }
+}
 public sealed record SourceResult(string SourceId, SourceOutcome Outcome, ImmutableArray<RawRelease> Results,
     DateTimeOffset? RetryAt, string? Error, TimeSpan Elapsed)
 {
@@ -201,14 +204,35 @@ public sealed record SourceDiagnostics(string Code, TimeSpan QueueWait, int Requ
     public TimeSpan UpstreamElapsed { get; init; }
 }
 public sealed record Candidate(ReleaseRow Release, ImmutableArray<ReleaseObservationRow> Observations,
-    int? ConservativeListedSeeders);
+    int? ConservativeListedSeeders)
+{
+    public ImmutableArray<string> CoveredEpisodeIds { get; init; } = [];
+    public bool CoversFilm { get; init; }
+    public int? ScrapedSeeders { get; init; }
+    public int? TrustedSeeders => ScrapedSeeders ?? ConservativeListedSeeders;
+}
 public sealed record SearchRequest(string SessionId, WorkSnapshot Work, TargetScope Scope,
     Policy Policy, PriorityLane Lane, SearchNamePhase NamePhase, ImmutableArray<string> SourceIds,
     long SourceRevision, long CredentialRevision);
 public sealed record SearchFeedback(long PoolRevision, ImmutableArray<string> CoveredEpisodeIds,
-    bool FilmCovered, bool Stop, bool NeedFallbackTier);
+    bool FilmCovered, bool Stop, bool NeedFallbackTier)
+{
+    public ImmutableDictionary<string, int> ScrapedSeeders { get; init; } = ImmutableDictionary<string, int>.Empty;
+}
+public sealed record FindRejection(string Hash, string Name, string SourceId, string Query,
+    string Code, string Explanation);
+public sealed record FindQueryTrace(string Query, string SourceId, SearchNamePhase NamePhase,
+    SourceTier Tier, bool CacheHit, bool SharedInFlight, SourceResult Result);
 public sealed record CandidateBatch(string SessionId, long PoolRevision, ImmutableArray<Candidate> Candidates,
-    ImmutableArray<SourceResult> Sources, bool Complete, SearchNamePhase NamePhase, SourceTier Tier);
+    ImmutableArray<SourceResult> Sources, bool Complete, SearchNamePhase NamePhase, SourceTier Tier)
+{
+    public ImmutableArray<FindRejection> Rejections { get; init; } = [];
+    public ImmutableArray<FindQueryTrace> Queries { get; init; } = [];
+    public TimeSpan? FirstCandidateAt { get; init; }
+    public TimeSpan Elapsed { get; init; }
+    public bool EarlyStopped { get; init; }
+    public bool EnglishLabelMissing { get; init; }
+}
 public sealed record ProbeRequest(Candidate Candidate, PriorityLane Lane, bool ForceFresh, bool WantedTarget);
 public sealed record SwarmEvidence(string Hash, HealthBand Band, ImmutableArray<TorrentFile>? Files,
     int ConnectedPeers, int ConnectedSeeders, int ByteSendingPeers, long BytesDelivered,

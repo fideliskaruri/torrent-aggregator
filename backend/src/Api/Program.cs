@@ -45,13 +45,16 @@ builder.Services.AddDevEngine(dataDirectory);
 var app = builder.Build();
 try
 {
-    var tmdb = SecretFiles.FromTmdbEnvironment(dataDirectory);
+    var tmdb = app.Environment.IsDevelopment() &&
+        builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled")
+        ? null : SecretFiles.FromTmdbEnvironment(dataDirectory);
     await using (var scope = app.Services.CreateAsyncScope())
         await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(tmdb,
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
     await app.UseAccessAsync();
     app.MapDevSources();
+    app.MapDevFind();
     app.MapCatalog();
     app.MapDevEngine();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);

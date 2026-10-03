@@ -13,6 +13,8 @@ namespace TorrentFlow.Sources;
 internal sealed class SourcesService(SourceTransport transport, IConfiguration configuration,
     IServiceScopeFactory scopes) : ISources
 {
+    public void PromoteSearch(string flightId) => transport.Promote(flightId);
+    public void ForgetSearch(string flightId) => transport.Forget(flightId);
     private static readonly JsonSerializerOptions SettingsJson = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
@@ -48,6 +50,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         {
             await deadline.CancelAsync();
             await producer.ConfigureAwait(false);
+            transport.Forget(query.FlightId);
         }
     }
 
