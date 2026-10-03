@@ -890,12 +890,11 @@ export default function SettingsPage() {
                 ))}
               </RadioGroup>
               <p id="audio-language-help" className="pt-1 text-xs leading-relaxed text-subtle-foreground">
-                Automatic downloads need English audio or English subtitles. TorrentFlow reads the release name and
-                the site&apos;s category before it picks, then the file list once it arrives, magnets included. When
-                those don&apos;t settle it, it reads the start of the video for up to 45 seconds. A release with no
-                English is stopped and another one is tried. If the check can&apos;t finish, the download keeps going
-                and shows English not confirmed. When nothing has English, the item waits for an English release and
-                you can pick one yourself. A release you pick yourself always downloads.
+                TorrentFlow checks the release name, and the file names once it has them. It only skips a release
+                that clearly says it is in a different language from the one you chose, like RUS, LostFilm or
+                VOSTFR. A release marked
+                DUAL, MULTI or with your language still counts. A release that doesn&apos;t say its language
+                downloads as usual. With Any language, nothing is skipped for language.
               </p>
 
             </fieldset>
