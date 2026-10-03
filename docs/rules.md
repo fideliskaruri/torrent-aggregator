@@ -91,6 +91,6 @@ Standing rules from the owner. Every agent reads this before starting work. When
 
 - **English name first (owner, 2026-10-03).** Search every title by its English name. Only when no good release is found, search the original-language (or romaji) name.
 
-- **At most two agents at a time (owner, 2026-10-03).** No agent swarms: at most two agents run at once, plus the coordinator. Queue the rest.
+- **Up to five quick agents at a time (owner, 2026-10-03, replaces the two-agent cap).** Run up to five agents at once plus the coordinator. They use fast models at low effort, and each works on its own module so no two agents edit the same files.
 
 - **Speed (owner, 2026-10-03: 'this has been going for too long!').** Agents run 30 min max; the coordinator stops and rescopes any agent past that. Proof runs cover only what the change touches (no full hard-set reruns except at phase gates). Gate-blocking fixes go before new phases.
