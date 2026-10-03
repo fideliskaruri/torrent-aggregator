@@ -174,10 +174,12 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 devIds[hash] = torrent.TryGetValue("DevId", out var id) ? ((BEncodedString)id).Text : hash;
                 if (torrent.TryGetValue("DevBound", out var bound)) devBindings[hash] = ((BEncodedNumber)bound).Number != 0;
                 if (torrent.TryGetValue("DevRank", out var rank))
+                {
+                    var now = ((BEncodedNumber)torrent["DevNow"]).Number != 0;
                     queueOrder[devIds[hash]] = new(devIds[hash], ((BEncodedNumber)rank).Number,
-                        (TargetPriority)((BEncodedNumber)torrent["DevPriority"]).Number,
-                        ((BEncodedNumber)torrent["DevNow"]).Number != 0,
+                        now ? TargetPriority.Now : TargetPriority.BackCatalogue, now,
                         ((BEncodedNumber)torrent["DevEligible"]).Number != 0);
+                }
             }
         }
         try

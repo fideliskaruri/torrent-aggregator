@@ -47,7 +47,7 @@ internal sealed class DiscoveryStopping(IServiceScopeFactory scopes, ICheck chec
             sources = sources.IsDefault ? [] : sources.Order(StringComparer.Ordinal).ToArray(),
             targets = targets.OrderBy(t => t.Id).Select(t => new
             {
-                t.Id, t.EpisodeId, t.Kind, t.ResolutionFloor, t.PreferredResolution, t.AudioLanguage,
+                t.Id, t.EpisodeId, t.Kind, t.ResolutionFloor, t.PreferredResolution,
                 t.MaxBytes, t.PolicyRevision, t.MinListedSeeders, t.PickedReleaseHash,
                 t.ReplaceMediaFileId, t.ReplacementMode,
             }),

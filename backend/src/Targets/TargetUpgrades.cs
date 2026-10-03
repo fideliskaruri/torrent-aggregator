@@ -49,7 +49,7 @@ public sealed partial class TargetPipeline
         var setting = (await store.ReadAsync<SettingRow>(CatalogState.Query("quality"), ct)).Single();
         var quality = SettingsCatalog.Read<QualitySettings>(setting);
         return new(preference?.ResolutionFloor, preference?.PreferredResolution ?? quality.PreferredResolution ?? 1080,
-            await TargetAudioPolicy.ResolveAsync(store, work, preference, ct), preference?.MaxBytesPerItem ?? quality.MaxBytesPerItem,
+            quality.AudioLanguage ?? "auto", preference?.MaxBytesPerItem ?? quality.MaxBytesPerItem,
             preference?.StorageRootOverrideId, preference?.Version ?? setting.Revision);
     }
 
@@ -59,10 +59,10 @@ public sealed partial class TargetPipeline
         var video = item.Videos.OrderByDescending(v => v.Resolution).ThenBy(v => v.Id).First();
         return new($"upgrade:{work.Id}:{item.EpisodeId ?? "film"}", work.Id, item.EpisodeId,
             TargetKind.Replace, TargetState.Wanted, null, null, null, null, null,
-            policy.ResolutionFloor, policy.PreferredResolution, policy.AudioLanguage, policy.MaxBytes,
+            policy.ResolutionFloor, policy.PreferredResolution, null, policy.MaxBytes,
             false, 0, null, actor, IntentOrigin.Upgrade, null, null, video.Id, ReplacementMode.Upgrade,
             null, now, 0, null, policy.Revision, null, null, now, now, 1)
-            { Priority = TargetPriority.UpgradeWatch };
+            { Priority = TargetPriority.BackCatalogue };
     }
 
     public async Task<ImmutableArray<ItemUpgrade>> ReadUpgradesAsync(WorkSnapshot work, CancellationToken ct)

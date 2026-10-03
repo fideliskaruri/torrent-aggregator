@@ -91,7 +91,7 @@ without a start episode means new episodes only, with the acceptance timestamp a
 cutoff. Ongoing follows use the Unix epoch cutoff and a stable start Episode ID; hunter
 compares season/episode coordinates, not air-date ordering. Repeated saves retain the
 new-episode cutoff. The worker admits at most `TorrentFlow:Targets:MaximumScopes` film/season scopes
-(default 8, maximum 8), preserving owner rank. Waiting targets retain their reason,
+(default 8, maximum 8), using FIFO target creation order with Download now first. Waiting targets retain their reason,
 retry time, chosen hash where applicable and immutable last plan history. They are not
 searched again until due or explicitly retried. Source/check retry timing follows the
 release-age schedule in design 1.4. There is no separate progress cache.
@@ -122,9 +122,8 @@ Library filing returns an opaque, Store-issued inventory proposal. Targets alone
 the target state and commits that proposal, the target version CAS and filing history in
 one Store transaction. The standalone Library filing harness no longer writes Target state.
 
-Dynamic priority is persisted and refreshed as dates age: owner now, owner rank, fresh
-episode (six hours before through 48 hours after air time), request, back catalogue,
-upgrade/watch. Rank orders targets within a priority. `ExpectedAt` comes from Metadata;
+The queue is FIFO by target creation time. Download now is the only override; those
+targets run first in the order Download now was pressed. `ExpectedAt` comes from Metadata;
 release retries run at five minutes around release, then 15 minutes, one hour, six hours
 and one day as the release ages. File/drive/cap retries retain their short recovery delay.
 

@@ -28,6 +28,5 @@ internal static class TargetEndpoints
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
     }
-    internal sealed record RankInput(System.Collections.Immutable.ImmutableArray<string> TargetIds);
     internal sealed record QualityInput(int? Resolution);
 }

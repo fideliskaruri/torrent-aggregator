@@ -52,7 +52,7 @@ export interface TransferRow {
   state: string;
   /** 1-based place in the built-in download queue, while `state` is "queued". */
   queuePosition?: number;
-  /** Why that queued row is waiting: outside-window, queue-full or lower-lane. */
+  /** Why that queued row is waiting: outside-window or queue-full. */
   waitReason?: string | null;
   workId?: string | null;
   workKey?: string | null;

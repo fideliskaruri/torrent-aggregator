@@ -101,7 +101,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                         await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow,
+                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
                         await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)),
                 }, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
@@ -220,7 +220,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix) &&
                 (permitted is null || associations.Any(a => a.DownloadId == d.Id && permitted.Contains(a.TargetId)))).ToArray();
             await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(downloads,
-                associations, targets, DateTimeOffset.UtcNow) }, ct);
+                associations, targets) }, ct);
             foreach (var download in downloads)
             {
                 var members = targets.Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();

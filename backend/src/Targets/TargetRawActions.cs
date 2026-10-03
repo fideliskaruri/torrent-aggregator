@@ -40,7 +40,7 @@ public sealed partial class TargetPipeline
                 await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(
                     await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                     await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), now,
+                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
                     await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)) }, ct);
                 await engine.SetIntentAsync(download.Id, !pause, ct);
             }

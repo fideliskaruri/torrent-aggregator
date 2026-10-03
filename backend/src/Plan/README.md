@@ -8,8 +8,9 @@ parses names, reads files, probes a swarm, downloads, or persists a choice. Targ
 
 - Supply complete `WorkSnapshot`, canonical targets, current owned videos, hash-scoped
   evidence and blocks. Candidate coverage from Find is not trusted as episode mapping.
-- Target preferences override the optional matching `WorkPreferenceRow`. An explicit
-  resolution floor and size cap are hard gates; preferred resolution is not a floor.
+- Target resolution and size preferences override the optional matching `WorkPreferenceRow`;
+  audio language comes from the global `QualitySettings`. An explicit resolution floor and
+  size cap are hard gates; preferred resolution is not a floor.
 - `QueriesExhausted` defaults to false. Unknown health cannot be selected until this
   is true and a complete safe file list exists. Eligible Good/Weak alternatives always
   win. An Unknown assignment says **Waiting for seeders**; it is not measured healthy.

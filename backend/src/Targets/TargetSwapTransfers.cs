@@ -52,8 +52,10 @@ internal sealed partial class TargetTransfers
                         AssociationRole.Replacement, now), null, null))], [], ct);
                 prepared.Add((replacement, download, files));
                 if (!await repository.SavePlacementAsync(files, placement.Folders, ct)) return false;
-                await engine.ApplyQueueAsync(new([]) { Order = [new(id, members.Min(t => t.Rank),
-                    members.Min(t => t.Priority), false, true)] }, ct);
+                var order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                    await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
+                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct)).Single(q => q.DownloadId == id);
+                await engine.ApplyQueueAsync(new([]) { Order = [order] }, ct);
                 var admission = new EngineAdmission(download, replacement.Candidate,
                     [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
                 var start = replacement.Handle is null ? await engine.StartAsync(admission, ct) :
