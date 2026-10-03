@@ -56,6 +56,8 @@ export interface LibraryControlsProps {
   title?: string | null;
   /** Re-reads the payload so the controls reflect the server, not a guess. */
   onChanged: () => void;
+  /** The page already says "In your library" (owned-quality line), so no second pill. */
+  ownedShown?: boolean;
 }
 
 type Phase = "idle" | "pending";
@@ -67,6 +69,7 @@ export function LibraryControls({
   releaseDate = null,
   title = null,
   onChanged,
+  ownedShown = false,
 }: LibraryControlsProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [asking, setAsking] = useState(false);
@@ -296,13 +299,15 @@ export function LibraryControls({
     >
       {library.inLibrary ? (
         <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto">
-          <Badge
-            className="min-h-[44px] gap-1.5 rounded-lg bg-card px-3 py-2 font-normal [&>svg]:size-3.5!"
-            data-in-library
-          >
-            <Check aria-hidden />
-            In Library
-          </Badge>
+          {ownedShown ? null : (
+            <Badge
+              className="min-h-[44px] gap-1.5 rounded-lg bg-card px-3 py-2 font-normal [&>svg]:size-3.5!"
+              data-in-library
+            >
+              <Check aria-hidden />
+              In Library
+            </Badge>
+          )}
           {itemId ? (
             <Button
               ref={removeButtonRef}

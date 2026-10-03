@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "itemId": "c8879228a2bd4e97b081a1821d02f225",
+      "path": null,
+      "imported": false,
+      "error": "A file already uses the destination name. Review the duplicate before importing.",
+      "alreadyInLibrary": false
+    }
+  ]
+}

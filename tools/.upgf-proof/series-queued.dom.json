@@ -1,0 +1,266 @@
+{
+  "390": {
+    "inLibraryPill": 0,
+    "remove": [
+      44
+    ],
+    "ownedText": [],
+    "ownedState": [
+      "queued",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade"
+    ],
+    "queued": [
+      {
+        "text": "1080p queued",
+        "h": 44
+      }
+    ],
+    "upgradeButtons": [
+      {
+        "text": "Upgrade 10",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      }
+    ],
+    "checkButtons": [],
+    "seasonLine": "11 of 11 in your library, 10 can be upgraded to 1080p, 1 upgrade queued",
+    "episodeBadges": [
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p"
+    ],
+    "buttons": []
+  },
+  "768": {
+    "inLibraryPill": 0,
+    "remove": [
+      44
+    ],
+    "ownedText": [],
+    "ownedState": [
+      "queued",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade"
+    ],
+    "queued": [
+      {
+        "text": "1080p queued",
+        "h": 44
+      }
+    ],
+    "upgradeButtons": [
+      {
+        "text": "Upgrade 10",
+        "h": 32
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      }
+    ],
+    "checkButtons": [],
+    "seasonLine": "11 of 11 in your library, 10 can be upgraded to 1080p, 1 upgrade queued",
+    "episodeBadges": [
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p"
+    ],
+    "buttons": []
+  },
+  "1280": {
+    "inLibraryPill": 0,
+    "remove": [
+      44
+    ],
+    "ownedText": [],
+    "ownedState": [
+      "queued",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade",
+      "upgrade"
+    ],
+    "queued": [
+      {
+        "text": "1080p queued",
+        "h": 44
+      }
+    ],
+    "upgradeButtons": [
+      {
+        "text": "Upgrade 10",
+        "h": 32
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      },
+      {
+        "text": "1080p",
+        "h": 44
+      }
+    ],
+    "checkButtons": [],
+    "seasonLine": "11 of 11 in your library, 10 can be upgraded to 1080p, 1 upgrade queued",
+    "episodeBadges": [
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p",
+      "In your library, 480p"
+    ],
+    "buttons": []
+  }
+}
