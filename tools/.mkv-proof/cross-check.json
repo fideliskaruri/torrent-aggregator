@@ -1,0 +1,893 @@
+[
+  {
+    "file": "Sintel.avi",
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.avi",
+    "native": 887.985792,
+    "ffprobe": 888.149333,
+    "difference": 0.16354100000000926,
+    "readBytes": 72,
+    "furthestRead": 72
+  },
+  {
+    "file": "Sintel.mkv",
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.mkv",
+    "native": 888.064,
+    "ffprobe": 888.064,
+    "difference": 0.0,
+    "readBytes": 168,
+    "furthestRead": 529
+  },
+  {
+    "file": "Sintel.webm",
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.webm",
+    "native": 888,
+    "ffprobe": 888.0,
+    "difference": 0.0,
+    "readBytes": 117,
+    "furthestRead": 353
+  },
+  {
+    "file": "Sintel.mp4",
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.filing-proof\\seed\\Sintel\\Sintel.mp4",
+    "native": 888.064,
+    "ffprobe": 888.064,
+    "difference": 0.0,
+    "readBytes": null,
+    "furthestRead": null
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren - 01.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\[EMBER] Sousou no Frieren - 01.mkv",
+    "native": 1559.968,
+    "ffprobe": 1559.968,
+    "difference": 0.0,
+    "readBytes": 191,
+    "furthestRead": 9511
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren - 02.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\[EMBER] Sousou no Frieren - 02.mkv",
+    "native": 1560.032,
+    "ffprobe": 1560.032,
+    "difference": 0.0,
+    "readBytes": 185,
+    "furthestRead": 9641
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren - 03.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\[EMBER] Sousou no Frieren - 03.mkv",
+    "native": 1470.14,
+    "ffprobe": 1470.14,
+    "difference": 0.0,
+    "readBytes": 191,
+    "furthestRead": 9635
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren - 04.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\[EMBER] Sousou no Frieren - 04.mkv",
+    "native": 1559.872,
+    "ffprobe": 1559.872,
+    "difference": 0.0,
+    "readBytes": 191,
+    "furthestRead": 9647
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren S2 - 01.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[EMBER] Sousou no Frieren S2 - 01.mkv",
+    "native": 1440.14,
+    "ffprobe": 1440.14,
+    "difference": 0.0,
+    "readBytes": 226,
+    "furthestRead": 12829
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren S2 - 03.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[EMBER] Sousou no Frieren S2 - 03.mkv",
+    "native": 1440.1100000000001,
+    "ffprobe": 1440.11,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 226,
+    "furthestRead": 12829
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren S2 - 05.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[EMBER] Sousou no Frieren S2 - 05.mkv",
+    "native": 1440.1100000000001,
+    "ffprobe": 1440.11,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 224,
+    "furthestRead": 12841
+  },
+  {
+    "file": "[Ironclad] Sousou no Frieren 2nd Season - S02E02 [WEB.1080p.AV1].mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[Ironclad] Sousou no Frieren 2nd Season - S02E02 [WEB.1080p.AV1].mkv",
+    "native": 1440.83,
+    "ffprobe": 1440.83,
+    "difference": 0.0,
+    "readBytes": 596,
+    "furthestRead": 21386
+  },
+  {
+    "file": "[Ironclad] Sousou no Frieren 2nd Season - S02E06 [WEB.1080p.AV1].mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[Ironclad] Sousou no Frieren 2nd Season - S02E06 [WEB.1080p.AV1].mkv",
+    "native": 1440.29,
+    "ffprobe": 1440.29,
+    "difference": 0.0,
+    "readBytes": 704,
+    "furthestRead": 23731
+  },
+  {
+    "file": "[Ironclad] Sousou no Frieren 2nd Season - S02E07 [WEB.1080p.AV1].mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\[Ironclad] Sousou no Frieren 2nd Season - S02E07 [WEB.1080p.AV1].mkv",
+    "native": 1440.1000000000001,
+    "ffprobe": 1440.1,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 666,
+    "furthestRead": 21217
+  },
+  {
+    "file": "Frieren.Beyond.Journeys.End.S02E04.Other.Peoples.Homes.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\Frieren.Beyond.Journeys.End.S02E04.Other.Peoples.Homes.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "native": 1441.79,
+    "ffprobe": 1441.79,
+    "difference": 0.0,
+    "readBytes": 211,
+    "furthestRead": 4826
+  },
+  {
+    "file": "Frieren.Beyond.Journeys.End.S02E08.A.Magnificent.End.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\Frieren.Beyond.Journeys.End.S02E08.A.Magnificent.End.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "native": 1441.7,
+    "ffprobe": 1441.7,
+    "difference": 0.0,
+    "readBytes": 207,
+    "furthestRead": 4814
+  },
+  {
+    "file": "Frieren.Beyond.Journeys.End.S02E09.Himmels.Memoirs.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\Frieren.Beyond.Journeys.End.S02E09.Himmels.Memoirs.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "native": 1441.91,
+    "ffprobe": 1441.91,
+    "difference": 0.0,
+    "readBytes": 207,
+    "furthestRead": 4814
+  },
+  {
+    "file": "Frieren.Beyond.Journeys.End.S02E10.A.Beautiful.Sight.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "path": "D:\\code\\memtest\\anime-seasons\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 02\\Frieren.Beyond.Journeys.End.S02E10.A.Beautiful.Sight.1080p.BILI.WEB-DL.JPN.AAC2.0.H.265.MSubs-ToonsHub.mkv",
+    "native": 1430.186,
+    "ffprobe": 1430.186,
+    "difference": 0.0,
+    "readBytes": 207,
+    "furthestRead": 4814
+  },
+  {
+    "file": "your.name.2016.1080p.bluray.x264-haiku[EtHD].mkv",
+    "path": "D:\\code\\memtest\\english-rule\\downloads\\Anime Movies\\Your Name (2016)\\Your.Name.2016.1080p.BluRay.x264-HAiKU[EtHD]\\your.name.2016.1080p.bluray.x264-haiku[EtHD].mkv",
+    "native": 6395.638,
+    "ffprobe": 6395.638,
+    "difference": 0.0,
+    "readBytes": 145,
+    "furthestRead": 4496
+  },
+  {
+    "file": "your.name.2016.1080p.bluray.x264-haiku.sample.mkv",
+    "path": "D:\\code\\memtest\\english-rule\\downloads\\Anime Movies\\Your Name (2016)\\Your.Name.2016.1080p.BluRay.x264-HAiKU[EtHD]\\Sample\\your.name.2016.1080p.bluray.x264-haiku.sample.mkv",
+    "native": 59.403,
+    "ffprobe": 59.403,
+    "difference": 0.0,
+    "readBytes": 145,
+    "furthestRead": 4496
+  },
+  {
+    "file": "Tomb.Raider.King.S01E01.VOSTFR.1080p.WEBRiP.x265-KAF.mkv",
+    "path": "D:\\code\\memtest\\english-rule\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\Tomb.Raider.King.S01E01.VOSTFR.1080p.WEBRiP.x265-KAF.mkv",
+    "native": 1384.05,
+    "ffprobe": 1384.05,
+    "difference": 0.0,
+    "readBytes": 165,
+    "furthestRead": 8057
+  },
+  {
+    "file": "Your Name (2016) (1080p DS4K BluRay x265 10-bit HDR AAC 5.1 Dual-Audio) [WeSLeY].mkv",
+    "path": "D:\\code\\memtest\\qa-anime\\downloads\\Anime Movies\\Your Name (2016)\\Your Name (2016) (1080p DS4K BluRay x265 10-bit HDR AAC 5.1 Dual-Audio) [WeSLeY].mkv",
+    "native": 6396.309,
+    "ffprobe": 6396.309,
+    "difference": 0.0,
+    "readBytes": 694,
+    "furthestRead": 8602
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren - 28.mkv",
+    "path": "D:\\code\\memtest\\qa-anime\\downloads\\Anime Series\\Frieren Beyond Journey’s End\\Season 01\\[EMBER] Sousou no Frieren - 28.mkv",
+    "native": 1463.136,
+    "ffprobe": 1463.136,
+    "difference": 0.0,
+    "readBytes": 168,
+    "furthestRead": 10082
+  },
+  {
+    "file": "[EMBER] Sousou no Frieren S2 - 01.mkv",
+    "path": "D:\\code\\memtest\\qa-anime\\downloads\\Anime Series\\Frieren Beyond Journey’s End Season 2\\Season 01\\[EMBER] Sousou no Frieren S2 - 01.mkv",
+    "native": 1440.14,
+    "ffprobe": 1440.14,
+    "difference": 0.0,
+    "readBytes": 226,
+    "furthestRead": 12829
+  },
+  {
+    "file": "WwW.SeeHD.WS__Free Solo 2018 1080p WEB-DL X264 AC3-SeeHD.mkv",
+    "path": "D:\\code\\memtest\\qa-films\\downloads\\Movies\\Free Solo (2018)\\WwW.SeeHD.WS__Free Solo 2018 1080p WEB-DL X264 AC3-SeeHD.mkv",
+    "native": 6004.992,
+    "ffprobe": 6004.992,
+    "difference": 0.0,
+    "readBytes": 118,
+    "furthestRead": 4450
+  },
+  {
+    "file": "Oppenheimer 2023 IMAX 1080p AV1 10Bit DKong.mkv",
+    "path": "D:\\code\\memtest\\qa-films\\downloads\\Movies\\Oppenheimer (2023)\\Oppenheimer 2023 IMAX 1080p AV1 10Bit DKong.mkv",
+    "native": 10822.145,
+    "ffprobe": 10822.145,
+    "difference": 0.0,
+    "readBytes": 164,
+    "furthestRead": 4514
+  },
+  {
+    "file": "Lanterns - S01E01 - Pilot.mkv",
+    "path": "D:\\code\\memtest\\qa-series\\downloads\\TV\\Lanterns\\Season 01\\Lanterns - S01E01 - Pilot.mkv",
+    "native": 3388.6710000000003,
+    "ffprobe": 3388.671,
+    "difference": 4.547473508864641E-13,
+    "readBytes": 1158,
+    "furthestRead": 7064
+  },
+  {
+    "file": "Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\qa-series\\downloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.472,
+    "ffprobe": 1321.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Family Guy\\Season 01\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1351.125,
+    "ffprobe": 1351.125,
+    "difference": 0.0,
+    "readBytes": 203,
+    "furthestRead": 3041
+  },
+  {
+    "file": "Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1335.296,
+    "ffprobe": 1335.296,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "native": 1340.096,
+    "ffprobe": 1340.096,
+    "difference": 0.0,
+    "readBytes": 179,
+    "furthestRead": 4622
+  },
+  {
+    "file": "Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1344.608,
+    "ffprobe": 1344.608,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.472,
+    "ffprobe": 1321.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1318.496,
+    "ffprobe": 1318.496,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1315.84,
+    "ffprobe": 1315.84,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1265.0240000000001,
+    "ffprobe": 1265.024,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1269.472,
+    "ffprobe": 1269.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1288.896,
+    "ffprobe": 1288.896,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.6000000000001,
+    "ffprobe": 1321.6,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1347.104,
+    "ffprobe": 1347.104,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Practical Magic 1998 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\Movies\\Practical Magic (1998)\\Practical Magic 1998 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "native": 6250.036,
+    "ffprobe": 6250.036,
+    "difference": 0.0,
+    "readBytes": 272,
+    "furthestRead": 3260
+  },
+  {
+    "file": "Practical Magic 1998 REMASTERED 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\Movies\\Practical Magic REMASTERED (1998)\\Practical Magic 1998 REMASTERED 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "native": 6249.4800000000005,
+    "ffprobe": 6249.48,
+    "difference": 9.094947017729282E-13,
+    "readBytes": 244,
+    "furthestRead": 3201
+  },
+  {
+    "file": "Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Family Guy\\Season 01\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1351.125,
+    "ffprobe": 1351.125,
+    "difference": 0.0,
+    "readBytes": 203,
+    "furthestRead": 3041
+  },
+  {
+    "file": "Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1335.296,
+    "ffprobe": 1335.296,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "native": 1340.096,
+    "ffprobe": 1340.096,
+    "difference": 0.0,
+    "readBytes": 179,
+    "furthestRead": 4622
+  },
+  {
+    "file": "Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1344.608,
+    "ffprobe": 1344.608,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.472,
+    "ffprobe": 1321.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1318.496,
+    "ffprobe": 1318.496,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1315.84,
+    "ffprobe": 1315.84,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1265.0240000000001,
+    "ffprobe": 1265.024,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1269.472,
+    "ffprobe": 1269.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1288.896,
+    "ffprobe": 1288.896,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.6000000000001,
+    "ffprobe": 1321.6,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2\\edges\\payload\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1347.104,
+    "ffprobe": 1347.104,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Practical Magic 1998 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\Movies\\Practical Magic (1998)\\Practical Magic 1998 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "native": 6250.036,
+    "ffprobe": 6250.036,
+    "difference": 0.0,
+    "readBytes": 272,
+    "furthestRead": 3260
+  },
+  {
+    "file": "Practical Magic 1998 REMASTERED 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\Movies\\Practical Magic REMASTERED (1998)\\Practical Magic 1998 REMASTERED 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "native": 6249.4800000000005,
+    "ffprobe": 6249.48,
+    "difference": 9.094947017729282E-13,
+    "readBytes": 244,
+    "furthestRead": 3201
+  },
+  {
+    "file": "Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Family Guy\\Season 01\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1351.125,
+    "ffprobe": 1351.125,
+    "difference": 0.0,
+    "readBytes": 203,
+    "furthestRead": 3041
+  },
+  {
+    "file": "Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1335.296,
+    "ffprobe": 1335.296,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "native": 1340.096,
+    "ffprobe": 1340.096,
+    "difference": 0.0,
+    "readBytes": 179,
+    "furthestRead": 4622
+  },
+  {
+    "file": "Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "native": 1344.608,
+    "ffprobe": 1344.608,
+    "difference": 0.0,
+    "readBytes": 130,
+    "furthestRead": 4480
+  },
+  {
+    "file": "Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.472,
+    "ffprobe": 1321.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1318.496,
+    "ffprobe": 1318.496,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1315.84,
+    "ffprobe": 1315.84,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1265.0240000000001,
+    "ffprobe": 1265.024,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1269.472,
+    "ffprobe": 1269.472,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1288.896,
+    "ffprobe": 1288.896,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1321.6000000000001,
+    "ffprobe": 1321.6,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-convert2-src\\payloads\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1347.104,
+    "ffprobe": 1347.104,
+    "difference": 0.0,
+    "readBytes": 201,
+    "furthestRead": 3021
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-dlapi\\cap-library\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-dlapi\\library\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-dlrest\\downloads\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-requests\\library\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-requests-verified-1812\\library\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "owned-sintel-fixture.mkv",
+    "path": "D:\\code\\memtest\\rebuild-targets\\owned-sintel-fixture.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "classicalhd-sintel.2010.en-1080p.mkv",
+    "path": "D:\\code\\memtest\\rebuild-targets\\library\\Movies\\Sintel (2010)\\classicalhd-sintel.2010.en-1080p.mkv",
+    "native": 889.0930000000001,
+    "ffprobe": 889.093,
+    "difference": 1.1368683772161603E-13,
+    "readBytes": 429,
+    "furthestRead": 5102
+  },
+  {
+    "file": "Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-tfollow\\owned-proof\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1351.125,
+    "ffprobe": 1351.125,
+    "difference": 0.0,
+    "readBytes": 203,
+    "furthestRead": 3041
+  },
+  {
+    "file": "Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\rebuild-tgate\\library\\owned-proof\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1351.125,
+    "ffprobe": 1351.125,
+    "difference": 0.0,
+    "readBytes": 203,
+    "furthestRead": 3041
+  },
+  {
+    "file": "American.Horror.Story.S13E01.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E01.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 2003.328,
+    "ffprobe": 2003.328,
+    "difference": 0.0,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "American.Horror.Story.S13E02.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E02.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1951.584,
+    "ffprobe": 1951.584,
+    "difference": 0.0,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "American.Horror.Story.S13E03.1080p.HEVC.x265-MeGusta.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E03.1080p.HEVC.x265-MeGusta.mkv",
+    "native": 1332.992,
+    "ffprobe": 1332.992,
+    "difference": 0.0,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "American.Horror.Story.S13E04.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E04.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "native": 1789.952,
+    "ffprobe": 1789.952,
+    "difference": 0.0,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "American.Horror.Story.S13E05.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E05.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "native": 1561.8890000000001,
+    "ffprobe": 1561.889,
+    "difference": 2.2737367544323206E-13,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "American.Horror.Story.S13E06.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\American Horror Story\\Season 13\\American.Horror.Story.S13E06.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv",
+    "native": 1484.896,
+    "ffprobe": 1484.896,
+    "difference": 0.0,
+    "readBytes": 193,
+    "furthestRead": 2997
+  },
+  {
+    "file": "Little Fires Everywhere S01E02 Seeds and All 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E02 Seeds and All 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3186.592,
+    "ffprobe": 3186.592,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "Little Fires Everywhere S01E03 Seventy Cents 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E03 Seventy Cents 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3561.664,
+    "ffprobe": 3561.664,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "Little Fires Everywhere S01E04 The Spider Web 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E04 The Spider Web 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3306.496,
+    "ffprobe": 3306.496,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "Little Fires Everywhere S01E05 Duo 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E05 Duo 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3270.496,
+    "ffprobe": 3270.496,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "Little Fires Everywhere S01E06 The Uncanny 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E06 The Uncanny 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3401.056,
+    "ffprobe": 3401.056,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "Little Fires Everywhere S01E08 Find a Way 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\Little Fires Everywhere S01E08 Find a Way 1080p HULU WEB-DL DDP5 1 H 264-NTb.mkv",
+    "native": 3961.696,
+    "ffprobe": 3961.696,
+    "difference": 0.0,
+    "readBytes": 158,
+    "furthestRead": 4547
+  },
+  {
+    "file": "little.fires.everywhere.s01e07.proper.1080p.web.h264-trump.mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Little Fires Everywhere\\Season 01\\little.fires.everywhere.s01e07.proper.1080p.web.h264-trump.mkv",
+    "native": 3635.7760000000003,
+    "ffprobe": 3635.776,
+    "difference": 4.547473508864641E-13,
+    "readBytes": 159,
+    "furthestRead": 4544
+  },
+  {
+    "file": "Slow Horses (2022) - S01E01 - Failure’s Contagious (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E01 - Failure’s Contagious (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 3231.84,
+    "ffprobe": 3231.84,
+    "difference": 0.0,
+    "readBytes": 1270,
+    "furthestRead": 9535
+  },
+  {
+    "file": "Slow Horses (2022) - S01E02 - Work Drinks (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E02 - Work Drinks (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2912.16,
+    "ffprobe": 2912.16,
+    "difference": 0.0,
+    "readBytes": 1270,
+    "furthestRead": 9534
+  },
+  {
+    "file": "Slow Horses (2022) - S01E03 - Bad Tradecraft (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E03 - Bad Tradecraft (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2513.312,
+    "ffprobe": 2513.312,
+    "difference": 0.0,
+    "readBytes": 1270,
+    "furthestRead": 9535
+  },
+  {
+    "file": "Slow Horses (2022) - S01E04 - Visiting Hours (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E04 - Visiting Hours (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2605.376,
+    "ffprobe": 2605.376,
+    "difference": 0.0,
+    "readBytes": 1270,
+    "furthestRead": 9534
+  },
+  {
+    "file": "Slow Horses (2022) - S01E05 - Fiasco (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E05 - Fiasco (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2530.9120000000003,
+    "ffprobe": 2530.912,
+    "difference": 4.547473508864641E-13,
+    "readBytes": 1270,
+    "furthestRead": 9535
+  },
+  {
+    "file": "Slow Horses (2022) - S01E06 - Follies (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 01\\Slow Horses (2022) - S01E06 - Follies (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 3236.384,
+    "ffprobe": 3236.384,
+    "difference": 0.0,
+    "readBytes": 1270,
+    "furthestRead": 9535
+  },
+  {
+    "file": "Slow Horses (2022) - S02E02 - From Upshott With Love (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 02\\Slow Horses (2022) - S02E02 - From Upshott With Love (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2941.608,
+    "ffprobe": 2941.608,
+    "difference": 0.0,
+    "readBytes": 1259,
+    "furthestRead": 9574
+  },
+  {
+    "file": "Slow Horses (2022) - S02E04 - Cicada (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 02\\Slow Horses (2022) - S02E04 - Cicada (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2723.168,
+    "ffprobe": 2723.168,
+    "difference": 0.0,
+    "readBytes": 1285,
+    "furthestRead": 9633
+  },
+  {
+    "file": "Slow Horses (2022) - S02E06 - Old Scores (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "path": "D:\\code\\memtest\\season-pool\\downloads\\TV\\Slow Horses\\Season 02\\Slow Horses (2022) - S02E06 - Old Scores (1080p ATVP WEB-DL x265 t3nzin).mkv",
+    "native": 2758.2400000000002,
+    "ffprobe": 2758.24,
+    "difference": 4.547473508864641E-13,
+    "readBytes": 1259,
+    "furthestRead": 9575
+  }
+]

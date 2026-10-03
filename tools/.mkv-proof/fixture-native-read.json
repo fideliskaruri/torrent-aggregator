@@ -1,0 +1,138 @@
+[
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.avi",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": 887.985792,
+    "readBytes": 72,
+    "furthestRead": 72
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": 888.064,
+    "readBytes": 168,
+    "furthestRead": 529
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\fixtures\\Sintel.webm",
+    "Width": 320,
+    "Height": 136,
+    "RuntimeSeconds": 888,
+    "readBytes": 117,
+    "furthestRead": 353
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\cluster-before-info.mkv",
+    "Width": null,
+    "Height": null,
+    "RuntimeSeconds": null,
+    "readBytes": 15,
+    "furthestRead": 26
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\float4-default-unknown.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": 888.064,
+    "readBytes": 49,
+    "furthestRead": 60
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\float8-scale-after.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": 888.0640000000001,
+    "readBytes": 54,
+    "furthestRead": 65
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\infinite.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 46,
+    "furthestRead": 57
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\invalid-scale.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 51,
+    "furthestRead": 71
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\missing-duration.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 42,
+    "furthestRead": 53
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\nan.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 46,
+    "furthestRead": 57
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\negative.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 46,
+    "furthestRead": 57
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\odd-padding.avi",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": 888,
+    "readBytes": 88,
+    "furthestRead": 96
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\oversized.mkv",
+    "Width": null,
+    "Height": null,
+    "RuntimeSeconds": null,
+    "readBytes": 10,
+    "furthestRead": 21
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\truncated.mkv",
+    "Width": null,
+    "Height": null,
+    "RuntimeSeconds": null,
+    "readBytes": 10,
+    "furthestRead": 21
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\zero-frames.avi",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 72,
+    "furthestRead": 72
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\zero-scale.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 51,
+    "furthestRead": 62
+  },
+  {
+    "path": "D:\\code\\platformApps-worktrees\\rebuild\\tools\\.mkv-proof\\edges\\zero.mkv",
+    "Width": 1024,
+    "Height": 436,
+    "RuntimeSeconds": null,
+    "readBytes": 46,
+    "furthestRead": 57
+  }
+]
