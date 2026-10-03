@@ -1,0 +1,68 @@
+[
+  {
+    "file": "map-before-1-anime-cold.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  },
+  {
+    "file": "map-before-2-anime-cold.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  },
+  {
+    "file": "map-before-3-anime-cold.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  },
+  {
+    "file": "map-before-1-anime-warm.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  },
+  {
+    "file": "map-before-2-anime-warm.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  },
+  {
+    "file": "map-before-3-anime-warm.json",
+    "errors": [],
+    "extra": [],
+    "unproven": [
+      "$.rails[].genre declared state variant",
+      "$.rails[].items[].releaseDate declared state variant",
+      "$.rails[].items[].subtitle declared state variant",
+      "$.rails[].items[].year declared state variant"
+    ]
+  }
+]

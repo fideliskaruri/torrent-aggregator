@@ -1,0 +1,31 @@
+{
+  "donor": "D:\\code\\memtest\\rebuild-gatemeta\\data\\torrentflow.db",
+  "columns": [
+    "id",
+    "cacheKey",
+    "complete",
+    "etag",
+    "expiresAt",
+    "fetchedAt",
+    "kind",
+    "lastModified",
+    "payloadJson",
+    "provider"
+  ],
+  "rows": 1,
+  "provider": "fribb",
+  "payloadBytes": 5862205,
+  "kind": "fribbmap",
+  "cacheKey": "fribb:https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json",
+  "catalogRows": 0,
+  "browseRows": 0,
+  "anilistRows": 0,
+  "verifiedTableCounts": {
+    "MetadataCache": 1,
+    "Work": 0,
+    "Season": 0,
+    "Episode": 0,
+    "WorkLink": 0,
+    "WorkName": 0
+  }
+}

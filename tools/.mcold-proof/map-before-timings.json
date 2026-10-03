@@ -1,0 +1,62 @@
+[
+  {
+    "phase": "map-before",
+    "run": 1,
+    "name": "anime",
+    "mode": "cold",
+    "status": 200,
+    "seconds": 7.413,
+    "rails": 11,
+    "cards": 264
+  },
+  {
+    "phase": "map-before",
+    "run": 1,
+    "name": "anime",
+    "mode": "warm",
+    "status": 200,
+    "seconds": 0.173,
+    "rails": 11,
+    "cards": 264
+  },
+  {
+    "phase": "map-before",
+    "run": 2,
+    "name": "anime",
+    "mode": "cold",
+    "status": 200,
+    "seconds": 8.962,
+    "rails": 11,
+    "cards": 264
+  },
+  {
+    "phase": "map-before",
+    "run": 2,
+    "name": "anime",
+    "mode": "warm",
+    "status": 200,
+    "seconds": 0.172,
+    "rails": 11,
+    "cards": 264
+  },
+  {
+    "phase": "map-before",
+    "run": 3,
+    "name": "anime",
+    "mode": "cold",
+    "status": 200,
+    "seconds": 8.036,
+    "rails": 11,
+    "cards": 264
+  },
+  {
+    "phase": "map-before",
+    "run": 3,
+    "name": "anime",
+    "mode": "warm",
+    "status": 200,
+    "seconds": 0.16,
+    "rails": 11,
+    "cards": 264
+  }
+]

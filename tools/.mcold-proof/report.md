@@ -45,3 +45,64 @@ Each endpoint/run starts a new process on 3962 with its own newly created empty 
 - Only the seven owned Metadata files and this proof were copied back; tools/.gitignore was untouched.
 - Every proof child is stopped by its recorded literal PID. Worktree, isolated outputs and created data directories are removed at handoff.
 - Commit uses Refs: OPS-848, no Co-Authored-By. See the report's introducing commit for its SHA.
+
+## 15-minute follow-up: persisted Fribb, cold catalog
+
+**The remaining latency is not the Fribb download. OPS-848 remains blocked.**
+
+Each run received only the persisted Fribb MetadataCache row from
+`D:\code\memtest\rebuild-gatemeta\data\torrentflow.db`, opened read-only.
+The fixture was otherwise initialized by a fresh API process. Verified counts:
+MetadataCache 1 (Fribb), Work/WorkName/WorkLink/Season/Episode 0. There were
+no AniList responses or Browse rails in the fixture. Each measurement used a
+new database copy, new process, disabled scheduler and port 3962. No stable
+directory was accessed. See `map-fixture.json` and `map-measure.py`.
+
+| Run | Map-present cold anime (s) | Immediate warm (s) | Content |
+|---|---:|---:|---|
+| 1 | 7.413 | 0.173 | 11 rails, 264 unique cards |
+| 2 | 8.962 | 0.172 | 11 rails, 264 unique cards |
+| 3 | 8.036 | 0.160 | 11 rails, 264 unique cards |
+
+All six responses passed the contract, full-rail and stable-ID checks.
+All three cold traces contain **zero Fribb provider calls**. Browse does not
+invoke Fribb after c2f577b, whether its persisted map exists or not.
+Historical first-install traces measured Fribb network download at
+1.369–1.780 seconds and total fetch/persistence at 1.596–2.650 seconds;
+that cost is not on the current Browse path.
+
+### Remaining cause and rejected repairs
+
+The initial aliased AniList fanout has a four-call/700ms start gate, then a
+whole-batch completion barrier before any rail mapping. Deduplication triggers
+additional serial fetches for comedy, then slice-of-life. Actual queue/network
+times and these rounds are retained in `map-provider-timings.json`.
+The Fribb-only fixture does not change any of this work.
+
+Experiments fetching both existing pages up front, smaller independent rail
+queries, overlapping each rail's mapping with other HTTP calls, and increased
+bounded concurrency produced two complete cold responses at 2.982 and 3.233
+seconds. They did **not** produce three reliable passing runs. A third response
+lost rails; the clean-build confirmation produced 5/10/2 rails, not the required
+11, with cold times 10.546/2.680/1.678 seconds. Those are failures, not successes.
+One experimental warm sample was 341ms, also a failure.
+
+A direct provider response confirmed AniList currently advertises
+`X-RateLimit-Limit: 30`, not the assumed 90 requests/minute
+(`map-provider-limit.json`). Eleven physical queries per cold view are therefore
+not a safe substitute for compact batching; three consecutive cold runs alone
+exceed that minute allowance. Real provider cooldowns were retained, and a
+60-second proof-only pause did not make the final experiment reliable.
+The large multi-rail/two-page pilot also returned incomplete content.
+
+**All experimental production changes were discarded.** This follow-up commits
+only measurements, the reproducible fixture runner and this report. No timeout,
+partial-success shortcut, prewarming or production throttling change is shipped.
+The remaining repair needs rail-independent completion with bounded compact
+batches that respect the real provider limit, then three complete cold/warm
+confirmation runs. That is unproven within the 15-minute limit.
+
+Builds of the isolated experiments had zero warnings/errors. No unit tests,
+excluded-module edits, live-server changes or independent-agent messages were
+made. Proof children were stopped by recorded literal PID; isolated worktree,
+build output and created data directories were removed before handoff.
