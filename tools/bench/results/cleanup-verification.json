@@ -1,0 +1,20 @@
+{
+  "server": "http://127.0.0.1:3931",
+  "beforeDownloadRows": 27,
+  "afterDownloadRows": 27,
+  "downloadIdentityDifferences": [],
+  "wantedRows": 0,
+  "pendingCleanupJournal": false,
+  "libraryEntries": [
+    {
+      "FullName": "D:\\code\\memtest\\rebuild-baseline\\lib\\.staging",
+      "Length": null
+    },
+    {
+      "FullName": "D:\\code\\memtest\\rebuild-baseline\\lib\\.staging\\.ignore",
+      "Length": 0
+    }
+  ],
+  "interruptedBenchActionObserved": true,
+  "recoveryVerified": true
+}

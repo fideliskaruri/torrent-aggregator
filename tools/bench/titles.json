@@ -1,0 +1,11 @@
+[
+  { "name": "Scorpion", "kind": "series", "year": 2014, "season": 1, "tmdbId": 60797, "set": "hard" },
+  { "name": "Little Fires Everywhere", "kind": "series", "year": 2020, "season": 1, "tmdbId": 90257, "set": "hard" },
+  { "name": "Frieren: Beyond Journey's End", "kind": "anime", "year": 2023, "season": 1, "tmdbId": 209867, "set": "hard" },
+  { "name": "A Silent Voice", "kind": "anime", "year": 2016, "tmdbId": 378064, "set": "hard" },
+  { "name": "Prison Break", "kind": "series", "year": 2005, "season": 1, "tmdbId": 2288, "set": "hard" },
+  { "name": "Money Heist", "kind": "series", "year": 2017, "season": 1, "tmdbId": 71446, "set": "hard" },
+  { "name": "Rick and Morty", "kind": "series", "year": 2013, "season": 1, "tmdbId": 60625, "set": "control" },
+  { "name": "Sintel", "kind": "movie", "year": 2010, "tmdbId": 45745, "set": "pipeline", "freelyLicensed": true },
+  { "name": "Big Buck Bunny", "kind": "movie", "year": 2008, "tmdbId": 10378, "set": "pipeline", "freelyLicensed": true }
+]

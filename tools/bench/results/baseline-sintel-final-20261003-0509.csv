@@ -1,0 +1,20 @@
+title,kind,year,season,work_key,provider,provider_id,title_search_ms,query,first_result_ms,search_response_ms,pool_size,pool_returned,expected_targets,accounted_targets,accepted_ms,all_targets_ms,observed_ms,releases_json,wait_reasons,flags,duplicate_hashes,duplicate_targets,files_exposed,status,cleanup,notes
+"Sintel","movie","2010","","sintel-2010","tmdb","45745","392","Sintel","471","471","85","85","1","1","304","3394","120023","[
+  {
+    ""hash"": ""43f4001de4ab25d521c63684e2b69804193ed9d9"",
+    ""name"": ""www.UIndex.org    -    Sintel.2010.1080p.WEB.H264-CLASSiCALHD"",
+    ""state"": ""downloaded"",
+    ""episode"": null,
+    ""listedSeeds"": 29,
+    ""connectedPeers"": 0,
+    ""connectedSeeds"": null,
+    ""peakConnectedPeers"": 6,
+    ""peakConnectedSeeds"": null,
+    ""firstBytesMs"": 2372,
+    ""progress"": 1,
+    ""speed"": 0,
+    ""elapsedMs"": 120023,
+    ""reason"": """",
+    ""replaced"": false
+  }
+]","","","0","0","False","accounted","verified","Search is an atomic JSON response; first-result latency is response completion, not an internal provider time. Search warms the cache before Download. Download response: Looking for Sintel. File lists and connected seed counts may be absent from the public API; blank means unavailable, never zero."

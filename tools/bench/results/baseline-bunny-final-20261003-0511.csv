@@ -1,0 +1,37 @@
+title,kind,year,season,work_key,provider,provider_id,title_search_ms,query,first_result_ms,search_response_ms,pool_size,pool_returned,expected_targets,accounted_targets,accepted_ms,all_targets_ms,observed_ms,releases_json,wait_reasons,flags,duplicate_hashes,duplicate_targets,files_exposed,status,cleanup,notes
+"Big Buck Bunny","movie","2008","","big-buck-bunny-2008","tmdb","10378","674","Big Buck Bunny","499","499","133","133","1","0","343","","120008","[
+  {
+    ""hash"": ""2f24d03eab998ca672b8c1ef567a184609236c02"",
+    ""name"": ""Big.Buck.Bunny.2008.x264.BDRip.1080p.mkv"",
+    ""state"": ""error"",
+    ""episode"": null,
+    ""listedSeeds"": 1,
+    ""connectedPeers"": 0,
+    ""connectedSeeds"": null,
+    ""peakConnectedPeers"": 0,
+    ""peakConnectedSeeds"": null,
+    ""firstBytesMs"": null,
+    ""progress"": 0,
+    ""speed"": 0,
+    ""elapsedMs"": 120008,
+    ""reason"": ""Couldn\u0027t get this torrent\u0027s file list from peers. Check the magnet or try another release."",
+    ""replaced"": true
+  },
+  {
+    ""hash"": ""f84b51f0d2c3455ab5dabb6643b4340234cd036e"",
+    ""name"": ""Big_Buck_Bunny_1080p_surround_frostclick.com_frostwire.com"",
+    ""state"": ""stalledDL"",
+    ""episode"": null,
+    ""listedSeeds"": 1,
+    ""connectedPeers"": 0,
+    ""connectedSeeds"": null,
+    ""peakConnectedPeers"": 0,
+    ""peakConnectedSeeds"": null,
+    ""firstBytesMs"": null,
+    ""progress"": 0,
+    ""speed"": 0,
+    ""elapsedMs"": 120008,
+    ""reason"": """",
+    ""replaced"": false
+  }
+]","","","0","0","False","stalled","verified","Search is an atomic JSON response; first-result latency is response completion, not an internal provider time. Search warms the cache before Download. Download response: Looking for Big Buck Bunny. File lists and connected seed counts may be absent from the public API; blank means unavailable, never zero."
