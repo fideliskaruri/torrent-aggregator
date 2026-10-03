@@ -48,6 +48,7 @@ import { LibraryControls } from "./library-controls";
 import { libraryHint } from "./library-hint";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import { WatchStateChip } from "./watch-state";
+import { ownedLabel } from "./owned-state";
 import {
   providerAiredFor,
   seasonProgressFromRows,
@@ -1139,6 +1140,9 @@ function TitleContent({
   // offered again. `payload.transfer` is title scope — an episode or season
   // grab elsewhere in this work must not silence the title's own control.
   const showDownload = !payload.isSeries && !gated;
+  // An owned film never offers Download: it says what you have. Upgrade needs
+  // quality-sweep evidence the title read does not carry yet (OPS-857).
+  const ownedFilm = payload.isSeries ? null : ownedLabel(payload.owned);
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -1381,7 +1385,15 @@ function TitleContent({
                     "Coming {date}" label and grayed art already say why, and a
                     disabled action is just clutter that does nothing. Tracking
                     it via "Add to library" stays available below. */}
-                {!caps.canDownload ? (
+                {ownedFilm ? (
+                  <p
+                    data-title-owned
+                    className="flex min-h-10 items-center gap-2 text-[14px] font-medium text-foreground md:mr-2"
+                  >
+                    <CheckCircle2 aria-hidden className="size-4 shrink-0 text-brand-foreground" />
+                    {ownedFilm}
+                  </p>
+                ) : !caps.canDownload ? (
                   gated ? null : (
                     <RequestAction
                       title={requestTitleFor(payload)}
@@ -1434,7 +1446,7 @@ function TitleContent({
                       </ButtonBody>
                     </Button>
                   </>
-                ) : showDownload && caps.canDownload && downloadControl.opensDownloads ? (
+                ) : showDownload && caps.canDownload && !ownedFilm && downloadControl.opensDownloads ? (
                   <Button
                     asChild
                     size="lg"
@@ -1454,7 +1466,7 @@ function TitleContent({
                       {downloadLabel}
                     </Link>
                   </Button>
-                ) : showDownload && caps.canDownload ? (
+                ) : showDownload && caps.canDownload && !ownedFilm ? (
                   <Button
                     type="button"
                     size="lg"

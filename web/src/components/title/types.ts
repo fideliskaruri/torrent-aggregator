@@ -50,6 +50,13 @@ export interface TitleEpisode {
   state?: TitleTransferState | null;
   /** Jellyfin progress for this episode. Absent when Jellyfin has no match. */
   watchState?: JellyfinWatchState;
+  /** Present when a file for this episode is in the library, whatever its origin. */
+  owned?: TitleOwned | null;
+}
+
+/** An owned item: the best owned file's resolution, null when the file names none. */
+export interface TitleOwned {
+  resolution: number | null;
 }
 
 /** Read-only progress from the owner's Jellyfin server. `inProgress` is 0 to 100. */
@@ -230,6 +237,8 @@ export interface TitleDetailPayload {
    * episode starts describing itself as queued.
    */
   transfer: TitleEpisodeTransfer | null;
+  /** Present when the film's file is in the library, whatever its origin. */
+  owned?: TitleOwned | null;
   /** Jellyfin progress for a film. Absent when Jellyfin is not connected or has no match. */
   watchState?: JellyfinWatchState;
   /** The episode Jellyfin would play next for a series. Absent when unknown. */

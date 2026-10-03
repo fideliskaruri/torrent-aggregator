@@ -86,8 +86,8 @@ export function isSeasonComplete(p: SeasonProgress): boolean {
 
 /**
  * The one download line, said the same way everywhere (season header, title
- * hero, Downloads series row): `12 of 38 downloaded · 3 downloading`.
- * Without a known total it drops the "of Y": `5 downloaded · 2 downloading`.
+ * hero, Downloads series row): `12 of 38 in your library · 3 downloading`.
+ * Without a known total it drops the "of Y": `5 in your library · 2 downloading`.
  * Queued episodes, when counted apart, follow as their own part:
  * `1 downloading · 2 queued`. The "of Y" rides on the first part said.
  * Null when nothing is downloaded or on its way.
@@ -95,7 +95,7 @@ export function isSeasonComplete(p: SeasonProgress): boolean {
 export function seasonProgressLabel(p: SeasonProgress): string | null {
   const total = p.aired != null && p.aired > 0 ? p.aired : null;
   const parts = [
-    { count: p.downloaded, word: "downloaded" },
+    { count: p.downloaded, word: "in your library" },
     { count: p.downloading, word: "downloading" },
     { count: p.queued ?? 0, word: "queued" },
   ].filter((part) => part.count > 0);

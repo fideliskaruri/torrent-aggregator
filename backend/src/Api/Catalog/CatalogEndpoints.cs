@@ -197,6 +197,7 @@ internal static class CatalogEndpoints
             isSeries = CatalogProjection.Series(w), overview = w.Work.Synopsis, w.Work.Rating, w.Work.RatingSource,
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
+            owned = Owned(owned, null),
             downloadFraction = (double?)null, transfer = (object?)null,
             watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
@@ -209,7 +210,7 @@ internal static class CatalogEndpoints
             episodes = episodes.Take(200).Select(e => new
             {
                 season, episode = e.Number, label = $"S{season:00}E{e.Number:00}",
-                availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null,
+                availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null, owned = Owned(owned, e.Id),
                 infoHash = (string?)null, filePath = (string?)null, downloadFraction = (double?)null,
                 nextUp = false, fromPack = false, transfer = (object?)null,
                 watchState = jellyfin?.Episodes.GetValueOrDefault(e.Id),
@@ -222,6 +223,13 @@ internal static class CatalogEndpoints
             }, known = true, generatedAt = DateTimeOffset.UtcNow,
         });
     }
+    // An item is owned when a MediaFile is present for it, whatever its origin; the resolution is the best owned file's.
+    private static object? Owned(ImmutableArray<MediaFileRow> files, string? episodeId)
+    {
+        var mine = files.Where(f => f.EpisodeId == episodeId).ToArray();
+        return mine.Length == 0 ? null : new { resolution = mine.Max(f => f.Resolution) };
+    }
+
     private static IResult UnknownTitle(string workKey, HttpContext h)
     {
         var title = Param(h, "t")?.Trim() ?? workKey;

@@ -35,6 +35,8 @@ import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/re
 import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { Badge } from "@/components/ui/badge";
 import { WatchStateChip, watchStateLabel } from "./watch-state";
+import { ownedLabel } from "./owned-state";
+import { qualityLabel } from "@/lib/torrents/quality";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { MediaPoster } from "@/components/browse/media-poster-card";
 import { Button } from "@/components/ui/button";
@@ -615,6 +617,8 @@ function EpisodeCardImpl({
   const held =
     transfer?.status === "downloaded" ||
     (episode.availability === "ready" && !episode.fromPack);
+  // An owned episode never offers Download: its row says what you have.
+  const ownedText = ownedLabel(episode.owned);
   const downloadDisplayLabel = transfer?.status === "failed"
     ? "Retry download"
     : transfer?.status === "queued"
@@ -740,7 +744,7 @@ function EpisodeCardImpl({
   const mobileMeta = [
     airDate,
     watchStateLabel(episode.watchState),
-    canDownload ? downloadDisplayLabel : requesterLabel,
+    canDownload ? (ownedText ?? downloadDisplayLabel) : requesterLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -953,6 +957,18 @@ function EpisodeCardImpl({
                 className={cn(CARD_ACTION_PILL, "w-auto px-3 text-[13px]")}
               />
             </span>
+          ) : canDownload && ownedText ? (
+            <span className={CARD_ACTION_SLOT}>
+              <Badge
+                data-episode-owned
+                aria-label={`${ownedText}, ${episode.label}`}
+                title={ownedText}
+                className={cn(CARD_ACTION_PILL, "border px-3 text-[13px] font-medium")}
+              >
+                <Check aria-hidden className="size-3.5 text-brand-foreground" />
+                {qualityLabel(episode.owned?.resolution) ?? "In library"}
+              </Badge>
+            </span>
           ) : canDownload && waitingForEnglish ? (
             <span className={CARD_ACTION_SLOT}>
               <Button
@@ -1057,6 +1073,8 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
     pe.downloadFraction !== ne.downloadFraction ||
     pe.nextUp !== ne.nextUp ||
     pe.fromPack !== ne.fromPack ||
+    (pe.owned?.resolution ?? -1) !== (ne.owned?.resolution ?? -1) ||
+    Boolean(pe.owned) !== Boolean(ne.owned) ||
     (pe.state ?? null) !== (ne.state ?? null)
   ) {
     return false;
