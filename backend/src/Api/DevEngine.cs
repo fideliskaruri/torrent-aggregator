@@ -52,12 +52,12 @@ internal static class DevEngine
                 return Results.Conflict(new { error = "file_busy", message = "A download file could not be read or saved. Check the folder and try again." });
             }
         });
-        group.MapGet("/torrents", async (MonoTorrentEngine engine, CancellationToken ct) => Results.Json(new
+        group.MapGet("/torrents", async (MonoTorrentEngine engine, bool? pieces, CancellationToken ct) => Results.Json(new
         {
             listenPort = engine.ListenPort,
             physical = engine.PhysicalStatus,
             torrents = await engine.SnapshotAsync(ct),
-            diagnostics = await engine.DiagnosticsAsync(ct),
+            diagnostics = await engine.DiagnosticsAsync(ct, pieces == true),
         }, Json));
         group.MapPost("/probe", async (ProbeInput input, MonoTorrentEngine engine, CancellationToken ct) =>
         {

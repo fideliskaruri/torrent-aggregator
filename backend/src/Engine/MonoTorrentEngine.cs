@@ -1086,7 +1086,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         finally { gate.Release(); }
     }
 
-    public async Task<ImmutableArray<EngineDiagnostics>> DiagnosticsAsync(CancellationToken ct)
+    public async Task<ImmutableArray<EngineDiagnostics>> DiagnosticsAsync(CancellationToken ct, bool includePieces = false)
     {
         await SnapshotAsync(ct);
         await gate.WaitAsync(ct);
@@ -1097,7 +1097,9 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
                 UpdateReceived(e), e.Manager.Monitor.ProtocolBytesReceived,
                 e.Manager.HashChecked, e.Manager.HashFails, e.Manager.Bitfield.TrueCount,
                 e.Manager.HasMetadata ? e.Manager.Torrent!.PieceCount : 0,
-                e.Manager.TrackerManager.Tiers.Sum(t => t.Trackers.Count)))];
+                e.Manager.TrackerManager.Tiers.Sum(t => t.Trackers.Count),
+                includePieces && e.Manager.HasMetadata
+                    ? Enumerable.Range(0, e.Manager.Torrent!.PieceCount).Where(p => e.Manager.Bitfield[p]).ToArray() : null))];
         }
         finally { gate.Release(); }
     }
@@ -1148,7 +1150,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
 
     public sealed record EngineDiagnostics(string DownloadId, string Hash, bool Probe, string State, double Progress,
         long UploadBytesPerSecond, long PayloadBytesReceived, long ProtocolBytesReceived, bool HashChecked,
-        int HashFails, int VerifiedPieces, int TotalPieces, int TrackerCount);
+        int HashFails, int VerifiedPieces, int TotalPieces, int TrackerCount, int[]? VerifiedPieceIndices);
     public sealed record MetadataProbeMeasurement(SwarmEvidence Evidence, long ProtocolBytesDelivered, int TrackerCount);
 
 private static long UpdateReceived(Entry entry)
