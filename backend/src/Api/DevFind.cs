@@ -40,9 +40,11 @@ internal static class DevFind
         var lane = http.Request.Query["lane"].ToString();
         var seasonText = http.Request.Query["season"].ToString();
         var episodeText = http.Request.Query["episode"].ToString();
+        var exhaustText = http.Request.Query["exhaust"].ToString();
         int? season = int.TryParse(seasonText, out var s) ? s : null;
         int? episode = int.TryParse(episodeText, out var e) ? e : null;
         if (key.Length is < 1 or > 200 || lane is not ("" or "owner" or "background") ||
+            exhaustText is not ("" or "true" or "false") ||
             seasonText.Length > 0 && (season is null or < 0 or > 999) ||
             episodeText.Length > 0 && (episode is null or < 1 or > 99999) ||
             episode is not null && season is null)
@@ -64,12 +66,14 @@ internal static class DevFind
                 message = "The catalog has not confirmed this season's episode numbering. Refresh the title before searching." }, statusCode: 409);
         var metadataMs = total.Elapsed.TotalMilliseconds;
         var scope = new TargetScope(work.Work.Id, [.. episodes.Select(row => row.Id)], film);
-        var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope,
-            new(null, null, null, null, null, 0), lane == "background" ? PriorityLane.Background : PriorityLane.Owner,
-            SearchNamePhase.English, [], 0, 0);
-        CandidateBatch? last = null;
         var stream = http.Request.Query["stream"] == "true";
         var suppliedFeedback = http.Request.Query["feedback"] == "true";
+        var exhaust = exhaustText == "true";
+        var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope,
+            new(null, null, null, null, null, 0), lane == "background" ? PriorityLane.Background : PriorityLane.Owner,
+            SearchNamePhase.English, [], 0, 0)
+            { ProvisionalGood = !suppliedFeedback && !exhaust, Exhaust = exhaust };
+        CandidateBatch? last = null;
         if (suppliedFeedback && !stream) return Results.BadRequest(new { error = "feedback_requires_stream" });
         if (stream) http.Response.ContentType = "application/x-ndjson";
         var channel = suppliedFeedback ? Channel.CreateBounded<SearchFeedback>(128) : null;
@@ -98,7 +102,11 @@ internal static class DevFind
             cacheHit = last?.Queries.Any(q => q.CacheHit) == true,
             allCacheHit = last?.Queries.Length > 0 && last.Queries.All(q => q.CacheHit),
             sharedInFlight = last?.Queries.Any(q => q.SharedInFlight) == true,
-            health = "Not measured. Find returns structurally matching candidates; Check and Plan supply health feedback."
+            sourceRequests = last?.SourceRequests, windowSourceRequests = last?.WindowSourceRequests,
+            requestLimit = last?.RequestLimit, cachedPool = last?.CachedPool,
+            health = request.ProvisionalGood
+                ? "Provisional only: structural match and trusted seeds >= 1. Check and Plan have not approved this release."
+                : "Not measured. Check and Plan supply eligibility feedback."
         }, Json);
     }
 
@@ -106,6 +114,8 @@ internal static class DevFind
     {
         batch.SessionId, batch.PoolRevision, batch.Complete, batch.NamePhase, batch.Tier,
         batch.EarlyStopped, batch.EnglishLabelMissing, firstCandidateMs = batch.FirstCandidateAt?.TotalMilliseconds,
+        batch.ProvisionalStopped, batch.CachedPool, batch.SourceRequests, batch.WindowSourceRequests,
+        batch.RequestLimit, batch.RequestBudgetExhausted,
         elapsedMs = batch.Elapsed.TotalMilliseconds,
         candidates = batch.Candidates.OrderByDescending(c => c.TrustedSeeders ?? -1).Select(c => new
         {

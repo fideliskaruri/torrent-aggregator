@@ -137,7 +137,8 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
             writer.TryWrite(Snapshot(ex.Code switch
                 {
                     "CoolingDown" => SourceOutcome.CoolingDown, "Unsupported" => SourceOutcome.Unsupported,
-                    "Unconfigured" => SourceOutcome.Unconfigured, _ => SourceOutcome.Failed
+                    "Unconfigured" => SourceOutcome.Unconfigured, "RequestBudget" => SourceOutcome.Partial,
+                    _ => SourceOutcome.Failed
                 },
                 ex.Code, ex.Message, ex.RetryAt));
         }

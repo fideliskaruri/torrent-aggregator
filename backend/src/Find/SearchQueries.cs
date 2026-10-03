@@ -27,37 +27,42 @@ internal static partial class SearchQueries
         if (english is null) yield break;
         var seen = new HashSet<string>(StringComparer.Ordinal) { Fold(english.Value) };
         yield return (SearchNamePhase.English, english.Value);
-        foreach (var name in ordered.Where(n => n.Label is NameLabel.Romaji or NameLabel.Original or NameLabel.Native))
-            if (seen.Add(Fold(name.Value))) yield return (SearchNamePhase.Original, name.Value);
+        var original = ordered.FirstOrDefault(n => (n.Label is NameLabel.Romaji or NameLabel.Original or NameLabel.Native)
+            && !seen.Contains(Fold(n.Value)));
+        if (original is not null && seen.Add(Fold(original.Value)))
+            yield return (SearchNamePhase.Original, original.Value);
+        var synonyms = 0;
         foreach (var name in ordered.Where(n => n.Label == NameLabel.Synonym && n.Authoritative))
-            if (seen.Add(Fold(name.Value))) yield return (SearchNamePhase.Synonym, name.Value);
+            if (seen.Add(Fold(name.Value)))
+            {
+                yield return (SearchNamePhase.Synonym, name.Value);
+                if (++synonyms == 2) break;
+            }
     }
 
     internal static ImmutableArray<string> Build(WorkSnapshot work, TargetScope scope, string name,
-        bool gaps = false, ISet<string>? covered = null)
+        bool includeYear = false)
     {
         var queries = new List<string>();
         if (scope.Film)
         {
-            queries.Add(work.Work.Year is { } year ? $"{name} {year}" : name);
-            queries.Add(name);
+            queries.Add(includeYear && work.Work.Year is { } year ? $"{name} {year}" : name);
         }
         else
         {
             var episodes = work.Episodes.Where(e => scope.EpisodeIds.Contains(e.Id)).ToArray();
-            foreach (var season in work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id)).OrderBy(s => s.Number))
-                queries.Add($"{name} S{season.Number:00}");
-            queries.Add(name);
-            // Gap queries reuse source flights; never fan out a whole season once per episode.
-            if (episodes.Length == 1 || gaps)
-                foreach (var e in episodes.Where(e => covered?.Contains(e.Id) != true))
+            if (episodes.Length == 1)
+                foreach (var e in episodes)
                 {
                     var season = work.Seasons.First(s => s.Id == e.SeasonId);
                     queries.Add($"{name} S{season.Number:00}E{e.Number:00}");
-                    if (work.Work.Anime == true && e.AbsoluteNumber is { } absolute &&
-                        e.MappingStatus == MappingStatus.Confirmed)
-                        queries.Add($"{name} {absolute:00}");
                 }
+            else queries.Add(name);
+            foreach (var season in work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id)).OrderBy(s => s.Number))
+                queries.Add($"{name} S{season.Number:00}");
+            if (episodes.Length == 1 && work.Work.Anime == true && episodes[0].AbsoluteNumber is { } absolute &&
+                episodes[0].MappingStatus == MappingStatus.Confirmed)
+                queries.Add($"{name} {absolute:00}");
         }
         return [.. queries.Distinct(StringComparer.OrdinalIgnoreCase)];
     }

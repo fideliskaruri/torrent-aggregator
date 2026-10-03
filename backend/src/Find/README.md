@@ -8,17 +8,26 @@ capability; no Store assembly reference or EF/SQL escapes into Find.
 
 Metadata's first English name is searched first for every kind, including anime films.
 If English is absent, the first provider name is used and `EnglishLabelMissing` is recorded.
-Film queries are title/year and broad title. Series share title/SNN and broad title;
-single items and uncovered gaps add SNNENN and confirmed anime absolute numbers.
-With a coordinator the gaps are its Good/Weak gated coverage; the feedback-free dev
-discovery uses structural coverage only to avoid repeating a fanout per known episode.
-Original/romaji/native names, then authoritative provider synonyms, are separate
-fallback name phases in metadata order. Each name exhausts Core before Fallback.
+Films use one broad English title per source; `TorrentFlow:Sources:<id>:RequiresYear`
+adds the catalog year only for a source that needs it. Seasons use title and title/SNN.
+Episodes use SNNENN and SNN (packs), plus a confirmed absolute anime number when mapped.
+There are no per-episode gap fans. One original/romaji/native name and at most two
+authoritative synonyms follow English, in metadata order. Each later source/name tier
+requires no eligible candidate from the preceding tier.
+
+`TorrentFlow:Find:OwnerRequestLimit` defaults to 12 physical HTTP requests per scope;
+`BackgroundRequestLimit` defaults to 6 (valid range 1..64). The shared atomic budget is
+checked before every HTTP send, including pagination, redirects and detail lookups.
+Each tier's plan list is bounded too, balancing query forms with source breadth so a
+mapped absolute query is not starved. Cached/unsupported plans do not spend the physical
+budget or block later name tiers. This is not a process-wide owner rate limiter.
 
 Only coordinator feedback proving Good/Weak **and all Plan gates** covers an item.
 Listed seeds, Unknown verdicts and structurally matching packs do not constitute health.
-Without feedback (the diagnostic GET), every name/tier is exhausted; completion can be
-much slower than first candidate, especially with translated provider synonyms.
+The default diagnostic GET explicitly uses provisional stopping on a structural match
+with trusted seeds >= 1. `exhaust=true` disables provisional stopping, but does not
+disable the scope request cap or the bounded names list. Production requests keep
+provisional mode off and consume the Check/Plan feedback callback stream.
 An active Check may answer at a tier boundary for at most twenty seconds. Find never
 attaches metadata wait handles: Check/Targets own the maximum-three Unknown wait policy.
 
@@ -50,10 +59,20 @@ FIFO priority gates reserve scope capacity for owners: eight scopes total, at mo
 background scopes. Sources additionally bounds background adapters to eight globally.
 No per-minute owner rate budget exists.
 
-Every successful complete source answer is persisted as a thirty-minute SearchCache
+Every available source answer is persisted as a thirty-minute SearchCache
 row through the typed Find capability and an immutable transaction receipt. Lookups use
 normalized query/source plus matching scope/revisions. Failed, skipped, timed-out and
-truncated answers are never cached as complete negatives. Empty successful answers are.
+truncated answers keep their incomplete status but are reused, not retried on every
+read. Empty successful answers are cached too. Failed/time-out answers schedule at most
+one background retry per window, after their initiating scope finishes. The retry
+shares the background admission budget, respects Retry-After, uses the remaining
+original scope HTTP budget, and durably marks its attempt before sending. Retry success
+invalidates empty/diagnostic scope snapshots; already provisional-good snapshots stay
+instant cache hits. It does not extend the original cache expiry.
+Retry-After sleeps do not hold background admission. A zero-send scope-budget refusal
+is not a shared source answer and is never persisted; owner joiners can try it with
+their own remaining budget. Scope snapshots inherit source expiry and bypass admission
+when replayed.
 The memory LRU holds at most 200 work/season pools, not 200 individual adapter answers;
 loading a persisted answer preserves its original expiry. Maintenance owns DB TTL
 cleanup. Cache failures log a warning and cannot discard usable source results.

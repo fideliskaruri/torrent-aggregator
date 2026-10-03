@@ -52,6 +52,9 @@ def run(case, iteration):
     candidates = result.get("candidates") or []
     row = {
         "title": title, "run": iteration, "status": reply["status"],
+        "httpMs": reply["httpMs"], "sourceRequests": body.get("sourceRequests", 0),
+        "windowSourceRequests": body.get("windowSourceRequests", 0), "requestLimit": body.get("requestLimit"),
+        "cachedPool": body.get("cachedPool", False),
         **body.get("timings", {}), "candidates": len(candidates),
         "cacheHit": body.get("cacheHit", False), "allCacheHit": body.get("allCacheHit", False),
         "sharedInFlight": body.get("sharedInFlight", False),
@@ -59,10 +62,17 @@ def run(case, iteration):
         "tier": result.get("tier"), "phase": result.get("namePhase"),
         "rejections": len(result.get("rejections", [])),
         "queries": len(result.get("queries", [])),
-        "sourceRequests": sum((q.get("diagnostics") or {}).get("requests", 0)
+        "observedRequests": sum((q.get("diagnostics") or {}).get("requests", 0)
                               for q in result.get("queries", []) if not q.get("cacheHit")),
         "error": body.get("error"),
     }
+    assert row["status"] == 200, row
+    assert row["sourceRequests"] <= row["requestLimit"], row
+    assert row["windowSourceRequests"] <= row["requestLimit"], row
+    if iteration == 2:
+        assert row["cacheHit"], row
+        assert row["httpMs"] < 1000, row
+        assert row["sourceRequests"] == 0, row
     print(json.dumps(row, ensure_ascii=True), flush=True)
     return row
 

@@ -82,6 +82,8 @@ internal sealed class SourceTransport : IDisposable
             ct.ThrowIfCancellationRequested();
             // A response can impose cooldown while this call is waiting for courtesy spacing.
             if (site.Cooldown is { } next) throw new SourceException("CoolingDown", "The site is cooling down.", next);
+            if (query.RequestBudget is { } budget && !budget.TryAcquire())
+                throw new SourceException("RequestBudget", "The scope's source request budget is exhausted.");
             using var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, uri);
             request.Headers.UserAgent.ParseAdd(settings.Id is "bitsearch" or "1337x"
                 ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"

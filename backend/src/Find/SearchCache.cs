@@ -106,7 +106,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
     }
 
     internal async Task SaveAsync(string key, string sourceId, SourceQuery query, SourceResult result,
-        SearchCacheRow? previous, CancellationToken ct)
+        SearchCacheRow? previous, CancellationToken ct, DateTimeOffset? expiresAt = null, bool retryAttempted = false)
     {
         await writes.WaitAsync(ct);
         try
@@ -118,8 +118,10 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
             var row = new SearchCacheRow(id, SearchQueries.Fold(query.Query), key, sourceId,
                 query.SourceRevision, query.CredentialRevision, 1,
                 new([.. result.Results.Select(r => parser.NormalizeInfoHash(r.Hash) ??
-                    parser.NormalizeInfoHash(r.Magnet ?? "")).OfType<string>().Distinct()], result),
-                true, now, now.AddMinutes(30));
+                    parser.NormalizeInfoHash(r.Magnet ?? "")).OfType<string>().Distinct()], result)
+                    { FailureRetryAttempted = retryAttempted },
+                result.Complete, expiresAt is not null && previous is not null ? previous.CreatedAt : now,
+                expiresAt ?? now.AddMinutes(30));
             var receiptKey = Guid.NewGuid().ToString("N");
             var receipt = new AttemptRow("commit:find:" + receiptKey, null, null, null, null,
                 AttemptKind.LegacyEvent, now, now, "cache", null, null, null, null, null, null, null, null);

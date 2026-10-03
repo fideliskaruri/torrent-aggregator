@@ -111,7 +111,10 @@ public sealed record AttemptRow(string Id, string? TargetId, string? WorkId, str
     DateTimeOffset? DeadlineAt, SwapDecision? Swap) : StoreRow(Id);
 public sealed record BlockRow(string Id, string Hash, string? WorkKey, string Reason, BlockOrigin Origin,
     string? ReplacedByHash, DateTimeOffset CreatedAt, DateTimeOffset? Until) : StoreRow(Id);
-public sealed record SearchCachePayload(ImmutableArray<string> ReleaseHashes, SourceResult SourceResult);
+public sealed record SearchCachePayload(ImmutableArray<string> ReleaseHashes, SourceResult SourceResult)
+{
+    public bool FailureRetryAttempted { get; init; }
+}
 public sealed record SearchCacheRow(string Id, string NormalizedQuery, string ScopeKey, string SourceId,
     long SourceRevision, long CredentialRevision, int ParserVersion,
     SearchCachePayload Payload, bool Complete, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt) : StoreRow(Id);
@@ -191,12 +194,15 @@ public sealed record SourceQuery(string Query, string Category, ProviderId? Iden
     PriorityLane Lane, int Limit, DateTimeOffset DeadlineAt, long SourceRevision, long CredentialRevision)
 {
     public string? FlightId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SourceRequestBudget? RequestBudget { get; init; }
 }
 public sealed record SourceResult(string SourceId, SourceOutcome Outcome, ImmutableArray<RawRelease> Results,
     DateTimeOffset? RetryAt, string? Error, TimeSpan Elapsed)
 {
     public bool Complete { get; init; } = Outcome == SourceOutcome.Success;
     public SourceDiagnostics? Diagnostics { get; init; }
+    public DateTimeOffset? CacheExpiresAt { get; init; }
 }
 public sealed record SourceDiagnostics(string Code, TimeSpan QueueWait, int Requests,
     int? HttpStatus, DateTimeOffset? StartedAt, int Returned, bool Truncated)
@@ -213,7 +219,11 @@ public sealed record Candidate(ReleaseRow Release, ImmutableArray<ReleaseObserva
 }
 public sealed record SearchRequest(string SessionId, WorkSnapshot Work, TargetScope Scope,
     Policy Policy, PriorityLane Lane, SearchNamePhase NamePhase, ImmutableArray<string> SourceIds,
-    long SourceRevision, long CredentialRevision);
+    long SourceRevision, long CredentialRevision)
+{
+    public bool ProvisionalGood { get; init; }
+    public bool Exhaust { get; init; }
+}
 public sealed record SearchFeedback(long PoolRevision, ImmutableArray<string> CoveredEpisodeIds,
     bool FilmCovered, bool Stop, bool NeedFallbackTier)
 {
@@ -232,6 +242,12 @@ public sealed record CandidateBatch(string SessionId, long PoolRevision, Immutab
     public TimeSpan Elapsed { get; init; }
     public bool EarlyStopped { get; init; }
     public bool EnglishLabelMissing { get; init; }
+    public bool ProvisionalStopped { get; init; }
+    public bool CachedPool { get; init; }
+    public int SourceRequests { get; init; }
+    public int WindowSourceRequests { get; init; }
+    public int RequestLimit { get; init; }
+    public bool RequestBudgetExhausted { get; init; }
 }
 public sealed record ProbeRequest(Candidate Candidate, PriorityLane Lane, bool ForceFresh, bool WantedTarget);
 public sealed record SwarmEvidence(string Hash, HealthBand Band, ImmutableArray<TorrentFile>? Files,
