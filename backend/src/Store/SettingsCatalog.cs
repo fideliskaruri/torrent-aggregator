@@ -62,7 +62,7 @@ public static class SettingsCatalog
             Row("metadata", new MetadataSettings(tmdb,
                 "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json",
                 ["tmdb", "anilist", "cinemeta", "itunes", "tvmaze"])),
-            Row("remoteAccess", new RemoteAccessSettings(false, 3939, null, null, [], false)),
+            Row("remoteAccess", new RemoteAccessSettings(false, 3939, null, null, [], true)),
             Row("desktop", new DesktopSettings(false, true, null, null)),
             Row("quality", new QualitySettings(1080, "en", null)),
             Row("requests", new RequestSettings(AutoApproveMode.None, 100)),

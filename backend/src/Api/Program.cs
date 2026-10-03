@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Serilog;
 using TorrentFlow.Api;
+using TorrentFlow.Api.Access;
 using TorrentFlow.Store;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -35,6 +36,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
+builder.Services.AddAccess();
 var app = builder.Build();
 try
 {
@@ -43,6 +45,7 @@ try
         await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(tmdb,
             builder.Configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"));
     app.Logger.LogInformation("TorrentFlow rebuild data directory: {DataDirectory}", dataDirectory);
+    await app.UseAccessAsync();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>

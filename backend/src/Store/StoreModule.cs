@@ -21,6 +21,7 @@ public static class StoreModule
         services.AddKeyedScoped<IStore, MetadataStoreCapability>("metadata");
         services.AddKeyedScoped<IStore, FindStoreCapability>("find");
         services.AddKeyedScoped<IStore, TargetsStoreCapability>("targets");
+        services.AddKeyedScoped<IStore, AccessStoreCapability>("access");
         return services;
     }
 }

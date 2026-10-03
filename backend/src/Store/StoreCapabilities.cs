@@ -157,3 +157,6 @@ internal sealed class TargetsStoreCapability(TorrentFlowDbContext db) : StoreCap
     ["WorkPreference", "Target", "ScopeIntent", "RawIntent", "Request", "RequestItem", "AutoApproveRule",
      "Follow", "WatchItem", "UpgradeEvidence", "AutoRule", "Attempt", "Block", "Download", "DownloadTarget",
      "DownloadFile", "User", "Notification", "PushSubscription", "Setting"]);
+
+internal sealed class AccessStoreCapability(TorrentFlowDbContext db) : StoreCapability(db, StoreOwner.Targets,
+    ["User", "Setting", "Attempt"]);

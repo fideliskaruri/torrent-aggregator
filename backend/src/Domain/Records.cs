@@ -348,7 +348,7 @@ public sealed record SourceSettings(string Id, bool Enabled, SourceTier Tier, in
 public sealed record MetadataSettings(SecretReference? TmdbCredential, string? FribbUrl,
     ImmutableArray<string> EnabledProviders);
 public sealed record RemoteAccessSettings(bool Enabled, int TunnelPort, string? TeamDomain, string? Audience,
-    ImmutableArray<string> OwnerEmails, bool AllowRequesters);
+    ImmutableArray<string> OwnerEmails, bool AllowRequesters, string TunnelBindAddress = "127.0.0.1");
 public sealed record DesktopSettings(bool StartWithWindows, bool CheckForUpdates,
     DateTimeOffset? LastCheckedAt, string? AvailableVersion);
 public sealed record QualitySettings(int? PreferredResolution, string? AudioLanguage, long? MaxBytesPerItem);

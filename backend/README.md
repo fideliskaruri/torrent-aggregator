@@ -3,7 +3,7 @@
 Task 2.1, OPS-659 / FEAT-35. This is an isolated foundation, not a working replacement
 for the live backend. The other modules intentionally contain only placeholders.
 No old project is referenced. The 93 captured routes remain the subsequent phases'
-contract; only health and the static SPA are implemented here.
+contract. Health, the static SPA and users/access (OPS-662) are implemented here.
 
 ## Run safely
 
@@ -34,7 +34,7 @@ marker next to the executable selects `rebuild-data` there. The executable is
 `TorrentFlow`; the default listener is loopback port 3940. `--urls` and
 `ASPNETCORE_URLS` may explicitly override it. `--background` and `--no-browser`
 are switch-only flags stripped before configuration parsing; `--desktop` optionally
-opens the browser unless either suppressing flag is set. Tray/update/access
+opens the browser unless either suppressing flag is set. Tray/update
 integration remains a later task.
 
 `TorrentFlow:Scheduler:Disabled=true` disables the typed scheduler section at
@@ -60,9 +60,11 @@ are never stored in the database or logged.
   immutable records are the column/type contract, converted explicitly at the
   boundary. EF's generated initial migration and model snapshot freeze that model;
   changes require a new migration, not silent schema mutation.
-- Scoped, keyed `IStore` capabilities: `metadata`, `find`, `targets`. Their table
+- Scoped, keyed `IStore` capabilities: `metadata`, `find`, `targets`, `access`. Their table
   rights are fixed at injection, not selected by `StoreCommit.Owner`. There is
   no runtime converter, Library or Check write capability.
+  `access` uses the Targets-owned User/Setting/Attempt tables only; API code never
+  receives SQL, EF entities or a DbContext.
 - Atomic writes support numeric-version CAS, exact unversioned row-CAS and
   payload-bound immutable Attempt receipts. Current skeletal reads implement
   bounded primary-key pagination and direct named column predicates; traversal,
@@ -110,3 +112,51 @@ dotnet tool restore
 dotnet ef migrations add Name --project src\Store --startup-project src\Store
 dotnet ef migrations has-pending-model-changes --project src\Store --startup-project src\Store
 ```
+
+## Users and remote access
+
+`GET /api/me`, `GET /api/features`, `GET/PUT /api/settings/remote-access`
+and `GET /api/settings/remote-access/check` retain captured response shapes,
+including explicit nullable fields. The captured contract contains no standalone
+user CRUD or application password/sign-in endpoints. A local owner is enrolled
+before listening; signed-in requester emails map to durable users. The app's
+existing `/cdn-cgi/access/logout` link redirects tunnel sessions to the configured
+Cloudflare team's logout endpoint; local use redirects home.
+
+Only actual loopback connections on the owner listener are owners. Forwarded
+headers never grant identity; Cloudflare headers on the owner port return 421.
+The dedicated tunnel port requires Cloudflare Access RS256 JWTs with the correct
+issuer, audience, lifetime and email. Service tokens and forged signatures fail.
+Requester access is opt-in through settings (allowed by default when remote access
+is enabled); method/path checks deny all other API routes before user persistence.
+Shared catalog responses additionally redact owner transfer, filesystem and magnet
+details. Caller request-state projections belong to the subsequent Targets/API
+request routes, not authentication.
+
+Non-secret remote configuration is a typed, revisioned `Setting.remoteAccess`
+row, including `tunnelBindAddress`; saving is CAS-protected and becomes visible
+only after the transaction commits. Tokens, passwords and private keys are never
+persisted to SQLite. Listener changes require restart; team/audience/owner and
+requester changes apply immediately, as does disabling access. Tunnel owners
+cannot change these settings or start host file/folder apps. Browser cross-site
+writes are refused. `TorrentFlow:RemoteAccess` host configuration can overlay
+startup values; the default disabled tunnel port is 3939 to avoid the 3940 owner.
+
+Cloudflare signing keys are fetched over HTTPS with a one-hour cache, bounded
+24-hour last-good fallback, five-minute unknown-key refetch and 30-second
+failed-fetch backoff. `TorrentFlow:RemoteAccess:DevJwksPath` reads public JWKS from
+a file **only in Development**; production ignores it. No private key is required
+by the server.
+
+HTTP-only proof (stop any other rebuild test server first):
+
+```powershell
+dotnet build backend\TorrentFlow.Backend.slnx --nologo
+.\tools\Test-AccessContract.ps1
+```
+
+The script owns/stops its processes by PID, uses 3940 and a temporary dedicated
+3941 tunnel listener in the scratch data directory, validates capture shapes,
+signs test tokens in memory, proves a real non-loopback requester/owner connection,
+and restores saved remote settings. Evidence and public test JWKS remain under
+ignored `tools\.access-proof`. It never calls the old server or live installation.
