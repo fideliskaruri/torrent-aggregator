@@ -13,8 +13,13 @@ payload file writes, or additional hosted service.
   partitions the cache.
 - AniList, Cinemeta/IMDb and keyless TVmaze/iTunes share bounded, provider-specific HTTP
   gates. Unified title search queries all enabled catalogs concurrently, preserves remakes,
-  normalizes whitespace/Unicode, and ranks typo/alias matches. Catalog identity is never
-  inferred from a torrent name.
+  normalizes whitespace/Unicode, and uses the legacy alias/typo tiers, native popularity,
+  IMDb rank, upcoming/music penalties and explicit-year bonus. Movies, series and AniList
+  lists are interleaved before deterministic ranking and cross-provider card merging.
+  AniList participates in all/anime scope; IMDb suggestions enrich Cinemeta rather than
+  becoming an independent extra catalog. Stored canonical IDs are borrowed without
+  replacing a sequel's native name, year or TV/ONA/MOVIE format. Anime cards retain
+  AniList precedence. Catalog identity is never inferred from a torrent name.
 - Work IDs survive verified-link enrichment and refresh. Ordered names retain English,
   original, romaji, native and synonym labels with link provenance. Equal names supplied
   by different providers may retain separate provenance, as the data model specifies.
@@ -43,7 +48,8 @@ payload file writes, or additional hosted service.
   Partial answers keep prior rows; referenced episode IDs survive as unavailable
   mappings rather than silently changing the meaning of a saved file/target/follow.
   Browse pools retain covered candidates before limits and replenish TMDB from
-  three pages, yielding 24 featured cards or up to 48 genre-grid items.
+  five TMDB pages or two 50-item AniList/Cinemeta pages, yielding 24 featured cards
+  or up to 48 genre-grid items.
 
 HTTP calls have a 10-second total queue/network deadline (Cinemeta/TVmaze/iTunes 8s,
 IMDb suggestions 5s, IMDb names 4s, Fribb 20s); no inline retry. AniList's one 700ms
@@ -56,10 +62,25 @@ does not cancel somebody else's lookup.
 
 Confirmed misses are memoized 3m, search 5m fresh/24h stale, AniList queries 60s, work
 details up to 7 days in Store, and season/airing answers 1h. Failed/partial answers
-are never stored as successful negative results. Stale search is used only when all
-catalogs fail. Browse caches ordered work IDs, refreshes daily, keeps its provider on
-failure, and claims only actually visible cards when deduplicating rails. Unconfigured
-TMDB-only top-rated film/series rails are omitted rather than mislabeled keyless lists.
+are never stored as successful negative results. Search preserves usable last-good
+provider answers and reports partial/stale state. Browse caches ordered native listing
+projections alongside canonical work IDs, refreshes daily, and keeps last-good rows on
+failure. A newly configured preferred provider replaces a prior keyless fallback.
+Listing reads never overwrite an existing canonical work with partial entry facts.
+Only visible cards are claimed when deduplicating rails.
+
+Featured queries match the old server: weekly TMDB trending; regional type 4/5 home
+releases in the last 90 days; series premieres in the last 180 days; all-time
+vote-average sorting with 5,000 film / 2,000 series votes. Series discovery excludes
+news, talk, soap and the anime keyword. Genre vote floors are 300 films / 100 series.
+AniList uses seasonal popularity, trending and score sorts without invented origin,
+language or format restrictions. Unset AniList variables are omitted.
+The personal home rail uses the latest watch intent and TMDB recommendations, even
+for anime; anime title-page recommendations remain AniList. Checked release evidence
+uses the old theatrical/home-date gate and 180-day maximum; unchecked evidence uses
+21 days. Native listing projections retain the gate without duplicating canonical
+release facts. Unconfigured TMDB-only top-rated film/series rails are omitted rather
+than mislabeled keyless lists.
 
 ## Real-call verification
 

@@ -162,6 +162,8 @@ public sealed record WorkSnapshot(WorkRow Work, ImmutableArray<WorkNameRow> Name
     ImmutableArray<EpisodeRow> Episodes)
 {
     public DateTimeOffset? PremiereAt { get; init; }
+    public string? ProviderFormat { get; init; }
+    public bool? InTheatricalWindow { get; init; }
 }
 public sealed record Actor(string UserId, UserRole Role, bool TrustedLocal, bool Container);
 public sealed record Failure(string Code, string Message, DateTimeOffset? RetryAt, bool NeedsOwner);

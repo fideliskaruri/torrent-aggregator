@@ -28,7 +28,7 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         if (resolvedQueries.TryGetValue(queryKey, out var remembered) && remembered.Until > DateTimeOffset.UtcNow)
         {
             var existing = await GetWorkAsync(remembered.WorkId, false, cancellationToken);
-            if (existing.Work is not null && Relevance(JsonFacts.Fold(title), existing.Work) >= 0.6)
+            if (existing.Work is not null && SearchText.MatchScore(title, existing.Work.Names.Select(n => n.Value), false) >= 0.6)
                 return existing;
             resolvedQueries.TryRemove(queryKey, out _);
         }
@@ -36,10 +36,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         {
             WorkKind.Film => "films", WorkKind.Series => "series", _ => "all",
         }, 30), cancellationToken);
-        var folded = JsonFacts.Fold(title);
         var ranked = found.Works.Where(w => query.Kind == WorkKind.Unknown || w.Work.Kind == query.Kind)
             .Where(w => query.Year is null || w.Work.Year == query.Year)
-            .Select(w => (Work: w, Score: Relevance(folded, w)))
+            .Select(w => (Work: w, Score: SearchText.MatchScore(title, w.Names.Select(n => n.Value), false)))
             .Where(w => w.Score >= 0.6).OrderByDescending(w => w.Score).ToArray();
         if (ranked.Length == 0)
             return Missing(found.Partial ? "provider_unavailable" : "not_found",
@@ -266,6 +265,30 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             answer = await cinemeta.TvmazeAsync("/shows/" + identity.ExternalId + "?embed=episodes", ct);
             if (answer.Json is not { ValueKind: JsonValueKind.Object } show) return FromAnswer(answer);
             MapTvmaze(builder, show, identity.ExternalId);
+            var animeLink = priorLinks.FirstOrDefault(l => known is not null && l.WorkId == known.WorkId &&
+                l.Provider == "anilist" && l.Status == LinkStatus.Verified && l.SeasonId is null);
+            if (builder.Work.Anime == true && animeLink is not null)
+                return await BuildAsync(new("anilist", animeLink.ExternalId, null), refresh, ct);
+            if (await tmdb.EnabledAsync(ct))
+            {
+                var tmdbId = priorLinks.FirstOrDefault(l => known is not null && l.WorkId == known.WorkId &&
+                    l.Provider == "tmdb" && l.Status == LinkStatus.Verified && l.ProviderKind is "tv" or "series")?.ExternalId;
+                if (tmdbId is null && show.Obj("externals").Text("imdb") is { } imdb)
+                {
+                    var found = await tmdb.GetAsync("/find/" + imdb, "external_source=imdb_id", ct);
+                    tmdbId = found.Json?.Obj("tv_results").Items().FirstOrDefault().Text("id");
+                }
+                if (tmdbId is not null)
+                {
+                    var detail = await tmdb.DetailAsync(tmdbId, WorkKind.Series, ct, refresh);
+                    if (detail.Json is { ValueKind: JsonValueKind.Object } row)
+                    {
+                        MapTmdb(builder, row, WorkKind.Series);
+                        await TmdbSeasonsAsync(builder, row, refresh, ct);
+                    }
+                    else builder.Complete = false;
+                }
+            }
         }
         else if (identity.Provider == "itunes")
         {

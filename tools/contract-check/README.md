@@ -77,8 +77,8 @@ summaries, are in `title-comparison.json`.
 Twenty headless full-page screenshots cover home, films browse, search, Frieren
 and Sintel at 390/1280 pixels: `old|new-{page}-{width}.png`. No document has
 horizontal overflow. Browse headings match; the new home honestly omits
-Downloaded, and notifications are deferred. Search ranks the anime fourth
-rather than first (OPS-678). Title ownership/download controls differ because
+Downloaded, and notifications are deferred. Search now matches the legacy merge/rank
+(OPS-678; follow-up evidence below). Title ownership/download controls differ because
 the scratch inventory is empty. The missing service-worker MIME is OPS-676. Browse years were restored in the
 wire subtitle (OPS-683).
 
@@ -97,3 +97,68 @@ by complete-list replacement. Raw proof: `tmdb-money-heist-current.json`.
 All visited images load, with zero broken posters and no horizontal overflow.
 Featured rails contain 24 covered cards; refreshed browse took 10.79 seconds,
 warm browse 1.32 seconds. Provider/cache data still changes which titles appear.
+
+## Search and home-query follow-up
+
+```powershell
+tools\contract-check\Compare-Catalog.ps1
+```
+
+This HTTP-only comparator checks the ordered top three title/year/category
+identities for six queries and records every home rail's first six titles.
+Rail differences are informational counts, not silently converted into passes.
+Query recipes and visible dedup/release rules were compared to the old source.
+
+| Query | Ordered top three |
+|---|---|
+| frieren | PASS: main anime, Season 2, ONA shorts |
+| a silent voice | PASS |
+| money heist | PASS |
+| scorpion | PASS |
+| rick and morty | PASS |
+| sintel | PASS: both servers have only two results |
+
+| Rail | Same position / 6 | Shared / 6 |
+|---|---:|---:|
+| Because you're watching Sintel | 6 | 6 |
+| Popular films | 6 | 6 |
+| Popular series | 6 | 6 |
+| Anime this season | 6 | 6 |
+| New films | 6 | 6 |
+| New series | 6 | 6 |
+| Trending anime | 4 | 6 |
+| Top rated films | 6 | 6 |
+| Top rated series | 5 | 5 |
+| Top rated anime | 4 | 5 |
+| In cinemas | 6 | 6 |
+
+Trending anime swaps live provider positions. The old Downloaded rail claims
+Rick and Morty, so old top series shows The Sopranos at six; empty-library new
+shows Rick and Morty. Fresh old trending also claims Fullmetal Alchemist:
+Brotherhood later in its 24 cards, shifting old top anime; new trending does
+not contain it. The original cached old top-anime first six match new exactly.
+The isolated old catalog cache was refreshed for same-day comparison; its
+original response is retained as `rail-old-browse.json`. No owner inventory or
+stable data was changed. No rail uses a different query to explain these differences.
+
+Final build: zero warnings/errors. Contract replay: 22 pass, 38 documented
+deferred, zero fail. Nine title/kind identities and eight season layouts match;
+Rick and Morty still intentionally omits empty S10. Real HTTP behavior/restart:
+26 + 3 pass. TVmaze-selected western title details retain verified TMDB
+presentation/numbering; anime search selections retain AniList presentation.
+
+All fifteen `new-{home,browse,search,frieren,sintel}-{390,768,1280}.png`
+screenshots are refreshed under `tools\.catalog-proof`. Search visually matches
+main anime / Season 2 / ONA / 1996 film ordering and posters. Clicking Best match
+opens the AniList title with default S1. Frieren's hero, overview, 9.1 rating,
+premiere, episodes and recommendations match the old capture. All visited
+images load and all widths have zero horizontal overflow. Home differs by the
+expected missing Downloaded rail/notification count and live provider cards;
+all-time top-rated rails now contain the correct classics rather than recent
+releases. Paired top-section review images are `{page}-comparison-1280.png`.
+
+Final HTTP startup readiness: 1.886 seconds. Working set after the browser walk:
+347.77 MiB. Warm home browse: 1.658 seconds. An earlier cold listing migration
+took 36.77 seconds before the partial-listing persistence safeguard; that is not
+presented as the final warm timing. Full search/rail pairs, contract bodies and
+measurements remain in the ignored proof directory.

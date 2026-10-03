@@ -5,7 +5,7 @@ namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
-    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct)
+    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct, bool listing = false)
     {
         await commits.WaitAsync(ct);
         try
@@ -17,6 +17,7 @@ internal sealed partial class MetadataService
                 .Select(l => l.WorkId).Distinct().ToArray();
             if (matchingWorkIds.Length > 1) return null;
             var previous = matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
+            if (listing && previous is not null) return previous;
             if (previous is null)
             {
                 var rows = proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)

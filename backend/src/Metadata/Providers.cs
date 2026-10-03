@@ -89,13 +89,15 @@ internal sealed class AniListClient(ProviderHttp http)
     internal Task<ProviderAnswer> AiringsAsync(string id, int page, CancellationToken ct, bool force) =>
         QueryAsync("query($id:Int,$page:Int){Page(page:$page,perPage:50){pageInfo{hasNextPage}airingSchedules(mediaId:$id,sort:EPISODE){episode airingAt}}}",
             new { id = int.Parse(id, System.Globalization.CultureInfo.InvariantCulture), page }, ct, TimeSpan.FromHours(1), force);
-    internal Task<ProviderAnswer> BrowseAsync(string sort, string? genre, bool seasonal, CancellationToken ct)
+    internal Task<ProviderAnswer> BrowseAsync(string sort, string? genre, bool seasonal, CancellationToken ct, int page = 1)
     {
         var month = DateTimeOffset.Now.Month;
         var season = month <= 3 ? "WINTER" : month <= 6 ? "SPRING" : month <= 9 ? "SUMMER" : "FALL";
-        return QueryAsync("query($sort:[MediaSort],$genre:String,$season:MediaSeason,$year:Int){Page(page:1,perPage:50){media(type:ANIME,isAdult:false,sort:$sort,genre:$genre,season:$season,seasonYear:$year){" +
-            Fields + "}}}", new { sort = new[] { sort }, genre, season = seasonal ? season : null,
-                year = seasonal ? DateTimeOffset.Now.Year : (int?)null }, ct, TimeSpan.FromDays(1));
+        var variables = new Dictionary<string, object> { ["sort"] = new[] { sort }, ["page"] = page, ["perPage"] = 50 };
+        if (genre is not null) variables["genre"] = genre;
+        if (seasonal) { variables["season"] = season; variables["seasonYear"] = DateTimeOffset.Now.Year; }
+        return QueryAsync("query($sort:[MediaSort],$genre:String,$season:MediaSeason,$seasonYear:Int,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,isAdult:false,sort:$sort,genre:$genre,season:$season,seasonYear:$seasonYear){" +
+            Fields + "}}}", variables, ct, TimeSpan.FromDays(1));
     }
     internal Task<ProviderAnswer> RecommendationsAsync(string id, CancellationToken ct) =>
         QueryAsync("query($id:Int){Media(id:$id){recommendations(sort:RATING_DESC,perPage:30){nodes{mediaRecommendation{" +

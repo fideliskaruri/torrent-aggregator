@@ -40,7 +40,7 @@ internal static class CatalogProjection
         w.Work.WorkKey, title = Title(w), w.Work.Year,
         category = w.Work.Anime == true ? "anime" : Series(w) ? "series" : "movies",
         provider = Provider(w), providerId = Primary(w)?.ExternalId, aliases = Aliases(w),
-        mediaType = Type(w), titleMediaType = TitleType(w), isSeries = Series(w), format = Format(w),
+        mediaType = Type(w), titleMediaType = TitleType(w), isSeries = Series(w), format = w.ProviderFormat,
         w.Work.PosterUrl, overview = w.Work.Synopsis, releaseDate = Release(w), href = Href(w),
         externalIds = w.Links.Where(l => l.Status == LinkStatus.Verified).DistinctBy(l => l.Provider)
             .ToDictionary(l => l.Provider, l => l.ExternalId),
