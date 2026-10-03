@@ -46,8 +46,8 @@ public sealed partial class MonoTorrentEngine
                 e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
                 (!e.Bound || !SelectedComplete(e.Manager)) &&
                 (!queueOrder.TryGetValue(e.Id, out var q) || q.Eligible))
-            .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Rank ?? 0)
-            .ThenBy(e => queueOrder.GetValueOrDefault(e.Id)?.Priority ?? TargetPriority.BackCatalogue)
+            .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Priority ?? TargetPriority.BackCatalogue)
+            .ThenBy(e => queueOrder.GetValueOrDefault(e.Id)?.Rank ?? 0)
             .ThenBy(e => e.Id, StringComparer.Ordinal).ToArray();
         var winners = ordered.Where(e => queueOrder.GetValueOrDefault(e.Id)?.Now != true)
             .Take(settings.MaxActiveDownloads)

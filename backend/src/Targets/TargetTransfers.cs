@@ -95,6 +95,12 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
                 if (targets.Any(t => fresh.All(f => f.Id != t.Id || f.State != TargetState.Fetching))) return;
                 var admission = new EngineAdmission(download, candidate,
                     [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
+                await engine.ApplyQueueAsync(new([])
+                {
+                    Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                        await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
+                        fresh, DateTimeOffset.UtcNow),
+                }, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
                 if (!result.Accepted) throw new IOException(result.Failure?.Message);
@@ -150,7 +156,9 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
             var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
             var associations = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-            var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix));
+            var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
+            await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(downloads,
+                associations, targets, DateTimeOffset.UtcNow) }, ct);
             foreach (var download in downloads)
             {
                 var members = targets.Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
@@ -246,20 +254,23 @@ internal sealed class TargetTransfers(IServiceScopeFactory scopes, IEngine engin
                         {
                             var current = (await store.ReadAsync<TargetRow>(CatalogState.Query(target.Id), ct)).Single();
                             if (current.State is TargetState.Removed or TargetState.Paused) continue;
-                            committed = await repository.CommitFiledAsync(binding, binding with
+                            var proposal = await repository.ProposeFiledAsync(binding, binding with
                             {
                                 EnginePath = binding.FinalPath, PartialPath = null, Selected = false, Filed = true, MediaFileId = media.Id,
                             }, media, ct);
-                            // The current Library proposal capability commits the joint inventory/state.
-                            // Fence owner actions around that small transaction until OPS-754 splits the port.
-                            var completed = (await store.ReadAsync<TargetRow>(CatalogState.Query(target.Id), ct)).Single();
-                            if (committed && completed.State == TargetState.Done)
-                            {
-                                var now = completed.UpdatedAt;
-                                await TargetPipeline.CommitAsync(store, [new(new AttemptRow(Guid.NewGuid().ToString("N"),
+                            if (proposal is null) continue;
+                            var siblings = (await repository.BindingsAsync(ct)).Where(f => f.TargetId == target.Id &&
+                                f.Role != FileRole.Unwanted);
+                            var done = siblings.All(f => f.Id == binding.Id || f.Filed);
+                            var now = DateTimeOffset.UtcNow;
+                            await TargetPipeline.CommitAsync(store, [new(current with
+                                { State = done ? TargetState.Done : TargetState.Filing, UpdatedAt = now,
+                                  Version = current.Version + 1 }, current.Version, null),
+                                new(new AttemptRow(Guid.NewGuid().ToString("N"),
                                     target.Id, target.WorkId, download.Hash, target.CreatedBy, AttemptKind.File,
-                                    now, now, "Done", null, null, null, null, target.BatchId, download.Id, null, null), null, null)], [], ct);
-                            }
+                                    now, now, done ? "Done" : "Filed", null, null, null, null, target.BatchId,
+                                    download.Id, null, null), null, null)], [], ct, proposal);
+                            committed = true;
                         }
                         finally { stateGate.Release(); }
                     }

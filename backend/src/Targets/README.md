@@ -5,7 +5,7 @@ references are exactly Domain, Find, Check, Plan, Engine, Library, Metadata and 
 HTTP performs validation and authorization only. `DiscoveryPlan` is the shared checked
 Find -> Check -> Plan composition used by the worker and `/api/dev/plan`.
 
-## Phase 4.2a HTTP proof surface
+## Phase 4.2 HTTP proof surface
 
 Development, trusted loopback owner only:
 
@@ -18,7 +18,12 @@ Development, trusted loopback owner only:
   the worker drains/removes the engine download when no remaining target uses it.
   Library-owned finished files remain owned.
 - `POST /api/dev/targets/{escapedTargetId}/pause`, `/resume`, `/try`: explicit
-  state actions, with no network at acceptance.
+  state actions. Try immediately dispatches the shared Find/Check/Plan in the owner lane.
+- `POST /api/dev/targets/{escapedTargetId}/now`: owner Download now, including
+  request approval and the existing Engine concurrent-cap override.
+- `PUT /api/dev/targets/rank`: `{ "targetIds": ["first", "second"] }` ranks
+  those targets first, preserving the relative order of other ranked targets. The same
+  priority/rank order chooses discovery scopes and Engine slots.
 
 Open a title first so its identity is in Metadata's catalog. Acquire reads the Library
 have-it set and stores only missing film/episode targets, with counts. Repeated clicks
@@ -41,11 +46,15 @@ download without bindings is treated as an orphan, not blindly started.
 ## Current integration boundary
 
 This is the task 4.2a development surface; legacy HTTP projection/routing is phase 4.5.
-Engine and Library use their existing proof-era ports. In particular
-`ILibraryDownloadRepository.CommitFiledAsync` currently commits the joint inventory
-and Target completion; Targets fences this small transaction against owner actions and
-records completion. **OPS-754** tracks moving that final state write into a Targets
-proposal/CAS transaction, as required by the final 1.2/1.3 contract.
+Library filing returns an opaque, Store-issued inventory proposal. Targets alone authors
+the target state and commits that proposal, the target version CAS and filing history in
+one Store transaction. The standalone Library filing harness no longer writes Target state.
 
-Targeted real HTTP evidence is in gitignored `tools\.targets-proof\summary.json`.
+Dynamic priority is persisted and refreshed as dates age: owner now, owner rank, fresh
+episode (six hours before through 48 hours after air time), request, back catalogue,
+upgrade/watch. Rank orders targets within a priority. `ExpectedAt` comes from Metadata;
+release retries run at five minutes around release, then 15 minutes, one hour, six hours
+and one day as the release ages. File/drive/cap retries retain their short recovery delay.
+
+Targeted real HTTP evidence is in gitignored `tools\.targets-proof\finish-summary.json`.
 No unit tests or full hard-set reruns are required for this slice.

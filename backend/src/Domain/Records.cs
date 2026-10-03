@@ -57,7 +57,10 @@ public sealed record TargetRow(string Id, string WorkId, string? EpisodeId, Targ
     ReplacementMode? ReplacementMode, string? BatchId, DateTimeOffset? ClickedAt,
     int SubstantiveMisses, DateTimeOffset? HelpNotifiedAt,
     long PolicyRevision, DateTimeOffset? LeaseUntil, string? LeaseToken,
-    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Version) : StoreRow(Id);
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, long Version) : StoreRow(Id)
+{
+    public TargetPriority Priority { get; init; } = TargetPriority.BackCatalogue;
+}
 public sealed record RequestScopeData(ImmutableArray<int> Seasons, bool FutureEpisodes);
 public sealed record ScopeIntentRow(string Id, string ActorUserId, string WorkId, RequestScope Scope,
     RequestScopeData ScopeData, Policy Policy, bool Now, string BatchId, ScopeIntentState State,
@@ -429,7 +432,10 @@ public sealed record StoreQuery(string? Id, string? WorkId, string? TargetId, st
 public sealed record RowWrite(StoreRow Row, long? ExpectedVersion, StoreRow? ExpectedRow);
 public sealed record RowDelete(StoreTable Table, string Id, long? ExpectedVersion, StoreRow? ExpectedRow);
 public sealed record StoreCommit(string IdempotencyKey, StoreOwner Owner, ImmutableArray<RowWrite> Writes,
-    ImmutableArray<RowDelete> Deletes);
+    ImmutableArray<RowDelete> Deletes)
+{
+    public LibraryWriteProposal? LibraryProposal { get; init; }
+}
 public sealed record CommitResult(bool Applied, bool Conflict, ImmutableArray<string> ConflictingIds);
 public sealed record ApiCall(string Method, string RoutePattern, ImmutableDictionary<string, string> RouteValues,
     ImmutableDictionary<string, string> Query, JsonElement? Body, Actor Actor);

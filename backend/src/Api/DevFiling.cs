@@ -42,7 +42,10 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
             Results.Json(await filing.RemoveAsync(MonoTorrentEngine.NormalizeHash(hash), ct), Json));
         group.MapPost("/{hash}/prioritize/{index:int}", async (string hash, int index, MonoTorrentEngine engine, CancellationToken ct) =>
         {
-            await engine.PrioritizeDevFileAsync(Prefix + MonoTorrentEngine.NormalizeHash(hash), index, ct);
+            var normalized = MonoTorrentEngine.NormalizeHash(hash);
+            var download = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.Hash == normalized)
+                ?? throw new ArgumentException("The download no longer exists.");
+            await engine.PrioritizeDevFileAsync(download.DownloadId, index, ct);
             return Results.Ok(new { prioritized = index });
         });
     }

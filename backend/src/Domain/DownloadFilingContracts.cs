@@ -8,9 +8,16 @@ public interface ILibraryDownloadRepository : ILibraryRepository
         ImmutableArray<WorkFolderRow> folders, CancellationToken cancellationToken);
     Task<bool> CommitFiledAsync(DownloadFileRow before, DownloadFileRow after,
         MediaFileRow media, CancellationToken cancellationToken);
+    Task<LibraryWriteProposal?> ProposeFiledAsync(DownloadFileRow before, DownloadFileRow after,
+        MediaFileRow media, CancellationToken cancellationToken);
     Task<bool> BeginFilingAsync(DownloadFileRow binding, string digest, CancellationToken cancellationToken);
     Task<ImmutableArray<FileOperationRow>> FilingOperationsAsync(CancellationToken cancellationToken);
     Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken cancellationToken);
+}
+
+public abstract class LibraryWriteProposal
+{
+    protected LibraryWriteProposal() { }
 }
 
 public sealed record DownloadFilingContext(DownloadRow Download, WorkSnapshot Work,

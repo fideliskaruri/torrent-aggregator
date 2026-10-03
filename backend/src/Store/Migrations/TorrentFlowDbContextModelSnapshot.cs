@@ -1727,6 +1727,10 @@ namespace TorrentFlow.Store.Migrations
                     b.Property<int?>("preferredResolution")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("priority")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("rank")
                         .HasColumnType("INTEGER");
 
@@ -1802,6 +1806,8 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Target_policyRevision", "\"policyRevision\" >= 0");
 
                             t.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
+
+                            t.HasCheckConstraint("CK_Target_priority", "\"priority\" IN ('now','ownerrank','freshrelease','request','backcatalogue','upgradewatch')");
 
                             t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
 

@@ -31,12 +31,18 @@ internal static class TargetEndpoints
         });
         group.MapDelete("/{id}", async (string id, TargetPipeline pipeline, CancellationToken ct) =>
             Results.Json(await pipeline.ActionAsync(id, TargetAction.Remove, ct), Json));
+        group.MapPut("/rank", async (RankInput input, TargetPipeline pipeline, CancellationToken ct) =>
+        {
+            await pipeline.RankAsync(input.TargetIds, ct);
+            return Results.Ok(new { ranked = input.TargetIds.Length });
+        });
         group.MapPost("/{id}/{action}", async (string id, string action, TargetPipeline pipeline, CancellationToken ct) =>
         {
             var command = action switch { "pause" => TargetAction.Pause, "resume" => TargetAction.Resume,
-                "try" => TargetAction.TryNow, _ => (TargetAction?)null };
+                "try" => TargetAction.TryNow, "now" => TargetAction.DownloadNow, _ => (TargetAction?)null };
             return command is null ? Results.BadRequest() :
                 Results.Json(await pipeline.ActionAsync(id, command.Value, ct), Json);
         });
     }
+    internal sealed record RankInput(System.Collections.Immutable.ImmutableArray<string> TargetIds);
 }

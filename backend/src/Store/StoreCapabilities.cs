@@ -43,6 +43,16 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
     public async Task<CommitResult> CommitAsync(StoreCommit commit, CancellationToken ct)
     {
         if (commit.Owner != owner) throw new UnauthorizedAccessException("The caller cannot change its Store capability.");
+        var library = commit.LibraryProposal as FilingWriteProposal;
+        if (commit.LibraryProposal is not null && (owner != StoreOwner.Targets || library is null))
+            throw new UnauthorizedAccessException("A Library-issued filing proposal is required.");
+        if (library is not null && !commit.Writes.Any(w => w.Row is TargetRow target &&
+            target.Id == library.TargetId && target.State is TargetState.Filing or TargetState.Done &&
+            w.ExpectedVersion is not null))
+            throw new ArgumentException("Filing requires its associated Targets state CAS.");
+        if (library is not null)
+            commit = commit with { Writes = commit.Writes.AddRange(library.Writes),
+                Deletes = commit.Deletes.AddRange(library.Deletes) };
         if (string.IsNullOrWhiteSpace(commit.IdempotencyKey) || commit.IdempotencyKey.Length > 128)
             throw new ArgumentException("A bounded durable commit receipt is required.");
         var receipts = commit.Writes.Where(w => w.Row is AttemptRow { Kind: AttemptKind.LegacyEvent } receipt
@@ -113,11 +123,13 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
         async Task StageAsync(TableDefinition table, string id, StoreRow? replacement, long? version, StoreRow? expected)
         {
             var isReceipt = replacement?.Id == persistedReceipt.Id && table.Name == "Attempt";
-            if (!isReceipt && !writable.Contains(table.Name)) throw new UnauthorizedAccessException($"{owner} cannot write {table.Name}.");
+            var libraryRow = library is not null && (library.Writes.Any(w => w.Row == replacement) ||
+                replacement is null && library.Deletes.Any(d => d.Table.ToString() == table.Name && d.Id == id));
+            if (!isReceipt && !libraryRow && !writable.Contains(table.Name)) throw new UnauthorizedAccessException($"{owner} cannot write {table.Name}.");
             if (replacement is SettingRow setting) SettingsCatalog.Validate(setting);
             var set = db.Set<Dictionary<string, object>>(table.Name);
             var current = await set.SingleOrDefaultAsync(r => EF.Property<string>(r, table.Key) == id, ct);
-            if (table.Name == "DownloadFile")
+            if (table.Name == "DownloadFile" && !libraryRow)
             {
                 var proposed = replacement is null ? null : table.ToEntity(replacement);
                 var pathColumns = new[] { "partialPath", "finalPath", "physicalKey", "mediaFileId", "enginePath", "filed" };

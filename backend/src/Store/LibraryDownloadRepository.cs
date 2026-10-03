@@ -79,26 +79,36 @@ public sealed partial class LibraryRepository
             var claims = await db.Set<Dictionary<string, object>>("FilePathClaim")
                 .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
             db.Set<Dictionary<string, object>>("FilePathClaim").RemoveRange(claims);
-            // Ownership and item completion commit together, including selected sidecars.
-            var siblings = await db.Set<Dictionary<string, object>>("DownloadFile").AsNoTracking()
-                .Where(r => EF.Property<string>(r, "targetId") == before.TargetId).ToListAsync(ct);
-            if (siblings.All(r => (string)r["id"] == before.Id || (bool)r["filed"]))
-            {
-                var targetEntity = await db.Set<Dictionary<string, object>>("Target")
-                    .SingleAsync(r => EF.Property<string>(r, "id") == before.TargetId, ct);
-                var target = (TargetRow)Schema.Table("Target").ToRow(targetEntity);
-                db.Entry(targetEntity).CurrentValues.SetValues(Schema.Table("Target").ToEntity(target with
-                {
-                    State = TargetState.Done, UpdatedAt = DateTimeOffset.UtcNow, Version = target.Version + 1,
-                }));
-            }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
         }
+
         catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 or 5 or 6 })
         { return false; }
         finally { db.ChangeTracker.Clear(); }
+    }
+
+    public async Task<LibraryWriteProposal?> ProposeFiledAsync(DownloadFileRow before, DownloadFileRow after,
+        MediaFileRow media, CancellationToken ct)
+    {
+        if (before.Filed || !before.Selected || before.FinalPath != media.Path ||
+            before.DownloadId != media.DownloadId || before.FileIndex != media.FileIndex ||
+            before.ExpectedBytes != media.Bytes || after != before with
+            { EnginePath = before.FinalPath, PartialPath = null, Selected = false, Filed = true, MediaFileId = media.Id })
+            throw new ArgumentException("The filing result does not match its reserved file.");
+        if (!(await BindingsAsync(ct)).Contains(before)) return null;
+        var operation = (await FilingOperationsAsync(ct)).SingleOrDefault(o => o.Id == $"file:{before.Id}");
+        if (operation is null || operation.State != FileOperationState.Pending ||
+            operation.ExpectedDigest != media.ContentDigest) return null;
+        var claims = await db.Set<Dictionary<string, object>>("FilePathClaim").AsNoTracking()
+            .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
+        return new FilingWriteProposal(before.TargetId,
+            [new(after, null, before), new(media, null, null),
+             new(operation with { State = FileOperationState.Done, MediaFileId = media.Id,
+                 UpdatedAt = DateTimeOffset.UtcNow }, null, operation)],
+            [.. claims.Select(r => new RowDelete(StoreTable.FilePathClaim, (string)r["id"], null,
+                Schema.Table("FilePathClaim").ToRow(r)))]);
     }
 
     public async Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken ct)
@@ -132,4 +142,12 @@ public sealed partial class LibraryRepository
         { return false; }
         finally { db.ChangeTracker.Clear(); }
     }
+}
+
+internal sealed class FilingWriteProposal(string? targetId, ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
+    : LibraryWriteProposal
+{
+    internal string? TargetId { get; } = targetId;
+    internal ImmutableArray<RowWrite> Writes { get; } = writes;
+    internal ImmutableArray<RowDelete> Deletes { get; } = deletes;
 }

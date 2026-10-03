@@ -99,6 +99,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                     : old with { State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,
                         PolicyRevision = old.PolicyRevision + 1, UpdatedAt = now, Version = old.Version + 1 };
+                row = row with { Priority = TargetScheduling.Priority(row, now) };
                 writes.Add(new(row, old?.Version, null));
                 writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
                     AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
@@ -129,19 +130,84 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                 TargetAction.Resume when old.State == TargetState.Paused =>
                     old.ResumeState is TargetState.Fetching or TargetState.Filing ? old.ResumeState.Value : TargetState.Wanted,
                 TargetAction.TryNow when old.State == TargetState.Waiting => TargetState.Wanted,
+                TargetAction.DownloadNow when old.State is TargetState.Waiting or TargetState.Paused =>
+                    old.ResumeState is TargetState.Fetching or TargetState.Filing ? old.ResumeState.Value : TargetState.Wanted,
+                TargetAction.DownloadNow when old.State is TargetState.Wanted or TargetState.Finding or
+                    TargetState.Checking or TargetState.Planning => TargetState.Wanted,
                 _ => old.State,
             };
-            if (state == old.State) return new(true, 0, 0, [id], state.ToString());
+            if (old.State is TargetState.Done or TargetState.Removed ||
+                state == old.State && action != TargetAction.DownloadNow)
+                return new(true, 0, 0, [id], state.ToString());
             var next = old with { State = state, ResumeState = state == TargetState.Paused ? old.State : null,
                 ReasonCode = null, ReasonText = null, NextTryAt = null, LeaseToken = null, LeaseUntil = null,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
+            if (action == TargetAction.DownloadNow)
+                next = next with { NowAt = DateTimeOffset.UtcNow, Priority = TargetPriority.Now,
+                    LeaseToken = state is TargetState.Fetching or TargetState.Filing ? old.LeaseToken : null };
             var links = await new CatalogState(store).ReadAsync<DownloadTargetRow>(
                 CatalogState.Query() with { TargetId = id }, ct);
-            await CommitAsync(store, [new(next, old.Version, null),
+            var approvals = ImmutableArray.CreateBuilder<RowWrite>();
+            if (action == TargetAction.DownloadNow)
+            {
+                var items = await new CatalogState(store).ReadAsync<RequestItemRow>(CatalogState.Query() with { TargetId = id }, ct);
+                foreach (var requestId in items.Select(i => i.RequestId).Distinct())
+                {
+                    var request = (await store.ReadAsync<RequestRow>(CatalogState.Query(requestId), ct)).Single();
+                    if (request.Decision == RequestDecision.Pending)
+                        approvals.Add(new(request with { Decision = RequestDecision.Approved, DecidedBy = "local",
+                            DecidedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+                            Version = request.Version + 1 }, request.Version, null));
+                }
+            }
+            await CommitAsync(store, [new(next, old.Version, null), .. approvals,
                 .. links.Where(l => l.Role != (state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired)).Select(l =>
                     new RowWrite(l with { Role = state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired }, null, l))], [], ct);
-            if (cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
+            if (!(action == TargetAction.DownloadNow && state is TargetState.Fetching or TargetState.Filing) &&
+                cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
+            if (state == TargetState.Wanted && action is TargetAction.TryNow or TargetAction.DownloadNow)
+                flights["owner:" + id] = RunScopeAsync([next], CancellationToken.None, forceOwner: true);
+            if (action == TargetAction.DownloadNow)
+            {
+                var catalog = new CatalogState(store);
+                await engine.ApplyQueueAsync(new([])
+                {
+                    Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                        await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
+                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
+                }, ct);
+            }
             return new(true, 0, 0, [id], state == TargetState.Removed ? "Removed" : state.ToString());
+        }
+
+        finally { stateGate.Release(); }
+    }
+
+    public async Task RankAsync(ImmutableArray<string> ids, CancellationToken ct)
+    {
+        if (ids.IsDefaultOrEmpty || ids.Distinct().Count() != ids.Length)
+            throw new ArgumentException("Choose distinct targets.");
+        await stateGate.WaitAsync(ct);
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var catalog = new CatalogState(store);
+            var rows = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
+            if (ids.Any(id => rows.All(t => t.Id != id || t.State == TargetState.Removed)))
+                throw new ArgumentException("One of the targets no longer exists.");
+            var ranked = ids.Select(id => rows.Single(t => t.Id == id))
+                .Concat(TargetScheduling.Order(rows.Where(t => t.OwnerRanked && !ids.Contains(t.Id)), DateTimeOffset.UtcNow));
+            var writes = ranked.Select((t, i) => new RowWrite(t with { OwnerRanked = true, Rank = i,
+                Priority = t.NowAt is null ? TargetPriority.OwnerRank : TargetPriority.Now,
+                UpdatedAt = DateTimeOffset.UtcNow, Version = t.Version + 1 }, t.Version, null)).ToImmutableArray();
+            await CommitAsync(store, writes, [], ct);
+            await engine.ApplyQueueAsync(new([])
+            {
+                Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                    await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
+                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
+            }, ct);
         }
         finally { stateGate.Release(); }
     }
@@ -171,12 +237,23 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
         var snapshot = await ReadAsync(ct);
         var now = DateTimeOffset.UtcNow;
         await using var scope = scopes.CreateAsyncScope();
-        var episodes = await new CatalogState(scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"))
-            .ReadAsync<EpisodeRow>(CatalogState.Query(), ct);
-        var due = snapshot.Targets.Where(t => t.State == TargetState.Wanted ||
+        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var catalog = new CatalogState(store);
+        await stateGate.WaitAsync(ct);
+        try
+        {
+            var current = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
+            var priorityWrites = current.Where(t => t.Priority != TargetScheduling.Priority(t, now))
+                .Select(t => new RowWrite(t with { Priority = TargetScheduling.Priority(t, now),
+                    UpdatedAt = now, Version = t.Version + 1 }, t.Version, null)).ToImmutableArray();
+            if (!priorityWrites.IsEmpty) await CommitAsync(store, priorityWrites, [], ct);
+        }
+        finally { stateGate.Release(); }
+        snapshot = await ReadAsync(ct);
+        var episodes = await catalog.ReadAsync<EpisodeRow>(CatalogState.Query(), ct);
+        var due = TargetScheduling.Order(snapshot.Targets.Where(t => t.State == TargetState.Wanted ||
             t.State == TargetState.Waiting && t.NextTryAt <= now &&
-                t.ResumeState is not (TargetState.Filing or TargetState.Fetching))
-            .OrderBy(t => t.OwnerRanked ? 0 : 1).ThenBy(t => t.Rank).ThenBy(t => t.ClickedAt)
+                t.ResumeState is not (TargetState.Filing or TargetState.Fetching)), now)
             .GroupBy(t => $"{t.WorkId}:{t.ResolutionFloor}:{t.PreferredResolution}:" +
                 (t.EpisodeId is null ? "film" : episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.SeasonId));
         foreach (var group in due)
@@ -220,7 +297,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
         }
     }
 
-    private async Task RunScopeAsync(ImmutableArray<TargetRow> rows, CancellationToken shutdown)
+    private async Task RunScopeAsync(ImmutableArray<TargetRow> rows, CancellationToken shutdown, bool forceOwner = false)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         foreach (var row in rows) cancellations[row.Id] = lifetime;
@@ -256,8 +333,9 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
             if (rows.IsEmpty) return;
             var policy = new Policy(rows[0].ResolutionFloor, rows[0].PreferredResolution, rows[0].AudioLanguage,
                 rows[0].MaxBytes, null, rows[0].PolicyRevision);
-            var result = await discovery.RunAsync(work, targetScope, policy,
-                rows.All(r => r.SubstantiveMisses > 0) ? PriorityLane.Background : PriorityLane.Owner,
+            var lane = !forceOwner && rows.All(r => r.SubstantiveMisses > 0 && r.NowAt is null)
+                ? PriorityLane.Background : PriorityLane.Owner;
+            var result = await discovery.RunAsync(work, targetScope, policy, lane,
                 false, lifetime.Token, actualTargets: rows, owned: owned, onStage: async state =>
                 {
                     foreach (var row in rows) await ChangeAsync(row.Id, token, state, lifetime.Token);
@@ -267,7 +345,8 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
             await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow(
                 $"plan:{row.Id}:{Guid.NewGuid():N}", row.Id, row.WorkId, null, row.CreatedBy,
                 AttemptKind.Plan, plannedAt, plannedAt, "planned", null, null, null,
-                JsonSerializer.SerializeToElement(result.Plan), row.BatchId, null, null, null), null, null))],
+                JsonSerializer.SerializeToElement(new { lane, result.Plan.Assignments, result.Plan.Rejections,
+                    result.Plan.UncoveredTargetIds }), row.BatchId, null, null, null), null, null))],
                 [], lifetime.Token);
             foreach (var assignment in result.Plan.Assignments)
             {
@@ -308,7 +387,8 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
                 .ReadAsync<TargetRow>(CatalogState.Query(), CancellationToken.None);
             foreach (var row in rows)
             {
-                cancellations.TryRemove(row.Id, out _);
+                ((ICollection<KeyValuePair<string, CancellationTokenSource>>)cancellations)
+                    .Remove(new(row.Id, lifetime));
                 if (current.Any(t => t.Id == row.Id && t.LeaseToken == token &&
                     t.State is TargetState.Finding or TargetState.Checking or TargetState.Planning))
                     await ChangeAsync(row.Id, token, TargetState.Wanted, CancellationToken.None);
@@ -341,6 +421,7 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
             if (!Allowed(old.State, state)) return null;
             var now = DateTimeOffset.UtcNow;
             var next = old with { State = state, ReasonCode = reason, ReasonText = text,
+                Priority = TargetScheduling.Priority(old, now),
                 ResumeState = state == TargetState.Waiting ? old.State is TargetState.Filing or TargetState.Fetching
                     ? old.State : TargetState.Wanted : null,
                 NextTryAt = state == TargetState.Waiting ? NextTry(old, reason, now) : null,
@@ -378,10 +459,10 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
 
     private static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now)
     {
-        if (reason == WaitReason.WaitingForSeeders) return now.AddMinutes(45);
         if (reason is WaitReason.FileBusy or WaitReason.DownloadCap or WaitReason.NoDriveSpace or WaitReason.DriveOffline)
             return now.AddMinutes(5);
-        if (row.ExpectedAt is not { } expected) return now.AddHours(1);
+        if (row.ExpectedAt is not { } expected)
+            return now.AddMinutes(reason == WaitReason.WaitingForSeeders ? 45 : 60);
         if (expected > now) return expected.AddMinutes(5);
         var age = now - expected;
         return now + (age.TotalHours < 2 ? TimeSpan.FromMinutes(5) : age.TotalHours < 12 ? TimeSpan.FromMinutes(15) :
@@ -389,13 +470,14 @@ public sealed class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan di
     }
 
     internal static async Task CommitAsync(IStore store, ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes,
-        CancellationToken ct)
+        CancellationToken ct, LibraryWriteProposal? proposal = null)
     {
         var key = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
         var receipt = new AttemptRow("commit:targets:" + key, null, null, null, null, AttemptKind.LegacyEvent,
             now, now, "applied", null, null, null, null, null, null, null, null);
-        var result = await store.CommitAsync(new(key, StoreOwner.Targets, writes.Add(new(receipt, null, null)), deletes), ct);
+        var result = await store.CommitAsync(new(key, StoreOwner.Targets, writes.Add(new(receipt, null, null)), deletes)
+            { LibraryProposal = proposal }, ct);
         if (!result.Applied) throw new InvalidOperationException("The target changed concurrently.");
     }
 
