@@ -17,6 +17,8 @@ The single nonoverlapping scheduler honors `TorrentFlow:Scheduler:Disabled` and
 `POST /api/dev/hunter`, even when disabled; `?probe=true` also checks film watches.
 The default pass only reads Metadata and Library, enumerating confirmed aired,
 unowned episodes with exact air dates. It never calls Find or Engine.
+Hunter item `status` projects TargetAdmission as `queued`, `owned`, `held` or
+`existing` (with the Targets message); it does not invent a second hold rule.
 
 ## Integration blocker: OPS-786
 

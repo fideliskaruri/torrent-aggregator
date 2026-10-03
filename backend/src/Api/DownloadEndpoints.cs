@@ -54,8 +54,7 @@ internal static class DownloadEndpoints
             var resolvedKey = work?.Work.WorkKey ?? workKey;
             var reply = await targets.AcquireAsync(new(resolvedKey, input.Season, input.Episode,
                 input.PreferredResolution), AccessIdentity.Actor(http).UserId, ct);
-            return Results.Ok(new { ok = reply.Accepted, queued = reply.Queued, owned = reply.Owned,
-                message = reply.Message, workKey = resolvedKey });
+            return Results.Ok(AdmissionProjection.Title(reply, resolvedKey));
         });
         group.MapPut("/client/torrents/rank", async (TargetEndpoints.RankInput input,
             TargetPipeline targets, CancellationToken ct) =>

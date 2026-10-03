@@ -5,7 +5,8 @@ using TorrentFlow.Targets;
 namespace TorrentFlow.Api.Automation;
 
 internal sealed record HunterItem(string WorkKey, string EpisodeId, int Season, int Episode,
-    DateTimeOffset ExpectedAt, string Origin, string Status, string? RuleId = null);
+    DateTimeOffset ExpectedAt, string Origin, string Status, string? RuleId = null,
+    string? Message = null);
 internal sealed record HunterPass(string Lane, bool Busy, ImmutableArray<HunterItem> Items, int Owned,
     int Existing, int Notifications, string? BlockedReason);
 
@@ -56,7 +57,8 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                         episode.Number, preference?.ResolutionFloor ?? preference?.PreferredResolution),
                         IntentOrigin.Follow, null, null, null, ct);
                     items.Add(new(work.Work.WorkKey, episode.Id, season.Number, episode.Number,
-                        episode.AirAt!.Value, "Follow", accepted.Queued > 0 ? "queued" : "existing"));
+                        episode.AirAt!.Value, "Follow", AdmissionProjection.Status(accepted),
+                        Message: accepted.Message));
                 }
             }
             foreach (var rule in (await repository.ReadAsync<AutoRuleRow>(ct)).Where(r => r.Enabled))
@@ -74,7 +76,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                         count += accepted.Queued;
                         ownedCount += accepted.Owned;
                         items.Add(new(work.Work.WorkKey, "", 0, 0, work.Work.DigitalAt ?? now,
-                            "Rule", accepted.Queued > 0 ? "queued" : "existing", rule.Id));
+                            "Rule", AdmissionProjection.Status(accepted), rule.Id, accepted.Message));
                     }
                     else foreach (var episode in work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed && e.AirAt <= now))
                     {
@@ -85,8 +87,10 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                             rule.MinListedSeeders, rule.MaxBytes, ct);
                         count += accepted.Queued;
                         ownedCount += accepted.Owned;
-                        if (accepted.Queued > 0) items.Add(new(work.Work.WorkKey, episode.Id, season.Number,
-                            episode.Number, episode.AirAt!.Value, "Rule", "queued", rule.Id));
+                        if (accepted.Queued > 0 || accepted.Held > 0 || accepted.Owned > 0)
+                            items.Add(new(work.Work.WorkKey, episode.Id, season.Number, episode.Number,
+                                episode.AirAt!.Value, "Rule", AdmissionProjection.Status(accepted),
+                                rule.Id, accepted.Message));
                     }
                 }
                 await repository.SaveAsync(rule with { LastRunAt = now, MatchCount = rule.MatchCount + count,

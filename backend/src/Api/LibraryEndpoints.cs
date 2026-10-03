@@ -139,8 +139,7 @@ internal static class LibraryEndpoints
             message = "title or watchListItemId required" });
         var result = await targets.AcquireAsync(new(work.WorkKey, work.Kind == WorkKind.Film ? null : season,
             work.Kind == WorkKind.Film ? null : episode, Integer(body, "quality")), AccessIdentity.UserId(http), ct);
-        return Results.Ok(new { ok = result.Accepted, message = result.Message, queued = result.Queued,
-            owned = result.Owned, workKey = work.WorkKey });
+        return Results.Ok(AdmissionProjection.Title(result, work.WorkKey));
     }
 
     private static int? Number(string? text) => int.TryParse(text, out var n) ? n : null;
