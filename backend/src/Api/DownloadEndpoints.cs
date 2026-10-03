@@ -282,7 +282,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
         var rows = (await WantedRows(ct)).Where(r => (r.Work?.WorkKey == key || r.Target.WorkId == key) &&
             (season is null || r.Season == season) && (episode is null || r.Episode == episode)).ToArray();
         foreach (var row in rows) await targets.ActionAsync(row.Target.Id, action, ct);
-        return new { ok = true, removed = action == TargetAction.Remove ? rows.Length : 0 };
+        var pending = await targets.ScopeActionAsync(key, season, episode, action, ct);
+        return new { ok = true, removed = action == TargetAction.Remove ? rows.Length + pending : 0,
+            retried = action == TargetAction.TryNow ? rows.Length + pending : 0 };
     }
 
     internal async Task<object> SettingsAsync(JsonElement? input, CancellationToken ct)

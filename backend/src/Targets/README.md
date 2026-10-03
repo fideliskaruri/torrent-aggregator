@@ -29,6 +29,18 @@ Open a title first so its identity is in Metadata's catalog. Acquire reads the L
 have-it set and stores only missing film/episode targets, with counts. Repeated clicks
 reuse deterministic item IDs. Confirmed seasons use one season pool and plan; unresolved
 season/episode scope intent is persisted and expanded only after confirmed Metadata.
+Queued counts include only newly accepted or explicitly revived intent. An identical
+repeat keeps the same target and returns `queued: 0`, `Already queued`.
+Pending scopes support Wanted Remove/Try now through Targets. Remove is a durable
+Cancelled tombstone; explicit acquisition can revive it. Materialization rechecks the
+scope version under the same action lock so cancellation cannot create late targets.
+
+Follow start policy is shared by the watchlist and direct Follow adapters. A new follow
+without a start episode means new episodes only, with the acceptance timestamp as its
+cutoff. Ongoing follows use the Unix epoch cutoff and a stable start Episode ID; hunter
+compares season/episode coordinates, not air-date ordering. Repeated saves retain the
+new-episode cutoff. The converter preserves mode, cutoff and the current cursor,
+including disabled follows.
 
 The worker admits at most `TorrentFlow:Targets:MaximumScopes` film/season scopes
 (default 8, maximum 8), preserving owner rank. Waiting targets retain their reason,

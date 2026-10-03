@@ -59,11 +59,11 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         AcceptAsync(input, actor, IntentOrigin.Request, null, null, null, ct);
 
     private async Task<TargetActionReply> AcceptAsync(AcquireInput input, string actor, IntentOrigin origin,
-        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct)
+        string? ruleId, int? minSeeders, long? maxBytes, CancellationToken ct, bool lockHeld = false)
     {
         if (input.Quality is < 1 or > 4320 || minSeeders is < 0 || maxBytes is <= 0)
             throw new ArgumentException("Choose a valid quality, seed count and size.");
-        await stateGate.WaitAsync(ct);
+        if (!lockHeld) await stateGate.WaitAsync(ct);
         try
         {
             await using var serviceScope = scopes.CreateAsyncScope();
@@ -91,14 +91,15 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     throw new ArgumentException("Automatic downloads need confirmed episodes. Try again after metadata refresh.");
                 var id = $"scope:{work.Id}:{input.Season}:{input.Episode}";
                 var prior = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(id), ct)).SingleOrDefault();
-                if (prior is null)
+                if (prior is null || prior.State == ScopeIntentState.Cancelled)
                 {
                     var intent = new ScopeIntentRow(id, actor, work.Id, input.Episode is null ? RequestScope.Seasons : RequestScope.Episodes,
                         new([input.Season ?? 1], false), new(input.Quality, input.Quality ?? 1080, null, null, null, 0),
-                        false, id, ScopeIntentState.Pending, now, now, now, 1);
-                    await CommitAsync(store, [new(intent, null, null)], [], ct);
+                        false, id, ScopeIntentState.Pending, now, prior?.CreatedAt ?? now, now, (prior?.Version ?? 0) + 1);
+                    await CommitAsync(store, [new(intent, prior?.Version, null)], [], ct);
                 }
-                return new(true, 0, 0, [], "Season queued.");
+                var added = prior is null || prior.State == ScopeIntentState.Cancelled;
+                return new(true, added ? 1 : 0, 0, [], added ? "Season queued." : "Already queued");
             }
             var scope = new TargetScope(work.Id, [.. selected.Select(e => e.Id)], film);
             var owned = await serviceScope.ServiceProvider.GetRequiredService<ILibraryPlacement>().OwnedAsync(scope, ct);
@@ -107,6 +108,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
             var ids = ImmutableArray.CreateBuilder<string>();
             var ownedCount = 0;
+            var queued = 0;
             var batch = Guid.NewGuid().ToString("N");
             foreach (var episodeId in items)
             {
@@ -130,16 +132,17 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 row = row with { Priority = TargetScheduling.Priority(row, now),
                     MinListedSeeders = minSeeders ?? row.MinListedSeeders };
                 writes.Add(new(row, old?.Version, null));
+                queued++;
                 writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
                     AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
             }
             if (writes.Count > 0) await CommitAsync(store, writes.ToImmutable(), [], ct);
-            var queued = ids.Count;
             var message = queued == 0 && ownedCount > 0 ? "Already in your library" :
+                queued == 0 && ids.Count > 0 ? "Already queued" :
                 ownedCount > 0 ? $"{queued} queued, {ownedCount} already in your library" : $"{queued} queued";
             return new(true, queued, ownedCount, ids.ToImmutable(), message);
         }
-        finally { stateGate.Release(); }
+        finally { if (!lockHeld) stateGate.Release(); }
     }
 
     public async Task<TargetActionReply> ActionAsync(string id, TargetAction action, CancellationToken ct)
@@ -319,24 +322,31 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var work = result.Work;
             var episode = intent.Scope == RequestScope.Episodes && int.TryParse(intent.Id.Split(':')[^1], out var number)
                 ? number : (int?)null;
-            if (work is not null)
-            foreach (var season in intent.ScopeData.Seasons)
+            await stateGate.WaitAsync(ct);
+            try
             {
-                var intentStore = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
-                var request = (await intentStore.ReadAsync<RequestRow>(CatalogState.Query(intent.ActorUserId), ct)).SingleOrDefault();
-                await AcceptAsync(new(work.Work.Id, season, episode, intent.Policy.ResolutionFloor),
-                    intent.ActorUserId, request is null ? IntentOrigin.Owner : IntentOrigin.Request, null, null, null, ct);
+                var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+                var current = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(intent.Id), ct)).SingleOrDefault();
+                if (current is null || current.State != ScopeIntentState.Pending || current.Version != intent.Version) continue;
+                if (work is not null)
+                foreach (var season in intent.ScopeData.Seasons)
+                {
+                    var request = (await store.ReadAsync<RequestRow>(CatalogState.Query(intent.ActorUserId), ct)).SingleOrDefault();
+                    await AcceptAsync(new(work.Work.Id, season, episode, intent.Policy.ResolutionFloor),
+                        intent.ActorUserId, request is null ? IntentOrigin.Owner : IntentOrigin.Request,
+                        null, null, null, ct, lockHeld: true);
+                }
+                var ready = work is not null && intent.ScopeData.Seasons.All(n => work.Seasons.Any(s => s.Number == n &&
+                    s.MappingStatus == MappingStatus.Confirmed && work.Episodes.Any(e => e.SeasonId == s.Id &&
+                        (episode is null || e.Number == episode) && e.MappingStatus == MappingStatus.Confirmed)));
+                await CommitAsync(store, [new(intent with
+                {
+                    State = ready ? ScopeIntentState.Materialized : ScopeIntentState.Pending,
+                    NextTryAt = DateTimeOffset.UtcNow.AddHours(1), UpdatedAt = DateTimeOffset.UtcNow,
+                    Version = intent.Version + 1,
+                }, intent.Version, null)], [], ct);
             }
-            var ready = work is not null && intent.ScopeData.Seasons.All(n => work.Seasons.Any(s => s.Number == n &&
-                s.MappingStatus == MappingStatus.Confirmed && work.Episodes.Any(e => e.SeasonId == s.Id &&
-                    (episode is null || e.Number == episode) && e.MappingStatus == MappingStatus.Confirmed)));
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
-            await CommitAsync(store, [new(intent with
-            {
-                State = ready ? ScopeIntentState.Materialized : ScopeIntentState.Pending,
-                NextTryAt = DateTimeOffset.UtcNow.AddHours(1), UpdatedAt = DateTimeOffset.UtcNow,
-                Version = intent.Version + 1,
-            }, intent.Version, null)], [], ct);
+            finally { stateGate.Release(); }
         }
     }
 
