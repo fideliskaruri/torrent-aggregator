@@ -23,8 +23,8 @@ public sealed partial class TargetPipeline
             var target = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(targetId), ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This target no longer exists.");
             var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
-            if (await reviews.HoldsAsync(target.WorkId, ct))
-                return new(false, 0, 0, [targetId], ImportReviews.HoldMessage);
+            if (await TargetAdmission.HoldsAsync(scope.ServiceProvider, target, ct))
+                return new(false, 0, 0, [targetId], ImportReviews.HoldMessage) { Held = 1 };
             if (target.State is TargetState.Fetching or TargetState.Filing or TargetState.Done or TargetState.Removed ||
                 target.ResumeState is TargetState.Fetching or TargetState.Filing)
                 throw new ArgumentException("Pick a release for an item still waiting to download.");

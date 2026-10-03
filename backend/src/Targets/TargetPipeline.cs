@@ -13,7 +13,10 @@ namespace TorrentFlow.Targets;
 public sealed record AcquireInput(string WorkKey, int? Season = null, int? Episode = null,
     int? Quality = null, long? Rank = null);
 public sealed record TargetActionReply(bool Accepted, int Queued, int Owned,
-    ImmutableArray<string> TargetIds, string Message);
+    ImmutableArray<string> TargetIds, string Message)
+{
+    public int Held { get; init; }
+}
 public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
     ImmutableArray<DownloadRow> Downloads, ImmutableArray<EngineSnapshot> Live,
     ImmutableArray<AttemptRow> History, ImmutableArray<ScopeIntentRow> Scopes)
@@ -75,15 +78,11 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var automatic = origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter;
             var reviews = serviceScope.ServiceProvider.GetRequiredService<ImportReviews>();
             var importPending = await reviews.HasSwitchoverAsync(ct);
-            if (origin == IntentOrigin.Owner && await reviews.HoldsAsync(input.WorkKey, ct))
-                return new(false, 0, 0, [], ImportReviews.HoldMessage);
             var refreshScope = !automatic && input.Season is not null && input.Episode is null;
             resolved ??= await serviceScope.ServiceProvider.GetRequiredService<IMetadata>()
                 .GetWorkAsync(input.WorkKey, refreshScope, ct);
             var work = resolved.Work?.Work
                 ?? throw new ArgumentException("Open the title before downloading it.");
-            if (origin == IntentOrigin.Owner && await reviews.HoldsAsync(work.Id, ct))
-                return new(false, 0, 0, [], ImportReviews.HoldMessage);
             var preference = (await catalog.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Id), ct)).FirstOrDefault();
             var audioLanguage = savedAudioLanguage ??
                 await TargetAudioPolicy.ResolveAsync(store, work, preference, ct);
@@ -125,18 +124,26 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 return new(true, added ? 1 : 0, 0, [], added ? "Season queued." : "Already queued");
             }
             var scope = new TargetScope(work.Id, [.. selected.Select(e => e.Id)], film);
-            var owned = await serviceScope.ServiceProvider.GetRequiredService<ILibraryPlacement>().OwnedAsync(scope, ct);
+            var admission = await TargetAdmission.ReadAsync(serviceScope.ServiceProvider, scope, ct);
+            var owned = admission.Owned;
             var items = film ? new string?[] { null } : selected.Select(e => (string?)e.Id).ToArray();
             var existing = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Id), ct);
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
             var ids = ImmutableArray.CreateBuilder<string>();
             var ownedCount = 0;
             var queued = 0;
+            var heldCount = 0;
             var batch = Guid.NewGuid().ToString("N");
             var changedPolicies = new List<string>();
             foreach (var episodeId in items)
             {
                 if (owned.Any(o => o.EpisodeId == episodeId)) { ownedCount++; continue; }
+                var held = admission.Holds(episodeId);
+                if (held)
+                {
+                    heldCount++;
+                    if (origin == IntentOrigin.Owner) continue;
+                }
                 var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId && t.Kind == TargetKind.Acquire);
                 if (old is not null && origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
                     continue;
@@ -181,10 +188,13 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                         PolicyRevision = old.PolicyRevision + 1, UpdatedAt = now, Version = old.Version + 1 };
                 row = row with { Priority = TargetScheduling.Priority(row, now),
                     MinListedSeeders = minSeeders ?? row.MinListedSeeders };
+                if (held)
+                    row = row with { State = TargetState.Waiting, ReasonText = ImportReviews.HoldMessage,
+                        NextTryAt = now };
                 if (importPending && origin == IntentOrigin.Owner)
                     row = row with { NowAt = now, Priority = TargetPriority.Now };
                 writes.Add(new(row, old?.Version, null));
-                queued++;
+                if (!held) queued++;
                 writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
                     AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
             }
@@ -200,9 +210,11 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var message = queued == 0 && ownedCount > 0 ? "Already in your library" :
                 queued == 0 && ids.Count > 0 ? "Already queued" :
                 ownedCount > 0 ? $"{queued} queued, {ownedCount} already in your library" : $"{queued} queued";
-            if (importPending && origin != IntentOrigin.Owner && queued > 0)
-                message = ImportReviews.BackgroundMessage;
-            return new(true, queued, ownedCount, ids.ToImmutable(), message);
+            if (heldCount > 0)
+                message = items.Length == 1 ? ImportReviews.HoldMessage :
+                    $"{queued} queued, {ownedCount} already in your library, {heldCount} held. {ImportReviews.HoldMessage}";
+            return new(heldCount == 0 || ids.Count > 0 || ownedCount > 0 || origin != IntentOrigin.Owner,
+                queued, ownedCount, ids.ToImmutable(), message) { Held = heldCount };
         }
         finally { if (!lockHeld) stateGate.Release(); }
     }
@@ -218,8 +230,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             if (old is null || old.State == TargetState.Removed && action == TargetAction.Remove)
                 return new(true, 0, 0, [], "Removed");
             if (action is TargetAction.Resume or TargetAction.TryNow or TargetAction.DownloadNow &&
-                await scope.ServiceProvider.GetRequiredService<ImportReviews>().HoldsAsync(old.WorkId, ct))
-                return new(false, 0, 0, [id], ImportReviews.HoldMessage);
+                await TargetAdmission.HoldsAsync(scope.ServiceProvider, old, ct))
+                return new(false, 0, 0, [id], ImportReviews.HoldMessage) { Held = 1 };
             var state = action switch
             {
                 TargetAction.Remove => TargetState.Removed,
@@ -327,16 +339,10 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct), await engine.SnapshotAsync(ct),
             [.. (await catalog.ReadAsync<AttemptRow>(CatalogState.Query(), ct)).Where(a => a.TargetId is not null)],
             await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(), ct));
-        var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
-        if (await reviews.HasSwitchoverAsync(ct))
-        {
-            var heldWorks = (await reviews.ListAsync(ct)).Where(s => s.Id.StartsWith("adoption:",
-                StringComparison.Ordinal)).SelectMany(s => s.Items).SelectMany(i => i.Candidates)
-                .Select(c => c.WorkId).ToHashSet();
-            result = result with { Targets = [.. result.Targets.Select(t => t.State is TargetState.Wanted or
-                TargetState.Waiting && (t.NowAt is null || heldWorks.Contains(t.WorkId)) ? t with { State = TargetState.Waiting,
-                    ReasonText = ImportReviews.BackgroundMessage } : t)] };
-        }
+        var held = await TargetAdmission.HeldTargetsAsync(scope.ServiceProvider,
+            result.Targets.Where(t => t.State is TargetState.Wanted or TargetState.Waiting), ct);
+        result = result with { Targets = [.. result.Targets.Select(t => held.Contains(t.Id)
+            ? t with { State = TargetState.Waiting, ReasonText = ImportReviews.HoldMessage } : t)] };
         var raws = await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct);
         return result with { RawIntents = raws,
             Queue = [.. TargetScheduling.Queue(result.Downloads,
@@ -346,7 +352,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
 
     internal async Task RecoverAsync(CancellationToken ct)
     {
-        if (!await CanRunAsync(ct, owner: true)) return;
+        if (!await CanRunAsync(ct)) return;
         var permitted = await ReviewPermittedAsync(ct);
         var snapshot = await ReadAsync(ct);
         foreach (var row in snapshot.Targets.Where(t => (permitted is null || permitted.Contains(t.Id)) &&
@@ -358,24 +364,21 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     private async Task<ImmutableHashSet<string>?> ReviewPermittedAsync(CancellationToken ct)
     {
         await using var reviewScope = scopes.CreateAsyncScope();
-        var reviews = reviewScope.ServiceProvider.GetRequiredService<ImportReviews>();
-        if (!await reviews.HasSwitchoverAsync(ct)) return null;
-        var candidates = (await ReadAsync(ct)).Targets.Where(t => t.NowAt is not null).ToArray();
-        var held = new HashSet<string>();
-        foreach (var work in candidates.Select(t => t.WorkId).Distinct())
-            if (await reviews.HoldsAsync(work, ct)) held.Add(work);
-        return candidates.Where(t => !held.Contains(t.WorkId)).Select(t => t.Id).ToImmutableHashSet();
+        var candidates = await new CatalogState(reviewScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"))
+            .ReadAsync<TargetRow>(CatalogState.Query(), ct);
+        var held = await TargetAdmission.HeldTargetsAsync(reviewScope.ServiceProvider, candidates, ct);
+        if (held.IsEmpty) return null;
+        return candidates.Where(t => !held.Contains(t.Id)).Select(t => t.Id).ToImmutableHashSet();
     }
 
     internal async Task TickAsync(CancellationToken ct)
     {
-        if (!await CanRunAsync(ct, owner: true)) return;
+        if (!await CanRunAsync(ct)) return;
         var permitted = await ReviewPermittedAsync(ct);
-        var importPending = permitted is not null;
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct, permitted);
         var snapshot = await ReadAsync(ct);
-        if (!importPending) await RecoverStallsAsync(snapshot, ct);
+        await RecoverStallsAsync(snapshot, ct);
         var now = DateTimeOffset.UtcNow;
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
@@ -403,10 +406,9 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             if (flights.Count >= maximumScopes) break;
             if (flights.ContainsKey(group.Key)) continue;
             var rows = group.ToImmutableArray();
-            flights[group.Key] = RunScopeAsync(rows, ct, forceOwner: importPending);
+            flights[group.Key] = RunScopeAsync(rows, ct);
         }
-        foreach (var intent in snapshot.Scopes.Where(s => s.State == ScopeIntentState.Pending && s.NextTryAt <= now &&
-            (!importPending || s.Now)))
+        foreach (var intent in snapshot.Scopes.Where(s => s.State == ScopeIntentState.Pending && s.NextTryAt <= now))
         {
             if (flights.Count >= maximumScopes) break;
             var key = "scope:" + intent.Id;
@@ -419,7 +421,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     {
         foreach (var intent in pending.Take(1))
         {
-            if (!await CanRunAsync(ct, intent.Now)) continue;
+            if (!await CanRunAsync(ct)) continue;
             await using var scope = scopes.CreateAsyncScope();
             var result = await scope.ServiceProvider.GetRequiredService<IMetadata>().GetWorkAsync(intent.WorkId, true, ct);
             var work = result.Work;
@@ -459,10 +461,11 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
 
     private async Task RunScopeAsync(ImmutableArray<TargetRow> rows, CancellationToken shutdown, bool forceOwner = false)
     {
-        if (!await CanRunAsync(shutdown, forceOwner)) return;
+        if (!await CanRunAsync(shutdown)) return;
         await using var reviewScope = scopes.CreateAsyncScope();
-        var reviews = reviewScope.ServiceProvider.GetRequiredService<ImportReviews>();
-        if (await reviews.HoldsAsync(rows[0].WorkId, shutdown)) return;
+        var held = await TargetAdmission.HeldTargetsAsync(reviewScope.ServiceProvider, rows, shutdown);
+        rows = [.. rows.Where(r => !held.Contains(r.Id))];
+        if (rows.IsEmpty) return;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         var token = Guid.NewGuid().ToString("N");
         try
@@ -528,8 +531,9 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                         lifetime.Token, WaitReason.WaitingForSeeders, assignment.Reason, chosen: assignment.Hash);
                     continue;
                 }
-                if (!await CanRunAsync(lifetime.Token, forceOwner) ||
-                    await reviews.HoldsAsync(work.Work.Id, lifetime.Token)) return;
+                if (!await CanRunAsync(lifetime.Token) ||
+                    !(await TargetAdmission.HeldTargetsAsync(scope.ServiceProvider, assigned, lifetime.Token)).IsEmpty)
+                    continue;
                 await transfers.AdmitAsync(work, assigned, assignment, candidate, files.Value, evidence?.AdmissionHandle,
                     async (id, state, reason, text) => await ChangeAsync(id, token, state, lifetime.Token,
                         reason, text, chosen: assignment.Hash), stateGate, lifetime.Token);
@@ -653,17 +657,16 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         if (!result.Applied) throw new InvalidOperationException("The target changed concurrently.");
     }
 
-    private async Task<bool> CanRunAsync(CancellationToken ct, bool owner = false)
+    private async Task<bool> CanRunAsync(CancellationToken ct)
     {
         if (schedulerDisabled) return false;
         await using var scope = scopes.CreateAsyncScope();
         var pending = await scope.ServiceProvider.GetRequiredService<ImportReviews>().HasSwitchoverAsync(ct);
-        if (pending && !owner) return false;
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
         var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("scheduler"), ct)).SingleOrDefault();
         var settings = row is null ? null : TorrentFlow.Store.SettingsCatalog.Read<SchedulerSettings>(row);
         return settings is { Enabled: true, FirstFullRootScanComplete: true } &&
-            (settings.ImportReviewComplete || pending && owner);
+            (settings.ImportReviewComplete || pending);
     }
 
     private sealed class PipelineWorker(TargetPipeline pipeline, ILogger<PipelineWorker> logger) : BackgroundService

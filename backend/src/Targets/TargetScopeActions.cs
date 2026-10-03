@@ -17,8 +17,6 @@ public sealed partial class TargetPipeline
             .GetWorkAsync(workKey, false, ct)).Work?.Work;
         if (canonical is null) return 0;
         var reviews = resolutionScope.ServiceProvider.GetRequiredService<ImportReviews>();
-        if (action == TargetAction.TryNow && await reviews.HoldsAsync(canonical.Id, ct))
-            throw new ArgumentException(ImportReviews.HoldMessage);
         var ownerNow = action == TargetAction.TryNow && await reviews.HasSwitchoverAsync(ct);
         if (canonical.Id != workKey && canonical.WorkKey != workKey)
         {
@@ -36,8 +34,7 @@ public sealed partial class TargetPipeline
                 if (season is not null && itemSeason?.Number != season ||
                     episode is not null && item?.Number != episode ||
                     links.Any(l => l.TargetId == target.Id && downloads.Any(d => d.Id == l.DownloadId))) continue;
-                await ActionAsync(target.Id, action, ct);
-                affected++;
+                if ((await ActionAsync(target.Id, action, ct)).Accepted) affected++;
             }
         }
         await stateGate.WaitAsync(ct);

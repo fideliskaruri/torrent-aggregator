@@ -20,15 +20,36 @@ public sealed class ImportReviews(
     public async Task<bool> HasSwitchoverAsync(CancellationToken ct) =>
         (await list(ct)).Any(s => s.Id.StartsWith("adoption:", StringComparison.Ordinal) &&
             (s.State != "complete" || !s.Items.IsEmpty));
-    public async Task<bool> HoldsAsync(string workId, CancellationToken ct)
+    public async Task<ImmutableArray<ImportReviewItem>> CandidatesAsync(string workId, CancellationToken ct) =>
+        (await CandidatesAsync([workId], ct))[workId];
+
+    public async Task<ImmutableDictionary<string, ImmutableArray<ImportReviewItem>>> CandidatesAsync(
+        ImmutableArray<string> workIds, CancellationToken ct)
     {
-        var candidates = (await list(ct)).Where(s => s.Id.StartsWith("adoption:", StringComparison.Ordinal))
-            .SelectMany(s => s.Items).SelectMany(i => i.Candidates).ToArray();
-        if (candidates.Any(c => c.WorkId == workId || c.WorkKey == workId)) return true;
-        if (candidates.Length == 0) return false;
-        var identity = await canonical(workId, ct) ?? workId;
-        foreach (var candidate in candidates.DistinctBy(c => c.WorkKey))
-            if (await canonical(candidate.WorkKey, ct) is { } resolved && resolved == identity) return true;
-        return false;
+        var items = (await list(ct)).SelectMany(s => s.Items).ToArray();
+        var results = ImmutableDictionary.CreateBuilder<string, ImmutableArray<ImportReviewItem>>();
+        var identities = new Dictionary<string, string?>();
+        async Task<string?> Identity(string key)
+        {
+            if (!identities.TryGetValue(key, out var identity))
+                identities[key] = identity = await canonical(key, ct);
+            return identity;
+        }
+        var groups = items.SelectMany(i => i.Candidates).GroupBy(c => (c.WorkId, c.WorkKey)).ToArray();
+        foreach (var workId in workIds.Distinct())
+        {
+            if (groups.Length == 0) { results[workId] = []; continue; }
+            var identity = await Identity(workId) ?? workId;
+            var matching = new HashSet<(string WorkId, string WorkKey)>();
+            foreach (var group in groups)
+                if (group.Key.WorkId == workId || group.Key.WorkKey == workId ||
+                    group.Key.WorkId == identity ||
+                    await Identity(group.Key.WorkKey) is { } resolved && resolved == identity)
+                    matching.Add(group.Key);
+            results[workId] = [.. items.Select(i => i with
+                { Candidates = [.. i.Candidates.Where(c => matching.Contains((c.WorkId, c.WorkKey)))] })
+                .Where(i => !i.Candidates.IsEmpty)];
+        }
+        return results.ToImmutable();
     }
 }

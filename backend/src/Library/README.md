@@ -162,6 +162,12 @@ All new routes are owner-only, including reads containing paths:
 
 Review items retain separate filename/ancestor parse evidence, parsed quality,
 candidate work and exact episode IDs, sidecars, and an already-owned marker.
+`ImportReviews.CandidatesAsync` exposes the effective pending items for a canonical
+work through the existing review port, retaining their candidate identities and
+parse evidence. It creates no persisted hold or ownership rows. Targets owns the
+one admission rule: ownership first, then candidate episode/film scope; a missing
+candidate episode mapping can still be scoped by the recorded filename coordinates.
+Only a known-work item without either identity or coordinate evidence is work-wide.
 Duplicate keys group all locations of the same film/episode; confirmation rejects
 selecting two of them. A missing episode mapping requires an explicit valid catalog
 episode pick. Unmatched files may also be explicitly assigned at confirmation.
