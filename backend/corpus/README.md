@@ -86,9 +86,9 @@ Unknown audio language, in contrast, must not trigger a foreign-language gate.
 | Kind | Rows |
 | --- | ---: |
 | episode | 1,935 |
-| movie | 1,012 |
+| movie | 1,013 |
 | season_pack | 382 |
-| other | 118 |
+| other | 117 |
 | multi_season | 64 |
 | special | 15 |
 | complete_series | 9 |
@@ -185,12 +185,21 @@ Batch/Complete/Collection cue claims complete_series, without catalog inference.
 Explicit main-feature bundles retain their season/episode intent; quality-only
 audio/container facts are never verified payload claims.
 
-`parser-kind-policy-corrections.tsv` lists **1,655 changed cells across 1,546
+The initial policy pass in `parser-kind-policy-corrections.tsv` lists **1,655 changed cells across 1,546
 rows**, including **106 kinds**, **three restored explicit absolute ranges**, and
 all changed notes. Inputs, queries, origins and annotation provenance remain
 unchanged. Trailer/production-files/subtitle-only rows are other; bare unknown
 titles and known films use the same structural default. Movie collections are
 unqualified collection claims rather than catalog-certified single films.
+
+The OPS-679 audio-codec review appends two historical correction entries for
+**line 247**, restoring `A Silent Voice 2016 JAPANESE BRRip XviD MP3-VXT` to
+movie and explaining that MP3 encodes the film's audio. Video source, video codec
+or resolution evidence prevents an audio-format token alone from implying other;
+explicit OST/soundtrack/album/theme/ED/OP-song markers still establish music.
+All **469 audio-bearing rows** were scanned. The only other existing other row
+with video evidence is line 2179, explicitly Behind the Scenes; it stays other.
+No additional erroneous audio-triggered labels were found.
 
 Exactly **1,480 notes** contained `System.Collections.Generic.List` type names,
 not recoverable list contents. Only that corrupt placeholder was removed; surviving
