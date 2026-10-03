@@ -1,0 +1,22 @@
+{
+  "stableAnd3930Untouched": true,
+  "stoppedLiteralPids": [
+    50768,
+    61916,
+    11760,
+    40672,
+    30600,
+    53520
+  ],
+  "server3965Available": false,
+  "at": "2026-10-04T00:38:36.7984438+03:00",
+  "removedDirectories": [
+    "D:\\code\\memtest\\bin-upg",
+    "D:\\code\\memtest\\data-upg",
+    "D:\\code\\memtest\\seed-upg",
+    "D:\\code\\memtest\\library-upg",
+    "D:\\code\\memtest\\import-upg",
+    "D:\\code\\memtest\\wt-upg"
+  ],
+  "verifiedAbsent": true
+}

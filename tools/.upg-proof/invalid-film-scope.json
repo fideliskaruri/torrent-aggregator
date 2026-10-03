@@ -1,0 +1,4 @@
+{
+  "status": 400,
+  "body": "{\"error\":\"Choose a title, or a valid season and episode for a series.\"}"
+}

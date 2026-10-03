@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Additive TorrentFlow owned-item quality fields",
+  "type": "object",
+  "properties": {
+    "upgrade": { "$ref": "#/$defs/upgrade" },
+    "bestAvailable": { "$ref": "#/$defs/bestAvailable" },
+    "episodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "upgrade": { "$ref": "#/$defs/upgrade" },
+          "bestAvailable": { "$ref": "#/$defs/bestAvailable" }
+        }
+      }
+    },
+    "seasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "upgradeableEpisodes": { "type": "integer", "minimum": 0 } }
+      }
+    }
+  },
+  "$defs": {
+    "upgrade": {
+      "type": ["object", "null"],
+      "properties": {
+        "resolution": { "type": "integer", "minimum": 1 },
+        "seeders": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["resolution", "seeders"]
+    },
+    "bestAvailable": {
+      "type": ["object", "null"],
+      "properties": {
+        "resolution": { "type": ["integer", "null"] },
+        "checkedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["resolution", "checkedAt"]
+    }
+  }
+}

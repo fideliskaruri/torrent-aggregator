@@ -144,7 +144,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     heldCount++;
                     if (origin == IntentOrigin.Owner) continue;
                 }
-                var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId && t.Kind == TargetKind.Acquire);
+                var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId);
                 if (old is not null && origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
                     continue;
                 var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";
@@ -182,7 +182,10 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                         input.Quality, input.Quality ?? 1080, audioLanguage, maxBytes, input.Rank is not null, input.Rank ?? 0,
                         null, actor, origin, ruleId, null, null, null, batch, now, 0, null, 0,
                         null, null, now, now, 1)
-                    : old with { State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
+                    : old with { Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
+                        PickedReleaseHash = old.Kind == TargetKind.Replace ? null : old.PickedReleaseHash,
+                        Origin = origin, CreatedBy = actor,
+                        State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,
                         AudioLanguage = audioLanguage,
                         PolicyRevision = old.PolicyRevision + 1, UpdatedAt = now, Version = old.Version + 1 };
@@ -377,6 +380,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         var permitted = await ReviewPermittedAsync(ct);
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct, permitted);
+        await RetireUpgradeFilesAsync(ct);
         var snapshot = await ReadAsync(ct);
         await RecoverStallsAsync(snapshot, ct);
         var now = DateTimeOffset.UtcNow;
@@ -414,7 +418,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var key = "scope:" + intent.Id;
             if (!flights.ContainsKey(key)) flights[key] = MaterializeAsync([intent], ct);
         }
-
+        await ScheduleQualityAsync(catalog, ct);
     }
 
     private async Task MaterializeAsync(IEnumerable<ScopeIntentRow> pending, CancellationToken ct)
@@ -496,9 +500,9 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 rows[0].EpisodeId is null);
             var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
             var owned = await library.OwnedAsync(targetScope, lifetime.Token);
-            foreach (var row in rows.Where(r => owned.Any(o => o.EpisodeId == r.EpisodeId)))
+            foreach (var row in rows.Where(r => r.Kind == TargetKind.Acquire && owned.Any(o => o.EpisodeId == r.EpisodeId)))
                 await ChangeAsync(row.Id, token, TargetState.Done, lifetime.Token);
-            rows = [.. rows.Where(r => !owned.Any(o => o.EpisodeId == r.EpisodeId))];
+            rows = [.. rows.Where(r => r.Kind == TargetKind.Replace || !owned.Any(o => o.EpisodeId == r.EpisodeId))];
             if (rows.IsEmpty) return;
             var policy = new Policy(rows[0].ResolutionFloor, rows[0].PreferredResolution, rows[0].AudioLanguage,
                 rows[0].MaxBytes, null, rows[0].PolicyRevision);

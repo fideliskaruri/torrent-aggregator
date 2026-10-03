@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "episodeId": null,
+      "upgrade": null,
+      "bestAvailable": {
+        "resolution": 480,
+        "checkedAt": "2026-10-04T00:20:29.9957813+03:00"
+      }
+    }
+  ]
+}

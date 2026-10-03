@@ -31,6 +31,60 @@ references are exactly Domain, Find, Check, Plan, Engine, Library, Metadata and 
 HTTP performs validation and authorization only. `DiscoveryPlan` is the shared checked
 Find -> Check -> Plan composition used by the worker and `/api/dev/plan`.
 
+## Owned-item quality sweep (OPS-857)
+
+Targets owns the quality sweep, not Library or the hunter's HTTP adapter.
+The bounded worker schedules one film/season sweep at a time using the existing
+Find/Check background lane and scope budget. It considers only Library-owned
+items below their work/global preferred quality; it never acquires an item.
+Confirmed episodes share a season discovery pool. All offers must pass the
+normal Plan gates as Replace/Upgrade targets against current Library inventory
+and have a fresh Good swarm verdict. Weak, unknown, blocked and rejected
+releases never become upgrade offers.
+
+`UpgradeEvidence` is the durable result, unique per film/episode. Positive
+evidence expires with its Check verdict (normally six hours); a completed
+negative search with a successful source expires after thirty minutes, matching
+the source-cache window. A failed search cannot claim best available.
+Preference changes invalidate either result, and a changed owned resolution
+invalidates a negative result. Title reads do not search or probe: they compose
+inventory and evidence, read the stored candidate via Find's selection port,
+and rerun pure Plan against current Check evidence and policy. Seeder counts
+come from Check/Find, not another copied counter.
+
+Owner-only actions:
+
+- `POST /api/title/{workKey}/check-again`, body `{}` for the title, or
+  `{"season":1,"episode":2}` for an episode (`season` alone is supported).
+  Runs discovery in the owner lane and returns `{items:[{episodeId,upgrade?,
+  bestAvailable?}]}`. The title read remains the UI source of truth.
+- `POST /api/title/{workKey}/upgrade`, same scope, returns the existing
+  `TargetActionReply`. Only fresh gated offers create deterministic Replace
+  targets with `replacementMode: upgrade`, the chosen hash and the old
+  MediaFile ID. Repeated acceptance returns Already queued.
+
+The existing one-Target-per-item database identity is retained: an existing
+Acquire/history target becomes Replace, and its old Current association is
+retired before a new Current is admitted. Acquiring again after file deletion
+restores Acquire on that same item row. Filed fallback inventory is not removed
+by the generic partial-swap cleanup.
+
+The regular transfer path admits Replace targets even though the item is
+owned; Acquire still skips it. Library's existing replacement placement and
+filing are reused. The old video and recorded sidecars stay until the new
+target is Done and its exact filed binding proves the better inventory file.
+Only then does the existing digest-checked Library removal path retire the old
+payload. A failed, paused or removed upgrade leaves the old file untouched;
+failed cleanup retains it and retries without blocking unrelated downloads.
+Store issues the same snapshot-checked removal proposal for both ordinary
+removal and upgrade retirement. Targets commits clearing the old MediaFile
+reference and deleting inventory/bindings in one transaction, so the restrictive
+foreign key cannot leave an untracked payload or a permanently referenced row.
+
+The additive catalog contract and real HTTP proof are described in
+`tools\.upg-proof\report.md`. Upgrade-watch notifications are owned by the
+separate hunter lane; this sweep never downloads automatically.
+
 ## Phase 4.2 HTTP proof surface
 
 Development, trusted loopback owner only:

@@ -1,0 +1,89 @@
+{
+  "targets": [
+    {
+      "workId": "01a103a0-06e1-72bf-b289-a692096e7521",
+      "episodeId": null,
+      "kind": "acquire",
+      "state": "wanted",
+      "resumeState": null,
+      "reasonCode": null,
+      "reasonText": null,
+      "nextTryAt": null,
+      "expectedAt": null,
+      "resolutionFloor": 4320,
+      "preferredResolution": 4320,
+      "audioLanguage": "en",
+      "maxBytes": null,
+      "ownerRanked": false,
+      "rank": 0,
+      "nowAt": "2026-10-04T00:17:20.5190951+03:00",
+      "createdBy": "local",
+      "origin": "upgrade",
+      "autoRuleId": null,
+      "chosenReleaseHash": null,
+      "replaceMediaFileId": null,
+      "replacementMode": null,
+      "batchId": null,
+      "clickedAt": "2026-10-04T00:17:20.5190755+03:00",
+      "substantiveMisses": 0,
+      "helpNotifiedAt": null,
+      "policyRevision": 4,
+      "leaseUntil": null,
+      "leaseToken": null,
+      "createdAt": "2026-10-04T00:17:20.5190755+03:00",
+      "updatedAt": "2026-10-04T00:28:02.1168966+03:00",
+      "version": 5,
+      "priority": "now",
+      "minListedSeeders": null,
+      "pickedReleaseHash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+      "id": "upgrade:01a103a0-06e1-72bf-b289-a692096e7521:film"
+    }
+  ],
+  "downloads": [
+    {
+      "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "intent": "stopped",
+      "rootId": "f483a9e19f36451682960285c791a63f",
+      "addedAt": "2026-10-04T00:28:02.7331564+03:00",
+      "finishedAt": "2026-10-04T00:28:11.8698344+03:00",
+      "admissionToken": "4d522c75d3364997971e2bb1934857da",
+      "resumeArtifact": null,
+      "rawIntentId": null,
+      "version": 2,
+      "id": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    }
+  ],
+  "live": [],
+  "history": [
+    {
+      "targetId": "upgrade:01a103a0-06e1-72bf-b289-a692096e7521:film",
+      "workId": "01a103a0-06e1-72bf-b289-a692096e7521",
+      "releaseHash": null,
+      "actorUserId": "local",
+      "kind": "legacyEvent",
+      "startedAt": "2026-10-04T00:28:02.1168966+03:00",
+      "endedAt": "2026-10-04T00:28:02.1168966+03:00",
+      "outcome": "Wanted",
+      "reasonCode": null,
+      "reasonText": null,
+      "decision": null,
+      "legacyContext": null,
+      "batchId": "0b4454dbfd954562b9d523d423916b7b",
+      "downloadId": null,
+      "deadlineAt": null,
+      "swap": null,
+      "id": "cef3c15aee674a0c8c11e841049ca5b3"
+    }
+  ],
+  "scopes": [],
+  "queue": [
+    {
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "rank": 0,
+      "priority": "backCatalogue",
+      "now": false,
+      "eligible": false
+    }
+  ],
+  "rawIntents": []
+}

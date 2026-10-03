@@ -35,6 +35,7 @@ internal static class CatalogEndpoints
         app.MapGet("/api/title/{workKey}/links", Links);
         app.MapDelete("/api/title/{workKey}/links/{provider}/{externalId}", Unlink);
         TitleReleases.Map(app);
+        UpgradeEndpoints.Map(app);
         app.MapGet("/api/title/{workKey}/progress", (string workKey) => Json(new
         {
             workKey, transfer = (object?)null, seasonTransfers = new Dictionary<string, object>(),
@@ -164,7 +165,7 @@ internal static class CatalogEndpoints
             CatalogProjection.TitleSeasons(w).FirstOrDefault()?.Number;
 
     private static async Task<IResult> Detail(string workKey, HttpContext h, IMetadata metadata,
-        CatalogState state, ILibraryPlacement library, CancellationToken ct)
+        CatalogState state, ILibraryPlacement library, TargetPipeline pipeline, CancellationToken ct)
     {
         var provider = Param(h, "provider");
         var external = Param(h, "providerId") ?? Param(h, "externalId");
@@ -180,6 +181,7 @@ internal static class CatalogEndpoints
         var coordinate = CatalogProjection.Coordinate(w, follow);
         var ownedItems = await library.OwnedAsync(new(w.Work.Id, [], false), ct);
         var owned = ownedItems.SelectMany(i => i.Videos).ToImmutableArray();
+        var upgrades = await pipeline.ReadUpgradesAsync(w, ct);
         watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(ActorId(h), w.Work.Id, owned);
         var jellyfin = await JellyfinEndpoints.ReadTitle(h, w, owned, ct);
         var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
@@ -198,6 +200,8 @@ internal static class CatalogEndpoints
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
             owned = Owned(owned, null),
+            upgrade = upgrades.FirstOrDefault(i => i.EpisodeId is null)?.Upgrade,
+            bestAvailable = upgrades.FirstOrDefault(i => i.EpisodeId is null)?.BestAvailable,
             downloadFraction = (double?)null, transfer = (object?)null,
             watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
@@ -206,11 +210,15 @@ internal static class CatalogEndpoints
                 pack = (object?)null, transfer = (object?)null,
                 downloadedEpisodes = w.Episodes.Count(e => e.SeasonId == s.Id && owned.Any(f => f.EpisodeId == e.Id)),
                 downloadingEpisodes = 0,
+                upgradeableEpisodes = w.Episodes.Count(e => e.SeasonId == s.Id &&
+                    upgrades.Any(i => i.EpisodeId == e.Id && i.Upgrade is not null)),
             }), season,
             episodes = episodes.Take(200).Select(e => new
             {
                 season, episode = e.Number, label = $"S{season:00}E{e.Number:00}",
                 availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null, owned = Owned(owned, e.Id),
+                upgrade = upgrades.FirstOrDefault(i => i.EpisodeId == e.Id)?.Upgrade,
+                bestAvailable = upgrades.FirstOrDefault(i => i.EpisodeId == e.Id)?.BestAvailable,
                 infoHash = (string?)null, filePath = (string?)null, downloadFraction = (double?)null,
                 nextUp = false, fromPack = false, transfer = (object?)null,
                 watchState = jellyfin?.Episodes.GetValueOrDefault(e.Id),

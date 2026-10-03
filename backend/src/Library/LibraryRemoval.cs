@@ -112,7 +112,8 @@ public static class LibraryRemoval
     }
 
     public static async Task DeleteUnboundAsync(ImmutableArray<MediaFileRow> media,
-        ILibraryDownloadRepository repository, CancellationToken ct)
+        ILibraryDownloadRepository repository, CancellationToken ct,
+        Func<CancellationToken, Task<bool>>? commitInventory = null)
     {
         foreach (var file in media.Where(m => File.Exists(m.Path)))
         {
@@ -123,7 +124,7 @@ public static class LibraryRemoval
         }
         foreach (var file in media)
             if (File.Exists(file.Path)) File.Delete(file.Path);
-        if (!await repository.RemoveLibraryFilesAsync([], media, [], ct))
+        if (!await (commitInventory is null ? repository.RemoveLibraryFilesAsync([], media, [], ct) : commitInventory(ct)))
             throw new IOException("The library changed while deleting files. Refresh and try again.");
         foreach (var directory in media.Select(m => Path.GetDirectoryName(m.Path)!).Distinct(StringComparer.OrdinalIgnoreCase))
         {

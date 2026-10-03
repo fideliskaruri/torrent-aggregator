@@ -30,7 +30,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (targets.IsEmpty) return;
             var owned = await library.OwnedAsync(new(work.Work.Id,
                 [.. targets.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)], targets[0].EpisodeId is null), ct);
-            targets = [.. targets.Where(t => !owned.Any(o => o.EpisodeId == t.EpisodeId))];
+            targets = [.. targets.Where(t => t.Kind == TargetKind.Replace || !owned.Any(o => o.EpisodeId == t.EpisodeId))];
             if (targets.IsEmpty) return;
             assignment = assignment with
             {
@@ -228,7 +228,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 if (members.Length > 0 && members.All(t => t.ChosenReleaseHash != download.Hash))
                 {
                     await engine.DetachAsync(download.Id, ct);
-                    if (members.All(t => t.State is TargetState.Done or TargetState.Removed))
+                    if (members.All(t => t.State is TargetState.Done or TargetState.Removed) &&
+                        !(files.Any(f => f.Filed) && members.Any(t => t.Kind == TargetKind.Replace)))
                         await CleanRetiredAsync(store, repository, download, files, associations, ct);
                     continue;
                 }

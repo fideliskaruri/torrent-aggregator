@@ -1,0 +1,89 @@
+{
+  "targets": [
+    {
+      "workId": "01a103a0-06e1-72bf-b289-a692096e7521",
+      "episodeId": null,
+      "kind": "replace",
+      "state": "paused",
+      "resumeState": "wanted",
+      "reasonCode": null,
+      "reasonText": null,
+      "nextTryAt": null,
+      "expectedAt": null,
+      "resolutionFloor": 1080,
+      "preferredResolution": 1080,
+      "audioLanguage": "en",
+      "maxBytes": null,
+      "ownerRanked": false,
+      "rank": 0,
+      "nowAt": "2026-10-04T00:28:18.4973715+03:00",
+      "createdBy": "local",
+      "origin": "upgrade",
+      "autoRuleId": null,
+      "chosenReleaseHash": null,
+      "replaceMediaFileId": "downloaded:68086A57AD15C9B4152F2547966EA44E4938C81BC19DF1DA92567665624E68DC",
+      "replacementMode": "upgrade",
+      "batchId": null,
+      "clickedAt": "2026-10-04T00:28:18.4971154+03:00",
+      "substantiveMisses": 0,
+      "helpNotifiedAt": null,
+      "policyRevision": 3,
+      "leaseUntil": null,
+      "leaseToken": null,
+      "createdAt": "2026-10-04T00:17:20.5190755+03:00",
+      "updatedAt": "2026-10-04T00:30:08.9194833+03:00",
+      "version": 7,
+      "priority": "upgradeWatch",
+      "minListedSeeders": null,
+      "pickedReleaseHash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+      "id": "upgrade:01a103a0-06e1-72bf-b289-a692096e7521:film"
+    }
+  ],
+  "downloads": [
+    {
+      "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "intent": "stopped",
+      "rootId": "f483a9e19f36451682960285c791a63f",
+      "addedAt": "2026-10-04T00:28:02.7331564+03:00",
+      "finishedAt": "2026-10-04T00:28:11.8698344+03:00",
+      "admissionToken": "4d522c75d3364997971e2bb1934857da",
+      "resumeArtifact": null,
+      "rawIntentId": null,
+      "version": 2,
+      "id": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c"
+    }
+  ],
+  "live": [],
+  "history": [
+    {
+      "targetId": "upgrade:01a103a0-06e1-72bf-b289-a692096e7521:film",
+      "workId": "01a103a0-06e1-72bf-b289-a692096e7521",
+      "releaseHash": null,
+      "actorUserId": "local",
+      "kind": "legacyEvent",
+      "startedAt": "2026-10-04T00:28:02.1168966+03:00",
+      "endedAt": "2026-10-04T00:28:02.1168966+03:00",
+      "outcome": "Wanted",
+      "reasonCode": null,
+      "reasonText": null,
+      "decision": null,
+      "legacyContext": null,
+      "batchId": "0b4454dbfd954562b9d523d423916b7b",
+      "downloadId": null,
+      "deadlineAt": null,
+      "swap": null,
+      "id": "cef3c15aee674a0c8c11e841049ca5b3"
+    }
+  ],
+  "scopes": [],
+  "queue": [
+    {
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "rank": 0,
+      "priority": "backCatalogue",
+      "now": false,
+      "eligible": false
+    }
+  ],
+  "rawIntents": []
+}

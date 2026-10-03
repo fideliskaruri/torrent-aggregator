@@ -1,0 +1,22 @@
+{
+  "listenPort": 12935,
+  "physical": {
+    "listenPort": 12935,
+    "maximumDownloadBytesPerSecond": 0,
+    "dhtState": "Ready",
+    "dhtNodes": 192,
+    "dhtCacheBytes": 4992,
+    "dhtReloadedNodes": 177,
+    "globalConnections": 400,
+    "payloadConnections": 120,
+    "probeConnections": 12,
+    "probeSlots": 10,
+    "maximumProbePieceBytes": 33554432,
+    "probeDiskBudgetBytes": 41943040,
+    "reservedProbeBytes": 0,
+    "localDiscovery": true,
+    "portForwarding": true
+  },
+  "torrents": [],
+  "diagnostics": []
+}

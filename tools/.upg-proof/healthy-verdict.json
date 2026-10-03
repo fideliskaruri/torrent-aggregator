@@ -1,0 +1,76 @@
+[
+  {
+    "hash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+    "band": "Good",
+    "files": [
+      {
+        "index": 0,
+        "relativePath": "classicalhd-sintel.2010.en-1080p.mkv",
+        "bytes": 576700012,
+        "offset": 0
+      },
+      {
+        "index": 1,
+        "relativePath": "classicalhd-sintel.2010.en-1080p.nfo",
+        "bytes": 9038,
+        "offset": 576700012
+      },
+      {
+        "index": 2,
+        "relativePath": "Screens\\screen0001.png",
+        "bytes": 835356,
+        "offset": 576709050
+      },
+      {
+        "index": 3,
+        "relativePath": "Screens\\screen0002.png",
+        "bytes": 894301,
+        "offset": 577544406
+      },
+      {
+        "index": 4,
+        "relativePath": "Screens\\screen0003.png",
+        "bytes": 3054757,
+        "offset": 578438707
+      },
+      {
+        "index": 5,
+        "relativePath": "Screens\\screen0004.png",
+        "bytes": 2196216,
+        "offset": 581493464
+      },
+      {
+        "index": 6,
+        "relativePath": "Torrent Downloaded From     UIndex.org      .txt",
+        "bytes": 129,
+        "offset": 583689680
+      }
+    ],
+    "connectedPeers": 3,
+    "connectedSeeders": 2,
+    "byteSendingPeers": 2,
+    "bytesDelivered": 737280,
+    "window": "00:00:07.6280000",
+    "scrapedSeeders": null,
+    "reason": "Payload blocks and byte-sending peers meet the measured rate threshold.",
+    "checkedAt": "2026-10-04T00:17:08.4715487+03:00",
+    "expiresAt": "2026-10-04T06:17:08.4715487+03:00",
+    "fromLiveTransfer": false,
+    "persistable": false,
+    "admissionHandle": null,
+    "peersPresentThroughoutWindow": false,
+    "queueWait": "00:00:00",
+    "fromCache": true,
+    "probeVersion": 1645150844,
+    "pieceLength": 8388608,
+    "blockBytesReceived": 737280,
+    "verifiedPieceBytes": 0,
+    "verifiedPieces": 0,
+    "hashFailures": 0,
+    "pieceVerified": false,
+    "peerBytesReceived": {
+      "ipv4://79.127.136.234:61976/": 475136,
+      "ipv4://79.127.139.136:46353/": 262144
+    }
+  }
+]

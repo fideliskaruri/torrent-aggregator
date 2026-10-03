@@ -1,0 +1,11 @@
+[
+  {
+    "id": "quality:01a103a0-06e1-72bf-b289-a692096e7521:film",
+    "candidateHash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+    "checkedAt": "2026-10-03T21:28:18.3844507+00:00",
+    "episodeId": null,
+    "expiresAt": "2026-10-04T03:17:08.4715487+00:00",
+    "resolution": 1080,
+    "workId": "01a103a0-06e1-72bf-b289-a692096e7521"
+  }
+]

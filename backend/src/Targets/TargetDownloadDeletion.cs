@@ -32,19 +32,20 @@ public sealed partial class TargetPipeline
 internal sealed partial class TargetTransfers
 {
     internal async Task DeleteFilesAsync(string hash, ImmutableArray<int>? indices,
-        SemaphoreSlim stateGate, CancellationToken ct)
+        SemaphoreSlim stateGate, CancellationToken ct, TargetRow? retiringUpgrade = null)
     {
         await gate.WaitAsync(ct);
         try
         {
             await stateGate.WaitAsync(ct);
-            try { await DeleteFilesCoreAsync(hash, indices, ct); }
+            try { await DeleteFilesCoreAsync(hash, indices, ct, retiringUpgrade); }
             finally { stateGate.Release(); }
         }
         finally { gate.Release(); }
     }
 
-    private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices, CancellationToken ct)
+    private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices, CancellationToken ct,
+        TargetRow? retiringUpgrade = null)
     {
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
@@ -65,6 +66,12 @@ internal sealed partial class TargetTransfers
             .Where(l => l.DownloadId == download.Id).ToArray();
         var targets = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct))
             .Where(t => (!shared && links.Any(l => l.TargetId == t.Id)) || files.Any(f => f.TargetId == t.Id)).ToArray();
+        if (retiringUpgrade is not null)
+        {
+            retiringUpgrade = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(retiringUpgrade.Id), ct)).Single();
+            if (retiringUpgrade.State != TargetState.Done || retiringUpgrade.ReplaceMediaFileId is null) return;
+            targets = [.. targets.Where(t => t.Id != retiringUpgrade.Id)];
+        }
         await TargetPipeline.CommitAsync(store,
             [new(download with { Intent = shared ? download.Intent : DownloadIntent.Stopped,
                 Version = download.Version + 1 }, download.Version, null),
@@ -80,28 +87,38 @@ internal sealed partial class TargetTransfers
             throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
         await DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
             await repository.FilingOperationsAsync(ct), await repository.MediaAsync(null, ct), ct);
+        ImmutableArray<RowWrite> retirement = retiringUpgrade is null ? [] :
+            [new(retiringUpgrade with { ReplaceMediaFileId = null, Version = retiringUpgrade.Version + 1,
+                UpdatedAt = DateTimeOffset.UtcNow }, retiringUpgrade.Version, null)];
         if (shared)
         {
             var replacements = DownloadFiling.RetireBindings(files, allFiles, root.Path, hash);
             var media = (await repository.MediaAsync(null, ct)).Where(m => files.Any(f =>
                 f.DownloadId == m.DownloadId && (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToImmutableArray();
-            if (!await repository.RemoveLibraryFilesAsync(files, media, replacements, ct))
+            var proposal = retiringUpgrade is null ? null :
+                await repository.ProposeRemovalAsync(files, media, replacements, ct)
+                    ?? throw new IOException("The pack files changed while removing them. Refresh and try again.");
+            if (retiringUpgrade is null && !await repository.RemoveLibraryFilesAsync(files, media, replacements, ct))
                 throw new IOException("The pack files changed while removing them. Refresh and try again.");
             var restored = download with { Version = download.Version + 2 };
-            await TargetPipeline.CommitAsync(store, [new(restored, download.Version + 1, null)],
-                [.. links.Where(l => targets.Any(t => t.Id == l.TargetId))
-                        .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l))], ct);
+            await TargetPipeline.CommitAsync(store, [new(restored, download.Version + 1, null), .. retirement],
+                [.. links.Where(l => targets.Any(t => t.Id == l.TargetId) || retiringUpgrade?.Id == l.TargetId)
+                        .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l))], ct, proposal);
             var remaining = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
             if (restored.FinishedAt is null && remaining.Any(f => f.Selected && !f.Filed))
                 await engine.RecoverAsync([restored], remaining, ct);
         }
         else
         {
-            if (!await repository.RemoveDownloadFilesAsync(download.Id, ct))
+            var proposal = retiringUpgrade is null ? null :
+                await repository.ProposeRemovalAsync(allFiles,
+                    [.. (await repository.MediaAsync(null, ct)).Where(m => m.DownloadId == download.Id)], [], ct)
+                    ?? throw new IOException("The download files changed while removing them. Try again.");
+            if (retiringUpgrade is null && !await repository.RemoveDownloadFilesAsync(download.Id, ct))
                 throw new IOException("The download files changed while removing them. Try again.");
-            await TargetPipeline.CommitAsync(store, [],
+            await TargetPipeline.CommitAsync(store, retirement,
                 [.. links.Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
-                     new(StoreTable.Download, download.Id, download.Version + 1, null)], ct);
+                     new(StoreTable.Download, download.Id, download.Version + 1, null)], ct, proposal);
             await ((TorrentFlow.Engine.IEngineRetirement)engine).ForgetAsync(download.Id, ct);
         }
         if (engine is TorrentFlow.Engine.MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
