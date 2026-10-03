@@ -204,7 +204,7 @@ export function showsProgressBar(torrent: Pick<ClientTorrent, "state" | "progres
 export function canOpenFinishedFile(
   torrent: Pick<ClientTorrent, "ownerClientType" | "state" | "filesMissing">,
 ): boolean {
-  return torrent.ownerClientType === "builtin" && torrent.state === "downloaded" && torrent.filesMissing !== true;
+  return torrent.ownerClientType === "builtin" && isDownloaded(torrent.state) && torrent.filesMissing !== true;
 }
 
 const WAIT_REASON_LABELS: Record<string, string> = {
