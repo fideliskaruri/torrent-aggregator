@@ -1,0 +1,44 @@
+[
+  {
+    "case": "backcatalogue",
+    "status": 200,
+    "body": {
+      "entries": [],
+      "airTimesUnavailable": false
+    }
+  },
+  {
+    "case": "recentEpisode",
+    "status": 200,
+    "body": {
+      "entries": [
+        {
+          "id": "done:cmuogshbhk53r6jmy9e85570x",
+          "kind": "airs",
+          "title": "Frieren: Beyond Journey\u2019s End",
+          "episode": "S01E11",
+          "posterUrl": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-qQTzQnEJJ3oB.jpg",
+          "at": "2026-10-01T18:23:08.303668+00:00",
+          "nextCheckAt": null,
+          "lane": "background",
+          "queuePosition": null,
+          "waitReason": {
+            "reason": "None",
+            "text": "In your library",
+            "until": null,
+            "since": null
+          },
+          "workKey": "frieren-beyond-journeys-end",
+          "targetId": "cmuogshbhk53r6jmy9e85570x",
+          "state": "in_library",
+          "release": "episode",
+          "followed": false,
+          "grabNow": false,
+          "quality": null,
+          "mediaType": "tv"
+        }
+      ],
+      "airTimesUnavailable": false
+    }
+  }
+]

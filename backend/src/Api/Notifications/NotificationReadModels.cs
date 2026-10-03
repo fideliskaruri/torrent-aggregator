@@ -207,8 +207,8 @@ internal static class NotificationReadModels
                     null, "background", null, new("NotAiredYet", "Not released yet", physical, null), work.WorkKey,
                     null, "expected", "physical", followSet.Contains(work.Id), false, null, "movie"));
         }
-        var recent = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State == TargetState.Done &&
-            t.UpdatedAt > DateTimeOffset.UtcNow.AddDays(-7) && (workKey is null ||
+        var now = DateTimeOffset.UtcNow;
+        var recent = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State == TargetState.Done && (workKey is null ||
             works.Any(w => w.Id == t.WorkId && w.WorkKey == workKey)));
         foreach (var t in recent)
         {
@@ -216,11 +216,13 @@ internal static class NotificationReadModels
             if (work is null) continue;
             var ep = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);
             var season = seasons.FirstOrDefault(s => s.Id == ep?.SeasonId);
+            var expected = CalendarDates.Expected(t, ep, work);
+            if (expected is null || expected < now.AddDays(-7) || expected > now) continue;
             entries.Add(new("done:" + t.Id, "airs", Title(work, names),
                 ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}", work.PosterUrl,
-                t.ExpectedAt ?? ep?.AirAt ?? t.UpdatedAt, null, "background", null,
+                expected, null, "background", null,
                 new("None", "In your library", null, null), work.WorkKey, t.Id, "in_library",
-                ep is null ? "release" : "episode", followSet.Contains(work.Id), false, null,
+                CalendarDates.Release(ep is not null, expected, work), followSet.Contains(work.Id), false, null,
                 work.Kind == WorkKind.Film ? "movie" : "tv"));
         }
         return Results.Json(new { entries = entries.OrderBy(e => e.At ?? DateTimeOffset.MaxValue)

@@ -1,5 +1,42 @@
 # API contract repair proof (OPS-799)
 
+## Follow-up: release-only calendar root cause (OPS-825)
+
+The done-target loop filtered on completion `UpdatedAt` and fell back to that
+timestamp for the calendar date. This admitted back-catalogue downloads and made
+the calendar describe library additions rather than releases.
+
+The loop now uses the existing `CalendarDates.Expected` resolver
+(`ExpectedAt` → episode air date → work digital/physical/theatrical dates), and
+includes done entries only when that date lies between now minus seven days and
+now. Unknown or future release dates are excluded; completion time is irrelevant.
+The release label also uses the existing shared resolver, with no new policy.
+
+The web changes from **1be4263** are exactly reversed: both files match
+`1be4263^`, including the pre-existing `in_library` exclusion from the Due-now
+**group**. No library group, hidden date, or "Recently added to your library"
+label remains. The older per-card `timelineTime` wording is unchanged by this
+requested exact reversal.
+
+Fresh read-only SQLite backup → isolated conversion → controlled dates/states on
+real copied rows, scheduler disabled, HTTP port 3966:
+
+| Case | Expected | Real HTTP result |
+|---|---|---|
+| Stuart Little (1999), done today, no target date, work release 1999-12-17 | No calendar entry | **200**, `entries:[]` |
+| Frieren S01E11, done target updated ten days ago, no target date, episode aired two days ago | Exactly one `in_library` entry dated by its air date | **200**, exactly one entry, `at` equals fixture `airAt` |
+
+Evidence: `calendar-fixture.py`, `calendar-fixture.json`, `calendar-http.json`.
+These are controlled fixtures on a converted copy, not a claim that Frieren
+really aired a new episode this week. Backend build: **0 warnings/errors**.
+`pnpm build` typechecked and built the web successfully. Playwright MCP loaded
+the real page and verified the episode under its **Oct 1 release-date group**,
+with no back-catalogue film or library group, at **390/768/1280**; screenshots
+are `calendar-390.png`, `calendar-768.png`, `calendar-1280.png`.
+Proof process, copied data, isolated build and worktree removed after verification.
+Commit subject: `Date completed calendar entries by their release window`,
+with `Refs: OPS-825`.
+
 ## Outcome
 
 The gate still fails. All scoped adapter/fixture groups are verified, but cold
