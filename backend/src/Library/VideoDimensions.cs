@@ -9,10 +9,36 @@ internal static class VideoDimensions
 
     internal static (int? Width, int? Height) Read(string path)
     {
+        var details = ReadDetails(path);
+        return (details.Width, details.Height);
+    }
+
+    internal static (int? Width, int? Height, double? RuntimeSeconds) ReadDetails(string path)
+    {
         using var stream = File.OpenRead(path);
         Span<byte> type = stackalloc byte[4];
         Span<byte> dimensions = stackalloc byte[8];
+        double? runtime = null;
+        int? videoWidth = null, videoHeight = null;
         foreach (var moov in Boxes(stream, 0, stream.Length).Where(b => b.Kind == "moov"))
+        {
+            foreach (var header in Boxes(stream, moov.Data, moov.End).Where(b => b.Kind == "mvhd"))
+            {
+                if (header.End - header.Data < 20) continue;
+                stream.Position = header.Data;
+                var version = stream.ReadByte();
+                var offset = version == 0 ? 12 : version == 1 ? 20 : -1;
+                var length = version == 1 ? 12 : 8;
+                if (offset < 0 || header.End - header.Data < offset + length) continue;
+                var timing = new byte[12];
+                stream.Position = header.Data + offset;
+                stream.ReadExactly(timing.AsSpan(0, length));
+                var scale = BinaryPrimitives.ReadUInt32BigEndian(timing);
+                var duration = version == 1 ? BinaryPrimitives.ReadUInt64BigEndian(timing.AsSpan(4)) :
+                    BinaryPrimitives.ReadUInt32BigEndian(timing.AsSpan(4));
+                if (scale > 0 && duration > 0 && duration != uint.MaxValue && duration != ulong.MaxValue)
+                    runtime = (double)duration / scale;
+            }
             foreach (var track in Boxes(stream, moov.Data, moov.End).Where(b => b.Kind == "trak"))
             {
                 var children = Boxes(stream, track.Data, track.End).ToArray();
@@ -35,10 +61,12 @@ internal static class VideoDimensions
                     stream.ReadExactly(dimensions);
                     var width = (int)(BinaryPrimitives.ReadUInt32BigEndian(dimensions) >> 16);
                     var height = (int)(BinaryPrimitives.ReadUInt32BigEndian(dimensions[4..]) >> 16);
-                    if (width is > 0 and <= 32768 && height is > 0 and <= 32768) return (width, height);
+                    if (videoWidth is null && width is > 0 and <= 32768 && height is > 0 and <= 32768)
+                    { videoWidth = width; videoHeight = height; }
                 }
             }
-        return (null, null);
+        }
+        return (videoWidth, videoHeight, videoWidth is null ? null : runtime);
     }
 
     private static IEnumerable<Box> Boxes(FileStream stream, long start, long end)

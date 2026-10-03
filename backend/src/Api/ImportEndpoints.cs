@@ -143,7 +143,7 @@ internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLi
             var id = "adoption:" + root.Id;
             var scan = await reviews.GetAsync(id, ct);
             if (scan?.State == "complete") continue;
-            if (scan is null || scan.State is "queued" or "failed")
+            if (scan is null || scan.State is "queued" or "failed" or "adopting")
             {
                 scan = new(id, root.Path, "queued", 0, 0, [], null);
                 await reviews.SaveAsync(scan, ct);

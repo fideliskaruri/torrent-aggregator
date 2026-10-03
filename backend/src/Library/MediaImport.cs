@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Library;
@@ -6,6 +7,7 @@ namespace TorrentFlow.Library;
 public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlacement placement,
     ILibraryRepository inventory, ILibraryImportRepository operations)
 {
+    private readonly Dictionary<string, (long Bytes, DateTime Mtime, ImportMediaDetails Details)> mediaDetails = [];
     private static readonly HashSet<string> Videos = new(StringComparer.OrdinalIgnoreCase)
         { ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".webm", ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv" };
     private static readonly HashSet<string> Subtitles = new(StringComparer.OrdinalIgnoreCase)
@@ -58,11 +60,13 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 .OrderByDescending(r => r.Path.Length).FirstOrDefault();
             var now = DateTimeOffset.UtcNow;
             var quality = item.Parsed.Quality;
+            var details = await DetailsAsync(item.Path, ct);
             var file = new MediaFileRow("adopted:" + physical, pick.WorkId, pick.EpisodeId, root?.Id,
                 item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
-                quality.Resolution ?? item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(r => r is not null),
-                quality.Source, Path.GetExtension(item.Path).TrimStart('.'), null, null, null, null,
-                null, null, null, [], MediaOrigin.Imported, null, null, now, now, null,
+                VideoDimensions.Resolution(details.Width, details.Height) ??
+                    quality.Resolution ?? item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(r => r is not null),
+                quality.Source, Path.GetExtension(item.Path).TrimStart('.'), quality.Codec, null, details.Width, details.Height,
+                null, details.RuntimeSeconds, null, [], MediaOrigin.Imported, null, null, now, now, null,
                 FilePresence.Present, null, null, null, 1);
             if (await placement.RecordAsync(file, null, ct) is null)
                 await reviews.DecideAsync(scan.Id, item.Id, "adopted", ct);
@@ -77,6 +81,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         var tracked = await inventory.MediaAsync(null, ct);
         var items = ImmutableArray.CreateBuilder<ImportReviewItem>();
         var matches = new Dictionary<string, MetadataResult>();
+        var searches = new Dictionary<string, CatalogResult>();
         report(new(id, path, "scanning", paths.Length, 0, [], null));
         foreach (var file in paths)
         {
@@ -91,31 +96,48 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 parents.Add(parser.Parse(Path.GetFileName(parent)));
                 parent = Path.GetDirectoryName(parent);
             }
+            var bare = Regex.Match(Path.GetFileNameWithoutExtension(file), @"^(?:E)?(\d{1,4})$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+            var folderSeason = parents.FirstOrDefault(p => !p.Seasons.IsEmpty);
+            if (bare.Success && folderSeason is not null && !parents.Any(TitleEvidence))
+            {
+                var rootTitle = parser.Parse(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)));
+                if (TitleEvidence(rootTitle)) parents.Add(rootTitle);
+            }
+            if (bare.Success && folderSeason is not null && parents.Any(TitleEvidence) &&
+                int.TryParse(bare.Groups[1].Value, out var number) && number > 0)
+                parsed = parsed with { Title = "", Seasons = folderSeason.Seasons, Episodes = [number],
+                    AbsoluteNumbers = [], Kind = ReleaseKind.Episode };
             var series = !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty;
             var kind = series ? WorkKind.Series : WorkKind.Film;
-            var evidence = new[] { parsed }.Concat(parents).Where(p => !string.IsNullOrWhiteSpace(p.Title)).ToArray();
+            var evidence = new[] { parsed }.Concat(parents).Where(TitleEvidence).ToArray();
             MetadataResult? match = null;
             var matchedName = parsed;
             var year = parsed.Year ?? parents.FirstOrDefault(p => p.Year is not null)?.Year;
+            var answers = new List<(ParsedRelease Name, MetadataResult Answer)>();
             foreach (var name in evidence)
             {
-                var key = name.Title + ":" + year + ":" + kind;
+                var nameYear = name.Year;
+                var key = name.Title + ":" + nameYear + ":" + kind;
                 if (!matches.TryGetValue(key, out var answer))
                 {
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     timeout.CancelAfter(TimeSpan.FromSeconds(20));
-                    try { answer = await metadata.ResolveAsync(new(null, name.Title, year, kind), timeout.Token); }
+                    try { answer = await metadata.ResolveAsync(new(null, name.Title, nameYear, kind), timeout.Token); }
                     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                     { answer = new(null, new("CatalogUnavailable", "The catalog did not answer. Choose a title or scan again.", null, false), false, false); }
                     matches[key] = answer;
                 }
-                match = answer;
-                matchedName = name;
-                if (answer.Work is not null || answer.Failure?.Code == "ambiguous") break;
+                answers.Add((name, answer));
+                if (match?.Work is null && (answer.Work is not null || match is null ||
+                    answer.Failure?.Code == "ambiguous" && match.Failure?.Code != "ambiguous"))
+                { match = answer; matchedName = name; }
             }
             var candidates = ImmutableArray.CreateBuilder<ImportCandidate>();
             var confident = false;
             var guessed = false;
+            string? reviewReason = null;
+            var details = await DetailsAsync(file, ct);
             if (match?.Work is { } work)
             {
                 candidates.AddRange(Candidates(work, parsed, parents.ToImmutable()));
@@ -128,12 +150,53 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 confident = !guessed && candidates.Count == 1 && (!series || candidates[0].EpisodeId is not null) && match.Complete &&
                     work.Names.Any(n => evidence.Any(p => p.Title.Trim().Equals(n.Value.Trim(), StringComparison.OrdinalIgnoreCase))) &&
                     parsed.Episodes.Length <= 1 && parsed.AbsoluteNumbers.Length <= 1 && !parsed.Unsafe && !parsed.Sample;
+                if (year is null)
+                {
+                    var found = await SearchAsync(matchedName.Title, kind, searches, ct);
+                    var exact = found.Works.Where(w => w.Work.Kind == kind &&
+                        w.Names.Any(n => SameName(n.Value, matchedName.Title))).DistinctBy(w => w.Work.WorkKey).ToArray();
+                    var unique = exact.Length == 1 ? await FullWorkAsync(exact[0], ct) : null;
+                    if (unique?.Work.Id != work.Work.Id || found.Partial || found.Stale)
+                    {
+                        confident = false;
+                        reviewReason = exact.Length > 1 ? "Several titles have this name. Pick the right one." :
+                            "The catalog could not confirm a unique title without a year. Pick the right one.";
+                        foreach (var alternate in exact)
+                            if (await FullWorkAsync(alternate, ct) is { } full)
+                                candidates.AddRange(Candidates(full, parsed, parents.ToImmutable()));
+                    }
+                }
+                if (answers.Any(a => !work.Names.Any(n => SameName(n.Value, a.Name.Title)) ||
+                    a.Name.Year is { } nameYear && work.Work.Year != nameYear ||
+                    a.Answer.Work is { } other && other.Work.Id != work.Work.Id))
+                {
+                    confident = false;
+                    reviewReason = "The file name and folder name disagree. Pick the right title.";
+                    foreach (var other in answers.Select(a => a.Answer.Work).OfType<WorkSnapshot>())
+                        candidates.AddRange(Candidates(other, parsed, parents.ToImmutable()));
+                }
+                var expected = series ? work.Episodes.FirstOrDefault(e => e.Id == candidates.FirstOrDefault()?.EpisodeId)?.RuntimeMinutes :
+                    work.Work.RuntimeMinutes;
+                if (details.RuntimeSeconds is not { } seconds)
+                { confident = false; reviewReason ??= details.Error; }
+                else if (expected is not > 0)
+                { confident = false; reviewReason ??= "The catalog has no runtime to check. Pick the right title."; }
+                else if (Math.Abs(seconds / 60 - expected.Value) >
+                    (series ? expected.Value * .5 : Math.Max(expected.Value * .25, 20)))
+                { confident = false; reviewReason ??= "The file runtime does not fit this title. Pick the right title."; }
             }
             else if (match?.Failure?.Code == "ambiguous")
             {
-                var found = await metadata.SearchAsync(new(matchedName.Title, series ? "series" : "films", 6), ct);
-                foreach (var workCandidate in found.Works) candidates.AddRange(Candidates(workCandidate, parsed, parents.ToImmutable()));
+                var found = await SearchAsync(matchedName.Title, kind, searches, ct);
+                var exact = found.Works.Where(w => w.Work.Kind == kind &&
+                    w.Names.Any(n => SameName(n.Value, matchedName.Title))).ToArray();
+                foreach (var workCandidate in (exact.Length > 0 ? exact : found.Works.ToArray()).Take(6))
+                    if (await FullWorkAsync(workCandidate, ct) is { } full)
+                        candidates.AddRange(Candidates(full, parsed, parents.ToImmutable()));
             }
+            var uniqueCandidates = candidates.DistinctBy(c => (c.WorkId, c.EpisodeId)).ToImmutableArray();
+            candidates.Clear();
+            candidates.AddRange(uniqueCandidates);
             var chosen = candidates.Count == 1 && !guessed ? candidates[0] : null;
             var duplicateKey = chosen is not null && (!series || chosen.EpisodeId is not null)
                 ? chosen.WorkId + ":" + (chosen.EpisodeId ?? "film") : null;
@@ -152,15 +215,49 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                 parents.ToImmutable(), candidates.Count == 0 ? ImportConfidence.Unmatched :
                     confident ? ImportConfidence.Confident : ImportConfidence.NeedsPick,
                 candidates.ToImmutable(), sidecars, already, duplicateKey,
-                Reason(already, candidates.ToImmutable(), parsed, parents.ToImmutable(), match, confident, guessed)));
+                reviewReason ?? Reason(already, candidates.ToImmutable(), parsed, parents.ToImmutable(), match, confident, guessed)));
             report(new(id, path, "scanning", paths.Length, items.Count, items.ToImmutable(), null));
         }
+
         var duplicates = items.Where(i => i.DuplicateKey is not null).GroupBy(i => i.DuplicateKey)
             .Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         report(new(id, path, "complete", paths.Length, items.Count,
             [.. items.Select(i => duplicates.Contains(i.DuplicateKey) ? i with
                 { Group = ImportConfidence.NeedsPick, Message = i.Candidates[0].EpisodeId is null
                     ? "Two files for the same film" : "Two files for the same episode" } : i)], null));
+    }
+
+    private static bool SameName(string left, string right) =>
+        left.Trim().Equals(right.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static bool TitleEvidence(ParsedRelease parsed) => !string.IsNullOrWhiteSpace(parsed.Title) &&
+        !new[] { "Movies", "Films", "TV", "Anime", "Anime Movies", "Incoming", "Downloads" }
+            .Contains(parsed.Title.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    private async Task<CatalogResult> SearchAsync(string title, WorkKind kind,
+        Dictionary<string, CatalogResult> cache, CancellationToken ct)
+    {
+        var key = title + ":" + kind;
+        if (cache.TryGetValue(key, out var result)) return result;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        try { result = await metadata.SearchAsync(new(title, kind == WorkKind.Series ? "series" : "films", 100), timeout.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { result = new([], true, false, []); }
+        cache[key] = result;
+        return result;
+    }
+
+    private async Task<WorkSnapshot?> FullWorkAsync(WorkSnapshot candidate, CancellationToken ct) =>
+        (await metadata.GetWorkAsync(candidate.Work.WorkKey, false, ct)).Work;
+
+    private async Task<ImportMediaDetails> DetailsAsync(string path, CancellationToken ct)
+    {
+        var file = new FileInfo(path);
+        if (mediaDetails.TryGetValue(path, out var cached) && cached.Bytes == file.Length && cached.Mtime == file.LastWriteTimeUtc)
+            return cached.Details;
+        var details = await ImportMediaDetails.ReadAsync(path, ct);
+        mediaDetails[path] = (file.Length, file.LastWriteTimeUtc, details);
+        return details;
     }
 
     // One short, plain reason per review item, shown as is on the review screen.
@@ -271,6 +368,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         var files = new[] { new ImportSidecar(item.Path, item.Bytes, item.MtimeUtc) }.Concat(item.Sidecars).ToArray();
         foreach (var file in files) Stable(file);
         ValidateVideo(item.Path);
+        var details = await DetailsAsync(item.Path, ct);
         var now = DateTimeOffset.UtcNow;
         var mediaId = "import:" + scanId + ":" + item.Id;
         var destinations = files.Select(f => f.Path).ToArray();
@@ -356,9 +454,11 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             media.Add(new(i == 0 ? mediaId : mediaId + ":" + i, pick.WorkId, pick.EpisodeId, rootId,
                 destination, LibraryPaths.PhysicalKey(destination), i == 0 ? FileRole.Video : FileRole.Subtitle,
                 i == 0 ? null : mediaId, source.Bytes, File.GetLastWriteTimeUtc(destination),
-                i == 0 ? quality.Resolution : null, i == 0 ? quality.Source : null,
+                i == 0 ? VideoDimensions.Resolution(details.Width, details.Height) ?? quality.Resolution : null,
+                i == 0 ? quality.Source : null,
                 Path.GetExtension(destination).TrimStart('.'), i == 0 ? quality.Codec : null,
-                null, null, null, i == 0 ? quality.Hdr : null, null, null, [],
+                null, i == 0 ? details.Width : null, i == 0 ? details.Height : null,
+                i == 0 ? quality.Hdr : null, i == 0 ? details.RuntimeSeconds : null, null, [],
                 MediaOrigin.Imported, null, null, now, now, null, FilePresence.Present, null, now, digest, 1));
         }
         var committedOps = opRows.Select((o, i) => o with { State = FileOperationState.InventoryCommitted,

@@ -61,6 +61,20 @@ those inventory rows and completed operations are removed. No wildcard sidecar
 search or recursive title-tree deletion is used. A changed file refuses the
 operation and leaves the video's bytes untouched.
 
+`LibraryRead` composes the Library list at read time: watch intent is unioned with
+works returned by the shared `ILibraryPlacement.OwnedAsync` query, deduplicated by
+work. No WatchItem is created by import, adoption or filing. File-only entries use
+a stable `library:<workId>` read identifier and the normal item shape, without an
+origin field. Catalog title reads use that same ownership query. Removing an
+owned entry through the watchlist action requires explicit `confirm=true` and
+delegates to the existing Library removal flow before removing intent; a watch-only
+entry removes only intent. An old "remove, keep files" request is refused rather
+than deleting files under a promise to retain them.
+
+The existing scoped `/api/library/delete` adapter still resolves persisted
+WatchItems only. It needs to compose `LibraryRead` for file-only identifiers too;
+that adapter and the web's removal copy are outside this lane's allowed files.
+
 For a shared pack, the preview selects only the requested items' file indices.
 Targets drains the manager through Engine's public API, retires those bindings to
 unselected hidden boundary-fragment paths, removes their inventory and associations,
@@ -111,12 +125,29 @@ candidate work and exact episode IDs, sidecars, and an already-owned marker.
 Duplicate keys group all locations of the same film/episode; confirmation rejects
 selecting two of them. A missing episode mapping requires an explicit valid catalog
 episode pick. Unmatched files may also be explicitly assigned at confirmation.
-The scan root itself is not title evidence (a folder named `Incoming` must not turn
-unknown files into the film of that name). Junctions are never followed.
+The scan root itself is not ordinary title evidence (a folder named `Incoming`
+must not turn unknown files into the film of that name). For bare numbered videos
+under `Season N`, a named-series scan root can supply the series name; the catalog
+still has to confirm that series and its exact episode. Junctions are never followed.
 Video extensions are removed before parsing title evidence, with the original
 filename retained for review. Ambiguous film names offer the catalog's top picks
-instead of being marked unmatched; unique matches retain their confidence.
+instead of being marked unmatched. Without year evidence, confidence requires a
+complete catalog search with exactly one exact-name work of the requested kind.
+Filename and non-container ancestor titles are resolved independently; disagreement
+or an ancestor that does not match the chosen work's names requires a pick.
+Bare `01`/`E01` filenames in a named series' `Season N` folder reuse the folder's
+season and the catalog's confirmed episode map.
 Destination collisions report import-specific guidance without changing download messages.
+
+Confidence also requires a readable video duration and catalog runtime. Film
+duration must be within the larger of 25% or 20 minutes of the catalog runtime;
+episodes must be within 50% of their exact episode runtime. The existing bounded
+ISO media reader reads MP4/MOV dimensions and duration together. Other containers
+use optional `ffprobe` on PATH, with an eight-second timeout; if it is unavailable
+or the duration/catalog runtime cannot be read, the file remains NeedsPick and is
+never automatically adopted. Details are read once per unchanged file in a scan
+and reused by adoption; explicit confirmation reads and stores current dimensions
+and runtime on MediaFile. No ffmpeg dependency is introduced.
 
 Nothing writes files or inventory before confirmation. Track-in-place retains the
 source path, with a null root outside enrolled roots. Move and copy reuse placement,
@@ -146,8 +177,9 @@ implemented here; the operations read endpoint exposes that limitation honestly.
 
 After conversion, Api composes the same Parser/Metadata import scan over enrolled
 roots before background workers start. `MediaImport.AdoptAsync` records confident,
-unchanged files in place using stat evidence, without moving, renaming, deleting or
-reading payload bytes. This is identity adoption, not container/digest verification.
+unchanged files in place using stat, name and duration evidence, without moving,
+renaming or deleting them. It reads bounded container metadata (or invokes ffprobe),
+not a full payload digest. This is identity adoption, not full digest verification.
 Already-tracked physical paths are retained; ambiguous and unmatched files become
 durable reviews. Per-root and completion markers make startup replay idempotent.
 The completion marker acknowledges the first full scan. Store keeps the existing

@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Library;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Catalog;
@@ -163,7 +164,7 @@ internal static class CatalogEndpoints
             CatalogProjection.TitleSeasons(w).FirstOrDefault()?.Number;
 
     private static async Task<IResult> Detail(string workKey, HttpContext h, IMetadata metadata,
-        CatalogState state, CancellationToken ct)
+        CatalogState state, ILibraryPlacement library, CancellationToken ct)
     {
         var provider = Param(h, "provider");
         var external = Param(h, "providerId") ?? Param(h, "externalId");
@@ -177,7 +178,9 @@ internal static class CatalogEndpoints
         var watch = (await state.ReadAsync<WatchItemRow>(CatalogState.Query(workId: w.Work.Id, userId: ActorId(h)), ct)).FirstOrDefault();
         var follow = (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault();
         var coordinate = CatalogProjection.Coordinate(w, follow);
-        var owned = await state.OwnedAsync(w.Work.Id, ct);
+        var ownedItems = await library.OwnedAsync(new(w.Work.Id, [], false), ct);
+        var owned = ownedItems.SelectMany(i => i.Videos).ToImmutableArray();
+        watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(ActorId(h), w.Work.Id, owned);
         var jellyfin = await JellyfinEndpoints.ReadTitle(h, w, owned, ct);
         var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
             w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
@@ -353,18 +356,22 @@ internal static class CatalogEndpoints
     private static string? Text(JsonElement body, string key) => body.TryGetProperty(key, out var value) ?
         value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.ToString() : null : null;
 
-    private static async Task<IResult> Watchlist(HttpContext h, CatalogState state, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Watchlist(HttpContext h, CatalogState state, IMetadata metadata,
+        ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
-        var rows = await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct);
+        var rows = await LibraryRead.ItemsAsync(ActorId(h),
+            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct),
+            inventory, library, ct);
         var items = new List<object>();
         foreach (var item in rows.OrderByDescending(w => w.UpdatedAt))
         {
             var w = (await metadata.GetWorkAsync(item.WorkId, false, ct)).Work;
-            if (w is not null) items.Add(await WatchProjection(item, w, state, ct));
+            if (w is not null) items.Add(await WatchProjection(item, w, state, library, ct));
         }
         return Json(new { items });
     }
-    private static async Task<IResult> SaveWatch(HttpContext h, CatalogState state, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> SaveWatch(HttpContext h, CatalogState state, IMetadata metadata,
+        ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
         JsonElement body;
         try { body = await JsonSerializer.DeserializeAsync<JsonElement>(h.Request.Body, cancellationToken: ct); }
@@ -375,7 +382,9 @@ internal static class CatalogEndpoints
         WorkSnapshot? w;
         if (h.Request.Method == "PATCH")
         {
-            prior = (await state.ReadAsync<WatchItemRow>(CatalogState.Query(id: Text(body, "id") ?? "", userId: actor), ct)).FirstOrDefault();
+            prior = (await LibraryRead.ItemsAsync(actor,
+                await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct),
+                inventory, library, ct)).FirstOrDefault(i => i.Id == Text(body, "id"));
             if (prior is null) return Json(new { error = "Not found" }, 404);
             w = (await metadata.GetWorkAsync(prior.WorkId, false, ct)).Work;
         }
@@ -439,15 +448,38 @@ internal static class CatalogEndpoints
         var item = await state.SaveAsync(actor, w.Work.Id, status, monitored, fromId, changeStart, mode,
             resolution, changeResolution, ct);
         return item is null ? Json(new { error = "The item changed. Try saving again." }, 409) :
-            Json(new { item = await WatchProjection(item, w, state, ct), existed = prior is not null });
+            Json(new { item = await WatchProjection(item, w, state, library, ct), existed = prior is not null });
     }
-    private static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, CatalogState state, CancellationToken ct) =>
-        CatalogProjection.Watch(item, w, !(await state.OwnedAsync(w.Work.Id, ct)).IsEmpty,
+    private static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, CatalogState state,
+        ILibraryPlacement library, CancellationToken ct) =>
+        CatalogProjection.Watch(item, w, !(await library.OwnedAsync(new(w.Work.Id, [], false), ct)).IsEmpty,
             (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault(),
             (await state.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault());
-    private static async Task<IResult> RemoveWatch(HttpContext h, CatalogState state, CancellationToken ct)
+    private static async Task<IResult> RemoveWatch(HttpContext h, CatalogState state,
+        ILibraryRepository inventory, ILibraryPlacement library, TargetPipeline targets,
+        DevFiling filing, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(Param(h, "id"))) return Json(new { error = "Provide the item's id." }, 400);
+        var item = (await LibraryRead.ItemsAsync(ActorId(h),
+            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct),
+            inventory, library, ct)).FirstOrDefault(i => i.Id == Param(h, "id"));
+        if (item is not null && !(await inventory.MediaAsync(item.WorkId, ct)).IsEmpty)
+        {
+            if (AccessIdentity.Actor(h).Role != UserRole.Owner)
+                return Json(new { error = "Only the owner can remove files from the library." }, 403);
+            if (!bool.TryParse(Param(h, "confirm"), out var confirmed) || !confirmed)
+                return Json(new { error = "This title has files. Review and confirm their deletion before removing it.",
+                    requiresFileDeletion = true }, 409);
+            var preview = LibraryRemoval.Preview(new("show", null, null), item.WorkId, [],
+                await state.ReadAsync<TargetRow>(CatalogState.Query(workId: item.WorkId), ct),
+                await state.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
+                await state.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
+            var deleted = await filing.DeleteLibraryAsync(targets, preview, ct);
+            if (!deleted.Ok) return Json(deleted, 409);
+            var work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).Single();
+            await targets.ScopeActionAsync(work.WorkKey, null, null, TargetAction.Remove, ct);
+        }
         return await state.RemoveAsync(ActorId(h), Param(h, "id")!, ct) ? Json(new { ok = true }) :
             Json(new { error = "The item changed. Try removing it again." }, 409);
     }
