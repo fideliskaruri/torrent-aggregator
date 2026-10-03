@@ -145,7 +145,8 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 return new(await WithPremiereAsync(knownWork, ct), null, true, false);
         }
         await map.LoadAsync(ct);
-        map.RefreshInBackground();
+        if (map.Version == "none") await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
+        else map.RefreshInBackground();
         var mapped = AllowedMap(map.Find(identity));
         if (identity.Provider == "tvdb")
         {
@@ -170,7 +171,7 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             MapAnime(builder, media);
             mapped = AllowedMap(map.Find(new("anilist", aniId, null)));
             ApplyMap(builder, mapped);
-            if (builder.Work.Kind == WorkKind.Series && !await tmdb.EnabledAsync(ct) &&
+            if (builder.Work.Kind == WorkKind.Series &&
                 mapped.SelectMany(e => e.Imdb).FirstOrDefault() is { } imdb)
             {
                 var listing = await cinemeta.DetailAsync(imdb, WorkKind.Series, ct, refresh);
@@ -186,8 +187,6 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 }
                 else builder.Complete = false;
             }
-            if (builder.Work.Kind == WorkKind.Series)
-                await AnimeSeasonsAsync(builder, media, refresh, ct);
             if (await tmdb.EnabledAsync(ct) && builder.Links.FirstOrDefault(l => l.Provider == "tmdb") is { } linked)
             {
                 var detail = await tmdb.DetailAsync(linked.ExternalId, builder.Work.Kind, ct, refresh);
@@ -195,12 +194,16 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 {
                     var animeWork = builder.Work;
                     MapTmdb(builder, row, builder.Work.Kind);
+                    if (builder.Work.Kind == WorkKind.Series)
+                        await TmdbSeasonsAsync(builder, row, refresh, ct);
                     builder.Work = builder.Work with { Anime = true, Format = animeWork.Format,
                         RuntimeMinutes = animeWork.RuntimeMinutes ?? builder.Work.RuntimeMinutes,
                         Synopsis = animeWork.Synopsis, Rating = animeWork.Rating, RatingSource = animeWork.RatingSource,
                         Genres = animeWork.Genres, PosterUrl = animeWork.PosterUrl, BackdropUrl = animeWork.BackdropUrl };
                 }
             }
+            if (builder.Work.Kind == WorkKind.Series)
+                await AnimeSeasonsAsync(builder, media, refresh, ct);
         }
         else if (identity.Provider == "tmdb")
         {

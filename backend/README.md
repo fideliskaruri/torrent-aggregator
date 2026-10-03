@@ -162,6 +162,16 @@ signs test tokens in memory, proves a real non-loopback requester/owner connecti
 and restores saved remote settings. Evidence and public test JWKS remain under
 ignored `tools\.access-proof`. It never calls the old server or live installation.
 
+## Catalog episode dates (OPS-727)
+
+On a cold catalog, Metadata waits for the first Fribb identity map before resolving
+provider links; later map refreshes stay background. Anime loads Cinemeta/TMDB episode
+listings before applying AniList's numbering and airing schedules. Missing schedule
+entries retain the linked provider's actual dates, never extrapolated weekly dates.
+TMDB merges missing dates from the dated listing, and persistence retains known dates
+only when the episode identity and coordinates have not changed. Plan still requires
+every episode's confirmed air date before admitting a finished-season pack.
+
 ## Raw sources (OPS-680 / OPS-686)
 
 `ISources` implements apibay, Nyaa, EZTV, YTS (films, provisional), TorrentsCSV,

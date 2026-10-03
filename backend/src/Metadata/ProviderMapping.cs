@@ -144,6 +144,8 @@ internal sealed partial class MetadataService
         var seasonNodes = allSeasons.Take(40).ToArray();
         b.Complete &= allSeasons.Length <= 40;
         var answers = await Task.WhenAll(seasonNodes.Select(s => tmdb.SeasonAsync(id, s.Int("season_number")!.Value, ct, force)));
+        var priorEpisodes = b.Episodes.ToDictionary(e =>
+            (Season: b.Seasons.First(s => s.Id == e.SeasonId).Number, Episode: e.Number));
         b.Seasons.Clear();
         b.Episodes.Clear();
         var absolute = 0;
@@ -161,10 +163,15 @@ internal sealed partial class MetadataService
             if (number > 0 && status == MappingStatus.Unavailable) prefixKnown = false;
             foreach (var e in node.Obj("episodes").Items().OrderBy(e => e.Int("episode_number")))
                 if (e.Int("episode_number") is { } n)
+                {
+                    var prior = priorEpisodes.GetValueOrDefault((number, n));
+                    var air = JsonFacts.Date(e.Text("air_date"));
                     b.Episode(number, n, number == 0 || !prefixKnown ? null : ++absolute, "tmdb", e.Text("id"), e.Text("name"),
-                        JsonFacts.Date(e.Text("air_date")), DatePrecision.Day, e.Int("runtime") ?? b.Work.RuntimeMinutes,
+                        air ?? prior?.AirAt, air is not null ? DatePrecision.Day : prior?.AirPrecision ?? DatePrecision.Unknown,
+                        e.Int("runtime") ?? b.Work.RuntimeMinutes,
                         !prefixKnown && number > 0 ? MappingStatus.Provisional : status,
                         e.Text("overview"), JsonFacts.Image(e.Text("still_path"), "w780"));
+                }
         }
     }
 

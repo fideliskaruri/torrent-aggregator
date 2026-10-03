@@ -82,6 +82,11 @@ internal sealed partial class MetadataService
                     ?? previous.Episodes.FirstOrDefault(p => p.SeasonId == seasonId && p.Number == e.Number);
                 return e with { Id = old?.Id ?? ProviderHttp.Id(work.Id + ":episode:" + e.Provider + ":" +
                     (e.ProviderEpisodeId ?? seasonId + ":" + e.Number)), SeasonId = seasonId,
+                    AirAt = e.AirAt ?? (old?.SeasonId == seasonId && old.Number == e.Number &&
+                        old.AbsoluteNumber == e.AbsoluteNumber ? old.AirAt : null),
+                    AirPrecision = e.AirAt is not null ? e.AirPrecision :
+                        old?.SeasonId == seasonId && old.Number == e.Number &&
+                        old.AbsoluteNumber == e.AbsoluteNumber ? old.AirPrecision : DatePrecision.Unknown,
                     CreatedAt = old?.CreatedAt ?? e.CreatedAt, Version = old is null ? 0 : old.Version + 1 };
             }).ToList();
             var changedCoordinates = episodes.Any(e => previous.Episodes.FirstOrDefault(p => p.Id == e.Id) is { } old &&
