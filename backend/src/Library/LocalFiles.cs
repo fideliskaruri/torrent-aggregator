@@ -86,18 +86,17 @@ public sealed partial class LocalFiles(ILibraryRepository repository, IStore sto
         if (HasLink(folderPath))
             return new(new { ok = false, error = "Links and junctions are not followed.", pathOnly = full }, LocalFileError.Forbidden);
         reveal &= Environment.GetEnvironmentVariable("PLAYWRIGHT_NO_REVEAL") != "1";
-        // A missing folder falls back to its existing parent; path and message name the folder actually used.
-        var note = folderPath == full ? "" : $" {full} does not exist yet, so its parent folder is used.";
-        if (!reveal) return new(new { ok = true, path = folderPath, requestedPath = full,
-            message = $"Verified folder {folderPath}.{note}", revealed = false });
+        // Old server (FoldersController.Open): missing child under an in-root parent opens the parent
+        // but still answers 200 with path/message naming the requested path. Web Open folder on
+        // not-yet-created category folders (Downloads/Settings) depends on that ok:true success.
+        if (!reveal) return new(new { ok = true, path = full, message = $"Verified folder {full}", revealed = false });
         try
         {
             var info = new ProcessStartInfo(OperatingSystem.IsWindows() ? "explorer.exe" : OperatingSystem.IsMacOS() ? "open" : "xdg-open")
             { UseShellExecute = false };
             info.ArgumentList.Add(folderPath);
             using var process = Process.Start(info);
-            return new(new { ok = true, path = folderPath, requestedPath = full,
-                message = $"Opened {folderPath}.{note}", revealed = true });
+            return new(new { ok = true, path = full, message = $"Opened {full}", revealed = true });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
         { return new(new { ok = false, path = full, error = "Could not open folder",

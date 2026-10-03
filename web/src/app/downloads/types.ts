@@ -32,7 +32,6 @@ export interface ClientTorrent {
   error?: string | null;
   /** The owner pressed Download now on this row. */
   forced?: boolean;
-  /** "English not confirmed" when the check after add could not confirm English audio or subtitles (docs/release-language.md). */
   languageNote?: string | null;
   /**
    * While `state` is "held": why the promotion gate wants the owner to decide
