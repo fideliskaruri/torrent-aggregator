@@ -1,11 +1,10 @@
-using System.Text.Json;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
 
 namespace TorrentFlow.Api.Notifications;
 
 internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFactory scopes,
-    WebPushSender push, ILogger<NotificationWorker> logger) : BackgroundService
+    ILogger<NotificationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -56,30 +55,9 @@ internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFact
                         "/downloads?hash=" + download.Hash, "download:" + download.Id, DateTimeOffset.UtcNow,
                         null, true, null, 0), stoppingToken);
                 }
-                await DeliverAsync(db, stoppingToken);
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             { logger.LogWarning(ex, "Could not publish target notifications."); }
-        }
-    }
-
-    private async Task DeliverAsync(NotificationRepository db, CancellationToken ct)
-    {
-        var subscriptions = await db.AllAsync<PushSubscriptionRow>(ct);
-        foreach (var n in (await db.AllAsync<NotificationRow>(ct)).Where(n => n.PushPending &&
-            (n.PushAttemptAt is null || n.PushAttemptAt.Value.AddSeconds(Math.Min(1800,
-                30 * Math.Pow(2, Math.Min(n.PushAttempts, 6)))) <= DateTimeOffset.UtcNow)))
-        {
-            var payload = JsonSerializer.Serialize(new { id = n.Id, kind = n.Kind, title = n.Title,
-                body = n.Body, link = n.Link ?? "/notifications" });
-            var failed = false;
-            foreach (var s in subscriptions.Where(s => s.UserId == n.UserId))
-            {
-                var result = await push.SendAsync(s, payload, ct);
-                if (result == PushSendResult.Gone) await db.DeleteAsync(s, ct);
-                failed |= result == PushSendResult.Failed;
-            }
-            await db.CompletePushAsync(n.Id, failed && n.CreatedAt.AddDays(1) > DateTimeOffset.UtcNow, ct);
         }
     }
 

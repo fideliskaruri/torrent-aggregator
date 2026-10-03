@@ -438,7 +438,7 @@ Run on a fresh instance built from the merged branch, an isolated data directory
 | 9 | Explicit click on a claimed episode | Click Download on a pack-owned episode. | "Already downloading as part of Season N"; no new transfer. |
 | 10 | Delete one episode | Delete one pack episode from the Downloads dialog. | Only that file is gone; other cards unchanged; target back to not downloaded. |
 | 11 | Swap one episode | "Find another source" on a pack episode, pick a single. | Pack loses that file; the single owns the episode; the pack keeps the others. |
-| 12 | Request | Requester asks for the pack-only season; owner approves (by hand, then with auto-approve). | Request goes partial then fulfilled when the pack's selected files finish; a repeat request creates nothing new. |
+| 12 | Request | Requester asks for the pack-only season; owner approves it. | Request goes partial then fulfilled when the pack's selected files finish; a repeat request creates nothing new. |
 | 13 | Storage cap | Set a cap smaller than the selected set. | Only the episodes that fit are claimed; the rest stay wanted with the storage reason. |
 | 14 | Playback | Play a finished pack episode and a still-downloading one. | The right file plays; the player never lists unowned episodes of the pack. |
 

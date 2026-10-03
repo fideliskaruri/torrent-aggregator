@@ -29,8 +29,7 @@ but cannot cancel, decide, retry or pick. The legacy cancel route returns 403.
 
 Both roles get the web's existing request fields plus quality, size, release name,
 seeders, percentage progress, speed (bytes/second), ETA (seconds), pick reasons and
-expected date. No magnets or filesystem paths are projected. The requester calendar
-is `GET /api/requester/calendar` and contains only that requester's open requests.
+expected date. No magnets or filesystem paths are projected.
 Null values are included explicitly rather than pretending unknown values are known.
 
 Owned-on-disk items fulfill immediately. A 30-second settlement sweep records filed

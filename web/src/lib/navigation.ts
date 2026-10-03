@@ -108,17 +108,15 @@ export const MOBILE_PRIMARY_NAV: readonly NavItem[] = [
 
 /** The owner's inbox of friends' requests. Its entry carries the pending count. */
 export const REQUESTS_HREF = "/requests";
-export const UPCOMING_HREF = "/upcoming";
 export const SETTINGS_HREF = "/settings";
 
 /**
- * Desktop: after the divider. Mobile More base (Upcoming + Requests).
+ * Desktop: after the divider. Mobile More base.
  *
  * Settings is appended for mobile only via {@link MOBILE_MORE_NAV} so desktop
  * keeps Settings in the primary row.
  */
 export const SECONDARY_NAV: readonly NavItem[] = [
-  { href: UPCOMING_HREF, label: "Upcoming", requires: "canSeeUpcoming" },
   { href: REQUESTS_HREF, label: "Requests" },
 ] as const;
 
@@ -136,12 +134,8 @@ export const MOBILE_MORE_NAV: readonly NavItem[] = [
 
 /** Desktop header: the primary path. */
 export const DESKTOP_NAV: readonly NavItem[] = [
-  ...PRIMARY_NAV.flatMap((item) =>
-    item.href === DOWNLOADS_HREF
-      ? [item, { href: UPCOMING_HREF, label: "Upcoming", requires: "canSeeUpcoming" as const }]
-      : [item],
-  ),
-  ...SECONDARY_NAV.filter((item) => item.href !== UPCOMING_HREF),
+  ...PRIMARY_NAV,
+  ...SECONDARY_NAV,
 ];
 
 /**
@@ -162,7 +156,6 @@ export function desktopNavRow(caps?: Capabilities): {
       (item) => item.href,
     ),
   );
-  primaryHrefs.add(UPCOMING_HREF);
   const dividerIndex = items.findIndex((item) => !primaryHrefs.has(item.href));
   return { items, dividerIndex: dividerIndex === -1 ? items.length : dividerIndex };
 }
@@ -184,7 +177,6 @@ const ROUTE_REQUIREMENTS: readonly (readonly [string, Capability])[] = [
   ["/share", "canDownload"],
   ["/settings", "canManage"],
   ["/rules", "canManage"],
-  [UPCOMING_HREF, "canSeeUpcoming"],
   ["/history", "canSeeTransfers"],
   ["/activity", "canSeeTransfers"],
 ];
@@ -274,7 +266,6 @@ export function titleForRoute(pathname: string): string | null {
   if (navActive(pathname, "/activity")) return "Notifications";
   if (navActive(pathname, NOTIFICATIONS_HREF)) return "Notifications";
   if (navActive(pathname, "/watchlist")) return "Library";
-  if (navActive(pathname, UPCOMING_HREF)) return "Upcoming";
   if (navActive(pathname, REQUESTS_HREF)) return "Requests";
   if (navActive(pathname, SETTINGS_HREF)) return "Settings";
   return null;

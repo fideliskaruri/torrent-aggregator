@@ -16,6 +16,5 @@
     <ProjectReference Include="..\Store\Store.csproj" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.File" />
-    <PackageReference Include="Lib.Net.Http.WebPush" />
   </ItemGroup>
 </Project>

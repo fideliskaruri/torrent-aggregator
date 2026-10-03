@@ -48,7 +48,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
-builder.Services.AddNotifications(dataDirectory);
+builder.Services.AddNotifications();
 builder.Services.AddDevSources();
 builder.Services.AddCatalog();
 builder.Services.AddRequests();

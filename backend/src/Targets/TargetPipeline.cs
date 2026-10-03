@@ -198,8 +198,6 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     row = row with { NowAt = now, Priority = TargetPriority.Now };
                 writes.Add(new(row, old?.Version, null));
                 if (!held) queued++;
-                writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
-                    AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
             }
             if (writes.Count > 0) await CommitAsync(store, writes.ToImmutable(), [], ct);
             if (origin == IntentOrigin.Owner && ids.Count > 0 && importPending)

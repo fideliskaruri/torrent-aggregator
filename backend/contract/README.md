@@ -12,11 +12,10 @@ routes**. Five distinct TS field mismatches are tracked as **OPS-648**.
 ### Isolated rebuild coverage extension (OPS-842)
 
 Three previously unlisted web routes now have real HTTP captures from port 3966:
-`POST /api/library/imports/scan` (202, an owned empty folder, without confirmation),
-`GET /api/library/roots` (200), and `GET /api/requester/calendar` (403, owner-local).
-These are explicitly labelled **rebuild responses**, not legacy baseline evidence.
-The calendar capture proves owner refusal only, not requester success. Existing
-capture bodies and schemas are unchanged. Reproduce these additions with
+`POST /api/library/imports/scan` (202, an owned empty folder, without confirmation)
+and `GET /api/library/roots` (200). These are explicitly labelled **rebuild
+responses**, not legacy baseline evidence. Existing capture bodies and schemas are
+unchanged. Reproduce these additions with
 `python tools\.apicontract2-proof\capture-missing.py` against the isolated proof
 server; never point the script at the live instance.
 

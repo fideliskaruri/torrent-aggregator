@@ -5,12 +5,6 @@ using TorrentFlow.Store;
 
 namespace TorrentFlow.Api.Notifications;
 
-internal sealed record TimelineWaitReason(string Reason, string Text, DateTimeOffset? Until, DateTimeOffset? Since);
-internal sealed record TimelineEntry(string Id, string Kind, string Title, string? Episode, string? PosterUrl,
-    DateTimeOffset? At, DateTimeOffset? NextCheckAt, string Lane, int? QueuePosition, TimelineWaitReason WaitReason,
-    string? WorkKey = null, string? TargetId = null, string State = "expected", string Release = "episode",
-    bool Followed = false, bool GrabNow = false, int? Quality = null, string? MediaType = null);
-
 internal static class NotificationReadModels
 {
     internal static string Title(WorkRow work, WorkNameRow[] names) =>
@@ -22,33 +16,22 @@ internal static class NotificationReadModels
     internal static void MapActivity(this WebApplication app)
     {
         app.MapGet("/api/activity", async (NotificationRepository db, string? filter, string? limit,
-            string? cursor, CancellationToken ct) => await PageAsync(db, filter, limit, cursor, null, ct));
+            string? cursor, CancellationToken ct) => await PageAsync(db, filter, limit, cursor, ct));
         app.MapGet("/api/activity/unread", async (NotificationRepository db, string? since, CancellationToken ct) =>
         {
             var boundary = DateTimeOffset.TryParse(since, out var date) ? date : DateTimeOffset.MinValue;
-            var rows = await ActivityAsync(db, null, ct);
+            var rows = await ActivityAsync(db, ct);
             var count = rows.Count(r => (DateTimeOffset)r["createdAt"]! > boundary &&
                 r["status"] is "sent" or "completed" or "failed" or "done" or "error" or "exhausted");
             return Results.Ok(new { count = Math.Min(count, 100), capped = count > 100 });
         });
-        app.MapGet("/api/title/{workKey}/timeline", async (NotificationRepository db, string workKey,
-            string? limit, string? cursor, CancellationToken ct) =>
-            await PageAsync(db, null, limit, cursor, workKey, ct));
-        app.MapGet("/api/timeline", TimelineAsync);
-        app.MapPost("/api/timeline/{targetId}/grab-now", async (string targetId,
-            TorrentFlow.Targets.TargetPipeline pipeline, CancellationToken ct) =>
-        {
-            try { return Results.Json(await pipeline.ActionAsync(targetId, TargetAction.DownloadNow, ct), CatalogProjection.Json); }
-            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
-            catch (KeyNotFoundException) { return Results.NotFound(new { error = "This item is no longer scheduled." }); }
-        });
     }
 
     private static async Task<IResult> PageAsync(NotificationRepository db, string? filter,
-        string? rawLimit, string? cursor, string? workKey, CancellationToken ct)
+        string? rawLimit, string? cursor, CancellationToken ct)
     {
         var limit = int.TryParse(rawLimit, out var parsed) && parsed > 0 ? Math.Min(parsed, 200) : 50;
-        var rows = await ActivityAsync(db, workKey, ct);
+        var rows = await ActivityAsync(db, ct);
         if (filter == "sent") rows = rows.Where(r => r["status"] is "sent").ToList();
         if (ParseCursor(cursor) is { } boundary)
             rows = rows.Where(r => (DateTimeOffset)r["createdAt"]! < boundary.Time ||
@@ -60,14 +43,11 @@ internal static class NotificationReadModels
             nextCursor = more ? Encode(items[^1]) : null }, CatalogProjection.Json);
     }
 
-    private static async Task<List<Dictionary<string, object?>>> ActivityAsync(NotificationRepository db,
-        string? workKey, CancellationToken ct)
+    private static async Task<List<Dictionary<string, object?>>> ActivityAsync(NotificationRepository db, CancellationToken ct)
     {
         var works = await db.AllAsync<WorkRow>(ct);
         var names = await db.AllAsync<WorkNameRow>(ct);
         var releases = await db.AllAsync<ReleaseRow>(ct);
-        var workId = workKey is null ? null : works.FirstOrDefault(w => w.WorkKey == workKey || w.Id == workKey)?.Id;
-        if (workKey is not null && workId is null) return [];
         var rows = new List<Dictionary<string, object?>>();
         var attempts = (await db.AllAsync<AttemptRow>(ct)).AsEnumerable();
         var linked = (await db.AllAsync<DownloadTargetRow>(ct)).Select(l => l.DownloadId).ToHashSet();
@@ -77,7 +57,7 @@ internal static class NotificationReadModels
             .Select(d => new AttemptRow("download:" + d.Id, null, null, d.Hash, "local", AttemptKind.Fetch,
                 d.AddedAt, d.FinishedAt, "Completed", null, "Download ready", null, null, null, d.Id, null, null)));
         foreach (var a in attempts.Where(a =>
-            !a.Id.StartsWith("commit:", StringComparison.Ordinal) && (workId is null || a.WorkId == workId) &&
+            !a.Id.StartsWith("commit:", StringComparison.Ordinal) &&
             (a.ActorUserId is null or "local")))
         {
             var work = works.FirstOrDefault(w => w.Id == a.WorkId);
@@ -129,114 +109,5 @@ internal static class NotificationReadModels
         catch (FormatException) { return null; }
     }
 
-    private static async Task<IResult> TimelineAsync(NotificationRepository db, IEngine engine,
-        IConfiguration configuration, string? workKey, CancellationToken ct)
-    {
-        var works = await db.AllAsync<WorkRow>(ct);
-        var names = await db.AllAsync<WorkNameRow>(ct);
-        var episodes = await db.AllAsync<EpisodeRow>(ct);
-        var seasons = await db.AllAsync<SeasonRow>(ct);
-        var followSet = (await db.AllAsync<FollowRow>(ct)).Where(f => f.Enabled).Select(f => f.WorkId).ToHashSet();
-        var targets = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State is not (TargetState.Done or TargetState.Removed)
-            && (workKey is null || works.Any(w => w.Id == t.WorkId && w.WorkKey == workKey))).ToArray();
-        var entries = new List<TimelineEntry>();
-        var unavailable = false;
-        var live = await engine.SnapshotAsync(ct);
-        var checksEnabled = !configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled");
-        var queued = targets.Where(t => t.State == TargetState.Wanted || t.State == TargetState.Fetching)
-            .Where(t => live.All(s => s.Hash != t.ChosenReleaseHash || !s.Active && !s.Complete))
-            .OrderByDescending(t => t.NowAt is not null).ThenBy(t => t.Priority).ThenBy(t => t.Rank)
-            .ThenBy(t => t.CreatedAt).ToArray();
-        foreach (var t in targets)
-        {
-            var work = works.FirstOrDefault(w => w.Id == t.WorkId);
-            if (work is null) continue;
-            var ep = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);
-            var season = seasons.FirstOrDefault(s => s.Id == ep?.SeasonId);
-            var expected = CalendarDates.Expected(t, ep, work);
-            unavailable |= t.EpisodeId is not null && expected is null;
-            var future = expected > DateTimeOffset.UtcNow;
-            var reason = future ? "NotAiredYet" : t.ReasonCode switch
-            {
-                WaitReason.DownloadWindow => "OutsideWindow", WaitReason.DownloadCap => "QueueFull",
-                WaitReason.WaitingForSeeders => "WaitingForSeeders",
-                _ => t.NextTryAt > DateTimeOffset.UtcNow ? "NextCheckScheduled" : "None",
-            };
-            var downloading = live.Any(s => s.Hash == t.ChosenReleaseHash && s.Active && !s.Complete);
-            var state = downloading ? "downloading" : t.State is TargetState.Filing ? "downloading" :
-                t.ChosenReleaseHash is not null || t.State is TargetState.Fetching or TargetState.Planning ? "found" :
-                future ? "expected" : "searching";
-            // A film that is already out and already found is a download, not something upcoming.
-            if (ep is null && !future && state is "found" or "downloading") continue;
-            var release = CalendarDates.Release(ep is not null, expected, work);
-            TimelineEntry Entry(string kind, DateTimeOffset? at) => new(kind + ":" + t.Id, kind,
-                Title(work, names), ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}",
-                work.PosterUrl, at, kind == "airs" ? null : t.NextTryAt,
-                t.Origin == IntentOrigin.Owner ? "owner" : "background",
-                kind == "queued" ? Array.IndexOf(queued, t) + 1 : null,
-                new(reason, future ? "Not aired yet" : t.ReasonText ?? "Ready",
-                    future ? expected : t.NextTryAt, null),
-                work.WorkKey, t.Id, state, release, followSet.Contains(work.Id), t.NowAt is not null,
-                t.PreferredResolution ?? t.ResolutionFloor, work.Kind == WorkKind.Film ? "movie" : "tv");
-            // One row per item, always dated by its release so every role sees the same date.
-            entries.Add(Entry(future ? "airs" : t.State == TargetState.Waiting && checksEnabled ? "check" :
-                queued.Contains(t) ? "queued" : "airs", expected));
-        }
-        var followed = (await db.AllAsync<FollowRow>(ct)).Where(f => f.Enabled).Select(f => f.WorkId);
-        var watched = (await db.AllAsync<WatchItemRow>(ct)).Where(w => w.UserId == "local" &&
-            w.Status is WatchStatus.Watching or WatchStatus.Planned).Select(w => w.WorkId);
-        foreach (var work in works.Where(w => followed.Concat(watched).Contains(w.Id) &&
-            (workKey is null || w.WorkKey == workKey)))
-        {
-            var next = episodes.Where(e => seasons.Any(s => s.Id == e.SeasonId && s.WorkId == work.Id) &&
-                e.AirAt > DateTimeOffset.UtcNow).OrderBy(e => e.AirAt).FirstOrDefault();
-            var expected = next?.AirAt ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
-            unavailable |= work.Kind == WorkKind.Series && next is null && seasons.All(s => s.WorkId != work.Id);
-            if (expected <= DateTimeOffset.UtcNow || expected is null ||
-                targets.Any(t => t.WorkId == work.Id && t.EpisodeId == next?.Id)) continue;
-            var season = seasons.FirstOrDefault(s => s.Id == next?.SeasonId);
-            entries.Add(new("airs:work:" + work.Id, "airs", Title(work, names),
-                next is null ? null : $"S{season?.Number ?? 1:00}E{next.Number:00}", work.PosterUrl,
-                expected, null, "background", null, new("NotAiredYet", "Not aired yet", expected, null),
-                work.WorkKey, null, "expected", next is not null ? "episode" : expected == work.DigitalAt ? "digital" :
-                    expected == work.PhysicalAt ? "physical" : "theatrical", followSet.Contains(work.Id), false, null,
-                work.Kind == WorkKind.Film ? "movie" : "tv"));
-            if (next is null && work.DigitalAt is { } digital && work.PhysicalAt is { } physical &&
-                physical > digital && physical > DateTimeOffset.UtcNow && expected == digital)
-                entries.Add(new("airs:physical:" + work.Id, "airs", Title(work, names), null, work.PosterUrl, physical,
-                    null, "background", null, new("NotAiredYet", "Not released yet", physical, null), work.WorkKey,
-                    null, "expected", "physical", followSet.Contains(work.Id), false, null, "movie"));
-        }
-        var now = DateTimeOffset.UtcNow;
-        var recent = (await db.AllAsync<TargetRow>(ct)).Where(t => t.State == TargetState.Done && (workKey is null ||
-            works.Any(w => w.Id == t.WorkId && w.WorkKey == workKey)));
-        foreach (var t in recent)
-        {
-            var work = works.FirstOrDefault(w => w.Id == t.WorkId);
-            if (work is null) continue;
-            var ep = episodes.FirstOrDefault(e => e.Id == t.EpisodeId);
-            var season = seasons.FirstOrDefault(s => s.Id == ep?.SeasonId);
-            var expected = CalendarDates.Expected(t, ep, work);
-            if (expected is null || expected < now.AddDays(-7) || expected > now) continue;
-            entries.Add(new("done:" + t.Id, "airs", Title(work, names),
-                ep is null ? null : $"S{season?.Number ?? 1:00}E{ep.Number:00}", work.PosterUrl,
-                expected, null, "background", null,
-                new("None", "In your library", null, null), work.WorkKey, t.Id, "in_library",
-                CalendarDates.Release(ep is not null, expected, work), followSet.Contains(work.Id), false, null,
-                work.Kind == WorkKind.Film ? "movie" : "tv"));
-        }
-        return Results.Json(new { entries = entries.OrderBy(e => e.At ?? DateTimeOffset.MaxValue)
-            .ThenBy(e => e.QueuePosition ?? int.MaxValue).ThenBy(e => e.Id, StringComparer.Ordinal),
-            airTimesUnavailable = unavailable }, CatalogProjection.Json);
-    }
-}
 
-internal static class CalendarDates
-{
-    public static DateTimeOffset? Expected(TargetRow target, EpisodeRow? episode, WorkRow work) =>
-        target.ExpectedAt ?? episode?.AirAt ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
-
-    public static string Release(bool episode, DateTimeOffset? at, WorkRow work) =>
-        episode ? "episode" : at is null ? "release" : at == work.DigitalAt ? "digital" :
-        at == work.PhysicalAt ? "physical" : at == work.TheatricalAt && at > DateTimeOffset.UtcNow ? "theatrical" : "release";
 }
