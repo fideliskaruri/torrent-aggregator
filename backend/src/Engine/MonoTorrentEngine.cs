@@ -272,6 +272,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
         long delivered = 0;
         var peers = 0;
         var seeders = 0;
+        var peersThroughout = true;
         ImmutableArray<TorrentFile>? files = null;
         var reason = "No metadata in the observation window.";
         while (clock.Elapsed < window)
@@ -316,6 +317,7 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
                     reason = "Bounded hash-valid pieces measured in engine-data probe files.";
                 }
                 var connected = await manager.GetPeersAsync();
+                peersThroughout &= connected.Count > 0;
                 peers = Math.Max(peers, connected.Count);
                 seeders = Math.Max(seeders, connected.Count(p => p.IsSeeder));
                 foreach (var peer in connected)
@@ -352,7 +354,8 @@ public sealed class MonoTorrentEngine : IEngine, IAsyncDisposable
             }
             var now = DateTimeOffset.UtcNow;
             return new(handle.Hash, HealthBand.Unknown, files, peers, seeders, sending.Count, delivered, clock.Elapsed,
-                null, reason, now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, admission);
+                null, reason, now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, admission)
+                { PeersPresentThroughoutWindow = peersThroughout && peers > 0 };
         }
         finally { gate.Release(); }
     }

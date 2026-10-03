@@ -51,6 +51,8 @@ public interface IFind
 public interface ICheck
 {
     IAsyncEnumerable<SwarmEvidence> ProbeAsync(ImmutableArray<ProbeRequest> requests, CancellationToken cancellationToken);
+    IAsyncEnumerable<SwarmEvidence> ProbeStreamAsync(IAsyncEnumerable<ProbeRequest> requests, CancellationToken cancellationToken);
+    CheckDiagnostics Diagnostics { get; }
     Task<ImmutableArray<SwarmEvidence>> LoadAsync(ImmutableArray<string> hashes, CancellationToken cancellationToken);
     Task<ImmutableArray<SwarmEvidence>> RecentAsync(int limit, CancellationToken cancellationToken);
 }

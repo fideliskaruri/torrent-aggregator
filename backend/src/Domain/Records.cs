@@ -96,7 +96,10 @@ public sealed record ReleaseObservationRow(string Id, string Hash, string Source
     DateTimeOffset ObservedAt, string? TorrentUri, ImmutableArray<string> WebSeeds) : StoreRow(Id);
 public sealed record VerdictRow(string Id, HealthBand Band, int ConnectedPeers, int ConnectedSeeders,
     long BytesDelivered, int SampleMilliseconds, int? ScrapedSeeders, string Reason,
-    DateTimeOffset CheckedAt, DateTimeOffset ExpiresAt, int ProbeVersion) : StoreRow(Id);
+    DateTimeOffset CheckedAt, DateTimeOffset ExpiresAt, int ProbeVersion) : StoreRow(Id)
+{
+    public int ByteSendingPeers { get; init; }
+}
 public sealed record DecisionEvidence(long PolicyRevision, ImmutableArray<Rejection> Rejections,
     ImmutableArray<int> SelectedFiles, ImmutableArray<SourceResult> SourceErrors);
 public sealed record SwapTargetBaseline(string TargetId, long CompletedBytes);
@@ -249,11 +252,20 @@ public sealed record CandidateBatch(string SessionId, long PoolRevision, Immutab
     public int RequestLimit { get; init; }
     public bool RequestBudgetExhausted { get; init; }
 }
-public sealed record ProbeRequest(Candidate Candidate, PriorityLane Lane, bool ForceFresh, bool WantedTarget);
+public sealed record ProbeRequest(Candidate Candidate, PriorityLane Lane, bool ForceFresh, bool WantedTarget)
+{
+    public bool RetainAdmission { get; init; }
+}
 public sealed record SwarmEvidence(string Hash, HealthBand Band, ImmutableArray<TorrentFile>? Files,
     int ConnectedPeers, int ConnectedSeeders, int ByteSendingPeers, long BytesDelivered,
     TimeSpan Window, int? ScrapedSeeders, string Reason, DateTimeOffset CheckedAt,
-    DateTimeOffset ExpiresAt, bool FromLiveTransfer, bool Persistable, ProbeHandle? AdmissionHandle);
+    DateTimeOffset ExpiresAt, bool FromLiveTransfer, bool Persistable, ProbeHandle? AdmissionHandle)
+{
+    public bool PeersPresentThroughoutWindow { get; init; }
+    public TimeSpan QueueWait { get; init; }
+    public bool FromCache { get; init; }
+    public int ProbeVersion { get; init; }
+}
 public sealed record SelectedFile(string? TargetId, int FileIndex, FileRole Role);
 public sealed record Assignment(string Hash, ImmutableArray<string> TargetIds,
     ImmutableArray<SelectedFile> Files, long ReservedPieceBytes, string Reason);

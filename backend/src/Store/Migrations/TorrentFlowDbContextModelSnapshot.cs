@@ -1912,6 +1912,9 @@ namespace TorrentFlow.Store.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("byteSendingPeers")
+                        .HasColumnType("INTEGER");
+
                     b.Property<long>("bytesDelivered")
                         .HasColumnType("INTEGER");
 
@@ -1951,6 +1954,8 @@ namespace TorrentFlow.Store.Migrations
                     b.ToTable("Verdict", null, t =>
                         {
                             t.HasCheckConstraint("CK_Verdict_band", "\"band\" IN ('good','weak','dead','unknown')");
+
+                            t.HasCheckConstraint("CK_Verdict_byteSendingPeers", "\"byteSendingPeers\" >= 0");
 
                             t.HasCheckConstraint("CK_Verdict_bytesDelivered", "\"bytesDelivered\" >= 0");
 

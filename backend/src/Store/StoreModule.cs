@@ -22,6 +22,7 @@ public static class StoreModule
         services.AddKeyedScoped<IStore, FindStoreCapability>("find");
         services.AddKeyedScoped<IStore, TargetsStoreCapability>("targets");
         services.AddKeyedScoped<IStore, AccessStoreCapability>("access");
+        services.AddSingleton<ICheckRepository, CheckRepository>();
         return services;
     }
 }
