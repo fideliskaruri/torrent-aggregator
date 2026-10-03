@@ -395,17 +395,19 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     {
         if (!await CanRunAsync(shutdown)) return;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
-        foreach (var row in rows) cancellations[row.Id] = lifetime;
         var token = Guid.NewGuid().ToString("N");
         try
         {
             var claimed = ImmutableArray.CreateBuilder<TargetRow>();
             foreach (var row in rows)
             {
-                if (row.State == TargetState.Waiting)
-                    await ChangeAsync(row.Id, row.LeaseToken, TargetState.Wanted, lifetime.Token);
-                var next = await ChangeAsync(row.Id, null, TargetState.Finding, lifetime.Token, newLease: token);
-                if (next is not null) claimed.Add(next);
+                var next = await ChangeAsync(row.Id, row.LeaseToken, TargetState.Finding, lifetime.Token,
+                    newLease: token, expectedVersion: row.Version);
+                if (next is not null)
+                {
+                    claimed.Add(next);
+                    cancellations[row.Id] = lifetime;
+                }
             }
             if (claimed.Count == 0) return;
             rows = claimed.ToImmutable();
@@ -505,7 +507,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     }
 
     private async Task<TargetRow?> ChangeAsync(string id, string? token, TargetState state, CancellationToken ct,
-        WaitReason? reason = null, string? text = null, string? chosen = null, string? newLease = null)
+        WaitReason? reason = null, string? text = null, string? chosen = null, string? newLease = null,
+        long? expectedVersion = null)
     {
         await stateGate.WaitAsync(ct);
         try
@@ -514,6 +517,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var old = (await store.ReadAsync<TargetRow>(CatalogState.Query(id), ct)).SingleOrDefault();
             if (old is null || old.State is TargetState.Removed or TargetState.Paused ||
+                expectedVersion is not null && old.Version != expectedVersion ||
                 old.LeaseToken != token || old.State == TargetState.Done || old.State == state) return null;
             if (!Allowed(old.State, state)) return null;
             var now = DateTimeOffset.UtcNow;
@@ -550,7 +554,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         (TargetState.Planning, TargetState.Fetching or TargetState.Waiting or TargetState.Wanted or TargetState.Done) => true,
         (TargetState.Fetching, TargetState.Filing or TargetState.Waiting or TargetState.Wanted) => true,
         (TargetState.Filing, TargetState.Done or TargetState.Waiting or TargetState.Wanted) => true,
-        (TargetState.Waiting, TargetState.Wanted or TargetState.Filing or TargetState.Fetching or TargetState.Done) => true,
+        (TargetState.Waiting, TargetState.Wanted or TargetState.Finding or TargetState.Filing or TargetState.Fetching or TargetState.Done) => true,
         _ => false,
     };
 

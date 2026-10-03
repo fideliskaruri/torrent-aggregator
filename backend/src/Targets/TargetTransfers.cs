@@ -16,6 +16,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         Func<string, TargetState, WaitReason?, string?, Task> change, SemaphoreSlim stateGate, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
+        Failure? admissionFailure = null;
         try
         {
             await using var scope = scopes.CreateAsyncScope();
@@ -100,14 +101,18 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
                         await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                        fresh, DateTimeOffset.UtcNow),
+                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct), DateTimeOffset.UtcNow),
                 }, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
-                if (!result.Accepted) throw new IOException(result.Failure?.Message);
+                if (!result.Accepted)
+                {
+                    admissionFailure = result.Failure;
+                    throw new IOException(result.Failure?.Message ?? "The download could not start. Trying again later.");
+                }
                 if (engine is MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
             }
-            catch
+            catch (Exception ex)
             {
                 await engine.DetachAsync(id, CancellationToken.None);
                 await stateGate.WaitAsync(CancellationToken.None);
@@ -121,12 +126,23 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                             throw new IOException("The failed download could not be rolled back.");
                         var affected = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), CancellationToken.None);
                         var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), CancellationToken.None);
+                        var failedAt = DateTimeOffset.UtcNow;
+                        var reason = admissionFailure?.Code.Contains("metadata", StringComparison.OrdinalIgnoreCase) == true
+                            ? WaitReason.MetadataUnavailable : WaitReason.SourceFailure;
+                        var message = admissionFailure?.Message ?? ex.Message;
+                        var retryAt = admissionFailure?.RetryAt is { } due && due > failedAt.AddMinutes(5)
+                            ? due : failedAt.AddMinutes(5);
+                        var failed = affected.Where(t => targets.Any(a => a.Id == t.Id && a.LeaseToken == t.LeaseToken) &&
+                            t.ChosenReleaseHash == assignment.Hash && t.State == TargetState.Fetching).ToArray();
                         await TargetPipeline.CommitAsync(store,
-                            [.. affected.Where(t => targets.Any(a => a.Id == t.Id) && t.ChosenReleaseHash == assignment.Hash &&
-                                    t.State == TargetState.Fetching)
-                                .Select(t => new RowWrite(t with { State = TargetState.Wanted, ChosenReleaseHash = null,
-                                    ResumeState = null, LeaseToken = null, LeaseUntil = null,
-                                    UpdatedAt = DateTimeOffset.UtcNow, Version = t.Version + 1 }, t.Version, null))],
+                            [.. failed.Select(t => new RowWrite(t with { State = TargetState.Waiting, ChosenReleaseHash = null,
+                                    ReasonCode = reason, ReasonText = $"{admissionFailure?.Code ?? "admission_failed"}: {message}",
+                                    NextTryAt = retryAt, ResumeState = TargetState.Wanted, LeaseToken = null, LeaseUntil = null,
+                                    UpdatedAt = failedAt, Version = t.Version + 1 }, t.Version, null)),
+                                .. failed.Select(t => new RowWrite(new AttemptRow(Guid.NewGuid().ToString("N"), t.Id,
+                                    t.WorkId, assignment.Hash, t.CreatedBy, AttemptKind.Fetch, failedAt, failedAt, "Waiting",
+                                    admissionFailure?.Code ?? "admission_failed", message, null, null, t.BatchId, id, null, null),
+                                    null, null))],
                             [.. links.Where(l => l.DownloadId == id).Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                                 new(StoreTable.Download, id, persisted.Version, null)], CancellationToken.None);
                     }

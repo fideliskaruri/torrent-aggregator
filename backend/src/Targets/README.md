@@ -41,7 +41,8 @@ Target and pending-scope audio policies resolve work preferences before the glob
 setting: `auto` means Japanese for anime and English otherwise; `english` means English;
 `any` is retained as an explicit policy. Developer planning uses the same resolver.
 Repeated acquisition updates changed audio policies without reporting new queued items.
-Plan must support `any` to disable language rejection; its current language gate does not.
+Plan treats `any` as an explicit exemption from release-name and selected-file language
+rejection; English and other explicit language policies retain their normal gates.
 Queued counts include only newly accepted or explicitly revived intent. An identical
 repeat keeps the same target and returns `queued: 0`, `Already queued`.
 Pending scopes support Wanted Remove/Try now through Targets. Remove is a durable
@@ -66,7 +67,11 @@ committed with its Download and Current associations under target CAS. Filing wa
 every selected file of that item, including sidecars, to have all touching pieces
 complete. Paused/removed associations are retired and callbacks are fenced. Startup
 requeues interrupted discovery leases and restores durable engine bindings; a committed
-download without bindings is treated as an orphan, not blindly started.
+download without bindings is treated as an orphan, not blindly started. Admission queue
+composition always reads the full Target catalog, not just the admitted work. Discovery
+claims compare the captured target version under the state lock, so overlapping owner
+and periodic scope flights cannot claim a target already claimed or admitted by another
+flight.
 
 ## Current integration boundary
 
@@ -129,7 +134,10 @@ Target-backed deletion supports `deleteFiles`, using Library's digest-checked, p
 payload removal. Tidy reports the already-reserved final layout without moving active files;
 Keep acknowledges an already-filed download. Wanted excludes targets represented by a
 download, including failed admissions. Admission exceptions roll back bindings, associations
-and download state before retrying. Library media identity is based on its physical path,
+and download state before retrying. Failed admission persists Waiting with the original
+Engine failure code/message (or the actual exception), a cleared admission lease and
+choice, and a retry at least five minutes later. Its resume state is Wanted, never an
+orphaned Fetching download, and the failed fetch attempt remains in history. Library media identity is based on its physical path,
 so retaining a file and downloading the same hash to another root cannot collide on filing.
 Readiness checks SettingsCatalog's required sections rather than a fixed section count.
 This also fixes OPS-780: adding or changing the recovery section must not invalidate a

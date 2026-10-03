@@ -350,6 +350,7 @@ public sealed class ReleasePlanner : IPlan
 
     private static bool LanguageAllowed(ParsedRelease parsed, string? desired)
     {
+        if (string.Equals(desired?.Trim(), "any", StringComparison.OrdinalIgnoreCase)) return true;
         if (!parsed.ClearlyForeign && parsed.Foreign != ForeignStatus.Yes) return true;
         var wanted = Language(desired ?? "en");
         var markers = parsed.LanguageMarkers.Select(Language).ToArray();

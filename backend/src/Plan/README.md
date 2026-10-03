@@ -19,6 +19,8 @@ parses names, reads files, probes a swarm, downloads, or persists a choice. Targ
   known parsed resolution before the minimum selected-video resolution is used.
 - Unknown language and DUAL/MULTI releases pass without further work. Explicit
   incompatible language is refused, including before file-list availability.
+  An explicit `any` policy disables this language gate for both release names and
+  selected files; it does not disable safety, quality, identity or health gates.
   Target audio preferences override matching work preferences; missing/auto preferences
   default to English, never the work's original language. Callers must resolve the
   configured global setting into the target policy before invoking this pure planner.
