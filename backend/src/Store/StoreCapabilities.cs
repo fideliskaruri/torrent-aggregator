@@ -143,6 +143,14 @@ internal abstract class StoreCapability(TorrentFlowDbContext db, StoreOwner owne
                     != JsonSerializer.Serialize(expected, table.RowType, Schema.Json))
             { conflicts.Add(id); return; }
             if (table.Name == "Attempt") throw new NotSupportedException("History mutation is reserved for explicit close/evidence/prune operations.");
+            if (table.Name == "Download" && replacement is null)
+            {
+                // Download rows are removable; their optional history pointer is not the
+                // historical identity. Preserve the release hash and immutable decision.
+                var history = await db.Set<Dictionary<string, object>>("Attempt")
+                    .Where(r => EF.Property<string>(r, "downloadId") == id).ToListAsync(ct);
+                foreach (var attempt in history) attempt["downloadId"] = null!;
+            }
             if (replacement is null) set.Remove(current);
             else db.Entry(current).CurrentValues.SetValues(table.ToEntity(replacement));
         }

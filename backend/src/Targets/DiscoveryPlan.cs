@@ -3,15 +3,16 @@ using System.Diagnostics;
 using System.Threading.Channels;
 using TorrentFlow.Domain;
 
-namespace TorrentFlow.Api;
+namespace TorrentFlow.Targets;
 
-// Phase 4 moves this composition to Targets; module policy remains in Find, Check and Plan.
-internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IParser parser, CheckOptions options)
+public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IParser parser, CheckOptions options)
 {
-    internal const int ProbeBudget = 24;
-    internal async Task<DiscoveryResult> RunAsync(WorkSnapshot work, TargetScope scope, Policy policy,
+    public const int ProbeBudget = 24;
+    public async Task<DiscoveryResult> RunAsync(WorkSnapshot work, TargetScope scope, Policy policy,
         PriorityLane lane, bool exhaust, CancellationToken cancellationToken,
-        Func<CandidateBatch, Task>? onBatch = null)
+        Func<CandidateBatch, Task>? onBatch = null,
+        ImmutableArray<TargetRow>? actualTargets = null, ImmutableArray<OwnedItem> owned = default,
+        Func<TargetState, Task>? onStage = null)
     {
         var clock = Stopwatch.StartNew();
         var planSeconds = scope.Film ? 28 : scope.EpisodeIds.Length == 1 ? 26 : 54;
@@ -19,7 +20,7 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
         var ct = lifetime.Token;
         using var checkLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var now = DateTimeOffset.UtcNow;
-        var targets = (scope.Film ? new string?[] { null } : scope.EpisodeIds.Cast<string?>())
+        var targets = actualTargets ?? (scope.Film ? new string?[] { null } : scope.EpisodeIds.Cast<string?>())
             .Select(id => new TargetRow("dry:" + (id ?? work.Work.Id), work.Work.Id, id,
                 TargetKind.Acquire, TargetState.Planning, null, null, null, null, null,
                 policy.ResolutionFloor, policy.PreferredResolution, policy.AudioLanguage, policy.MaxBytes,
@@ -56,6 +57,8 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
                 switch (item)
                 {
                     case CandidateBatch batch:
+                        if (!batch.Candidates.IsEmpty && firstCandidate is null && onStage is not null)
+                            await onStage(TargetState.Checking);
                         last = batch;
                         poolReady |= batch.TierComplete || batch.Complete;
                         sourceSweepReady |= batch.Complete || batch.TierComplete && batch.Tier == SourceTier.Fallback;
@@ -93,6 +96,7 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
                         break;
                 }
                 if (last is null) continue;
+                if (onStage is not null) await onStage(TargetState.Planning);
                 plan = Choose();
                 var goodTargets = GoodTargets();
                 var allGood = targets.All(t => goodTargets.Contains(t.Id));
@@ -183,7 +187,7 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
         }
 
         PlanResult Choose(ImmutableArray<Candidate>? pool = null) => planner.Choose(new(work, AcquisitionMode.Catalog, [], targets,
-            pool ?? last?.Candidates ?? [], [.. evidence.Values], [], [], DateTimeOffset.UtcNow)
+            pool ?? last?.Candidates ?? [], [.. evidence.Values], owned.IsDefault ? [] : owned, [], DateTimeOffset.UtcNow)
         {
             QueriesExhausted = findEnded && (inputEnded || pending.Count == 0),
             UnknownFallbackReason = "Safe files; no checked Good or Weak alternative covers these items. " +
@@ -271,8 +275,8 @@ internal sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPa
     }
 }
 
-internal sealed record DiscoveryTimeline(double? FirstCandidateMs, double? FirstVerdictMs,
+public sealed record DiscoveryTimeline(double? FirstCandidateMs, double? FirstVerdictMs,
     double? PlanReadyMs, double CompleteMs);
-internal sealed record DiscoveryResult(CandidateBatch Find, ImmutableArray<SwarmEvidence> Evidence,
+public sealed record DiscoveryResult(CandidateBatch Find, ImmutableArray<SwarmEvidence> Evidence,
     PlanResult Plan, DiscoveryTimeline Timeline, int Submissions, int Probes,
     ImmutableArray<TargetRow> Targets, int VerdictCacheHits, string? StopReason);

@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 

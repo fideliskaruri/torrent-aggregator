@@ -45,7 +45,7 @@ builder.Services.AddDevEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
     builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
-builder.Services.AddSingleton<DiscoveryPlan>();
+TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddDevLibrary();
 var app = builder.Build();
 try
@@ -64,6 +64,7 @@ try
     app.MapDevEngine();
     app.MapDevPlan();
     app.MapDevDiscoveryPlan();
+    app.MapTargets();
     app.MapDevCheck();
     await app.MapDevLibraryAsync();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
