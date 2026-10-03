@@ -363,8 +363,6 @@ public sealed record ScanResult(ImmutableArray<ImportProposal> Proposals, Librar
     ImmutableArray<string> InaccessiblePaths, bool Complete, ImmutableArray<RootScanEvidence> Roots);
 public sealed record RootScanEvidence(string RootId, bool MarkerMatches, bool VolumeMatches,
     int PreviouslyPresentFiles, int VanishedFiles, bool MassVanish, DateTimeOffset ScannedAt);
-public sealed record ImportCommand(string Token, ImportMode Mode, string WorkId, string? EpisodeId,
-    string? RootId, bool Confirmed);
 public sealed record DeletionPlan(string Token, ImmutableArray<string> MediaFileIds,
     ImmutableArray<string> DownloadFileIds, ImmutableArray<string> Paths, long Bytes,
     ImmutableArray<string> ProtectedPaths);

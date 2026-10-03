@@ -1,30 +1,7 @@
 # Targets
 
-## Switchover import review safety
-
-`TargetAdmission` is the shared item admission read for owner, season, request,
-follow/rule/hunter, worker, picker and recovery actions. It reads Library ownership
-first: owned items are skipped and counted as already in the library. Pending
-Import reviews then hold only the missing items they could represent. The hold is
-computed from Library's durable review candidates and their recorded parse evidence,
-not a second copied status store. Accepted automatic/request held intent remains
-durable in Waiting, is not counted as queued, and becomes eligible when review ends.
-
-An owner acquiring, resuming or trying a review-covered missing item is refused with:
-`A file on disk may already be this. Review it in Import first.`
-Explicit acquisitions for other items, including the same work, remain eligible.
-Batch replies count queued, owned and held items separately; held items never
-inflate queued counts. `TargetActionReply.Held` exposes the count and batch messages
-retain it for existing HTTP adapters. Explicit owner acquisitions use the existing durable Now priority,
-including retries, transfer filing and restart recovery. Worker claims and admission
-recheck review state; confirmed inventory is committed before its review is released.
-Dismissal explicitly releases a review without changing media. Known candidate
-episode IDs/coordinates are exact constraints. If a candidate has no episode
-mapping, filename episode/absolute/season evidence still constrains its scope.
-Only a known-work review with neither an item identity nor usable coordinates holds
-the whole work. An unmatched review with no candidate work cannot claim another
-work. The first full root scan and scheduler enablement remain required; unresolved
-reviews no longer impose a second, global automatic-download hold.
+Targets skip items already recorded in the Library. The first full root scan and
+scheduler enablement remain required before automatic downloads can run.
 
 `TargetPipeline` owns accepted item intent and the bounded `PipelineWorker`. Its project
 references are exactly Domain, Find, Check, Plan, Engine, Library, Metadata and Store.
@@ -229,8 +206,8 @@ a site choice passes through Find's source filter and its discovery-stop identit
 Both exclude Current and active blocks before checking, including a one-result pool.
 Tokens are protected, current-hash-bound and expire after ten minutes. GET releases
 retained probe capabilities; POST checks evidence again before admission. Manual
-replacement does not require the background scheduler to be enabled. Import review
-holds still apply; automatic recovery retains the scheduler gate.
+replacement does not require the background scheduler to be enabled; automatic
+recovery retains the scheduler gate.
 
 `RawDownloads` owns the raw admission, recovery, queue and completion lifecycle,
 extracted from the development harness rather than duplicating it for production.

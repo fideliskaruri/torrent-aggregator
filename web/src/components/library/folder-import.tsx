@@ -6,18 +6,15 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { Progress } from "@/components/ui/progress";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import {
-  IMPORT_MODES,
   candidateLabel,
   fileName,
   libraryRequest,
   type ImportItem,
-  type ImportMode,
   type ImportResultItem,
   type ImportScan,
 } from "@/lib/library/import";
@@ -26,19 +23,17 @@ const TOUCH = "max-md:min-h-11 pointer-coarse:min-h-11";
 const LEAVE = "leave";
 
 type Pick = { workId: string; episodeId: string | null } | null;
-type GroupKey = "confident" | "needsPick" | "duplicates" | "unmatched" | "owned";
+type GroupKey = "confident" | "needsPick" | "unmatched" | "owned";
 
 const GROUPS: { key: GroupKey; title: string; description: string }[] = [
   { key: "needsPick", title: "Needs a pick", description: "Choose the right title or episode, or leave the file alone." },
-  { key: "duplicates", title: "Duplicates", description: "Choose which file to keep. The others stay where they are; nothing is deleted." },
   { key: "confident", title: "Ready", description: "These matched one title. Clear any you don't want." },
   { key: "unmatched", title: "Unmatched", description: "No title matched. These files are left alone." },
   { key: "owned", title: "Already in your library", description: "Nothing to do for these." },
 ];
 
-function groupOf(item: ImportItem, duplicateIds: Set<string>): GroupKey {
+function groupOf(item: ImportItem): GroupKey {
   if (item.alreadyInLibrary) return "owned";
-  if (duplicateIds.has(item.id)) return "duplicates";
   if (item.group === "Confident") return "confident";
   if (item.group === "NeedsPick" && item.candidates.some((c) => c.kind === "Film" || c.episodeId)) return "needsPick";
   return "unmatched";
@@ -60,7 +55,6 @@ export function FolderImport() {
   const [pollError, setPollError] = useState<string | null>(null);
   const [pollKey, setPollKey] = useState(0);
   const [picks, setPicks] = useState<Record<string, Pick>>({});
-  const [mode, setMode] = useState<ImportMode>("TrackInPlace");
   const [confirming, setConfirming] = useState(false);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResultItem[] | null>(null);
@@ -114,12 +108,11 @@ export function FolderImport() {
     setPollError(null);
   }
 
-  const duplicateIds = useMemo(() => new Set(scan?.duplicates.flatMap((d) => d.itemIds) ?? []), [scan]);
   const grouped = useMemo(() => {
     const map = new Map<GroupKey, ImportItem[]>(GROUPS.map((g) => [g.key, []]));
-    for (const item of scan?.items ?? []) map.get(groupOf(item, duplicateIds))?.push(item);
+    for (const item of scan?.items ?? []) map.get(groupOf(item))?.push(item);
     return map;
-  }, [scan, duplicateIds]);
+  }, [scan]);
   const selected = Object.entries(picks).filter((entry): entry is [string, NonNullable<Pick>] => entry[1] !== null);
 
   async function confirm() {
@@ -128,7 +121,6 @@ export function FolderImport() {
     setConfirmError(null);
     try {
       const answer = await libraryRequest<{ items: ImportResultItem[] }>("POST", `/api/library/imports/${scanId}/confirm`, {
-        mode,
         items: selected.map(([itemId, pick]) => ({ itemId, workId: pick.workId, episodeId: pick.episodeId })),
       });
       setResult(answer.items);
@@ -193,18 +185,7 @@ export function FolderImport() {
             if (items.length === 0) return null;
             return (
               <ImportGroup key={group.key} id={group.key} title={group.title} description={group.description} count={items.length}>
-                {group.key === "duplicates"
-                  ? (scan.duplicates.map((dup) => (
-                      <DuplicateSet key={dup.key} items={items.filter((i) => dup.itemIds.includes(i.id))} picks={picks}
-                        onKeep={(keepId) => setPicks((current) => {
-                          const next = { ...current };
-                          for (const id of dup.itemIds) next[id] = null;
-                          const kept = items.find((i) => i.id === keepId);
-                          if (kept) next[keepId] = choice(kept, 0);
-                          return next;
-                        })} />
-                    )))
-                  : items.map((item) => (
+                {items.map((item) => (
                       <ImportRow key={item.id} item={item}>
                         {group.key === "confident" || group.key === "needsPick" ? (
                           <CandidatePicker item={item} pick={picks[item.id] ?? null}
@@ -215,22 +196,6 @@ export function FolderImport() {
               </ImportGroup>
             );
           })}
-
-          <fieldset className="space-y-2 rounded-lg border border-border bg-card p-3 sm:p-4">
-            <legend className="px-1 text-[13px] font-medium text-foreground">What to do with the files</legend>
-            <RadioGroup value={mode} onValueChange={(value) => setMode(value as ImportMode)} className="gap-1">
-              {IMPORT_MODES.map((option) => (
-                <label key={option.value} htmlFor={`${pathId}-${option.value}`}
-                  className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/50">
-                  <RadioGroupItem id={`${pathId}-${option.value}`} value={option.value} className="mt-0.5" />
-                  <span className="space-y-0.5">
-                    <span className="block text-[13px] text-foreground">{option.label}</span>
-                    <span className="block text-xs text-subtle-foreground">{option.hint}</span>
-                  </span>
-                </label>
-              ))}
-            </RadioGroup>
-          </fieldset>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" disabled={selected.length === 0} onClick={() => setConfirming(true)} data-import-confirm>
@@ -248,7 +213,7 @@ export function FolderImport() {
         open={confirming}
         onOpenChange={(open) => { setConfirming(open); if (!open) setConfirmError(null); }}
         title={`Import ${selected.length} ${selected.length === 1 ? "file" : "files"}?`}
-        description={IMPORT_MODES.find((m) => m.value === mode)?.label ?? ""}
+        description="Files stay at their current paths and are added to your library."
         confirmLabel="Import"
         busy={importing}
         onConfirm={() => void confirm()}
@@ -260,9 +225,8 @@ export function FolderImport() {
 }
 
 function defaultPicks(scan: ImportScan): Record<string, Pick> {
-  const duplicateIds = new Set(scan.duplicates.flatMap((d) => d.itemIds));
   const picks: Record<string, Pick> = {};
-  for (const item of scan.items) picks[item.id] = groupOf(item, duplicateIds) === "confident" ? choice(item, 0) : null;
+  for (const item of scan.items) picks[item.id] = groupOf(item) === "confident" ? choice(item, 0) : null;
   return picks;
 }
 
@@ -309,31 +273,6 @@ function CandidatePicker({ item, pick, onPick }: { item: ImportItem; pick: Pick;
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-function DuplicateSet({ items, picks, onKeep }: { items: ImportItem[]; picks: Record<string, Pick>; onKeep: (id: string) => void }) {
-  const kept = items.find((i) => picks[i.id]) ?? null;
-  const label = items[0]?.candidates[0] ? candidateLabel(items[0].candidates[0]) : "This item";
-  return (
-    <li className="space-y-1 p-3">
-      <p className="text-[13px] font-medium text-foreground">{label}</p>
-      <RadioGroup value={kept?.id ?? LEAVE} onValueChange={onKeep} aria-label={`Which file to keep for ${label}`} className="gap-0">
-        {items.map((item) => (
-          <label key={item.id} htmlFor={`keep-${item.id}`} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-muted/50">
-            <RadioGroupItem id={`keep-${item.id}`} value={item.id} />
-            <span className="min-w-0 space-y-0.5">
-              <span className="block break-all text-[13px] text-foreground">{fileName(item.path)}</span>
-              <span className="block text-xs text-subtle-foreground">{item.message}</span>
-            </span>
-          </label>
-        ))}
-        <label htmlFor={`keep-none-${items[0]?.id}`} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-1 hover:bg-muted/50">
-          <RadioGroupItem id={`keep-none-${items[0]?.id}`} value={LEAVE} />
-          <span className="text-[13px] text-foreground">Import none of these</span>
-        </label>
-      </RadioGroup>
-    </li>
   );
 }
 

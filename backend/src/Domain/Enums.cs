@@ -35,7 +35,6 @@ public enum MediaOrigin { Downloaded, Imported, Adopted }
 public enum LibraryKind { Movies, TV, Anime, AnimeMovies }
 public enum FileOperationKind { Rename, Move, Copy, Delete, Import, Relocate }
 public enum FileOperationState { Pending, Copied, Verified, InventoryCommitted, SourceDeleted, Done, Retry, NeedsOwner, Superseded }
-public enum ImportMode { TrackInPlace, Move, Copy }
 public enum ImportConfidence { Confident, NeedsPick, Unmatched }
 public enum UserRole { Owner, Requester }
 public enum RequestScope { Film, Episodes, Seasons, Series }

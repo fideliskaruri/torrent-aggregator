@@ -83,10 +83,9 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 
 | # | Finding | Where | Tag | Sev |
 |---|---|---|---|---|
-| T1 | Import-review holds ("switchover") checked in 6 code paths: accept, action, read, recover, tick, run. `ReadAsync` even rewrites rows to Waiting in memory. This is the cut duplicate review. | `TargetPipeline.cs:77,152-155,234,317-320,327-349`; `TargetAdmission.cs`; 35 hits in 7 files | cut-v1 | high |
 | T2 | Queue ranking: `Rank`, `OwnerRanked`, `TargetPriority`, `NowAt`, `RankAsync`, and a priority rewrite of every target on every tick. v1 is FIFO plus Download now (one flag). | `TargetPipeline.cs:299-325,363-368`; `TargetScheduling.cs`; 71 hits in 18 files | cut-v1 | high |
 | T3 | Per-target audio-language policy with replan, cancel and policy revisions on each re-request. v1 has one global language rule. | `TargetPipeline.cs:84-85,134-150`; `TargetAudioPolicy.cs`; 35 hits in 11 files | cut-v1 | medium |
-| T4 | `AcceptAsync` is one 170-line method that handles 5 origins, scope intents, holds, audio replans, revivals and message text. | `TargetPipeline.cs:66-224` | refactor | high |
+| T4 | `AcceptAsync` is one 170-line method that handles 5 origins, scope intents, audio replans, revivals and message text. | `TargetPipeline.cs:66-224` | refactor | high |
 | T5 | Scope intents: when the episode list isn't confirmed, the request is parked and retried hourly. The episode number is parsed back out of the row id string. | `TargetPipeline.cs:98-121,394-396` | refactor | medium |
 | T6 | Discovery stages (Finding, Checking, Planning) are written to the DB per row through `onStage`, with versions and leases, just to show progress. | `TargetPipeline.cs:494-497` | refactor | medium |
 | T7 | Scheduler batches by an 8-field string key. | `TargetPipeline.cs:372-373` | refactor | low |
@@ -106,10 +105,7 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 | # | Finding | Where | Tag | Sev |
 |---|---|---|---|---|
 | L1 | `ScanFilesAsync` is one 157-line loop doing four jobs: walk files, parse name plus up to 4 parent folders, bare-episode guesses, metadata match (year-less fallback, file vs folder disagreement, runtime check, per-scan caches). The matching is wanted; it belongs in one pure `Match(evidence) -> candidates + confidence` function. | `MediaImport.cs:83-240` | refactor | high |
-| L2 | Import move/copy with a FileOperation journal, resume stages and a NeedsOwner state. Fakes a 33-field `TargetRow` positionally to reuse `PlaceAsync`. v1 is track in place only. | `MediaImport.cs:366-507`; `FileOperationRow` | cut-v1 | high |
 | L3 | `AdoptAsync` builds a 35-argument `MediaFileRow` that repeats the track-in-place path. Two ways to record one file. | `MediaImport.cs:43-79` | refactor | medium |
-| L4 | Duplicate review (`DuplicateKey`). | Library, Targets | cut-v1 | medium |
-| L5 | `ImportReviews` wraps injected delegates (a layer with no logic); `HasSwitchoverAsync` serves the cut switchover. | `ImportReviews.cs` | delete | low |
 | L6 | Hand-written MKV/AVI/MP4 parsers (284 lines) just to read runtime and size. | `NativeContainerDetails`, `VideoDimensions`, `VideoSignature` | keep | low |
 | L7 | `LibraryLayout.Names`: 121 lines of regex guessing which torrent folders to keep or strip. Name from catalog identity instead: `Title (Year)/Season 01/Title S01E02.ext`, subtitles share the stem. No guessing. | `LibraryLayout.cs` | refactor | high |
 | L8 | Root management (add, check, remove, configure, seed from legacy, ~200 lines) and a 142-line `PlaceAsync` with priority, reservations, volume-serial grouping, caps, pins and Replace suffixes. One root makes this ~40 lines. | `LibraryPlacement.cs:11-204,283-425` | cut-v1 | high |

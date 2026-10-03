@@ -24,7 +24,7 @@ public sealed class ImportReviewRepository
                     '$.error',json_extract(excluded.snapshot,'$.error'))
                 ELSE excluded.snapshot END
             """, ct);
-        await RefreshAdoptionGateAsync(ct);
+        await MarkRootScanCompleteAsync(ct);
     }
 
     public async Task<ImportScanView?> GetAsync(string id, CancellationToken ct)
@@ -54,27 +54,17 @@ public sealed class ImportReviewRepository
             VALUES ({id},{item},{decision},{DateTimeOffset.UtcNow.ToString("O")})
             ON CONFLICT(reviewId,itemId) DO NOTHING
             """, ct);
-        await RefreshAdoptionGateAsync(ct);
     }
 
-    private async Task RefreshAdoptionGateAsync(CancellationToken ct)
+    private async Task MarkRootScanCompleteAsync(CancellationToken ct)
     {
         await db.Database.ExecuteSqlRawAsync("""
-            WITH readiness AS (
-                SELECT EXISTS(SELECT 1 FROM ImportReview WHERE id='adoption:complete') AS scanned,
-                    NOT EXISTS(
-                        SELECT 1 FROM ImportReview r,json_each(r.snapshot,'$.items') i
-                        WHERE r.id LIKE 'adoption:%' AND NOT EXISTS(
-                            SELECT 1 FROM ImportDecision d
-                            WHERE d.reviewId=r.id AND d.itemId=json_extract(i.value,'$.id'))) AS reviewed)
             UPDATE Setting SET valueJson=json_set(valueJson,
-                '$.firstFullRootScanComplete',json('true'),
-                '$.importReviewComplete',json(CASE WHEN (SELECT reviewed FROM readiness)
-                    THEN 'true' ELSE 'false' END)),
+                '$.firstFullRootScanComplete',json('true')),
                 revision=revision+1,updatedAt=strftime('%Y-%m-%dT%H:%M:%f+00:00','now')
-            WHERE section='scheduler' AND (SELECT scanned FROM readiness)
-            AND (json_extract(valueJson,'$.firstFullRootScanComplete')<>1 OR
-                json_extract(valueJson,'$.importReviewComplete')<>(SELECT reviewed FROM readiness));
+            WHERE section='scheduler' AND EXISTS(
+                SELECT 1 FROM ImportReview WHERE id='adoption:complete')
+            AND json_extract(valueJson,'$.firstFullRootScanComplete')<>1;
             """, ct);
     }
 }
