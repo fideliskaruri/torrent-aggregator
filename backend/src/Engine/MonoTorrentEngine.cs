@@ -15,7 +15,7 @@ using TorrentFile = TorrentFlow.Domain.TorrentFile;
 namespace TorrentFlow.Engine;
 
 /// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
-public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
+public sealed partial class MonoTorrentEngine : IEngine, IProgressiveProbeEngine, IAsyncDisposable
 {
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
@@ -267,7 +267,12 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
         using var ownership = await hashMutex.LockAsync(hash, ct);
         // Network metadata fetch runs outside the lifecycle lock and never writes payload.
         Torrent? torrent = null;
-        if (candidate.Release.TorrentUri is { } uri) torrent = await TorrentMetadata.LoadAsync(uri, hash, ct);
+        if (candidate.Release.TorrentUri is { } uri)
+        {
+            var metadata = await TorrentMetadata.LoadAsync(uri, hash, ct);
+            torrent = metadata.Torrent;
+            link = metadata.Magnet ?? link;
+        }
         await gate.WaitAsync(ct);
         try
         {
@@ -309,9 +314,14 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
     }
 
     public Task<SwarmEvidence> ObserveProbeAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct) =>
-        ObservePiecesAsync(handle, window, ct);
+        ObservePiecesAsync(handle, window, ct, null);
 
-    private async Task<SwarmEvidence> ObservePiecesAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct)
+    public Task<SwarmEvidence> ObserveProbeAsync(ProbeHandle handle, TimeSpan window,
+        Func<ProbeProgress, bool> canComplete, CancellationToken ct) =>
+        ObservePiecesAsync(handle, window, ct, canComplete);
+
+    private async Task<SwarmEvidence> ObservePiecesAsync(ProbeHandle handle, TimeSpan window, CancellationToken ct,
+        Func<ProbeProgress, bool>? canComplete)
     {
         if (window <= TimeSpan.Zero || window > TimeSpan.FromSeconds(60)) throw new ArgumentOutOfRangeException(nameof(window));
         using var ownership = await hashMutex.LockAsync(handle.Hash, ct);
@@ -325,6 +335,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
         var peers = 0;
         var seeders = 0;
         var peersThroughout = true;
+        var completedEarly = false;
         ImmutableArray<TorrentFile>? files = null;
         var reason = "No metadata in the observation window.";
         try
@@ -400,13 +411,19 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
                         verifiedBytes = entry.ProbePieces.Where(p => manager.Bitfield[p])
                             .Sum(p => (long)Math.Min(manager.Torrent!.PieceLength, manager.Torrent.Size - (long)p * manager.Torrent.PieceLength));
                     }
+                    if (canComplete?.Invoke(new(files is not null, delivered, clock.Elapsed, peerBytes.Count, failures)) == true)
+                    {
+                        completedEarly = true;
+                        break;
+                    }
                 }
                 finally
                 {
                     gate.Release();
-                    await Task.Delay(TimeSpan.FromMilliseconds(200), ct);
+                    if (!completedEarly) await Task.Delay(TimeSpan.FromMilliseconds(200), ct);
                 }
             }
+            var observed = clock.Elapsed;
             await gate.WaitAsync(ct);
             try
             {
@@ -431,13 +448,25 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
                                 entry.Manager.Torrent.Size - (long)p * entry.Manager.Torrent.PieceLength));
                         failures = Math.Max(failures, entry.Manager.HashFails - hashBaseline);
                     }
+                    if (completedEarly && canComplete?.Invoke(new(files is not null, delivered, observed, peerBytes.Count, failures)) != true)
+                    {
+                        // Late integrity failures cannot turn an early Good into an early Dead/Weak.
+                        gate.Release();
+                        try
+                        {
+                            var remainder = window - clock.Elapsed;
+                            if (remainder > TimeSpan.Zero) await Task.Delay(remainder, ct);
+                            observed = clock.Elapsed;
+                        }
+                        finally { await gate.WaitAsync(CancellationToken.None); }
+                    }
                     handles.Remove(handle.Token);
                     admission = handle with { Token = Guid.NewGuid().ToString("N"), ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30) };
                     handles.Add(admission.Token, admission);
                 }
                 var now = DateTimeOffset.UtcNow;
                 if (failures > 0) reason = "Downloaded probe pieces failed their hash checks.";
-                return new(handle.Hash, HealthBand.Unknown, files, peers, seeders, peerBytes.Count, delivered, clock.Elapsed,
+                return new(handle.Hash, HealthBand.Unknown, files, peers, seeders, peerBytes.Count, delivered, observed,
                     null, reason, now, now.AddMinutes(45), handle.ObservesLiveTransfer, !handle.ObservesLiveTransfer, admission)
                 {
                     PeersPresentThroughoutWindow = peersThroughout && peers > 0,
@@ -637,7 +666,12 @@ public sealed partial class MonoTorrentEngine : IEngine, IAsyncDisposable
             if (File.Exists(metadata))
                 manager = await client.AddAsync(await Torrent.LoadAsync(metadata), Path.Combine(directory, "bindings", hash), TorrentSettings(false));
             else if (admission.Candidate.Release.TorrentUri is { } uri)
-                manager = await client.AddAsync(await TorrentMetadata.LoadAsync(uri, hash, ct), Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            {
+                var resolved = await TorrentMetadata.LoadAsync(uri, hash, ct);
+                manager = resolved.Torrent is { } torrent
+                    ? await client.AddAsync(torrent, Path.Combine(directory, "bindings", hash), TorrentSettings(false))
+                    : await client.AddAsync(resolved.Magnet ?? magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+            }
             else
                 manager = await client.AddAsync(magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
             var entry = new Entry(manager, admission.Download.Id, false)

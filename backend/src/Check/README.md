@@ -25,11 +25,20 @@ permanent file metadata. Unknown caches retain their algorithm version; wanted c
 never reuse a speculative Unknown beyond the wanted 45-minute lifetime.
 
 Attachment and observation share the window; queue/capacity wait is reported separately.
+When Engine supports `IProgressiveProbeEngine`, Check supplies the stopping predicate
+for each physical sample. Good stops as soon as files are known, no hash failures are
+present, a byte-sending peer has delivered at least the configured bytes/rate, and at
+least four seconds (or a configured longer minimum) have been observed. Weak, Dead and
+Unknown retain the full observation budget. Other engine implementations use the
+existing full-window path. Completion logs report hash, band, end-to-end time to verdict
+including queue wait, and queue wait separately. Publication follows cleanup unless admission
+retention was explicitly requested; cache fingerprints and expiry are unchanged.
 Good requires a hash-bound file list, validated bytes, and a byte-sending peer. Dead
 requires metadata, the full observation and connected peers in **every** sampled interval,
 at least four seconds long, with no byte sender or valid payload. Missing metadata, transient peers, ownership,
 capacity or transport failures are Unknown, never a guessed Dead. No tracker scrape is
 required to start measurement; listed/scraped seed counts never establish viability.
+Rejected or malformed torrent metadata returns Unknown rather than failing the batch.
 
 Probes are released with drained engine cleanup by default. Pipeline admission can
 explicitly set `ProbeRequest.RetainAdmission` to keep the engine's 30-second capability;

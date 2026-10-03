@@ -158,7 +158,13 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
     {
         // Yield before I/O so publishing the flight always precedes execution.
         await Task.Yield();
-        try { flight.Completion.TrySetResult(await MeasureAsync(flight)); }
+        try
+        {
+            var result = await MeasureAsync(flight);
+            Console.WriteLine($"Check {result.Hash}: {result.Band}; time to verdict {flight.Enqueued.Elapsed.TotalMilliseconds:F0} ms " +
+                $"including {result.QueueWait.TotalMilliseconds:F0} ms in queue.");
+            flight.Completion.TrySetResult(result);
+        }
         catch (OperationCanceledException) { flight.Completion.TrySetCanceled(); }
         catch (Exception ex) { flight.Completion.TrySetException(ex); }
         finally
@@ -208,14 +214,18 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
             lock (sync) probes++;
             var remaining = window - attachmentClock.Elapsed;
             if (remaining <= TimeSpan.Zero) return Unknown(flight, "Attachment consumed the observation window.", queueWait);
-            var measured = await engine.ObserveProbeAsync(handle, remaining, ct);
+            bool Good(ProbeProgress progress) => progress.FilesKnown && progress.HashFailures == 0 &&
+                progress.ByteSendingPeers > 0 && progress.Window.TotalSeconds >= Math.Max(4, options.MinimumGoodSeconds) &&
+                progress.BytesDelivered >= settings.GoodBytes &&
+                progress.BytesDelivered / progress.Window.TotalSeconds >= settings.GoodBytesPerSecond;
+            var measured = engine is IProgressiveProbeEngine progressive
+                ? await progressive.ObserveProbeAsync(handle, remaining, Good, ct)
+                : await engine.ObserveProbeAsync(handle, remaining, ct);
             handle = measured.AdmissionHandle ?? handle;
             var band = measured.FromLiveTransfer || measured.Files is null ? HealthBand.Unknown :
                 measured.HashFailures > 0 ? HealthBand.Dead :
                 measured.BytesDelivered > 0 && measured.ByteSendingPeers > 0
-                    ? measured.Window.TotalSeconds >= options.MinimumGoodSeconds &&
-                      measured.BytesDelivered >= settings.GoodBytes &&
-                      measured.BytesDelivered / measured.Window.TotalSeconds >= settings.GoodBytesPerSecond
+                    ? Good(new(true, measured.BytesDelivered, measured.Window, measured.ByteSendingPeers, measured.HashFailures))
                         ? HealthBand.Good : HealthBand.Weak
                     : measured.ByteSendingPeers == 0 && measured.PeersPresentThroughoutWindow &&
                       measured.Window.TotalSeconds >= options.MinimumGoodSeconds &&
@@ -243,8 +253,8 @@ public sealed class SwarmCheck(IEngine engine, ICheckRepository repository, Chec
                 Persistable = measured.Persistable && !ct.IsCancellationRequested,
             };
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
-        { return Unknown(flight, "The swarm could not be judged: " + ex.Message, flight.Enqueued.Elapsed); }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or InvalidOperationException)
+        { return Unknown(flight, "The swarm could not be judged: " + ex.Message, queueWait); }
         finally
         {
             if (handle is not null && (!retained || ct.IsCancellationRequested))
