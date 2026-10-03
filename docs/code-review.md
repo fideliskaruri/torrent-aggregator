@@ -209,3 +209,11 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 | 6 Safety + ship | OPS-656, 655, 657, 651, 681; push to GitHub | full journey walk, critic pass |
 
 Rehearsal/switchover is dropped (no legacy data).
+## Web decomposition approach (Phase 5)
+
+1. **Inventory first, across all six god pages at once** (Downloads, Title, Settings, Watchlist, Episode list, Rules). List repeated patterns: filtered selectable list + bulk bar, media row, loading/empty/error, confirm-then-mutate, polled fetch, settings section. Seen twice = shared; seen once = stays in the feature.
+2. **Shared pieces built first, once, before any page is touched:** `lib/api` (typed client, `useApiQuery`/`useApiMutation` with polling), `DataList<T>`, `FilterBar<T>`, `useSelection<T>` + `BulkBar`, `MediaRow`, `StatusChip` (renders server label), `ConfirmAction`, `SettingsSection`. Extend `components/tf`.
+3. **Server contract before pages (Phase 4):** identity, status label and allowed action come from the server, so browser parsers are deleted, not split.
+4. **Each page = one data hook + layout (≤150 lines) + feature components (≤300 lines).** Agent briefs name the shared components to use and forbid new primitives; a needed primitive comes back to the coordinator.
+
+**Guards:** lint fails files over 300 lines and raw `fetch` outside `lib/api`; status words and labels defined once; per-page review rejects any hook/component duplicating a shared one; jscpd plus a concept grep (second grouping, second state predicate) after each page.
