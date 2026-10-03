@@ -45,8 +45,12 @@ internal static class DevEngine
             { return Results.Conflict(new { error = "engine_conflict", message = ex.Message }); }
             catch (HttpRequestException)
             { return Results.Json(new { error = "metadata_unavailable", message = "Torrent metadata could not be downloaded. Check the connection or try another torrent." }, statusCode: 502); }
-            catch (IOException)
-            { return Results.Conflict(new { error = "file_busy", message = "A download file could not be read or saved. Check the folder and try again." }); }
+            catch (IOException ex)
+            {
+                http.RequestServices.GetRequiredService<ILogger<MonoTorrentEngine>>()
+                    .LogWarning(ex, "Development engine file operation failed.");
+                return Results.Conflict(new { error = "file_busy", message = "A download file could not be read or saved. Check the folder and try again." });
+            }
         });
         group.MapGet("/torrents", async (MonoTorrentEngine engine, CancellationToken ct) => Results.Json(new
         {
@@ -59,16 +63,28 @@ internal static class DevEngine
         {
             if (input.Seconds is < 1 or > 60) return Results.BadRequest(new { error = "seconds must be 1..60" });
             var magnet = input.Magnet ?? input.Hash ?? throw new ArgumentException("Provide magnet or hash.");
-            var attachment = await engine.AttachProbeAsync(Candidate(magnet), ct);
+            var attachment = input.Pieces
+                ? await engine.AttachProbeAsync(Candidate(magnet), ct)
+                : await engine.AttachMetadataProbeAsync(Candidate(magnet), input.Trackerless, ct);
             if (attachment.Handle is not { } handle) return Results.Json(attachment, Json, statusCode: 409);
+            var release = handle;
+            var retained = false;
             try
             {
+                if (input.Pieces)
+                {
+                    var evidence = await engine.ObserveProbeAsync(handle, TimeSpan.FromSeconds(input.Seconds), ct);
+                    release = evidence.AdmissionHandle ?? handle;
+                    retained = input.Retain && evidence.AdmissionHandle is not null;
+                    return Results.Json(evidence with { AdmissionHandle = retained ? evidence.AdmissionHandle : null }, Json);
+                }
                 var measurement = await engine.ObserveMetadataProbeAsync(handle, TimeSpan.FromSeconds(input.Seconds), ct);
                 var json = JsonSerializer.SerializeToNode(measurement.Evidence with { AdmissionHandle = null }, Json)!;
                 json["protocolBytesDelivered"] = measurement.ProtocolBytesDelivered;
+                json["trackerCount"] = measurement.TrackerCount;
                 return Results.Json(json, Json);
             }
-            finally { await engine.ReleaseProbeAsync(handle, CancellationToken.None); }
+            finally { if (!retained) await engine.ReleaseProbeAsync(release, CancellationToken.None); }
         });
         group.MapPost("/add", async (AddInput input, MonoTorrentEngine engine, CancellationToken ct) =>
         {
@@ -81,7 +97,11 @@ internal static class DevEngine
             var candidate = Candidate(input.Magnet);
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromSeconds(30));
-            var attachment = await engine.AttachProbeAsync(candidate, deadline.Token);
+            var supplied = input.ProbeToken is null ? null : await engine.FindProbeAsync(input.ProbeToken, ct);
+            if (input.ProbeToken is not null && supplied is null)
+                return Results.Conflict(new { error = "The retained probe capability expired or was consumed." });
+            var attachment = supplied is null ? await engine.AttachProbeAsync(candidate, deadline.Token) :
+                new ProbeAttachment(supplied, null, null);
             if (attachment.Handle is not { } handle) return Results.Json(attachment, Json, statusCode: 409);
             var token = Guid.NewGuid().ToString("N");
             try
@@ -135,6 +155,13 @@ internal static class DevEngine
         });
         group.MapPost("/{hash}/recheck", async (string hash, MonoTorrentEngine engine, CancellationToken ct) =>
             Results.Json(await engine.RecheckAsync(MonoTorrentEngine.NormalizeHash(hash), ct), Json));
+        group.MapPost("/shutdown", async (HttpContext http, IHostApplicationLifetime lifetime,
+            MonoTorrentEngine engine, CancellationToken ct) =>
+        {
+            var diagnostics = await engine.DiagnosticsAsync(ct);
+            http.Response.OnCompleted(() => { lifetime.StopApplication(); return Task.CompletedTask; });
+            return Results.Json(new { stopping = true, diagnostics }, Json);
+        });
     }
 
     private static Candidate Candidate(string magnet)
@@ -151,8 +178,9 @@ internal static class DevEngine
                 throw new ArgumentException("Download paths cannot traverse links or junctions.");
     }
 
-    private sealed record ProbeInput(string? Magnet, string? Hash, int Seconds = 20);
-    private sealed record AddInput(string Magnet, int[] Files, string SavePath);
+    private sealed record ProbeInput(string? Magnet, string? Hash, int Seconds = 20,
+        bool Pieces = false, bool Retain = false, bool Trackerless = false);
+    private sealed record AddInput(string Magnet, int[] Files, string SavePath, string? ProbeToken = null);
     private sealed record IntentInput(bool Run);
 
     private sealed class EngineHost(MonoTorrentEngine engine, IServiceScopeFactory scopes,
