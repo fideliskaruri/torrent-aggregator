@@ -30,13 +30,6 @@ The rebound final is never turned back into a `.partial` or re-downloaded.
 Unselected shared boundary fragments remain in hidden `.unwanted/<hash>` with
 `.ignore`; they are not visible to the simulated Jellyfin scan.
 
-`Api\DevFiling.cs` is isolated development-only composition, not the future Targets
-worker: it wires Domain ports, exposes owner-loopback `/api/dev/filing`, and drives
-the same real Engine and Library against SQLite. `/api/dev/library/owned/{workId}`
-shows each filed video immediately. Removal waits for its ordered filing operation,
-drains the hash, removes partials and unchanged owned finals, and prunes the hidden
-fragments. An external final that appeared during a collision is left alone.
-
 ## Legacy library actions
 
 Completed-download Open and Show in folder resolve filed video bindings through
@@ -240,20 +233,6 @@ pending projection, with decisions retained for audit. Interrupted scans are sho
 as failed and can be scanned again; an interrupted operation is left for explicit path review rather than guessed or
 destructively replayed. Automatic recovery of pre-inventory proposals is not
 implemented here; the operations read endpoint exposes that limitation honestly.
-
-After conversion, Api composes the same Parser/Metadata import scan over enrolled
-roots before background workers start. `MediaImport.AdoptAsync` records confident,
-unchanged files in place using stat, name and duration evidence, without moving,
-renaming or deleting them. It reads bounded native container metadata,
-not a full payload digest. This is identity adoption, not full digest verification.
-Already-tracked physical paths are retained; ambiguous and unmatched files become
-durable reviews. Per-root and completion markers make startup replay idempotent.
-The completion marker acknowledges the first full scan. Store keeps the existing
-scheduler's import-review flag in sync with outstanding adoption decisions,
-without enabling the scheduler itself.
-Scanning the same root through the existing Import screen reopens its pending
-adoption review instead of creating another proposal. The pending-list endpoint
-also lets a UI discover review IDs without rescanning.
 
 Root reconciliation reuses marker/volume identity and mass-vanish protection.
 Incomplete or offline scans mark files offline and cannot confirm missing files.

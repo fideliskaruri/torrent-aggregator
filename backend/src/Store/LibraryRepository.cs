@@ -168,19 +168,4 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
         return dropped;
     }
 
-    public static async Task<LegacyLibrarySettings?> ReadLegacySettingsAsync(string databasePath, CancellationToken ct)
-    {
-        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
-        }.ToString());
-        await connection.OpenAsync(ct);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT baseDownloadPath,pathRules,maxStorageBytes FROM ClientSettings ORDER BY createdAt LIMIT 1";
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || reader.IsDBNull(0) || string.IsNullOrWhiteSpace(reader.GetString(0))) return null;
-        var rules = reader.IsDBNull(1) ? ImmutableDictionary<string, string>.Empty :
-            System.Text.Json.JsonSerializer.Deserialize<ImmutableDictionary<string, string>>(reader.GetString(1))!;
-        return new(reader.GetString(0), rules, reader.IsDBNull(2) ? null : reader.GetInt64(2));
-    }
 }

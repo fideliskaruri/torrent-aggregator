@@ -239,19 +239,4 @@ public sealed partial class MonoTorrentEngine
         finally { gate.Release(); }
     }
 
-    public async Task PrioritizeDevFileAsync(string downloadId, int index, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct);
-        try
-        {
-            var entry = entries.Values.Single(e => !e.Probe && e.Id == downloadId);
-            if (index < 0 || index >= entry.Manager.Files.Count || entry.Filed.Contains(index) ||
-                entry.Manager.Files[index].Priority == MonoTorrent.Priority.DoNotDownload)
-                throw new ArgumentException("Choose a selected, unfinished file.");
-            await StopDownloadAsync(entry);
-            await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.Immediate);
-            await ReconcileQueueAsync();
-        }
-        finally { gate.Release(); }
-    }
 }

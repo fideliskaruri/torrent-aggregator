@@ -1,4 +1,3 @@
-param([switch]$Continue)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $proof = Join-Path $PSScriptRoot '.requests-proof'
@@ -69,34 +68,6 @@ function StopApi {
 }
 try {
     if(Get-NetTCPConnection -LocalPort 3952,48952 -State Listen -ErrorAction SilentlyContinue){throw 'Proof ports occupied.'}
-    if ($Continue) {
-        StartApi $true
-        $roots=Call 'storage-roots' '/api/dev/library/roots'
-        if(!$roots.roots) {
-            $null=Call 'storage-root-create' '/api/dev/library/roots' POST @{path="$data\library";kinds=@(0);priority=0;reserveBytes=0;confirmed=$true}
-        }
-        $mine=Call 'before-download' '/api/requester/requests' GET $null 'requester@example.test'
-        $id=$mine.requests[0].id
-        $null=Call 'retry-for-transfer' "/api/requests/$id/retry" POST
-        $started=$false
-        $fulfilled=$false
-        for($i=0;$i -lt 100;$i++) {
-            Start-Sleep -Seconds 3
-            $snapshot=Call "transfer-$i" '/api/dev/targets'
-            if($snapshot.live | Where-Object {$_.completedSelectedBytes -gt 0}) {$started=$true}
-            if($snapshot.targets | Where-Object {$_.state -eq 'done'}) {$fulfilled=$true;break}
-        }
-        if($started){$results.Add('PASS real Sintel transfer: selected bytes downloaded.')}else{$results.Add('FAIL real Sintel transfer: no selected bytes.')}
-        $null=Call 'after-download-details' '/api/requester/requests' GET $null 'requester@example.test'
-        if($fulfilled) {
-            $draft=@{provider='tmdb';providerId='45745';mediaType='movie';title='Sintel';year=2010;scope='movie';seasons=@()}
-            $owned=Call 'owned-immediate' '/api/requester/requests' POST $draft 'requester@example.test' 201
-            if($owned.request.status -ne 'fulfilled'){throw 'Owned request did not fulfill immediately.'}
-            $results.Add('PASS owned-item request fulfilled immediately.')
-        } else {$results.Add('FAIL owned-item immediate fulfillment: transfer did not finish.')}
-        $results | Set-Content "$proof\transfer-results.txt"
-        return
-    }
     StartApi $false
     $null=Call 'health' '/api/health' GET $null $null $script:healthStatus
     if($script:healthStatus -ne 200){$results.Add('FAIL database readiness HTTP 503, tracked as OPS-780; request API proof continues.')}
@@ -119,10 +90,6 @@ try {
     $null=Call 'declined-details' '/api/requester/requests' GET $null 'requester@example.test'
     $null=Call 'retry-declined' "/api/requests/$id/retry" POST
     $null=Call 'approve-idempotent' "/api/requests/$id/approve" POST
-    $targets=Call 'targets-created' '/api/dev/targets'
-    if(!$targets.targets -or $targets.targets[0].createdBy -ne $id -or $targets.targets[0].origin -ne 'request') {
-        throw 'Target missing request provenance.'
-    }
     $null=Call 'auto-approve-put' '/api/requests/auto-approve' PUT @{rules=@(@{email='other@example.test';mode='moviesOnly'})}
     $auto=Call 'auto-approved-create' '/api/requester/requests' POST $draft 'other@example.test' 201
     if($auto.request.status -eq 'pending'){throw 'Auto-approve did not approve.'}

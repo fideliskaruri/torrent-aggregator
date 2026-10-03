@@ -160,9 +160,6 @@ Goal: the web app runs on the new server for everything that doesn't download.
   - Metadata is cached by hash for good, and verdicts for about 6 h.
   - The tracker scrape is only a pre-filter.
   - Probes start while search results are still arriving.
-- **3.6 Dry-run endpoint (Sol low):** `/api/dev/plan` returns the pool, the verdicts and the reason for every rejection,
-  without adding anything. The bench uses it.
-
 **Gate:**
 - A checked pool arrives faster than the baseline.
 - Every hard-set title finds its right releases.

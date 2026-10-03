@@ -151,7 +151,6 @@ Inputs reviewed: README, 1.1–1.6, Domain `Enums.cs`/`Records.cs`/`Interfaces.c
 - **Problem:** These need synchronous Find/Check/Plan or file system reads, but no interface method exists, and Api may not reference Find/Library:
   - `GET /api/title/{workKey}/releases` (picker) and `GET /api/client/torrents/{hash}/alternatives`
   - `GET /api/search` (raw)
-  - Phase 3.6 `/api/dev/plan`
   - `/api/settings/browse-folders`, `untracked-files`, `download-recovery[/sources]`
   - `library/backfill-estimate`
 - **Fix:** Add typed ITargets read methods (picker/alternatives/plan dry run returning pool + verdicts + rejections, with a token) and Library-through-Targets folder and recovery queries. Don't route them through `SystemAsync` with a JsonElement payload.

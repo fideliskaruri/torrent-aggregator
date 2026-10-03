@@ -12,7 +12,6 @@ old EF mappings and read-only 3930-copy database inspected 2026-10-03.
 | [1.3 Interfaces](1.3-interfaces.md) | module contracts/dependencies, typed Store and settings, unchanged 93 HTTP routes |
 | [1.4 Concurrency](1.4-concurrency.md) | audited sources/queues, search feedback/cache, measured Check, scheduler/calendar |
 | [1.5 Library layout](1.5-library-layout.md) | actual Jellyfin naming, partials, roots, import/scan/delete/upgrade |
-| [1.6 Migration](1.6-migration.md) | all 25 old tables+JSON/artifacts, 27 engine rows, payload proof and rollback |
 | `backend\src\Domain\` | enums, immutable records for all 35 tables and typed module messages, 11 interfaces |
 
 ## Precedence and resolved defaults

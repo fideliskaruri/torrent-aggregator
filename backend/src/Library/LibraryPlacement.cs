@@ -170,37 +170,6 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
             RootFailure("RootConflict", "The storage settings changed. Reload them and try again.");
     }
 
-    public async Task<LibraryRootResult> SeedAsync(LegacyLibrarySettings settings, CancellationToken ct)
-    {
-        var existing = await RootsAsync(ct);
-        if (existing.Length != 0) return new(existing[0], null);
-        try
-        {
-            if (!Path.IsPathFullyQualified(settings.BaseDownloadPath))
-                return RootFailure("InvalidLegacyRoot", "The old download folder must be an absolute path.");
-            var path = Path.GetFullPath(settings.BaseDownloadPath).TrimEnd(Path.DirectorySeparatorChar);
-            string Folder(string category, string fallback)
-            {
-                var rule = settings.PathRules.FirstOrDefault(p => p.Key.Equals(category, StringComparison.OrdinalIgnoreCase)).Value;
-                if (string.IsNullOrWhiteSpace(rule)) return fallback;
-                var relative = Path.GetRelativePath(path, rule);
-                _ = LibraryPaths.Within(path, relative);
-                return relative;
-            }
-            // Old MediaFolders.Library deliberately ignores Anime's category rule when a base root exists.
-            var folders = new LibraryFolders(Folder("Movies", "Movies"), Folder("TV", "TV"), "Anime Series", "Anime Movies");
-            var now = DateTimeOffset.UtcNow;
-            var root = new StorageRootRow("legacy-library", path, LibraryPaths.PhysicalKey(path),
-                [.. Enum.GetValues<LibraryKind>()], folders, "", 0, 500L * 1024 * 1024, settings.MaxStorageBytes,
-                true, false, true, null, "Confirm the original drive before placing new files here.", now, now, 1);
-            // Seeding settings never enrolls or writes to the old drive.
-            return await repository.SaveRootAsync(root, null, ct) ? new(root, null) :
-                RootFailure("RootConflict", "The old storage settings could not be saved.");
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException)
-        { return RootFailure("InvalidLegacyRoot", ex.Message); }
-    }
-
     public async Task<ImmutableArray<OwnedItem>> OwnedAsync(TargetScope scope, CancellationToken ct)
     {
         var roots = await RootsAsync(ct);
