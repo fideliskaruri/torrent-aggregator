@@ -13,6 +13,8 @@ public interface ILibraryDownloadRepository : ILibraryRepository
     Task<bool> BeginFilingAsync(DownloadFileRow binding, string digest, CancellationToken cancellationToken);
     Task<ImmutableArray<FileOperationRow>> FilingOperationsAsync(CancellationToken cancellationToken);
     Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken cancellationToken);
+    Task<bool> RemoveLibraryFilesAsync(ImmutableArray<DownloadFileRow> files, ImmutableArray<MediaFileRow> media,
+        ImmutableArray<DownloadFileRow> replacements, CancellationToken cancellationToken);
 }
 
 public abstract class LibraryWriteProposal

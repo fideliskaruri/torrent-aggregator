@@ -27,7 +27,7 @@ internal static class LibraryEndpoints
     private sealed record DeleteInput(string? WatchListItemId, string? Scope, int? Season, int? Episode, bool Confirm = false);
 
     private static async Task<IResult> Delete(HttpContext http, CatalogState state,
-        ILibraryRepository library, TargetPipeline targets, CancellationToken ct)
+        ILibraryRepository library, TargetPipeline targets, DevFiling filing, CancellationToken ct)
     {
         var mutate = HttpMethods.IsPost(http.Request.Method);
         var input = mutate ? await http.Request.ReadFromJsonAsync<DeleteInput>(ct) :
@@ -67,9 +67,7 @@ internal static class LibraryEndpoints
         if (!mutate) return Results.Ok(new { ok = true, title, plan });
         if (plan.Outcome != "deletes") return Results.Json(new { ok = false, error = plan.Outcome == "blocked" ? "Refused" : "Nothing to delete",
             message = plan.Summary, reason = plan.Outcome, plan }, statusCode: 409);
-        var result = await LibraryRemoval.DeleteAsync(preview,
-            async (id, token) => { await targets.ActionAsync(id, TargetAction.Remove, token); },
-            targets.DeleteDownloadFilesAsync, ct);
+        var result = await filing.DeleteLibraryAsync(targets, preview, ct);
         if (result.Ok) await targets.ScopeActionAsync(work.WorkKey,
             input.Scope == "show" ? null : input.Season, input.Scope == "episode" ? input.Episode : null, TargetAction.Remove, ct);
         return Results.Ok(result);

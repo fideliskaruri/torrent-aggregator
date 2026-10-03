@@ -6,6 +6,7 @@ using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
@@ -17,6 +18,14 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
     private readonly Dictionary<string, Failure> reasons = [];
+
+    internal async Task<LibraryDeleteResult> DeleteLibraryAsync(TargetPipeline targets,
+        LibraryDeletePreview preview, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try { return await targets.DeleteLibraryAsync(preview, ct); }
+        finally { gate.Release(); }
+    }
 
     internal static void Map(WebApplication app)
     {
@@ -38,8 +47,8 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
             Results.Json(await filing.AddAsync(input, ct), Json));
         group.MapGet("/", async (DevFiling filing, CancellationToken ct) =>
             Results.Json(await filing.ReadAsync(ct), Json));
-        group.MapDelete("/{hash}", async (string hash, DevFiling filing, CancellationToken ct) =>
-            Results.Json(await filing.RemoveAsync(MonoTorrentEngine.NormalizeHash(hash), ct), Json));
+        group.MapDelete("/{hash}", async (string hash, DevFiling filing, TargetPipeline targets, CancellationToken ct) =>
+            Results.Json(await filing.RemoveAsync(MonoTorrentEngine.NormalizeHash(hash), targets, ct), Json));
         group.MapPost("/{hash}/prioritize/{index:int}", async (string hash, int index, MonoTorrentEngine engine, CancellationToken ct) =>
         {
             var normalized = MonoTorrentEngine.NormalizeHash(hash);
@@ -136,7 +145,7 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
             {
                 var files = allFiles.Where(f => f.DownloadId == download.Id).ToImmutableArray();
                 var snapshot = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
-                if (snapshot is null && download.FinishedAt is null)
+                if (snapshot is null && download.FinishedAt is null && download.Intent == DownloadIntent.Run && files.Length > 0)
                 {
                     await engine.ClaimAdmissionAsync(new(download.AdmissionToken, download.Hash, download.Id, null,
                         DateTimeOffset.UtcNow.AddSeconds(90)), ct);
@@ -144,6 +153,12 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
                         [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))],
                         download.AdmissionToken), ct);
                     snapshot = restored.Snapshot;
+                    var current = (await store.ReadAsync<DownloadRow>(AccessState.Query(download.Id), ct)).SingleOrDefault();
+                    if (current is null || current.Intent != DownloadIntent.Run)
+                    {
+                        await engine.DetachAsync(download.Id, ct);
+                        continue;
+                    }
                 }
                 if (snapshot is null) continue;
                 foreach (var binding in files.Where(f => f.Selected && !f.Filed))
@@ -211,28 +226,14 @@ internal sealed class DevFiling(MonoTorrentEngine engine, IServiceScopeFactory s
         finally { gate.Release(); }
     }
 
-    private async Task<object> RemoveAsync(string hash, CancellationToken ct)
+    private async Task<object> RemoveAsync(string hash, TargetPipeline targets, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var id = Prefix + hash;
-            var download = (await store.ReadAsync<DownloadRow>(AccessState.Query(id), ct)).SingleOrDefault();
-            if (download is null) return new { removed = true };
-            var bindings = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == id).ToImmutableArray();
-            await engine.RemoveDevAsync(hash, ct);
-            var root = (await repository.RootsAsync(ct)).Single(r => r.Id == download.RootId);
-            var targets = (await AccessState.AllAsync<TargetRow>(store, ct)).Where(t => bindings.Any(f => f.TargetId == t.Id)).ToArray();
-            var folder = (await repository.FoldersAsync(ct)).Single(f => targets.Any(t => t.WorkId == f.WorkId));
-            await DownloadFiling.DeletePayloadAsync(bindings, LibraryPaths.Within(root.Path, folder.RelativeItemFolder!), hash,
-                await repository.FilingOperationsAsync(ct), await repository.MediaAsync(null, ct), ct);
-            if (!await repository.RemoveDownloadFilesAsync(id, ct)) throw new IOException("The library changed while removing files.");
-            await CommitAsync(store, [], [new(StoreTable.Download, id, download.Version, null)], ct);
+            await targets.DeleteDownloadFilesAsync(hash, ct);
             reasons.Remove(id);
-            await engine.SaveDevStateAsync(ct);
             return new { removed = true };
         }
         finally { gate.Release(); }

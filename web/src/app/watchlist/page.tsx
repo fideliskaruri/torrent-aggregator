@@ -276,7 +276,7 @@ function deleteButtonLabel(plan: DeletePlan): string {
   const files = plan.fileCount;
   if (files > 0) return `Delete ${files} file${files === 1 ? "" : "s"}`;
   const releases = plan.releases.length;
-  return `Delete ${releases} release${releases === 1 ? "" : "s"}`;
+  return `Remove ${releases} release record${releases === 1 ? "" : "s"}`;
 }
 
 
@@ -616,37 +616,56 @@ export default function WatchlistPage() {
 
   async function confirmDeleteFiles() {
     if (!pendingDelete || !deletePlan || deletePlan.outcome !== "deletes") return;
+    const target = pendingDelete;
+    // A whole-title delete shows on the card at once; a failure puts it back.
+    const optimistic = deleteScope.kind === "show";
+    const rollback = () => {
+      if (optimistic) setItems((prev) => prev.map((i) => (i.id === target.id ? { ...i, ready: target.ready } : i)));
+    };
+    if (optimistic) {
+      setItems((prev) => prev.map((i) => (i.id === target.id ? { ...i, ready: false } : i)));
+      setPendingDelete(null);
+    }
     setDeleting(true);
     try {
       const res = await fetch("/api/library/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          watchListItemId: pendingDelete.id,
+          watchListItemId: target.id,
           scope: deleteScope.kind,
           ...(deleteScope.kind !== "show" ? { season: deleteScope.season } : {}),
           ...(deleteScope.kind === "episode" ? { episode: deleteScope.episode } : {}),
           confirm: true,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
         toast.success(
-          `Deleted ${data.freedFiles} file${data.freedFiles === 1 ? "" : "s"}`,
+          data.freedFiles > 0
+            ? `Deleted ${data.freedFiles} file${data.freedFiles === 1 ? "" : "s"}`
+            : "Removed the release record",
           { description: data.plan?.summary },
         );
         setPendingDelete(null);
         load();
       } else {
+        rollback();
         // A partial failure is not a success with an asterisk: some files are
         // still there, and the user has to know which.
-        toast.error(data?.message || data?.error || "Could not delete files");
+        toast.error(
+          `Could not delete “${target.title}”`,
+          { description: data?.message || data?.error || "Nothing was deleted. Try again." },
+        );
         if (Array.isArray(data?.failed) && data.failed.length) {
-          void loadDeletePlan(pendingDelete, deleteScope);
+          void loadDeletePlan(target, deleteScope);
         }
       }
     } catch {
-      toast.error("Network error");
+      rollback();
+      toast.error(`Could not delete “${target.title}”`, {
+        description: "The server did not answer, so nothing changed. Check it is running and try again.",
+      });
     } finally {
       setDeleting(false);
     }
@@ -1253,7 +1272,9 @@ export default function WatchlistPage() {
         title="Delete downloaded files?"
         description={
           pendingDelete
-            ? `This removes the media for “${pendingDelete.title}” from your disk. It cannot be undone, and the title stays in your library.`
+            ? deletePlan?.outcome === "deletes" && deletePlan.fileCount === 0
+              ? `Nothing for “${pendingDelete.title}” is on your disk. The title stays in your library.`
+              : `This removes the media for “${pendingDelete.title}” from your disk. It cannot be undone, and the title stays in your library.`
             : undefined
         }
         variant="destructive"
@@ -1320,7 +1341,11 @@ export default function WatchlistPage() {
                 ) : (
                   <>
                     {/* The server's sentence, not a locally re-derived one. */}
-                    <p className="text-foreground">{deletePlan.summary}</p>
+                    <p className="text-foreground">
+                      {deletePlan.outcome === "deletes" && deletePlan.fileCount === 0
+                        ? "No files for this are on disk. This only removes the release record."
+                        : deletePlan.summary}
+                    </p>
                     {deletePlan.releases.length ? (
                       <ul className="mt-2 space-y-0.5 text-xs text-subtle-foreground">
                         {deletePlan.releases.map((release) => (

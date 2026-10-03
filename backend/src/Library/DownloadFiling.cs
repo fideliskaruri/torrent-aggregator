@@ -12,7 +12,8 @@ public sealed class DownloadFiling
         var files = bindings.ToArray();
         var paths = files.SelectMany(b => new[] { b.PartialPath, b.FinalPath, b.EnginePath,
                 b.FinalPath is null ? null : b.FinalPath + ".partial" }).OfType<string>()
-            .Concat((media ?? []).Where(m => files.Any(f => f.DownloadId == m.DownloadId)).Select(m => m.Path))
+            .Concat((media ?? []).Where(m => files.Any(f => f.DownloadId == m.DownloadId &&
+                (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).Select(m => m.Path))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var directory in UnwantedFolders(files))
             if (Directory.Exists(directory)) Collect(directory);
@@ -41,6 +42,23 @@ public sealed class DownloadFiling
                 { folders.Add(directory); break; }
         }
         return folders;
+    }
+
+    public static ImmutableArray<DownloadFileRow> RetireBindings(ImmutableArray<DownloadFileRow> files,
+        ImmutableArray<DownloadFileRow> allFiles, string rootPath, string hash)
+    {
+        var unwanted = UnwantedFolders(allFiles).FirstOrDefault() ??
+            LibraryPaths.Within(rootPath, Path.Combine(".unwanted", hash));
+        if (!LibraryPaths.IsInside(rootPath, unwanted) || Path.GetFileName(unwanted) != hash)
+            throw new IOException("The pack fragment folder is outside its library.");
+        return [.. files.Select(f =>
+        {
+            var path = LibraryPaths.Within(unwanted, Path.Combine(
+                f.FileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), "removed.partial"));
+            return f with { TargetId = null, Selected = false, Filed = false, MediaFileId = null,
+                PartialPath = path, FinalPath = null, EnginePath = path,
+                PhysicalKey = LibraryPaths.PhysicalKey(path), Role = FileRole.Unwanted };
+        })];
     }
 
     public static async Task<string> DigestAsync(string path, CancellationToken ct)
@@ -147,7 +165,8 @@ public sealed class DownloadFiling
     public static async Task DeletePayloadAsync(ImmutableArray<DownloadFileRow> bindings, string itemFolder, string hash,
         ImmutableArray<FileOperationRow> operations, ImmutableArray<MediaFileRow> media, CancellationToken ct)
     {
-        var ownedMedia = media.Where(m => bindings.Any(f => f.DownloadId == m.DownloadId)).ToArray();
+        var ownedMedia = media.Where(m => bindings.Any(f => f.DownloadId == m.DownloadId &&
+            (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToArray();
         foreach (var file in ownedMedia.Where(m => File.Exists(m.Path)))
         {
             LibraryPaths.NoLinks(file.Path);

@@ -8,32 +8,101 @@ namespace TorrentFlow.Targets;
 public sealed partial class TargetPipeline
 {
     public Task DeleteDownloadFilesAsync(string hash, CancellationToken ct) =>
-        transfers.DeleteFilesAsync(hash, ct);
+        transfers.DeleteFilesAsync(hash, null, stateGate, ct);
+
+    public async Task<LibraryDeleteResult> DeleteLibraryAsync(LibraryDeletePreview preview, CancellationToken ct)
+    {
+        var result = await LibraryRemoval.DeleteAsync(preview,
+            (item, token) => transfers.DeleteFilesAsync(item.Download.Hash, item.FileIndices, stateGate, token),
+            async (media, token) =>
+            {
+                var bound = preview.Items.SelectMany(i => i.TargetIds).ToHashSet();
+                foreach (var id in preview.TargetIds.Where(id => !bound.Contains(id)))
+                    await ActionAsync(id, TargetAction.Remove, token);
+                await using var scope = scopes.CreateAsyncScope();
+                await LibraryRemoval.DeleteUnboundAsync(media,
+                    (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>(), token);
+            }, ct);
+        if (result.Ok)
+            foreach (var id in preview.TargetIds) await ActionAsync(id, TargetAction.Remove, ct);
+        return result;
+    }
 }
 
 internal sealed partial class TargetTransfers
 {
-    internal async Task DeleteFilesAsync(string hash, CancellationToken ct)
+    internal async Task DeleteFilesAsync(string hash, ImmutableArray<int>? indices,
+        SemaphoreSlim stateGate, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
-            var catalog = new CatalogState(store);
-            var download = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
-                .SingleOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
-            if (download is null) return;
-            var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-            var files = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
-            var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
-            var root = (await library.RootsAsync(ct)).Single(r => r.Id == download.RootId);
-            await engine.DetachAsync(download.Id, ct);
-            await DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
-                await repository.FilingOperationsAsync(ct), await repository.MediaAsync(null, ct), ct);
-            if (!await repository.RemoveDownloadFilesAsync(download.Id, ct))
-                throw new IOException("The download files changed while removing them. Try again.");
+            await stateGate.WaitAsync(ct);
+            try { await DeleteFilesCoreAsync(hash, indices, ct); }
+            finally { stateGate.Release(); }
         }
         finally { gate.Release(); }
+    }
+
+    private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var catalog = new CatalogState(store);
+        var download = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
+            .SingleOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
+        if (download is null) return;
+        var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        var allFiles = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
+        if (indices is not null && indices.Value.Any(i => allFiles.All(f => f.FileIndex != i)))
+            throw new IOException("The title files changed. Refresh the deletion preview and try again.");
+        var files = indices is null ? allFiles :
+            allFiles.Where(f => indices.Value.Contains(f.FileIndex)).ToImmutableArray();
+        var shared = allFiles.Any(f => f.Role != FileRole.Unwanted && !files.Contains(f));
+        var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
+        var root = (await library.RootsAsync(ct)).Single(r => r.Id == download.RootId);
+        var links = (await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct))
+            .Where(l => l.DownloadId == download.Id).ToArray();
+        var targets = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct))
+            .Where(t => (!shared && links.Any(l => l.TargetId == t.Id)) || files.Any(f => f.TargetId == t.Id)).ToArray();
+        await TargetPipeline.CommitAsync(store,
+            [new(download with { Intent = shared ? download.Intent : DownloadIntent.Stopped,
+                Version = download.Version + 1 }, download.Version, null),
+                 .. targets.Where(t => t.State != TargetState.Removed).Select(t => new RowWrite(t with
+                 {
+                     State = TargetState.Removed, ResumeState = null, NextTryAt = null,
+                     ReplaceMediaFileId = null, ReplacementMode = null,
+                     LeaseToken = null, LeaseUntil = null, UpdatedAt = DateTimeOffset.UtcNow,
+                     Version = t.Version + 1,
+                 }, t.Version, null))], [], ct);
+        var drain = await engine.DetachAsync(download.Id, ct);
+        if (!drain.WritesDrained || drain.Failure is not null)
+            throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
+        await DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
+            await repository.FilingOperationsAsync(ct), await repository.MediaAsync(null, ct), ct);
+        if (shared)
+        {
+            var replacements = DownloadFiling.RetireBindings(files, allFiles, root.Path, hash);
+            var media = (await repository.MediaAsync(null, ct)).Where(m => files.Any(f =>
+                f.DownloadId == m.DownloadId && (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToImmutableArray();
+            if (!await repository.RemoveLibraryFilesAsync(files, media, replacements, ct))
+                throw new IOException("The pack files changed while removing them. Refresh and try again.");
+            var restored = download with { Version = download.Version + 2 };
+            await TargetPipeline.CommitAsync(store, [new(restored, download.Version + 1, null)],
+                [.. links.Where(l => targets.Any(t => t.Id == l.TargetId))
+                        .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l))], ct);
+            var remaining = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
+            if (restored.FinishedAt is null && remaining.Any(f => f.Selected && !f.Filed))
+                await engine.RecoverAsync([restored], remaining, ct);
+        }
+        else
+        {
+            if (!await repository.RemoveDownloadFilesAsync(download.Id, ct))
+                throw new IOException("The download files changed while removing them. Try again.");
+            await TargetPipeline.CommitAsync(store, [],
+                [.. links.Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
+                     new(StoreTable.Download, download.Id, download.Version + 1, null)], ct);
+        }
+        if (engine is TorrentFlow.Engine.MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
     }
 }

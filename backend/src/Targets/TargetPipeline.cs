@@ -212,6 +212,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var next = old with { State = state, ResumeState = state == TargetState.Paused ? old.State : null,
                 ReasonCode = null, ReasonText = null, NextTryAt = null, LeaseToken = null, LeaseUntil = null,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
+            if (action == TargetAction.Remove)
+                next = next with { ReplaceMediaFileId = null, ReplacementMode = null };
             if (action == TargetAction.DownloadNow)
                 next = next with { NowAt = DateTimeOffset.UtcNow, Priority = TargetPriority.Now,
                     LeaseToken = state is TargetState.Fetching or TargetState.Filing ? old.LeaseToken : null };

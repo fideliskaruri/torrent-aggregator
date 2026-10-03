@@ -55,17 +55,27 @@ binding reserves `<stem> [<replacement-hash8>]<extension>` and that path's
 then completes the new file without overwriting or removing the old file.
 Targets remains responsible for switching Current and retiring the fallback.
 
-This bounded port does **not** unlink imported media without a Download binding,
-or a narrow episode inside a shared download holding other episodes. Their plans
-report blocked paths rather than guessing a wider deletion. General imported
-removal needs a Store removal capability and shared-pack removal needs Targets'
-per-file drain API; neither is bypassed by Library.
+Removal includes imported/adopted MediaFiles without Download bindings. Exact
+recorded videos and sidecars are digest-checked together before any unlink; only
+those inventory rows and completed operations are removed. No wildcard sidecar
+search or recursive title-tree deletion is used. A changed file refuses the
+operation and leaves the video's bytes untouched.
 
-The actual incomplete-transfer proof exposed OPS-822: a binding-only DevFiling
-download without target associations can recover its still-running Download
-identity and recreate partials after public removal. Durable intent retirement
-and recovery serialization require the Targets/Engine lane. This proof is not
-claimed as passing. Web deletion was exercised at 390 and 1280; OPS-821 records
+For a shared pack, the preview selects only the requested items' file indices.
+Targets drains the manager through Engine's public API, retires those bindings to
+unselected hidden boundary-fragment paths, removes their inventory and associations,
+then recovers the same Download with the other files' existing paths and selection.
+The pack briefly pauses for the drain; this is not a seamless native per-file
+Engine drain. Other episodes retain their bytes and can finish normally.
+
+OPS-822 is addressed by retiring intent before unlinking: affected Targets become
+Removed, the whole Download becomes Stopped and is subsequently removed, and orphan
+recovery cannot revive Removed targets. Development filing's recovery and the HTTP
+delete composition share its existing gate so a stale recovery cannot recreate
+files during removal. Requests with targets but no physical bytes also retire intent.
+Targeted real HTTP evidence is in gitignored `tools\.tdel-proof\report.md`.
+The previous web deletion proof at 390 and 1280 remains in `.libdel-proof`;
+OPS-821 records
 the missing film delete control and delayed post-deletion ownership refresh.
 
 Evidence: gitignored `tools\.libdel-proof\`, port 3970, copied/converted stable

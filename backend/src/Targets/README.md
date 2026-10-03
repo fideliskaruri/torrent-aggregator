@@ -150,3 +150,24 @@ Find another promotion answers, and external client import. External recovery im
 explicitly returns 501 rather than claiming success.
 Download recovery restores persisted Engine bindings; it does not import another client's
 storage. Real HTTP and headless 1280/390 proof lives in `tools\.dlapi-proof\finish\`.
+
+## Library deletion
+
+`DeleteLibraryAsync` consumes Library's exact preview. Whole-download deletion commits
+Stopped download intent and Removed target state before draining Engine and unlinking
+payloads; bindings, associations and the Download identity are then removed. Recovery
+never changes an already Removed orphan target back to Wanted. A title without bytes
+can still retire its accepted targets. Ordinary deletion never means "get again";
+explicit acquisition is required to revive removed intent.
+
+Shared-pack deletion drains Engine through its existing public detach API, deletes
+only the scoped bindings/media, persists Library's unselected hidden fragment bindings,
+and recovers the remaining selection under the same Download identity. This briefly
+pauses the pack rather than adding an unsafe native per-file deletion implementation
+inside Engine. Library supplies paths and Store performs snapshot-checked inventory
+and binding changes; Targets supplies state and association changes. Development filing
+serializes the HTTP composition with its existing recovery gate.
+
+Licensed Sintel mid-transfer removal, three scheduler-enabled minutes without
+re-admission, synthetic episode/season scopes over the free Blender pack, and
+unbound import/sidecar deletion are recorded in gitignored `tools\.tdel-proof\report.md`.

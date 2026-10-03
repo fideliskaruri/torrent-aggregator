@@ -183,7 +183,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         {
             await engine.DetachAsync(orphan.Id, ct);
             foreach (var link in links.Where(l => l.DownloadId == orphan.Id))
-                await change(link.TargetId, TargetState.Wanted, null, "The interrupted download will be found again.", ct);
+                if (targets.Any(t => t.Id == link.TargetId && t.State != TargetState.Removed))
+                    await change(link.TargetId, TargetState.Wanted, null, "The interrupted download will be found again.", ct);
             var retired = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
             await TargetPipeline.CommitAsync(store, [], [.. retired.Where(l => l.DownloadId == orphan.Id)
                 .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),

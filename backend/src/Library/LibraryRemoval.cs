@@ -8,8 +8,10 @@ public sealed record LibraryDeleteRelease(string Name, int FileCount, long Bytes
 public sealed record LibraryDeleteBlocked(string Name, string Reason, string Covers, int FileCount, long Bytes);
 public sealed record LibraryDeletePlan(LibraryDeleteScope Scope, string Outcome, int FileCount, long TotalBytes,
     int MissingFileCount, ImmutableArray<LibraryDeleteRelease> Releases, ImmutableArray<LibraryDeleteBlocked> Blocked, string Summary);
-public sealed record LibraryDeleteItem(DownloadRow Download, ImmutableArray<string> TargetIds, ImmutableArray<string> Paths);
-public sealed record LibraryDeletePreview(LibraryDeletePlan Plan, ImmutableArray<LibraryDeleteItem> Items);
+public sealed record LibraryDeleteItem(DownloadRow Download, ImmutableArray<string> TargetIds,
+    ImmutableArray<string> Paths, ImmutableArray<int> FileIndices);
+public sealed record LibraryDeletePreview(LibraryDeletePlan Plan, ImmutableArray<LibraryDeleteItem> Items,
+    ImmutableArray<MediaFileRow> UnboundMedia, ImmutableArray<string> TargetIds);
 public sealed record LibraryDeleteSuccess(string Name, long Bytes, int FileCount);
 public sealed record LibraryDeleteFailure(string Name, string Message);
 public sealed record LibraryDeleteResult(bool Ok, long FreedBytes, int FreedFiles,
@@ -35,27 +37,31 @@ public static class LibraryRemoval
         foreach (var download in downloads.Where(d => downloadIds.Contains(d.Id)))
         {
             var files = bindings.Where(f => f.DownloadId == download.Id).ToArray();
-            if (files.Length == 0) continue;
+            var shared = associations.Any(l => l.DownloadId == download.Id && !ids.Contains(l.TargetId)) ||
+                files.Any(f => f.TargetId is not null && !ids.Contains(f.TargetId)) ||
+                media.Any(m => m.DownloadId == download.Id && (m.WorkId != workId || !Within(m.EpisodeId)));
+            if (shared)
+                files = files.Where(f => f.TargetId is not null && ids.Contains(f.TargetId) ||
+                    selectedMedia.Any(m => m.DownloadId == f.DownloadId && m.FileIndex == f.FileIndex)).ToArray();
+            if (shared && files.Length == 0) continue;
             var present = DownloadFiling.PayloadPaths(files, media);
             var bytes = present.Sum(p => new FileInfo(p).Length);
             var name = Path.GetFileName(files.FirstOrDefault(f => f.Role == FileRole.Video)?.FinalPath) ?? download.Hash;
-            if (associations.Any(l => l.DownloadId == download.Id && !ids.Contains(l.TargetId)) ||
-                files.Any(f => f.TargetId is not null && !ids.Contains(f.TargetId)) ||
-                media.Any(m => m.DownloadId == download.Id && (m.WorkId != workId || !Within(m.EpisodeId))))
-            {
-                blocked.Add(new(name, "covers-more", "other episodes", present.Length, bytes));
-                continue;
-            }
             items.Add(new(download, [.. associations.Where(l => l.DownloadId == download.Id)
-                .Select(l => l.TargetId).Concat(files.Select(f => f.TargetId).OfType<string>()).Distinct()], present));
+                .Select(l => l.TargetId).Concat(files.Select(f => f.TargetId).OfType<string>())
+                .Where(ids.Contains).Distinct()], present, [.. files.Select(f => f.FileIndex)]));
             releases.Add(new(name, present.Length, bytes, true));
             missing += files.Count(f => f.Filed && f.FinalPath is not null && !File.Exists(f.FinalPath));
         }
-        foreach (var external in selectedMedia.Where(m => m.DownloadId is null ||
-            bindings.All(f => f.DownloadId != m.DownloadId)))
-            blocked.Add(new(Path.GetFileName(external.Path), "unrecognised",
-                "an imported file requiring a removal operation", File.Exists(external.Path) ? 1 : 0, external.Bytes));
-        var outcome = items.Count > 0 ? "deletes" : blocked.Count > 0 ? "blocked" : "nothing-held";
+        var unbound = selectedMedia.Where(m => m.DownloadId is null ||
+            bindings.All(f => f.DownloadId != m.DownloadId || f.FileIndex != m.FileIndex)).ToImmutableArray();
+        foreach (var external in unbound)
+            releases.Add(new(Path.GetFileName(external.Path), File.Exists(external.Path) ? 1 : 0,
+                File.Exists(external.Path) ? new FileInfo(external.Path).Length : 0, true));
+        var activeIds = targets.Where(t => ids.Contains(t.Id) && t.State != TargetState.Removed)
+            .Select(t => t.Id).ToImmutableArray();
+        var outcome = items.Count > 0 || unbound.Length > 0 || activeIds.Length > 0 ? "deletes" :
+            blocked.Count > 0 ? "blocked" : "nothing-held";
         var fileCount = releases.Sum(r => r.FileCount);
         var totalBytes = releases.Sum(r => r.Bytes);
         var subject = scope.Kind == "show" ? "this title" : scope.Kind == "season" ? $"Season {scope.Season}" :
@@ -67,11 +73,12 @@ public static class LibraryRemoval
             $"No files held for {subject}. Nothing to delete.";
         if (outcome == "deletes" && blocked.Count > 0) summary += $" {blocked.Count} releases will be left in place.";
         return new(new(scope, outcome, fileCount, totalBytes, missing, releases.ToImmutable(), blocked.ToImmutable(), summary),
-            items.ToImmutable());
+            items.ToImmutable(), unbound, activeIds);
     }
 
     public static async Task<LibraryDeleteResult> DeleteAsync(LibraryDeletePreview preview,
-        Func<string, CancellationToken, Task> removeTarget, Func<string, CancellationToken, Task> removeDownload, CancellationToken ct)
+        Func<LibraryDeleteItem, CancellationToken, Task> removeDownload,
+        Func<ImmutableArray<MediaFileRow>, CancellationToken, Task> removeUnbound, CancellationToken ct)
     {
         var deleted = ImmutableArray.CreateBuilder<LibraryDeleteSuccess>();
         var failed = ImmutableArray.CreateBuilder<LibraryDeleteFailure>();
@@ -80,8 +87,7 @@ public static class LibraryRemoval
             var before = item.Paths.Where(File.Exists).Select(p => (Path: p, Bytes: new FileInfo(p).Length)).ToArray();
             try
             {
-                foreach (var targetId in item.TargetIds) await removeTarget(targetId, ct);
-                await removeDownload(item.Download.Hash, ct);
+                await removeDownload(item, ct);
                 var removed = before.Where(p => !File.Exists(p.Path)).ToArray();
                 if (removed.Length != before.Length) throw new IOException("Some files could not be removed. Close apps using them and try again.");
                 deleted.Add(new(item.Download.Hash, removed.Sum(p => p.Bytes), removed.Length));
@@ -89,7 +95,41 @@ public static class LibraryRemoval
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { failed.Add(new(item.Download.Hash, ex.Message)); }
         }
+        if (!preview.UnboundMedia.IsEmpty)
+        {
+            var before = preview.UnboundMedia.Where(m => File.Exists(m.Path))
+                .Select(m => (m.Path, Bytes: new FileInfo(m.Path).Length)).ToArray();
+            try
+            {
+                await removeUnbound(preview.UnboundMedia, ct);
+                deleted.Add(new("Library files", before.Sum(m => m.Bytes), before.Length));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { failed.Add(new("Library files", ex.Message)); }
+        }
         return new(failed.Count == 0, deleted.Sum(d => d.Bytes), deleted.Sum(d => d.FileCount),
             deleted.ToImmutable(), failed.ToImmutable(), preview.Plan);
+    }
+
+    public static async Task DeleteUnboundAsync(ImmutableArray<MediaFileRow> media,
+        ILibraryDownloadRepository repository, CancellationToken ct)
+    {
+        foreach (var file in media.Where(m => File.Exists(m.Path)))
+        {
+            LibraryPaths.NoLinks(file.Path);
+            if (LibraryPaths.PhysicalKey(file.Path) != file.PhysicalKey || file.ContentDigest is null ||
+                await DownloadFiling.DigestAsync(file.Path, ct) != file.ContentDigest)
+                throw new IOException("A library file changed. It was left untouched. Review it before deleting it.");
+        }
+        foreach (var file in media)
+            if (File.Exists(file.Path)) File.Delete(file.Path);
+        if (!await repository.RemoveLibraryFilesAsync([], media, [], ct))
+            throw new IOException("The library changed while deleting files. Refresh and try again.");
+        foreach (var directory in media.Select(m => Path.GetDirectoryName(m.Path)!).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            LibraryPaths.NoLinks(directory);
+            if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                Directory.Delete(directory);
+        }
     }
 }
