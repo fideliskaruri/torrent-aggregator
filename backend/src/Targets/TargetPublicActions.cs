@@ -8,6 +8,8 @@ public sealed partial class TargetPipeline
 {
     public async Task<TargetActionReply> PickAsync(string targetId, string releaseHash, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(targetId) || string.IsNullOrWhiteSpace(releaseHash))
+            throw new ArgumentException("Choose a target and a release from the search results.");
         releaseHash = releaseHash.Trim().ToLowerInvariant();
         if (releaseHash.Length is not (40 or 64) || releaseHash.Any(c => !Uri.IsHexDigit(c)))
             throw new ArgumentException("Choose a release from the search results.");
@@ -44,6 +46,7 @@ public sealed partial class TargetPipeline
 
     public async Task<TargetActionReply> SetQualityAsync(string workOrTargetId, int? quality, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(workOrTargetId)) throw new ArgumentException("Choose a title or target.");
         if (quality is < 1 or > 4320) throw new ArgumentException("Choose a resolution between 1 and 4320.");
         await stateGate.WaitAsync(ct);
         try
