@@ -1,0 +1,12 @@
+{
+  "pid": 58780,
+  "environment": "Development",
+  "port": 3965,
+  "head": "a4c990decce025d597331f2479744bd2aaa1159c",
+  "mediaMode": "Actual isolated copies",
+  "startedAt": "2026-10-03T20:35:21.2393480Z",
+  "discardedPids": [
+    10104,
+    47608
+  ]
+}

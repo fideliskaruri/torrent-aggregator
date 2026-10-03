@@ -1,0 +1,11 @@
+{
+  "scans": [
+    {
+      "id": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+      "path": "D:\\code\\memtest\\reh3-data\\media",
+      "state": "complete",
+      "error": null,
+      "pending": 11
+    }
+  ]
+}

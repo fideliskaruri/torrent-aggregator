@@ -1,0 +1,43 @@
+--- adopt2
+
++++ reh3
+
+@@ -33,7 +33,7 @@
+
+ Staging f35d0acd9791072528d05e2f9ff27e8c9f2212f1: incomplete or hash mismatch; left untouched, wanted.
+ Staging 174e393d806d2e00a7c9c407eb5975f93f6bfae5: incomplete or hash mismatch; left untouched, wanted.
+ Staging 5b6e97c04eb3887022e49446c39b97a46b668794: incomplete or hash mismatch; left untouched, wanted.
+-Staging 80cea3f9e60c8f6b0c920f8b7904a78495c950e8: incomplete or hash mismatch; left untouched, wanted.
++Staging 80cea3f9e60c8f6b0c920f8b7904a78495c950e8: all torrent pieces verified, 6 files reconciled at existing final paths and SHA-256 checked.
+ Staging 45558b006a94ca585fc2ca052517fad61bfa38ef: incomplete or hash mismatch; left untouched, wanted.
+ Staging b624d98d1af036637386819de2045f3358f2ad13: missing torrent metadata; left untouched.
+ Staging 24f91962522e0de9674d37f1d4103fefc80f28e8: incomplete or hash mismatch; left untouched, wanted.
+@@ -42,7 +42,7 @@
+
+ Staging 4eb401194defb57999403dceb2ed2e4682aa072c: incomplete or hash mismatch; left untouched, wanted.
+ Staging 32da466e642e6fcabc4e8aef479d5b74d7331a05: missing torrent metadata; left untouched.
+ Staging 5d1ad6aedd6838313e9b416cc053c2bd706c365b: incomplete or hash mismatch; left untouched, wanted.
+-Staging c4f290a6d860058c7d8bc9408ee21bcf17a315a6: incomplete or hash mismatch; left untouched, wanted.
++Staging c4f290a6d860058c7d8bc9408ee21bcf17a315a6: all torrent pieces verified, 3 files reconciled at existing final paths and SHA-256 checked.
+ Staging 4e2350428a3966db5a8c7fc1d7b98f0dc89b26ad: missing torrent metadata; left untouched.
+ Staging 6e129da49638486e124583c9eda3a3d2b27d9d19: incomplete or hash mismatch; left untouched, wanted.
+ Staging a0f77741a322c9b214e43e4b80a2f5263f906590: missing torrent metadata; left untouched.
+@@ -56,7 +56,6 @@
+
+ Missing copied payload: b8a4fdf258166084687b579ae9fec6772fc0c7a4 file 5; no ownership inferred.
+ Missing copied payload: 4eb401194defb57999403dceb2ed2e4682aa072c file 5; no ownership inferred.
+ Missing copied payload: 5d1ad6aedd6838313e9b416cc053c2bd706c365b file 2; no ownership inferred.
+-Missing copied payload: c4f290a6d860058c7d8bc9408ee21bcf17a315a6 file 2; no ownership inferred.
+ Missing copied payload: 6e129da49638486e124583c9eda3a3d2b27d9d19 file 2; no ownership inferred.
+ Unmatched MediaProbe archived: cmurnfkbyburc9h9mc2g47uuv
+ Unmatched MediaProbe archived: cmurntbp0busbfs5zt1mvgwjq
+@@ -96,7 +95,7 @@
+
+ New DownloadFile: 12
+ New StorageRoot: 1
+ New MediaFile: 12
+-New FileOperation: 0
++New FileOperation: 9
+ New User: 1
+ New Notification: 74
+ New PushSubscription: 0

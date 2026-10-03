@@ -1,0 +1,18 @@
+{
+  "integrity": "ok",
+  "fkFailures": 0,
+  "tables": {
+    "MediaFile": 14,
+    "Target": 90,
+    "Download": 30,
+    "DownloadFile": 12,
+    "Request": 0,
+    "WatchItem": 2,
+    "Follow": 2,
+    "AutoRule": 0,
+    "ImportReview": 2,
+    "ImportDecision": 14,
+    "FileOperation": 9
+  },
+  "pendingVideos": 11
+}

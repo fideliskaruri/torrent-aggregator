@@ -1,0 +1,338 @@
+[
+  {
+    "workId": "01a1037a-8ab8-7e5a-b117-91a8a073c8ed",
+    "body": {
+      "items": [
+        {
+          "workId": "01a1037a-8ab8-7e5a-b117-91a8a073c8ed",
+          "episodeId": "8a2823e1a1f064150682bcd128c761080041117c226781d879c7eb1d1b00f6c0",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "adopted:d:\\code\\memtest\\reh3-data\\media\\anime\\digimon beatbreak\\[erai-raws] digimon beatbreak - 42 (repack) [1080p cr web-dl avc aac][multisub][ccf4b9da].mkv",
+              "workId": "01a1037a-8ab8-7e5a-b117-91a8a073c8ed",
+              "episodeId": "8a2823e1a1f064150682bcd128c761080041117c226781d879c7eb1d1b00f6c0",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\Anime\\Digimon Beatbreak\\[Erai-raws] Digimon Beatbreak - 42 (REPACK) [1080p CR WEB-DL AVC AAC][MultiSub][CCF4B9DA].mkv",
+              "bytes": 1260255161,
+              "resolution": 1080,
+              "source": "web",
+              "status": "Present",
+              "downloadId": null,
+              "addedAt": "2026-10-03T20:35:59.2859657+00:00",
+              "lastSeenAt": "2026-10-03T20:35:59.2980694+00:00"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "workId": "cmuq0ktripens7okn735sncyz",
+    "body": {
+      "items": [
+        {
+          "workId": "cmuq0ktripens7okn735sncyz",
+          "episodeId": "legacy-5db9a9f3d6fe959bfa89455cd5e11432",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-c4954dc6ae064b970756a4e80be881d3",
+              "workId": "cmuq0ktripens7okn735sncyz",
+              "episodeId": "legacy-5db9a9f3d6fe959bfa89455cd5e11432",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Family Guy\\Season 01\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 248042966,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmuq0kxxspenvif9jcr9002f3",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-01T22:58:07.366672+00:00"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "workId": "cmurncg9qbuom9jsyhu3rn32g",
+    "body": {
+      "items": [
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-14824d20caa394d7d78bf51719396b0f",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-0e1a54e534fdc8ad9a6ba5e91545b3ef",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-14824d20caa394d7d78bf51719396b0f",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 484065933,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurncthebup5sz0qc9zsj6nf",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:53:27.068258+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-4b0749682896636adede8740683092fa",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-1d24e2af9abe89186da01a2362c73fb2",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-4b0749682896636adede8740683092fa",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 382535469,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnd8y0bupundtrdnr7l0c9",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:30:37.3875053+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-c054baeae0e45d342cf08377542e1987",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-36609454e2b3bd0e4654c2b6d5e8e7f1",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-c054baeae0e45d342cf08377542e1987",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 415783571,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurncyi4bupbgung6aoedctu",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:28:04.2249136+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-bdbe7a19c97e2d0403f4ea0b6de898b7",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-46c63a87bb46080142d40fddc7bd9467",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-bdbe7a19c97e2d0403f4ea0b6de898b7",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 442409459,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnd4trbupjlnzorou683j1",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:27:29.0727375+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-a1c80f4fc0d628f58352a2d5a3f270b4",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-630a200bf469cb68015f3306e9180dce",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-a1c80f4fc0d628f58352a2d5a3f270b4",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 378661854,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurndam9buq2v1csz05pibfo",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T01:19:50.1629871+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-fc36aaa7e99727ef44629c33ac6178a5",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-7195861da50a4bf928d96efa470fb6a1",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-fc36aaa7e99727ef44629c33ac6178a5",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 506912934,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurndo2rbuqlba0ezkjzg6ba",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:34:28.4676956+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-8de3e6d0065360f38d8e7d3c948aa2f6",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-8ec4e62bc25635117a40c82ac42acf55",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-8de3e6d0065360f38d8e7d3c948aa2f6",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+              "bytes": 661106925,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnqhsnburrfrirl992pcei",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:33:50.6748078+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-8cc78830f657fcddff4fd3c2196b5786",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-96ae78a92a7ed9d045b7d1201d8410c6",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-8cc78830f657fcddff4fd3c2196b5786",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+              "bytes": 682714926,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnr4yrbus6vbalr65c0bn0",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:37:16.7989129+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-ddd96fc78cdd9c614865b2f9fb24245a",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-c15acb7b924db1a537d3fc589d49567d",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-ddd96fc78cdd9c614865b2f9fb24245a",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 389849431,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnd6yxbupoawoab2s8zvr9",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:26:01.8259181+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-4a05f1d2a0d20a5e5a6fb0625accea0d",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-c72bd9a7be311c201b25c7c9b620773f",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-4a05f1d2a0d20a5e5a6fb0625accea0d",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+              "bytes": 805861845,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurnxgewbusq5enrv71hkdry",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:39:30.3236167+00:00"
+            }
+          ]
+        },
+        {
+          "workId": "cmurncg9qbuom9jsyhu3rn32g",
+          "episodeId": "legacy-94f33d3c975c4cfd4506a8818255ffdc",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "legacy-d7063b86ed3a5eea804bf65b708eb652",
+              "workId": "cmurncg9qbuom9jsyhu3rn32g",
+              "episodeId": "legacy-94f33d3c975c4cfd4506a8818255ffdc",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+              "bytes": 403938308,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": "cmurndc2abuq75fsecoqfcyxg",
+              "addedAt": "1970-01-01T00:00:00+00:00",
+              "lastSeenAt": "2026-10-03T00:31:04.5413083+00:00"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "workId": "legacy-c28dd187b6fb9b2e7c0332af575ef8a8",
+    "body": {
+      "items": [
+        {
+          "workId": "legacy-c28dd187b6fb9b2e7c0332af575ef8a8",
+          "episodeId": "7b472ee73cb88d568ab093c55b08cbe524b6662bc7535c77f6de5cc56e4940ed",
+          "resolution": 1080,
+          "label": "In your library, 1080p",
+          "files": [
+            {
+              "id": "adopted:d:\\code\\memtest\\reh3-data\\media\\anime\\tensei shitara slime datta ken\\[horriblesubs] tensei shitara slime datta ken - 01 [1080p].mkv",
+              "workId": "legacy-c28dd187b6fb9b2e7c0332af575ef8a8",
+              "episodeId": "7b472ee73cb88d568ab093c55b08cbe524b6662bc7535c77f6de5cc56e4940ed",
+              "rootId": "legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+              "path": "D:\\code\\memtest\\reh3-data\\media\\Anime\\Tensei Shitara Slime Datta Ken\\[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [1080p].mkv",
+              "bytes": 1084507888,
+              "resolution": 1080,
+              "source": null,
+              "status": "Present",
+              "downloadId": null,
+              "addedAt": "2026-10-03T20:35:59.4243801+00:00",
+              "lastSeenAt": "2026-10-03T20:35:59.4253113+00:00"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

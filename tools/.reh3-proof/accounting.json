@@ -1,0 +1,430 @@
+[
+  {
+    "file": "Anime\\Digimon Beatbreak\\[Erai-raws] Digimon Beatbreak - 42 (REPACK) [1080p CR WEB-DL AVC AAC][MultiSub][CCF4B9DA].mkv",
+    "bytes": 1260255161,
+    "adopt2": "owned (imported)",
+    "state": "owned (imported)",
+    "workKey": "tmdb:tv:286791",
+    "title": "Digimon Beatbreak",
+    "season": 1,
+    "episode": 42,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "Anime\\I've Been Killing Slimes for 300 Years and Maxed Out My Level\\Season 02\\Ive Been Killing Slimes For 300 Years And Maxed Out My Level S02E10 MULTi 1080p CR WEB-DL AAC2.0 x264-Tsundere-Raws.mkv",
+    "bytes": 1487137286,
+    "adopt2": "owned (imported)",
+    "state": "pending review",
+    "reason": "The file name and folder name disagree. Pick the right title.",
+    "candidates": [
+      {
+        "workId": "01a1037a-9b9b-7a66-bbb3-5f8cd16b86f8",
+        "title": "I've Been Killing Slimes for 300 Years and Maxed Out My Level",
+        "year": 2021,
+        "kind": "series",
+        "episodeId": "f842d046f6cb63cc986f426bb4c874ddaff94cb922bb8db6101d6328402a69a3",
+        "season": 2,
+        "episode": 10,
+        "workKey": "tmdb:tv:99073"
+      }
+    ],
+    "changedAccounting": true
+  },
+  {
+    "file": "Anime\\I've Been Killing Slimes for 300 Years and Maxed Out My Level\\Season 02\\Ive Been Killing Slimes For 300 Years And Maxed Out My Level S02E11 MULTi AD 1080p CR WEB-DL AAC2.0 x264-Tsundere-Raws.mkv",
+    "bytes": 1520080769,
+    "adopt2": "owned (imported)",
+    "state": "pending review",
+    "reason": "The file name and folder name disagree. Pick the right title.",
+    "candidates": [
+      {
+        "workId": "01a1037a-9b9b-7a66-bbb3-5f8cd16b86f8",
+        "title": "I've Been Killing Slimes for 300 Years and Maxed Out My Level",
+        "year": 2021,
+        "kind": "series",
+        "episodeId": "f74d331e9b0be0411eb5e76e42b56d9f88cfb510e6bbbad10d7185f68bb68864",
+        "season": 2,
+        "episode": 11,
+        "workKey": "tmdb:tv:99073"
+      }
+    ],
+    "changedAccounting": true
+  },
+  {
+    "file": "Anime\\I've Been Killing Slimes for 300 Years and Maxed Out My Level\\Season 02\\Ive Been Killing Slimes For 300 Years And Maxed Out My Level S02E12 MULTi 1080p CR WEB-DL AAC2.0 x264-Tsundere-Raws.mkv",
+    "bytes": 2612883,
+    "adopt2": "owned (imported)",
+    "state": "pending review",
+    "reason": "The file name and folder name disagree. Pick the right title.",
+    "candidates": [
+      {
+        "workId": "01a1037a-9b9b-7a66-bbb3-5f8cd16b86f8",
+        "title": "I've Been Killing Slimes for 300 Years and Maxed Out My Level",
+        "year": 2021,
+        "kind": "series",
+        "episodeId": "277d1187d7f9a102c55c3f1566933591f74d1d3814d5ee61a48ce03af5707391",
+        "season": 2,
+        "episode": 12,
+        "workKey": "tmdb:tv:99073"
+      }
+    ],
+    "changedAccounting": true
+  },
+  {
+    "file": "Anime\\Katainaka no Ossan Kensei ni Naru II\\[GSF] Katainaka no Ossan Kensei ni Naru II - 05 [WEB 1080p] [5BC63375].mkv",
+    "bytes": 1284458655,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "The file name and folder name disagree. Pick the right title.",
+    "candidates": [
+      {
+        "workId": "01a1037a-af4d-70f2-8cf6-71483d5d22b6",
+        "title": "From Old Country Bumpkin to Master Swordsman",
+        "year": 2025,
+        "kind": "series",
+        "episodeId": "2fca2be94889fb2a95da39f851da41b0b3a0426db29226a7b8e194ec95a8efc9",
+        "season": 1,
+        "episode": 5,
+        "workKey": "tvmaze:tv:80469"
+      }
+    ],
+    "changedAccounting": false
+  },
+  {
+    "file": "Anime\\Tensei Shitara Slime Datta Ken\\[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [1080p].mkv",
+    "bytes": 1084507888,
+    "adopt2": "owned (imported)",
+    "state": "owned (imported)",
+    "workKey": "series:that time i got reincarnated as a slime",
+    "title": "That Time I Got Reincarnated as a Slime",
+    "season": 1,
+    "episode": 1,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "Movies\\Practical Magic (1998)\\Practical Magic 1998 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "bytes": 1641398025,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "Two files for the same film",
+    "candidates": [
+      {
+        "workId": "legacy-d4308492fa1927b5f6645627ed97e4a2",
+        "title": "Practical Magic",
+        "year": 1998,
+        "kind": "film",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "film:practical magic:1998"
+      }
+    ],
+    "changedAccounting": false
+  },
+  {
+    "file": "Movies\\Practical Magic REMASTERED (1998)\\Practical Magic 1998 REMASTERED 1080p BluRay HEVC x265 5.1 BONE.mkv",
+    "bytes": 2123358126,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "Two files for the same film",
+    "candidates": [
+      {
+        "workId": "legacy-d4308492fa1927b5f6645627ed97e4a2",
+        "title": "Practical Magic",
+        "year": 1998,
+        "kind": "film",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "film:practical magic:1998"
+      }
+    ],
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Family Guy\\Season 01\\Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 248042966,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "family-guy",
+    "title": "Family Guy",
+    "season": 1,
+    "episode": 1,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Futurama\\Season 01\\Futurama.S01E01.720p.WEB.H264-BATV[ettv].mkv",
+    "bytes": 167771975,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "Several titles have this name. Pick the right one.",
+    "candidates": [
+      {
+        "workId": "legacy-586f8776d2c623f95ec9078cbe3923ab",
+        "title": "Futurama",
+        "year": 1999,
+        "kind": "series",
+        "episodeId": "009fdb53aa4904483f0e6cecaa01256bb20f8fffc0c3472bb6a7e8633af2ebcd",
+        "season": 1,
+        "episode": 1,
+        "workKey": "series:futurama"
+      }
+    ],
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "bytes": 661106925,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 8,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb.mkv",
+    "bytes": 682714926,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 9,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune.mkv",
+    "bytes": 805861845,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 11,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 378661854,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 1,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 415783571,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 2,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 442409459,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 3,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 484065933,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 4,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 389849431,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 5,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 382535469,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 6,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 403938308,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 7,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 01\\Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta.mkv",
+    "bytes": 506912934,
+    "adopt2": "owned (downloaded)",
+    "state": "owned (downloaded)",
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "season": 1,
+    "episode": 10,
+    "status": "present",
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 02\\S02E08 Interdimensional Cable 2 Tempting Fate.mkv",
+    "bytes": 3377662926,
+    "adopt2": "owned (imported)",
+    "state": "pending review",
+    "reason": "The catalog could not confirm a unique title without a year. Pick the right one.",
+    "candidates": [
+      {
+        "workId": "legacy-cdae52bba2bf6dbf7d4b482c873ded3d",
+        "title": "Rick and Morty",
+        "year": 2013,
+        "kind": "series",
+        "episodeId": "fc7b9007411666bec5714689b6d9b26a0960dcceb913c94bafb2777cbe237612",
+        "season": 2,
+        "episode": 8,
+        "workKey": "series:rick and morty"
+      },
+      {
+        "workId": "cmurncg9qbuom9jsyhu3rn32g",
+        "title": "Rick and Morty",
+        "year": 2013,
+        "kind": "series",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "rick-and-morty-2013"
+      }
+    ],
+    "changedAccounting": true
+  },
+  {
+    "file": "TV\\Rick and Morty\\Season 09\\Rick And Morty S09E01 720p HDTV H264-JFF.mkv",
+    "bytes": 531934332,
+    "adopt2": "owned (imported)",
+    "state": "pending review",
+    "reason": "The catalog could not confirm a unique title without a year. Pick the right one.",
+    "candidates": [
+      {
+        "workId": "legacy-cdae52bba2bf6dbf7d4b482c873ded3d",
+        "title": "Rick and Morty",
+        "year": 2013,
+        "kind": "series",
+        "episodeId": "7476412ac278a91c7ff3cb8acb150d26996f59581fa3450850c6da7d46caa508",
+        "season": 9,
+        "episode": 1,
+        "workKey": "series:rick and morty"
+      },
+      {
+        "workId": "cmurncg9qbuom9jsyhu3rn32g",
+        "title": "Rick and Morty",
+        "year": 2013,
+        "kind": "series",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "rick-and-morty-2013"
+      }
+    ],
+    "changedAccounting": true
+  },
+  {
+    "file": "TV\\Scorpion\\Season 04\\Scorpion S04E04 Nuke Kids on the Block 1080p AMZN WEB-DL DDP5 1 H 264-NTb.mkv",
+    "bytes": 3649044409,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "2 titles match this name",
+    "candidates": [
+      {
+        "workId": "cmuohh82ck56ns5sqawnmnizq",
+        "title": "Scorpion",
+        "year": 2014,
+        "kind": "series",
+        "episodeId": "ac926467ce1418d2f0f2ed576ec4aaab4719cdce194fc6fc8c854b81ef60ede9",
+        "season": 4,
+        "episode": 4,
+        "workKey": "scorpion"
+      },
+      {
+        "workId": "01a1037b-0c7e-7e2a-a7a0-7a13cf3c50a4",
+        "title": "Scorpion",
+        "year": 2020,
+        "kind": "series",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "tvmaze:52377"
+      }
+    ],
+    "changedAccounting": false
+  },
+  {
+    "file": "TV\\Scorpion\\Season 04\\Scorpion S04E06 Queen Scary 1080p AMZN WEB-DL DDP5 1 H 264-NTb.mkv",
+    "bytes": 3368026041,
+    "adopt2": "pending review",
+    "state": "pending review",
+    "reason": "2 titles match this name",
+    "candidates": [
+      {
+        "workId": "cmuohh82ck56ns5sqawnmnizq",
+        "title": "Scorpion",
+        "year": 2014,
+        "kind": "series",
+        "episodeId": "de338311c99e9785517850619066d5d0a3abcd0a193d4c24a3d11ebaee4258cd",
+        "season": 4,
+        "episode": 6,
+        "workKey": "scorpion"
+      },
+      {
+        "workId": "01a1037b-0c7e-7e2a-a7a0-7a13cf3c50a4",
+        "title": "Scorpion",
+        "year": 2020,
+        "kind": "series",
+        "episodeId": null,
+        "season": null,
+        "episode": null,
+        "workKey": "tvmaze:52377"
+      }
+    ],
+    "changedAccounting": false
+  }
+]

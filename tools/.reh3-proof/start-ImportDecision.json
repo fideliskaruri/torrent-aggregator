@@ -1,0 +1,86 @@
+[
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "d4730158cf5d4f9ba8f1822c745b6b13",
+    "decision": "adopted",
+    "decidedAt": "2026-10-03T20:35:59.4218483+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "e50dd6030d284c7da147adae1dfc113c",
+    "decision": "adopted",
+    "decidedAt": "2026-10-03T20:35:59.4306585+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "691817f50a9b4dc3857fe84f38a6f787",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4330750+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "d66d672c1e704c808a7dc8731836a538",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4354147+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "d4409c673ece44a0a2a7d52189f3e5e0",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4384561+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "01f44538f2de4735b7164df2b5c2222d",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4413572+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "e7cce1bdbc1945d9a25bb824f6803642",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4438494+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "86a673b9d15f484995736477ebdaa55a",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4463145+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "6c7e15436f7f4130b665d2c4e00bd12d",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4487104+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "df379cbac5b04ad8866cf92641dfa1d4",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4509776+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "2706c382232642d0ba1522b24ce9504f",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4533295+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "aaabdb13215b40a2957a5d45559cd65e",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4557299+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "521f8ddbb20a47248f58fde4c0de9ca2",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4582044+00:00"
+  },
+  {
+    "reviewId": "adoption:legacy-dfedbd1f8a227587f0da4e3978c3afb3",
+    "itemId": "e65da5b5ce0f419d9a7e05f423dc174b",
+    "decision": "already-owned",
+    "decidedAt": "2026-10-03T20:35:59.4605704+00:00"
+  }
+]
