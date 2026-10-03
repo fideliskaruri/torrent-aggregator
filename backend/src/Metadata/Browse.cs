@@ -20,22 +20,6 @@ internal sealed partial class MetadataService
         new("series-top", "Top rated series", "series", "/tv/top_rated", null, "", ""),
         new("anime-top", "Top rated anime", "anime", "", null, "", "SCORE_DESC"),
     ];
-    private static readonly (string Id, string Name)[] FilmGenres =
-    [
-        ("action", "Action"), ("comedy", "Comedy"), ("drama", "Drama"), ("thriller", "Thrillers"),
-        ("horror", "Horror"), ("science-fiction", "Science fiction"), ("crime", "Crime"),
-        ("romance", "Romance"), ("family", "Family"), ("documentary", "Documentary"),
-    ];
-    private static readonly (string Id, string Name)[] SeriesGenres =
-    [
-        ("drama", "Drama"), ("comedy", "Comedy"), ("crime", "Crime"), ("action-adventure", "Action and adventure"),
-        ("sci-fi-fantasy", "Sci-fi and fantasy"), ("mystery", "Mystery"), ("documentary", "Documentary"), ("reality", "Reality"),
-    ];
-    private static readonly (string Id, string Name)[] AnimeGenres =
-    [
-        ("action", "Action"), ("romance", "Romance"), ("fantasy", "Fantasy"), ("comedy", "Comedy"),
-        ("slice-of-life", "Slice of life"), ("sci-fi", "Sci-fi"), ("sports", "Sports"), ("mystery", "Mystery"),
-    ];
 
     public async Task<BrowseResult> BrowseAsync(BrowseQuery query, CancellationToken cancellationToken)
     {
@@ -43,20 +27,31 @@ internal sealed partial class MetadataService
         await map.LoadAsync(cancellationToken);
         map.RefreshInBackground();
         var specs = Featured.Where(r => type == "all" || r.Type == type).ToArray();
-        var genres = type switch { "films" => FilmGenres, "series" => SeriesGenres, "anime" => AnimeGenres, _ => [] };
+        var genres = CatalogViews.Genres(type);
         if (type != "all")
-            specs = [.. specs, .. genres.Select(g => new RailSpec(type + "-" + g.Id, g.Name + " " + type,
+            specs = [.. specs, .. genres.Select(g => new RailSpec(type + "-" + g.Id, CatalogViews.Heading(type, g),
                 type, type == "films" ? "/discover/movie" : "/discover/tv",
                 "with_genres=" + GenreId(g.Id), "top", "POPULARITY_DESC"))];
         if (query.Genre is { Length: > 0 } genre)
-            specs = [new(type + "-" + genre, GenreName(genre) + " " + type, type,
+            specs = [new(type + "-" + genre, CatalogViews.Heading(type,
+                genres.FirstOrDefault(g => g.Id == genre) ?? new(genre, GenreName(genre))), type,
                 type == "films" ? "/discover/movie" : "/discover/tv",
                 "with_genres=" + GenreId(genre), "top", "POPULARITY_DESC")];
         var tasks = specs.Select(s => RailAsync(s, query.Genre ??
-            genres.FirstOrDefault(g => s.Id == type + "-" + g.Id).Id, cancellationToken)).ToArray();
+            genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id, cancellationToken)).ToArray();
         var rails = await Task.WhenAll(tasks);
         var seen = new HashSet<string>();
         var result = new List<BrowseRail>();
+        if (type == "all" && query.UserId is { } userId)
+        {
+            var watches = await store.AllAsync<WatchItemRow>(CatalogStore.Query() with { UserId = userId }, cancellationToken);
+            var seed = watches.Where(w => w.Status == WatchStatus.Watching).OrderByDescending(w => w.UpdatedAt).FirstOrDefault();
+            if (seed is not null && await RecommendAsync([seed.WorkId], cancellationToken) is { } personal)
+            {
+                result.Add(personal with { Id = "because-you-are-watching" });
+                foreach (var work in personal.Works) seen.Add(work.Work.Id);
+            }
+        }
         var cinemas = new List<WorkSnapshot>();
         var now = DateTimeOffset.UtcNow;
         foreach (var (rail, _) in rails)
@@ -66,7 +61,7 @@ internal sealed partial class MetadataService
             var visible = rail.Works.Where(w => !seen.Contains(w.Work.Id) && !InCinemas(w.Work, now) &&
                     !(w.Work.Kind == WorkKind.Film && w.Work.TheatricalAt > now))
                 .OrderBy(w => w.Work.ProviderStatus == "NOT_YET_RELEASED" || w.Work.Year > now.Year)
-                .Take(20).ToImmutableArray();
+                .Take(query.Genre is { Length: > 0 } ? 48 : 20).ToImmutableArray();
             foreach (var work in visible) seen.Add(work.Work.Id);
             if (!visible.IsEmpty) result.Add(rail with { Works = visible });
         }
@@ -80,7 +75,7 @@ internal sealed partial class MetadataService
         var cacheId = ProviderHttp.Id("rail:" + spec.Id);
         var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(cacheId), ct)).FirstOrDefault();
         if (previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow)
-            return (await ReadRailAsync(previous, ct), false);
+            return (await ReadRailAsync(previous, spec.Title, ct), false);
         var configured = await store.SettingsAsync(ct);
         var hasTmdb = configured.EnabledProviders.Contains("tmdb") && await tmdb.EnabledAsync(ct);
         if (spec.Type == "anime" && !configured.EnabledProviders.Contains("anilist") ||
@@ -145,7 +140,7 @@ internal sealed partial class MetadataService
                 provider = "cinemeta";
             }
         }
-        if (failed && previous is not null) return (await ReadRailAsync(previous, ct), true);
+        if (failed && previous is not null) return (await ReadRailAsync(previous, spec.Title, ct), true);
         if (failed || candidates.Count == 0) return (null, true);
         var stored = new List<WorkSnapshot>();
         foreach (var candidate in candidates.Take(50))
@@ -163,12 +158,12 @@ internal sealed partial class MetadataService
         return (new(spec.Id, spec.Title, [.. stored]), false);
     }
 
-    private async Task<BrowseRail?> ReadRailAsync(MetadataCacheRow row, CancellationToken ct)
+    private async Task<BrowseRail?> ReadRailAsync(MetadataCacheRow row, string title, CancellationToken ct)
     {
         var works = new List<WorkSnapshot>();
         foreach (var id in row.Payload.Obj("workIds").Strings())
             if (await store.SnapshotAsync(id, ct) is { } work) works.Add(work);
-        return new(row.Payload.Text("id")!, row.Payload.Text("title")!, [.. works]);
+        return new(row.Payload.Text("id")!, title, [.. works]);
     }
 
     public async Task<MetadataExtras?> ExtrasAsync(MetadataQuery query, int? season, CancellationToken cancellationToken)
@@ -250,8 +245,12 @@ internal sealed partial class MetadataService
                     .OrderByDescending(w => w.Work.Genres.Intersect(seed.Work.Genres).Count()).Take(20));
             }
         }
-        return rows.Count == 0 ? null : new("because", "Because you're watching",
-            [.. rows.DistinctBy(w => w.Work.WorkKey).Take(20)]);
+        var stored = new List<WorkSnapshot>();
+        foreach (var row in rows.DistinctBy(w => w.Work.WorkKey).Take(20))
+            if (await PersistAsync(row, cancellationToken) is { } work && !seedWorkIds.Contains(work.Work.Id)) stored.Add(work);
+        var first = seedWorkIds.IsEmpty ? null : await store.SnapshotAsync(seedWorkIds[0], cancellationToken);
+        var title = first?.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ?? first?.Names.FirstOrDefault()?.Value;
+        return stored.Count == 0 ? null : new("because", "Because you're watching " + title, [.. stored]);
     }
 
     private static string GenreName(string genre) => genre.Replace('-', ' ') switch
