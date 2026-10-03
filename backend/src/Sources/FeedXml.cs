@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace TorrentFlow.Sources;
 
@@ -17,6 +18,11 @@ internal static class FeedXml
         });
         return XDocument.Load(reader);
     }
+
+    internal static string EscapeBareTitleAmpersands(string xml) =>
+        Regex.Replace(xml, @"<title>([^<]*)</title>", title =>
+            "<title>" + Regex.Replace(title.Groups[1].Value,
+                @"&(?!(?:amp|lt|gt|apos|quot|#[0-9]+|#x[0-9a-fA-F]+);)", "&amp;") + "</title>");
 
     internal static XElement[] Items(XDocument document)
     {

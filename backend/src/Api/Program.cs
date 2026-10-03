@@ -121,7 +121,7 @@ try
     app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
     app.MapGet("/client", () => Results.Redirect("/downloads", permanent: true, preserveMethod: true));
     if (files is not null)
-        app.MapFallbackToFile("{**path:regex(^(?!api(?:/|$)|assets(?:/|$)).*$)}", "index.html",
+        app.MapFallbackToFile("{**path:nonfile:regex(^(?!api(?:/|$)|assets(?:/|$)).*$)}", "index.html",
             new StaticFileOptions { FileProvider = files });
     else app.Logger.LogWarning("Web build is missing. Run pnpm build in web before using the browser.");
     app.Lifetime.ApplicationStarted.Register(() =>

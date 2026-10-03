@@ -96,6 +96,17 @@ repository/content-root ancestors; `TorrentFlow:WebRoot` explicitly overrides it
 Static assets precede SPA routing, unknown `/api` routes return JSON 404 for
 every method, and absent assets never return index.html. Old `/activity` and
 `/client` bookmarks retain their 308 redirects.
+The SPA fallback accepts non-file routes only; missing service-worker scripts,
+images and other filename paths return 404 rather than HTML.
+
+`PUT /api/settings/client` saves download quality and audio language alongside
+engine settings in one CAS transaction. Quality accepts 480, 720, 1080 or 2160;
+audio accepts `auto`, `english`, `any`, and legacy `en`. Invalid values reject
+the whole update. GET and PUT responses read the persisted quality section.
+
+TorrentDownloads RSS tolerates bare ampersands in plain title text only, leaving
+CDATA, valid XML entities and all other XML validation unchanged. Invalid feeds
+still report source failure rather than a successful empty answer.
 
 ```powershell
 curl.exe -i http://127.0.0.1:3940/api/health

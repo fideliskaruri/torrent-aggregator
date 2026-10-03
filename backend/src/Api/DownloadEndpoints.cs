@@ -332,10 +332,25 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var row = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), ct)).Single();
             var value = SettingsCatalog.Read<EngineSettings>(row);
+            var qualityRow = (await store.ReadAsync<SettingRow>(AccessState.Query("quality"), ct)).Single();
+            var quality = SettingsCatalog.Read<QualitySettings>(qualityRow);
             if (input is { } body)
             {
                 if (body.ValueKind != JsonValueKind.Object)
                     throw new ArgumentException("Send a settings object.");
+                if (body.TryGetProperty("preferredResolution", out var resolution))
+                {
+                    if (resolution.ValueKind != JsonValueKind.Number || !resolution.TryGetInt32(out var pixels) ||
+                        pixels is not (480 or 720 or 1080 or 2160))
+                        throw new ArgumentException("Choose 480, 720, 1080 or 2160 for download quality.");
+                    quality = quality with { PreferredResolution = pixels };
+                }
+                if (body.TryGetProperty("audioLanguage", out var audio))
+                {
+                    if (audio.ValueKind != JsonValueKind.String || audio.GetString() is not ("auto" or "english" or "en" or "any"))
+                        throw new ArgumentException("Choose automatic, English or any audio language.");
+                    quality = quality with { AudioLanguage = audio.GetString() };
+                }
                 if (body.TryGetProperty("maxActiveDownloads", out var cap))
                 {
                     if (cap.ValueKind != JsonValueKind.Number || !cap.TryGetInt32(out var count) || count is < 1 or > 20)
@@ -348,13 +363,18 @@ internal sealed class DownloadsApi(TargetPipeline targets, IEngine engine, IServ
                     value = value with { VerboseDiagnostics = verbose.GetBoolean() };
                 var next = row with { Value = JsonSerializer.SerializeToElement(value, Json),
                     Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-                if (!(await AccessState.CommitAsync(store, next, row.Revision, null, ct)).Applied)
+                var nextQuality = qualityRow with { Value = JsonSerializer.SerializeToElement(quality, Json),
+                    Revision = qualityRow.Revision + 1, UpdatedAt = next.UpdatedAt };
+                var key = Guid.NewGuid().ToString("N");
+                var receipt = new AttemptRow($"commit:settings:{key}", null, null, null, null, AttemptKind.LegacyEvent,
+                    next.UpdatedAt, next.UpdatedAt, "applied", "settings", null, null, null, null, null, null, null);
+                if (!(await store.CommitAsync(new StoreCommit(key, StoreOwner.Targets,
+                    [new RowWrite(next, row.Revision, null), new RowWrite(nextQuality, qualityRow.Revision, null),
+                        new RowWrite(receipt, null, null)], []), ct)).Applied)
                     throw new InvalidOperationException("Settings changed. Try again.");
                 await engine.UpdateSettingsAsync(value, ct);
             }
             var roots = await Rows<StorageRootRow>(ct);
-            var quality = SettingsCatalog.Read<QualitySettings>(
-                (await store.ReadAsync<SettingRow>(AccessState.Query("quality"), ct)).Single());
             var scheduler = SettingsCatalog.Read<SchedulerSettings>(
                 (await store.ReadAsync<SettingRow>(AccessState.Query("scheduler"), ct)).Single());
             var media = await Rows<MediaFileRow>(ct);

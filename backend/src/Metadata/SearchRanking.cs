@@ -72,9 +72,10 @@ internal static class SearchRanking
     private static bool SameWork(SearchCandidate a, SearchCandidate b, IReadOnlyList<SearchCandidate> rows)
     {
         if (a.Work.Work.Kind != b.Work.Work.Kind) return false;
-        if (a.Work.Work.WorkKey == b.Work.Work.WorkKey) return true;
         var left = a.Ids;
         var right = b.Ids;
+        if (left.Any(p => right.TryGetValue(p.Key, out var value) && value != p.Value)) return false;
+        if (a.Work.Work.WorkKey == b.Work.Work.WorkKey) return true;
         if (left.Any(p => right.TryGetValue(p.Key, out var value) && value == p.Value)) return true;
         if (a.Work.Work.Kind == WorkKind.Series && left.Keys.Intersect(right.Keys).Any()) return false;
         if (a.Work.Work.Year is { } y && b.Work.Work.Year is { } z && Math.Abs(y - z) > 1) return false;
@@ -83,8 +84,7 @@ internal static class SearchRanking
                 a.Provider != b.Provider) &&
                 a.Names.Any(n => b.Names.Any(m => SearchText.Compact(n) == SearchText.Compact(m)));
         if (a.Provider == b.Provider || a.Work.Work.Year is null || b.Work.Work.Year is null) return false;
-        if (a.Work.Work.Year != b.Work.Work.Year && rows.Any(r => r.Provider == b.Provider &&
-            r.Work.Work.Year == a.Work.Work.Year && SearchText.Compact(r.Title) == SearchText.Compact(a.Title))) return false;
+        if (a.Work.Work.Year != b.Work.Work.Year) return false;
         return a.Names.Select(FilmName).Any(n => b.Names.Select(FilmName)
             .Any(m => n == m || a.Work.Work.Year == b.Work.Work.Year && n.Length >= 5 &&
                 SearchText.Distance(n, m, 1) is not null));

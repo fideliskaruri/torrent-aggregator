@@ -20,6 +20,8 @@ payload file writes, or additional hosted service.
   becoming an independent extra catalog. Stored canonical IDs are borrowed without
   replacing a sequel's native name, year or TV/ONA/MOVIE format. Anime cards retain
   AniList precedence. Catalog identity is never inferred from a torrent name.
+  Search cards with conflicting provider IDs never merge. Name-only film matches
+  require the same release year; adjacent-year names alone cannot verify an ID.
 - Work IDs survive verified-link enrichment and refresh. Ordered names retain English,
   original, romaji, native and synonym labels with link provenance. Equal names supplied
   by different providers may retain separate provenance, as the data model specifies.

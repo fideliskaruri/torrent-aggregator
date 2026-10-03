@@ -68,7 +68,8 @@ internal static class AdditionalAdapters
 
     private static Page Rss(string id, string content)
     {
-        var items = FeedXml.Items(FeedXml.Load(content));
+        var items = FeedXml.Items(FeedXml.Load(id == "torrentdownloads"
+            ? FeedXml.EscapeBareTitleAmpersands(content) : content));
         var results = new List<RawRelease>();
         foreach (var item in items)
         {
