@@ -5,7 +5,49 @@ namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
-    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct, bool listing = false,
+    private async Task<ImmutableArray<WorkSnapshot>> PersistListingsAsync(IEnumerable<WorkSnapshot> candidates,
+        CancellationToken ct)
+    {
+        await commits.WaitAsync(ct);
+        try
+        {
+            var links = (await store.AllAsync<WorkLinkRow>(null, ct)).Where(l => l.Status == LinkStatus.Verified)
+                .GroupBy(l => (l.Provider, l.ProviderKind, l.ExternalId))
+                .ToDictionary(g => g.Key, g => g.Select(l => l.WorkId).Distinct().ToArray());
+            var rows = new Dictionary<string, StoreRow>();
+            var result = ImmutableArray.CreateBuilder<WorkSnapshot>();
+            foreach (var proposed in candidates.DistinctBy(w => w.Work.WorkKey))
+            {
+                var primary = proposed.Links.FirstOrDefault(l => l.IsPrimary && l.Status == LinkStatus.Verified);
+                var claimed = proposed.Links.Where(l => l.Status == LinkStatus.Verified)
+                    .SelectMany(l => links.GetValueOrDefault((l.Provider, l.ProviderKind, l.ExternalId), []))
+                    .Distinct().ToArray();
+                var anchor = primary is null ? null :
+                    links.GetValueOrDefault((primary.Provider, primary.ProviderKind, primary.ExternalId), []).FirstOrDefault();
+                anchor ??= claimed.Length == 1 ? claimed[0] : null;
+                if (anchor is not null)
+                {
+                    result.Add(proposed with { Work = proposed.Work with { Id = anchor } });
+                    continue;
+                }
+                if (claimed.Length > 1) continue;
+                foreach (var row in proposed.Links.Cast<StoreRow>()
+                    .Concat(proposed.Names.Where(n => n.Label != NameLabel.Synonym)).Concat(proposed.Seasons)
+                    .Concat(proposed.Episodes).Prepend(proposed.Work))
+                    rows.TryAdd(row.Id, row);
+                foreach (var link in proposed.Links.Where(l => l.Status == LinkStatus.Verified))
+                    links.TryAdd((link.Provider, link.ProviderKind, link.ExternalId), [proposed.Work.Id]);
+                result.Add(proposed);
+            }
+            if (rows.Count > 0 && !(await store.CommitAsync(rows.Values.Select(r => new RowWrite(r, null, null)),
+                null, ct)).Applied)
+                throw new IOException("Catalog listing changed while it was being saved.");
+            return result.ToImmutable();
+        }
+        finally { commits.Release(); }
+    }
+
+    private async Task<WorkSnapshot?> PersistAsync(WorkSnapshot proposed, CancellationToken ct,
         string? anchorWorkId = null)
     {
         await commits.WaitAsync(ct);
@@ -23,7 +65,6 @@ internal sealed partial class MetadataService
             if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
             var previous = anchorWorkId is not null ? await store.SnapshotAsync(anchorWorkId, ct) :
                 matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
-            if (listing && previous is not null) return previous;
             if (previous is null)
             {
                 var rows = proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)

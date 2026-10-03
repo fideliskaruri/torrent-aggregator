@@ -46,10 +46,23 @@ internal sealed class TmdbClient(ProviderHttp http, CatalogStore store, Metadata
             (year is { } y ? "&" + (kind == WorkKind.Series ? "first_air_date_year" : "year") + "=" + y : ""),
             ct, ttl: TimeSpan.FromMinutes(5));
 
+    private static string DetailQuery(WorkKind kind) => "append_to_response=alternative_titles,external_ids," +
+        (kind == WorkKind.Series ? "content_ratings" : "release_dates");
+
     internal Task<ProviderAnswer> DetailAsync(string id, WorkKind kind, CancellationToken ct, bool force) =>
         GetAsync("/" + JsonFacts.Kind(kind) + "/" + Uri.EscapeDataString(id),
-            "append_to_response=alternative_titles,external_ids," +
-            (kind == WorkKind.Series ? "content_ratings" : "release_dates"), ct, force);
+            DetailQuery(kind), ct, force);
+
+    internal async Task<Dictionary<string, JsonElement>> CachedFilmDetailsAsync(IEnumerable<string> ids, CancellationToken ct)
+    {
+        var filmIds = ids.Distinct().ToArray();
+        if (filmIds.Length == 0) return [];
+        var credential = await CredentialAsync(ct);
+        if (credential is null) return [];
+        var partition = ProviderHttp.Id(credential);
+        return await http.ReadCachedAsync("tmdb", filmIds.ToDictionary(id => id,
+            id => partition + ":/movie/" + Uri.EscapeDataString(id) + "?" + DetailQuery(WorkKind.Film)), ct);
+    }
 
     internal Task<ProviderAnswer> SeasonAsync(string id, int number, CancellationToken ct, bool force) =>
         GetAsync("/tv/" + Uri.EscapeDataString(id) + "/season/" + number, "", ct, force,
@@ -58,10 +71,13 @@ internal sealed class TmdbClient(ProviderHttp http, CatalogStore store, Metadata
 
 internal sealed class AniListClient(ProviderHttp http)
 {
-    private const string Fields = """
-        id idMal title { english romaji native } synonyms format status episodes duration
-        countryOfOrigin startDate { year month day } seasonYear genres averageScore popularity
+    private const string CardFields = """
+        id idMal title { english romaji native } format
+        countryOfOrigin startDate { year month day } genres averageScore
         description(asHtml:false) coverImage { extraLarge large } bannerImage
+        """;
+    private const string PresentationFields = CardFields + " synonyms status episodes duration seasonYear popularity ";
+    private const string Fields = PresentationFields + " " + """
         nextAiringEpisode { episode airingAt }
         relations { edges { relationType node { id type format title { english romaji native } startDate { year month day } } } }
         """;
@@ -96,12 +112,50 @@ internal sealed class AniListClient(ProviderHttp http)
         if (genre is not null) variables["genre"] = genre;
         if (seasonal) { variables["season"] = season; variables["seasonYear"] = DateTimeOffset.Now.Year; }
         return QueryAsync("query($sort:[MediaSort],$genre:String,$season:MediaSeason,$seasonYear:Int,$page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){media(type:ANIME,isAdult:false,sort:$sort,genre:$genre,season:$season,seasonYear:$seasonYear){" +
-            Fields + "}}}", variables, ct, TimeSpan.FromDays(1));
+            PresentationFields + "}}}", variables, ct, TimeSpan.FromDays(1));
     }
     internal Task<ProviderAnswer> RecommendationsAsync(string id, CancellationToken ct) =>
         QueryAsync("query($id:Int){Media(id:$id){recommendations(sort:RATING_DESC,perPage:30){nodes{mediaRecommendation{" +
-            Fields + "}}}}}", new { id = int.Parse(id, System.Globalization.CultureInfo.InvariantCulture) }, ct,
+            PresentationFields + "}}}}}", new { id = int.Parse(id, System.Globalization.CultureInfo.InvariantCulture) }, ct,
             TimeSpan.FromDays(1));
+
+    internal async Task<Dictionary<string, ProviderAnswer[]>> BrowseBatchAsync(
+        (string Id, string Sort, string? Genre, bool Seasonal)[] rails, CancellationToken ct,
+        int firstPage = 1, int pageCount = 2)
+    {
+        var answers = await Task.WhenAll(rails.Chunk(3).Select(batch => BrowseBatchSliceAsync(batch, ct, firstPage, pageCount)));
+        return answers.SelectMany(a => a).ToDictionary(a => a.Key, a => a.Value);
+    }
+
+    private async Task<Dictionary<string, ProviderAnswer[]>> BrowseBatchSliceAsync(
+        (string Id, string Sort, string? Genre, bool Seasonal)[] rails, CancellationToken ct,
+        int firstPage, int pageCount)
+    {
+        var month = DateTimeOffset.Now.Month;
+        var season = month <= 3 ? "WINTER" : month <= 6 ? "SPRING" : month <= 9 ? "SUMMER" : "FALL";
+        var selections = new List<string>();
+        for (var i = 0; i < rails.Length; i++)
+            for (var page = firstPage; page < firstPage + pageCount; page++)
+                selections.Add($"r{i}p{page}:Page(page:{page},perPage:50){{media(type:ANIME,isAdult:false,sort:{rails[i].Sort}" +
+                    (rails[i].Genre is { } genre ? ",genre:" + JsonSerializer.Serialize(genre) : "") +
+                    (rails[i].Seasonal ? $",season:{season},seasonYear:{DateTimeOffset.Now.Year}" : "") +
+                    "){" + CardFields + "}}");
+        var answer = await QueryAsync("query{" + string.Join(' ', selections) + "}", new { }, ct,
+            TimeSpan.FromDays(1));
+        var result = new Dictionary<string, ProviderAnswer[]>();
+        for (var i = 0; i < rails.Length; i++)
+        {
+            result[rails[i].Id] = Enumerable.Range(firstPage, pageCount).Select(page =>
+            {
+                var node = answer.Json?.Obj("data").Obj($"r{i}p{page}");
+                var valid = node is { ValueKind: JsonValueKind.Object } &&
+                    node.Value.Obj("media").ValueKind == JsonValueKind.Array;
+                return answer with { Json = valid ? node!.Value.Obj("media") : null,
+                    Complete = answer.Complete && valid };
+            }).ToArray();
+        }
+        return result;
+    }
 }
 
 internal sealed class CinemetaClient(ProviderHttp http)

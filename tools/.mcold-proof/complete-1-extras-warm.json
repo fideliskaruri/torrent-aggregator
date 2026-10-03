@@ -1,0 +1,255 @@
+{
+  "workKey": "rick-and-morty-2013",
+  "season": 1,
+  "seasonCount": 9,
+  "seasons": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "airedEpisodes": {
+    "1": 11,
+    "2": 10,
+    "3": 10,
+    "4": 10,
+    "5": 10,
+    "6": 10,
+    "7": 10,
+    "8": 10,
+    "9": 10
+  },
+  "episodes": [
+    {
+      "episode": 5,
+      "name": "Meeseeks and Destroy",
+      "overview": "When Morty thinks Rick's adventures are too dangerous, he challenges Rick to let him lead one instead.",
+      "airDate": "2014-01-20",
+      "runtimeMin": 21,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/9nh9ZpxOyCJMD73biS2h3CvHfm2.jpg",
+      "airStamp": "2014-01-20T00:00:00+00:00"
+    },
+    {
+      "episode": 9,
+      "name": "Something Ricked This Way Comes",
+      "overview": "Rick battles the devil and upsets Summer. Meanwhile, Jerry and Morty hang out.",
+      "airDate": "2014-03-24",
+      "runtimeMin": 23,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/daA9q3U3ibIcm5OGuklySeIsQWV.jpg",
+      "airStamp": "2014-03-24T00:00:00+00:00"
+    },
+    {
+      "episode": 1,
+      "name": "Pilot",
+      "overview": "Rick moves in with his daughter's family and establishes himself as a bad influence on his grandson, Morty.",
+      "airDate": "2013-12-02",
+      "runtimeMin": 22,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/oWaKdUeMOlVZem3v9DWsdDGlTuY.jpg",
+      "airStamp": "2013-12-02T00:00:00+00:00"
+    },
+    {
+      "episode": 4,
+      "name": "M. Night Shaym-Aliens!",
+      "overview": "Rick and Morty try to get to the bottom of a mystery in this M. Night Shyamalan style twistaroony of an episode!",
+      "airDate": "2014-01-13",
+      "runtimeMin": 21,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/9hbDdbHeHIuquiwQ5zdux57nYTk.jpg",
+      "airStamp": "2014-01-13T00:00:00+00:00"
+    },
+    {
+      "episode": 6,
+      "name": "Rick Potion #9",
+      "overview": "Rick provides Morty with a love potion to get his dream girl, only for the serum to backfire and create a living Cronenberg nightmare.",
+      "airDate": "2014-01-27",
+      "runtimeMin": 22,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/hY750JVvL7K9KQN9lcqPTqcUEkN.jpg",
+      "airStamp": "2014-01-27T00:00:00+00:00"
+    },
+    {
+      "episode": 3,
+      "name": "Anatomy Park",
+      "overview": "Christmas day, Rick's friend, Reuben, comes over for his annual medical checkup.  Meanwhile Jerry learns his parents have a new friend.",
+      "airDate": "2013-12-16",
+      "runtimeMin": 22,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/3cp6QrExDBQUFGcOu43NBtaugNY.jpg",
+      "airStamp": "2013-12-16T00:00:00+00:00"
+    },
+    {
+      "episode": 10,
+      "name": "Close Rick-Counters of the Rick Kind",
+      "overview": "Rick and Morty have a falling out when Rick is approached by some familiar associates.",
+      "airDate": "2014-04-07",
+      "runtimeMin": 23,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/8gOouaPQhfB8cC01sYyFLYgTcRq.jpg",
+      "airStamp": "2014-04-07T00:00:00+00:00"
+    },
+    {
+      "episode": 7,
+      "name": "Raising Gazorpazorp",
+      "overview": "Morty convinces Rick to buy him a sexy robot.  Later Rick and Summer spend some quality time together.",
+      "airDate": "2014-03-10",
+      "runtimeMin": 22,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/j7qn7TIOSQOHZBgVi4NKnTpIcgM.jpg",
+      "airStamp": "2014-03-10T00:00:00+00:00"
+    },
+    {
+      "episode": 11,
+      "name": "Ricksy Business",
+      "overview": "Beth and Jerry go away on a trip, so Rick decides to throw a party.",
+      "airDate": "2014-04-14",
+      "runtimeMin": 23,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/8zhyqhx7JU00FGEZPWOSotEHaiF.jpg",
+      "airStamp": "2014-04-14T00:00:00+00:00"
+    },
+    {
+      "episode": 2,
+      "name": "Lawnmower Dog",
+      "overview": "Rick and Morty try to incept Morty's math teacher into giving Morty an 'A'.  Meanwhile, Rick gives Jerry a device to train their dog, Snuffles.",
+      "airDate": "2013-12-09",
+      "runtimeMin": 22,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/zsO5ylZLn7ihplZFqPmOz2v87R7.jpg",
+      "airStamp": "2013-12-09T00:00:00+00:00"
+    },
+    {
+      "episode": 8,
+      "name": "Rixty Minutes",
+      "overview": "Rick hacks the cable box, but the family are distracted by another one of his inventions.",
+      "airDate": "2014-03-17",
+      "runtimeMin": 23,
+      "stillUrl": "https://image.tmdb.org/t/p/w780/HaTpHoQw2DWFAtHgGKn4gLOEaX.jpg",
+      "airStamp": "2014-03-17T00:00:00+00:00"
+    }
+  ],
+  "moreLikeThis": [
+    {
+      "workKey": "tmdb:tv:97645",
+      "href": "/title/tmdb%3Atv%3A97645?t=Solar%20Opposites&type=tv&y=2020&provider=tmdb&providerId=97645",
+      "title": "Solar Opposites",
+      "year": 2020,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/nuBD4dlO7gfg4RhW0sS0pTeiYRc.jpg",
+      "rating": 7.795
+    },
+    {
+      "workKey": "tmdb:tv:202667",
+      "href": "/title/tmdb%3Atv%3A202667?t=The%20Second%20Best%20Hospital%20in%20the%20Galaxy&type=tv&y=2024&provider=tmdb&providerId=202667",
+      "title": "The Second Best Hospital in the Galaxy",
+      "year": 2024,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/syTzEpti66IsK1ezkkBehROOVzD.jpg",
+      "rating": 6.8
+    },
+    {
+      "workKey": "tmdb:tv:262375",
+      "href": "/title/tmdb%3Atv%3A262375?t=Long%20Story%20Short&type=tv&y=2025&provider=tmdb&providerId=262375",
+      "title": "Long Story Short",
+      "year": 2025,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/22nh2kTuFpitrqTxxixhWjxEqFa.jpg",
+      "rating": 7.5
+    },
+    {
+      "workKey": "tmdb:tv:135934",
+      "href": "/title/tmdb%3Atv%3A135934?t=The%20Legend%20of%20Vox%20Machina&type=tv&y=2022&provider=tmdb&providerId=135934",
+      "title": "The Legend of Vox Machina",
+      "year": 2022,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/zjQTSYZEmy0GVnK1aFLvNiAwluo.jpg",
+      "rating": 8.215
+    },
+    {
+      "workKey": "tmdb:tv:2418",
+      "href": "/title/tmdb%3Atv%3A2418?t=The%20Venture%20Bros.&type=tv&y=2004&provider=tmdb&providerId=2418",
+      "title": "The Venture Bros.",
+      "year": 2004,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/ckQE1aLYQkRpp2HmHljiELAiOr1.jpg",
+      "rating": 7.9
+    },
+    {
+      "workKey": "tmdb:tv:251",
+      "href": "/title/tmdb%3Atv%3A251?t=Aqua%20Teen%20Hunger%20Force&type=tv&y=2000&provider=tmdb&providerId=251",
+      "title": "Aqua Teen Hunger Force",
+      "year": 2000,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/jCWOkfMLsT2sGHadCkmR65MWtJu.jpg",
+      "rating": 7.556
+    },
+    {
+      "workKey": "tmdb:tv:86831",
+      "href": "/title/tmdb%3Atv%3A86831?t=Love%2C%20Death%20%26%20Robots&type=tv&y=2019&provider=tmdb&providerId=86831",
+      "title": "Love, Death & Robots",
+      "year": 2019,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/vL5BQvXH96cJzmNK5n7QliQxy90.jpg",
+      "rating": 8.203
+    },
+    {
+      "workKey": "tmdb:tv:131033",
+      "href": "/title/tmdb%3Atv%3A131033?t=Krapopolis&type=tv&y=2023&provider=tmdb&providerId=131033",
+      "title": "Krapopolis",
+      "year": 2023,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/9hv6mEAC6NChxNaUIshUN09Yk38.jpg",
+      "rating": 7
+    },
+    {
+      "workKey": "tmdb:tv:73157",
+      "href": "/title/tmdb%3Atv%3A73157?t=Future%20Man&type=tv&y=2017&provider=tmdb&providerId=73157",
+      "title": "Future Man",
+      "year": 2017,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/49mOgAEa4eKpPsoBH8UvvXwEMDT.jpg",
+      "rating": 7.2
+    },
+    {
+      "workKey": "tmdb:tv:213249",
+      "href": "/title/tmdb%3Atv%3A213249?t=Sausage%20Party%3A%20Foodtopia&type=tv&y=2024&provider=tmdb&providerId=213249",
+      "title": "Sausage Party: Foodtopia",
+      "year": 2024,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/cPLk5uvh0Am0UQlxRP4xqNcVQD3.jpg",
+      "rating": 6.8
+    },
+    {
+      "workKey": "tmdb:tv:4585",
+      "href": "/title/tmdb%3Atv%3A4585?t=Tripping%20the%20Rift&type=tv&y=2004&provider=tmdb&providerId=4585",
+      "title": "Tripping the Rift",
+      "year": 2004,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/yAWGCy2lklxLQTDFgG1UFcwyp8D.jpg",
+      "rating": 6.5
+    },
+    {
+      "workKey": "tmdb:tv:261579",
+      "href": "/title/tmdb%3Atv%3A261579?t=Secret%20Level&type=tv&y=2024&provider=tmdb&providerId=261579",
+      "title": "Secret Level",
+      "year": 2024,
+      "mediaType": "tv",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/856MRq23grNxpeVl1PdFgmmLiT0.jpg",
+      "rating": 7.38
+    }
+  ],
+  "overview": "Follows a sociopathic genius scientist who drags his inherently timid grandson on adventures across the universe.",
+  "rating": 8.681,
+  "releaseDate": "2013-12-02",
+  "inTheatricalWindow": false,
+  "nextHomeReleaseAt": null,
+  "genres": [
+    "Animation",
+    "Comedy",
+    "Sci-Fi & Fantasy",
+    "Action & Adventure"
+  ],
+  "voteCount": 11438,
+  "ratingSource": "tmdb",
+  "certification": null,
+  "originalLanguage": "EN",
+  "resolved": true,
+  "generatedAt": "2026-10-03T19:07:14.8115339+00:00"
+}

@@ -13,12 +13,13 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
     private readonly SemaphoreSlim gate = new(1);
     private volatile Dictionary<string, ImmutableArray<AnimeMapEntry>> index = new(StringComparer.Ordinal);
     private DateTimeOffset checkedAt;
-    private bool loaded;
+    private volatile bool loaded;
     private Task? refreshing;
     internal string Version { get; private set; } = "none";
 
     internal async Task LoadAsync(CancellationToken ct)
     {
+        if (loaded) return;
         await gate.WaitAsync(ct);
         try
         {

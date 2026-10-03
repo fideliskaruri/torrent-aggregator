@@ -32,6 +32,28 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 return existing;
             resolvedQueries.TryRemove(queryKey, out _);
         }
+        // Resolving one exact, typed identity need not wait for every search catalog.
+        if (query.Kind != WorkKind.Unknown && await tmdb.EnabledAsync(cancellationToken))
+        {
+            var answer = await tmdb.SearchAsync(title, query.Kind, query.Year, cancellationToken);
+            var exact = (answer.Json?.Obj("results").Items() ?? []).Where(e =>
+                new[] { e.Text("title"), e.Text("name"), e.Text("original_title"), e.Text("original_name") }
+                    .OfType<string>().Any(n => JsonFacts.Fold(n) == JsonFacts.Fold(title)) &&
+                (query.Year is null || JsonFacts.Year(e.Text(query.Kind == WorkKind.Film ?
+                    "release_date" : "first_air_date")) == query.Year)).ToArray();
+            if (answer.Complete && exact.Length == 1 && exact[0].Text("id") is { } exactId)
+            {
+                var exactResult = await ResolveIdentityAsync(new("tmdb", exactId, JsonFacts.Kind(query.Kind)),
+                    false, cancellationToken);
+                if (exactResult.Work is not null)
+                {
+                    if (resolvedQueries.Count >= 500) resolvedQueries.TryRemove(resolvedQueries.MinBy(p => p.Value.Until).Key, out _);
+                    resolvedQueries[queryKey] = (exactResult.Work.Work.Id, DateTimeOffset.UtcNow +
+                        (exactResult.Complete ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(1)));
+                    return exactResult;
+                }
+            }
+        }
         var found = await SearchAsync(new(title, query.Kind switch
         {
             WorkKind.Film => "films", WorkKind.Series => "series", _ => "all",
@@ -146,8 +168,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
                 return new(await WithPremiereAsync(knownWork, ct), null, true, false);
         }
         await map.LoadAsync(ct);
-        if (map.Version == "none") await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
-        else map.RefreshInBackground();
+        if (map.Version == "none" && identity.Provider is "anilist" or "mal" or "tvdb")
+            await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
+        else if (identity.Provider is "anilist" or "mal" or "tvdb") map.RefreshInBackground();
         var mapped = AllowedMap(map.Find(identity));
         if (identity.Provider == "tvdb")
         {
@@ -212,6 +235,12 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             answer = await tmdb.DetailAsync(identity.ExternalId, kind, ct, refresh);
             if (answer.Json is not { ValueKind: JsonValueKind.Object } detail) return FromAnswer(answer);
             MapTmdb(builder, detail, kind);
+            if (builder.Work.Anime == true && map.Version == "none")
+            {
+                await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
+                mapped = AllowedMap(map.Find(identity));
+            }
+            else if (builder.Work.Anime == true) map.RefreshInBackground();
             ApplyMap(builder, mapped);
             if (kind == WorkKind.Series) await TmdbSeasonsAsync(builder, detail, refresh, ct);
             if (builder.Work.Anime == true && mapped.FirstOrDefault(e => e.AniList is not null)?.AniList is { } animeId)
@@ -231,6 +260,12 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             answer = await cinemeta.DetailAsync(identity.ExternalId, kind, ct, refresh);
             if (answer.Json?.Obj("meta") is not { ValueKind: JsonValueKind.Object } detail) return FromAnswer(answer);
             MapCinemeta(builder, detail, kind);
+            if (builder.Work.Anime == true && map.Version == "none")
+            {
+                await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
+                mapped = AllowedMap(map.Find(identity));
+            }
+            else if (builder.Work.Anime == true) map.RefreshInBackground();
             ApplyMap(builder, mapped);
             var imdbNames = await cinemeta.NamesAsync(identity.ExternalId, ct);
             if (imdbNames.Json?.Obj("data").Obj("title") is { ValueKind: JsonValueKind.Object } names)
@@ -269,6 +304,13 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
             answer = await cinemeta.TvmazeAsync("/shows/" + identity.ExternalId + "?embed=episodes", ct);
             if (answer.Json is not { ValueKind: JsonValueKind.Object } show) return FromAnswer(answer);
             MapTvmaze(builder, show, identity.ExternalId);
+            if (builder.Work.Anime == true && map.Version == "none")
+            {
+                await map.RefreshAsync(DateTimeOffset.UtcNow, ct);
+                mapped = AllowedMap(map.Find(identity));
+                ApplyMap(builder, mapped);
+            }
+            else if (builder.Work.Anime == true) map.RefreshInBackground();
             var animeLink = priorLinks.FirstOrDefault(l => known is not null && l.WorkId == known.WorkId &&
                 l.Provider == "anilist" && l.Status == LinkStatus.Verified && l.SeasonId is null);
             if (builder.Work.Anime == true && animeLink is not null)

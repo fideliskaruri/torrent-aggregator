@@ -35,7 +35,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
     private readonly ConcurrentDictionary<string, (ProviderAnswer Answer, DateTimeOffset Until)> misses = new();
     private readonly Dictionary<string, Gate> gates = new(StringComparer.Ordinal)
     {
-        ["tmdb"] = new(4, 50), ["anilist"] = new(2, 700), ["cinemeta"] = new(4, 100),
+        ["tmdb"] = new(4, 0), ["anilist"] = new(4, 700), ["cinemeta"] = new(4, 100),
         ["imdb"] = new(2, 100), ["tvmaze"] = new(2, 200), ["itunes"] = new(2, 200), ["fribb"] = new(1, 0),
     };
 
@@ -82,6 +82,22 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
                 new KeyValuePair<string, Lazy<Task<ProviderAnswer>>>(id, flight)),
                 CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
+    }
+
+    internal async Task<Dictionary<string, JsonElement>> ReadCachedAsync(string provider,
+        Dictionary<string, string> keys, CancellationToken ct)
+    {
+        var configured = (await store.SourceSettingsAsync(ct)).FirstOrDefault(s => s.Id == provider);
+        if (configured is { Enabled: false } || !(await store.SettingsAsync(ct)).EnabledProviders.Contains(provider))
+            return [];
+        var suffix = configured is null ? "" : "|" + JsonSerializer.Serialize(configured);
+        var rows = await Task.WhenAll(keys.Select(async pair =>
+        {
+            var row = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(Id(provider + ":" + pair.Value + suffix)), ct))
+                .FirstOrDefault();
+            return (pair.Key, Row: row);
+        }));
+        return rows.Where(r => r.Row is { Complete: true }).ToDictionary(r => r.Key, r => r.Row!.Payload);
     }
 
     private async Task<ProviderAnswer> SendAsync(string provider, string key, string id,

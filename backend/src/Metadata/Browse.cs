@@ -6,8 +6,16 @@ namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
+    private static readonly JsonSerializerOptions ListingJson = new(CatalogStore.Json)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
     private sealed record RailSpec(string Id, string Title, string Type, string TmdbPath, string? Query,
         string CineCatalog, string AnimeSort, bool Seasonal = false);
+    private sealed record ListingName(string Value, string NormalizedValue, NameLabel Label, int? Link);
+    private sealed record ListingEntry(WorkRow Work, ListingName[] Names, WorkLinkRow[] Links,
+        ImmutableArray<SeasonRow> Seasons, ImmutableArray<EpisodeRow> Episodes,
+        DateTimeOffset? PremiereAt, string? ProviderFormat);
     private static readonly RailSpec[] Featured =
     [
         new("films-popular", "Popular films", "films", "/trending/movie/week", null, "top", ""),
@@ -24,8 +32,8 @@ internal sealed partial class MetadataService
     public async Task<BrowseResult> BrowseAsync(BrowseQuery query, CancellationToken cancellationToken)
     {
         var type = query.Type is "films" or "series" or "anime" ? query.Type : "all";
-        await map.LoadAsync(cancellationToken);
-        map.RefreshInBackground();
+        var configured = await store.SettingsAsync(cancellationToken);
+        var hasTmdb = configured.EnabledProviders.Contains("tmdb") && await tmdb.EnabledAsync(cancellationToken);
         var specs = Featured.Where(r => type == "all" || r.Type == type).ToArray();
         var genres = CatalogViews.Genres(type);
         if (type != "all")
@@ -37,9 +45,42 @@ internal sealed partial class MetadataService
                 genres.FirstOrDefault(g => g.Id == genre) ?? new(genre, GenreName(genre))), type,
                 type == "films" ? "/discover/movie" : "/discover/tv",
                 GenreQuery(type, genre), "top", "POPULARITY_DESC")];
+        var animeSpecs = specs.Where(s => s.Type == "anime").ToArray();
+        var anime = animeSpecs.Length == 0 ? null : new Lazy<Task<Dictionary<string, ProviderAnswer[]>>>(() =>
+            anilist.BrowseBatchAsync(animeSpecs.Select(s => (s.Id, s.AnimeSort,
+                (query.Genre ?? genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id) is { } g
+                    ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, pageCount: 1));
         var tasks = specs.Select(s => RailAsync(s, query.Genre ??
-            genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id, cancellationToken)).ToArray();
-        var rails = await Task.WhenAll(tasks);
+            genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id, cancellationToken, anime, configured, hasTmdb)).ToArray();
+        var rails = await ApplyCachedHomeReleasesAsync(await Task.WhenAll(tasks), cancellationToken);
+        var poolSeen = new HashSet<string>();
+        var holes = new List<int>();
+        var expanded = new HashSet<int>();
+        var limit = query.Genre is { Length: > 0 } ? 48 : 24;
+        while (true)
+        {
+            poolSeen.Clear();
+            holes.Clear();
+            for (var i = 0; i < rails.Length; i++)
+                if (rails[i].Rail is { } rail)
+                {
+                    var visible = Visible(rail, poolSeen, limit, DateTimeOffset.UtcNow);
+                    foreach (var work in visible) poolSeen.UnionWith(RailKeys(work).Claim);
+                    if (visible.Length < limit && !rails[i].Stale && !expanded.Contains(i)) holes.Add(i);
+                }
+            if (holes.Count == 0) break;
+            expanded.UnionWith(holes);
+            var moreAnime = new Lazy<Task<Dictionary<string, ProviderAnswer[]>>>(() =>
+                anilist.BrowseBatchAsync(holes.Select(i => specs[i]).Where(s => s.Type == "anime")
+                    .Select(s => (s.Id, s.AnimeSort,
+                        (query.Genre ?? genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id) is { } g
+                            ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, firstPage: 2, pageCount: 1));
+            var replenished = await Task.WhenAll(holes.Select(i => RailAsync(specs[i], query.Genre ??
+                genres.FirstOrDefault(g => specs[i].Id == type + "-" + g.Id)?.Id, cancellationToken,
+                moreAnime, configured, hasTmdb, replenish: true)));
+            for (var i = 0; i < holes.Count; i++) rails[holes[i]] = replenished[i];
+            rails = await ApplyCachedHomeReleasesAsync(rails, cancellationToken);
+        }
         var seen = new HashSet<string>();
         var result = new List<BrowseRail>();
         if (type == "all" && query.UserId is { } userId)
@@ -60,45 +101,77 @@ internal sealed partial class MetadataService
         {
             if (rail is null) continue;
             cinemas.AddRange(rail.Works.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) && InCinemas(w, now)));
-            var visible = rail.Works.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) &&
-                    !RailKeys(w).Check.Any(seen.Contains) && !InCinemas(w, now) &&
-                    !(w.Work.Kind == WorkKind.Film && w.Work.TheatricalAt > now))
-                .OrderBy(w => w.PremiereAt is { } premiere ? premiere > now : w.Work.Year > now.Year)
-                .Take(query.Genre is { Length: > 0 } ? 48 : 24).ToImmutableArray();
+            var visible = Visible(rail, seen, limit, now);
             foreach (var work in visible) seen.UnionWith(RailKeys(work).Claim);
             if (!visible.IsEmpty) result.Add(rail with { Works = visible });
         }
         if (query.Genre is null && type is "all" or "films" && cinemas.Count > 0)
             result.Add(new("films-cinemas", "In cinemas", [.. cinemas.DistinctBy(w =>
                 RailKeys(w).Check.Last()).Take(24)]));
+        var canonical = (await PersistListingsAsync(result.SelectMany(r => r.Works), cancellationToken))
+            .ToDictionary(w => w.Work.WorkKey);
+        result = result.Select(r => r with
+        {
+            Works = [.. r.Works.Where(w => canonical.ContainsKey(w.Work.WorkKey))
+                .Select(w => w with { Work = w.Work with { Id = canonical[w.Work.WorkKey].Work.Id } })],
+        }).Where(r => !r.Works.IsEmpty).ToList();
         return new([.. result], rails.Any(r => r.Stale));
     }
 
-    private async Task<(BrowseRail? Rail, bool Stale)> RailAsync(RailSpec spec, string? genre, CancellationToken ct)
+    private static ImmutableArray<WorkSnapshot> Visible(BrowseRail rail, HashSet<string> seen, int limit, DateTimeOffset now) =>
+        [.. rail.Works.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) &&
+                !RailKeys(w).Check.Any(seen.Contains) && !InCinemas(w, now) &&
+                !(w.Work.Kind == WorkKind.Film && w.Work.TheatricalAt > now))
+            .OrderBy(w => w.PremiereAt is { } premiere ? premiere > now : w.Work.Year > now.Year).Take(limit)];
+
+    private async Task<(BrowseRail? Rail, bool Stale)[]> ApplyCachedHomeReleasesAsync(
+        (BrowseRail? Rail, bool Stale)[] rails, CancellationToken cancellationToken)
+    {
+        var presentations = rails.Where(r => r.Rail is not null).SelectMany(r => r.Rail!.Works)
+            .DistinctBy(w => w.Work.WorkKey).ToDictionary(w => w.Work.WorkKey);
+        var releaseDetails = await tmdb.CachedFilmDetailsAsync(rails.Where(r => r.Rail is not null)
+            .SelectMany(r => r.Rail!.Works).Where(NeedsHomeRelease)
+            .Select(w => w.Links.First(l => l.Provider == "tmdb" && l.Status == LinkStatus.Verified).ExternalId),
+            cancellationToken);
+        for (var i = 0; i < rails.Length; i++)
+            if (rails[i].Rail is { } native)
+                rails[i] = (native with { Works = [.. native.Works.Select(w =>
+                {
+                    var presentation = presentations[w.Work.WorkKey];
+                    return NeedsHomeRelease(presentation) && releaseDetails.TryGetValue(
+                        presentation.Links.First(l => l.Provider == "tmdb" && l.Status == LinkStatus.Verified).ExternalId, out var detail)
+                        ? ApplyHomeRelease(presentation, detail) : presentation;
+                })] }, rails[i].Stale);
+        return rails;
+    }
+
+    private async Task<(BrowseRail? Rail, bool Stale)> RailAsync(RailSpec spec, string? genre, CancellationToken ct,
+        Lazy<Task<Dictionary<string, ProviderAnswer[]>>>? anime, MetadataSettings configured, bool hasTmdb,
+        bool replenish = false)
     {
         var cacheId = ProviderHttp.Id("rail:" + spec.Id);
-        var feed = ProviderHttp.Id(spec.TmdbPath + "|" + spec.Query + "|" + spec.AnimeSort + "|" + spec.Seasonal + "|" + genre + "|legacy-listings-v4");
+        var feed = ProviderHttp.Id(spec.TmdbPath + "|" + spec.Query + "|" + spec.AnimeSort + "|" + spec.Seasonal + "|" + genre + "|legacy-listings-v6");
         var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(cacheId), ct)).FirstOrDefault();
-        var configured = await store.SettingsAsync(ct);
-        var hasTmdb = configured.EnabledProviders.Contains("tmdb") && await tmdb.EnabledAsync(ct);
         var preferred = spec.Type == "anime" ? "anilist" : hasTmdb ? "tmdb" : "cinemeta";
-        if (previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow && previous.Payload.Text("feed") == feed &&
+        if (!replenish && previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow && previous.Payload.Text("feed") == feed &&
             previous.Provider == preferred &&
-            previous.Payload.Obj("workIds").Strings().Count() >= (genre is null ? 24 : 48))
+            previous.Complete && previous.Payload.Obj("entries") is { ValueKind: JsonValueKind.Array } entries &&
+            entries.GetArrayLength() > 0)
             return (await ReadRailAsync(previous, spec.Title, ct), false);
         if (spec.Type == "anime" && !configured.EnabledProviders.Contains("anilist") ||
             spec.Type != "anime" && !hasTmdb && (spec.CineCatalog.Length == 0 ||
                 !configured.EnabledProviders.Contains("cinemeta")))
             return (null, false);
         var candidates = new List<WorkSnapshot>();
+        if (replenish && previous is not null && await ReadRailAsync(previous, spec.Title, ct) is { } priorRail)
+            candidates.AddRange(priorRail.Works);
         string? provider = null;
         var failed = false;
         if (spec.Type == "anime" && configured.EnabledProviders.Contains("anilist"))
         {
-            var answers = await Task.WhenAll(Enumerable.Range(1, 2).Select(page =>
-                anilist.BrowseAsync(spec.AnimeSort, genre is null ? null : GenreName(genre), spec.Seasonal, ct, page)));
+            var answers = (await anime!.Value)[spec.Id];
             failed = answers.Any(answer => !answer.Complete || answer.Stale);
-            foreach (var media in answers.SelectMany(answer => answer.Json?.Obj("data").Obj("Page").Obj("media").Items() ?? []))
+            foreach (var media in answers.SelectMany(answer => answer.Json?.Items() ?? []))
             {
                 var b = new WorkBuilder(new("anilist", media.Text("id")!, null));
                 MapAnime(b, media);
@@ -117,9 +190,20 @@ internal sealed partial class MetadataService
                     "&release_date.lte=" + DateTime.Now.ToString("yyyy-MM-dd") :
                     spec.Id == "series-new" ? "&first_air_date.gte=" + DateTime.Now.AddDays(-180).ToString("yyyy-MM-dd") +
                     "&first_air_date.lte=" + DateTime.Now.ToString("yyyy-MM-dd") : "";
-                var answers = await Task.WhenAll(Enumerable.Range(1, 5).Select(page =>
+                ProviderAnswer[] answers;
+                if (replenish)
+                    answers = await Task.WhenAll(Enumerable.Range(4, 2).Select(page =>
+                        tmdb.GetAsync(spec.TmdbPath, (spec.Query ?? "") + dateFilter + "&page=" + page,
+                            ct, ttl: TimeSpan.FromDays(1))));
+                else
+                {
+                    var first = await tmdb.GetAsync(spec.TmdbPath, (spec.Query ?? "") + dateFilter + "&page=1",
+                        ct, ttl: TimeSpan.FromDays(1));
+                    var rest = await Task.WhenAll(Enumerable.Range(2, 2).Select(page =>
                     tmdb.GetAsync(spec.TmdbPath, (spec.Query ?? "") + dateFilter + "&page=" + page,
                         ct, ttl: TimeSpan.FromDays(1))));
+                    answers = [first, .. rest];
+                }
                 failed = answers.Any(answer => !answer.Complete || answer.Stale);
                 foreach (var media in answers.SelectMany(answer => answer.Json?.Obj("results").Items() ?? [])
                     .DistinctBy(media => media.Text("id")))
@@ -158,22 +242,14 @@ internal sealed partial class MetadataService
         }
         if (failed && previous is not null) return (await ReadRailAsync(previous, spec.Title, ct), true);
         if (failed || candidates.Count == 0) return (null, true);
-        var enriched = await Task.WhenAll(candidates.Select(candidate => HomeReleaseAsync(candidate, ct)));
-        var stored = new List<WorkSnapshot>();
-        foreach (var candidate in enriched.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))
-            .DistinctBy(w => w.Work.WorkKey).Take(96))
-        {
-            var row = await PersistAsync(candidate, ct, listing: true);
-            // Provider entries (anime sequels, for example) are not the canonical work's root presentation.
-            // Cache the listing projection, while ownership continues to refer to the canonical work id.
-            stored.Add(row is null ? candidate : candidate with { Work = candidate.Work with
-            {
-                Id = row.Work.Id,
-            }});
-        }
+        var stored = candidates.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))
+            .DistinctBy(w => w.Work.WorkKey).Take(96).ToArray();
         var now = DateTimeOffset.UtcNow;
-        var payload = JsonSerializer.SerializeToElement(new { spec.Id, spec.Title, feed,
-            workIds = stored.Select(w => w.Work.Id).ToArray(), entries = stored.ToArray() }, CatalogStore.Json);
+        var payload = JsonSerializer.SerializeToElement(new { spec.Id, spec.Title, feed, projection = "native-names-v1",
+            entries = stored.Select(w => new ListingEntry(w.Work, w.Names.Select(n => new ListingName(
+                n.Value, n.NormalizedValue, n.Label, n.LinkId is null ? null :
+                    Array.FindIndex(w.Links.ToArray(), l => l.Id == n.LinkId))).ToArray(),
+                w.Links.ToArray(), w.Seasons, w.Episodes, w.PremiereAt, w.ProviderFormat)).ToArray() }, ListingJson);
         var expires = new DateTimeOffset(DateTime.Now.Date.AddDays(1)).ToUniversalTime();
         var cache = new MetadataCacheRow(cacheId, CacheKind.BrowseRail, "rail:" + spec.Id, payload,
             now, expires, null, null, true, provider);
@@ -183,6 +259,19 @@ internal sealed partial class MetadataService
 
     private async Task<BrowseRail?> ReadRailAsync(MetadataCacheRow row, string title, CancellationToken ct)
     {
+        if (row.Payload.Text("projection") == "native-names-v1")
+        {
+            var entries = row.Payload.Obj("entries").Deserialize<ListingEntry[]>(ListingJson)!;
+            return new(row.Payload.Text("id")!, title, [.. entries.Select(e =>
+                new WorkSnapshot(e.Work, [.. e.Names.Select((n, i) => new WorkNameRow(
+                    ProviderHttp.Id(e.Work.Id + ":" + n.NormalizedValue + ":" + n.Label + ":" +
+                        (n.Link is { } index && index >= 0 ? e.Links[index].Id : "")),
+                    e.Work.Id, n.Value, n.NormalizedValue, n.Label,
+                    n.Link is { } link && link >= 0 ? e.Links[link].Id : null, i, true, e.Work.CreatedAt))],
+                    [.. e.Links], e.Seasons, e.Episodes)
+                    { PremiereAt = e.PremiereAt, ProviderFormat = e.ProviderFormat })
+                .Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))]);
+        }
         if (row.Payload.Obj("entries").ValueKind == JsonValueKind.Array)
             return new(row.Payload.Text("id")!, title,
                 [.. row.Payload.Obj("entries").Deserialize<WorkSnapshot[]>(CatalogStore.Json)!
@@ -207,12 +296,15 @@ internal sealed partial class MetadataService
             : ([.. exact, yearless, yearless + "*"], [.. exact, yearless]);
     }
 
+    private static bool NeedsHomeRelease(WorkSnapshot work) =>
+        work.Work.Kind == WorkKind.Film && work.Work.TheatricalAt >= DateTimeOffset.UtcNow.AddDays(-180) &&
+        work.Work.TheatricalAt <= DateTimeOffset.UtcNow &&
+        work.Links.Any(l => l.Status == LinkStatus.Verified && l.Provider == "tmdb");
+
     private async Task<WorkSnapshot> HomeReleaseAsync(WorkSnapshot work, CancellationToken ct)
     {
-        var now = DateTimeOffset.UtcNow;
-        if (work.Work.Kind != WorkKind.Film || work.Work.TheatricalAt < now.AddDays(-180) ||
-            work.Work.TheatricalAt > now || work.Work.TheatricalAt is null ||
-            work.Links.FirstOrDefault(l => l.Status == LinkStatus.Verified && l.Provider == "tmdb") is not { } link) return work;
+        if (!NeedsHomeRelease(work)) return work;
+        var link = work.Links.First(l => l.Status == LinkStatus.Verified && l.Provider == "tmdb");
         ProviderAnswer detail;
         var background = ProviderHttp.Background.Value;
         try
@@ -221,7 +313,13 @@ internal sealed partial class MetadataService
             detail = await tmdb.DetailAsync(link.ExternalId, WorkKind.Film, ct, false);
         }
         finally { ProviderHttp.Background.Value = background; }
-        if (detail.Json is not { ValueKind: JsonValueKind.Object } json) return work;
+        return detail.Json is { ValueKind: JsonValueKind.Object } json ? ApplyHomeRelease(work, json) : work;
+    }
+
+    private static WorkSnapshot ApplyHomeRelease(WorkSnapshot work, JsonElement json)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var link = work.Links.First(l => l.Status == LinkStatus.Verified && l.Provider == "tmdb");
         var b = new WorkBuilder(new("tmdb", link.ExternalId, "movie")) { Work = work.Work };
         b.Names.AddRange(work.Names); b.Links.AddRange(work.Links);
         MapTmdb(b, json, WorkKind.Film);
@@ -263,13 +361,10 @@ internal sealed partial class MetadataService
                 .OrderBy(w => onScreen.Contains(w.Work.WorkKey))
                 .ThenBy(w => seedIndex < 0 ? 0 : Math.Abs(Array.IndexOf(pool, w) - seedIndex)));
         }
-        var stored = new List<WorkSnapshot>();
-        foreach (var row in rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) &&
+        var stored = await PersistListingsAsync(rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl) &&
             SearchText.Normalize(w.Names.First().Value) != SearchText.Normalize(title))
-            .OrderBy(w => onScreen.Contains(w.Work.WorkKey)).Take(24))
-            if (await PersistAsync(row, ct, listing: true) is { } work)
-                stored.Add(row with { Work = row.Work with { Id = work.Work.Id } });
-        return stored.Count == 0 ? null : new("because", "Because you're watching " + title, [.. stored]);
+            .OrderBy(w => onScreen.Contains(w.Work.WorkKey)).Take(24), ct);
+        return stored.IsEmpty ? null : new("because", "Because you're watching " + title, stored);
     }
 
     private async Task<List<WorkSnapshot>> TmdbRecommendationsAsync(string id, WorkKind kind, CancellationToken ct)
@@ -358,17 +453,12 @@ internal sealed partial class MetadataService
                     .OrderByDescending(w => w.Work.Genres.Intersect(seed.Work.Genres).Count()).Take(20));
             }
         }
-        var stored = new List<WorkSnapshot>();
-        foreach (var row in rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl)).DistinctBy(w => w.Work.WorkKey))
-        {
-            if (await PersistAsync(row, cancellationToken, listing: true) is { } work && !seedWorkIds.Contains(work.Work.Id) &&
-                !string.IsNullOrWhiteSpace(row.Work.PosterUrl))
-                stored.Add(row with { Work = row.Work with { Id = work.Work.Id } });
-            if (stored.Count == 20) break;
-        }
+        var stored = (await PersistListingsAsync(rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))
+            .DistinctBy(w => w.Work.WorkKey), cancellationToken))
+            .Where(w => !seedWorkIds.Contains(w.Work.Id)).Take(20).ToImmutableArray();
         var first = seedWorkIds.IsEmpty ? null : await store.SnapshotAsync(seedWorkIds[0], cancellationToken);
         var title = first?.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ?? first?.Names.FirstOrDefault()?.Value;
-        return stored.Count == 0 ? null : new("because", "Because you're watching " + title, [.. stored]);
+        return stored.IsEmpty ? null : new("because", "Because you're watching " + title, stored);
     }
 
     private static string GenreQuery(string type, string genre) => "with_genres=" + GenreId(genre) +

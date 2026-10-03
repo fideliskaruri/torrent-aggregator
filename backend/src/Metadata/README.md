@@ -58,13 +58,20 @@ payload file writes, or additional hosted service.
   Partial answers keep prior rows; referenced episode IDs survive as unavailable
   mappings rather than silently changing the meaning of a saved file/target/follow.
   Browse pools retain covered candidates before limits and replenish TMDB from
-  five TMDB pages or two 50-item AniList/Cinemeta pages, yielding 24 featured cards
-  or up to 48 genre-grid items.
+  up to five TMDB pages or two 50-item AniList/Cinemeta pages, yielding 24 featured cards
+  or up to 48 genre-grid items. Pool reads do not resolve every candidate into a
+  canonical catalog entry. Deduplication and release gating select the visible
+  cards first; their canonical identities are assigned in one listing commit,
+  using one verified-link scan without per-item catalog scans or snapshots.
+  New partial listing identities retain their presentation names; full synonym
+  enrichment is obtained when the title is resolved, not while drawing home cards.
+  Recommendations use the same listing commit.
 
 HTTP calls have a 10-second total queue/network deadline (Cinemeta/TVmaze/iTunes 8s,
 IMDb suggestions 5s, IMDb names 4s, Fribb 20s); no inline retry. AniList's one 700ms
-start gate stays below 90/minute, background concurrency leaves a foreground slot,
-and background network calls have 60s startup grace. Each provider admits at most 64
+start gate stays below 90/minute; four concurrent calls overlap the network work,
+background concurrency leaves a foreground slot, and background network calls
+have 60s startup grace. Each provider admits at most 64
 pending calls. Real 429/503 Retry-After cooldowns are independent; absent 429 headers
 start at 30s and back off to 300s. AniList chains have a separate 12s total deadline.
 Shared `Lazy<Task>` flights prevent eager duplicate HTTP work; waiter cancellation
@@ -85,10 +92,35 @@ Confirmed misses are memoized 3m, search 5m fresh/24h stale, AniList queries 60s
 details up to 7 days in Store, and season/airing answers 1h. Failed/partial answers
 are never stored as successful negative results. Search preserves usable last-good
 provider answers and reports partial/stale state. Browse caches ordered native listing
-projections alongside canonical work IDs, refreshes daily, and keeps last-good rows on
+projections, assigns canonical IDs to visible cards, refreshes daily, and keeps last-good rows on
 failure. A newly configured preferred provider replaces a prior keyless fallback.
 Listing reads never overwrite an existing canonical work with partial entry facts.
 Only visible cards are claimed when deduplicating rails.
+
+Browse persists compact native name projections (including labels and provider
+provenance), not redundant IDs/timestamps on every name in a candidate pool.
+AniList batches up to three rails into an aliased GraphQL query;
+listing queries omit detail-only relations/airing enrichment. TMDB starts with each
+rail's first page before its next two, so a full Films view never
+overfills the provider's bounded admission queue. The shared visible-card selector
+requests the remaining TMDB pages or AniList's second page only for rails that
+actually need more candidates after deduplication and release gating. The provider
+pool ceiling, ordering and 24/48-card limits remain unchanged; this is not a
+smaller response disguised as faster work. TMDB has a four-call concurrency
+bound, not an additional per-second start budget.
+
+Home cards read existing TMDB release details in a distinct-ID cache batch. They
+do not wait for a network detail lookup for every recent film; unchecked listing
+evidence uses the same 21-day release gate as before. Extras still obtains the
+title's checked details. The Fribb map is not a Browse dependency; western detail
+resolution does not wait for an anime-map download. Anime resolution and scheduled
+maintenance still refresh the map. Once loaded, readers do not wait behind a
+background refresh's network lock.
+
+Typed exact-title resolution checks the preferred TMDB catalog first. Exactly one
+matching title/year can resolve directly; ambiguous, fuzzy and missing matches
+still use unified search. This does not change unified search's provider fanout or
+ranking, and never shortcuts an ambiguous match to an arbitrary first result.
 
 Featured queries match the old server: weekly TMDB trending; regional type 4/5 home
 releases in the last 90 days; series premieres in the last 180 days; all-time
