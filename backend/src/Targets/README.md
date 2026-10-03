@@ -34,6 +34,9 @@ nonempty converted listings. An incomplete refresh keeps the scope pending rathe
 closing it over a stale subset. Automatic episode acceptance keeps its caller's follow
 selection and never expands to the season's back catalogue. Verified provider aliases
 use Metadata's canonical identity for both acquisition and pending Wanted actions.
+Public title keys accompanied by provider hints use the same canonical acceptance:
+`POST /api/title/sintel-2010` with `provider: tmdb`, `providerId: 45745` and
+`mediaType: movie` queues the resolved Sintel film (OPS-810), not a second slug identity.
 Target and pending-scope audio policies resolve work preferences before the global quality
 setting: `auto` means Japanese for anime and English otherwise; `english` means English;
 `any` is retained as an explicit policy. Developer planning uses the same resolver.
