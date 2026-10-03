@@ -1,0 +1,13 @@
+{
+  "input": {
+    "externalId": "tmdb:movie:10378",
+    "workKey": "big-buck-bunny-2008",
+    "mediaType": "movie",
+    "title": "Big Buck Bunny"
+  },
+  "status": 502,
+  "milliseconds": 684,
+  "response": {
+    "error": "The catalog could not identify this title. Try again shortly."
+  }
+}

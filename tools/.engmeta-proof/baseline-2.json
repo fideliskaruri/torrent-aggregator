@@ -1,0 +1,200 @@
+{
+  "status": 200,
+  "seconds": 1.005,
+  "response": {
+    "accepted": true,
+    "placement": {
+      "files": [
+        {
+          "downloadId": "015b076a321698a65baa6bc62e15421a5fe745a3",
+          "fileIndex": 0,
+          "selected": true,
+          "targetId": "01a102fe-6b1e-72d0-8b02-b9cdc1e21ca2-engmeta-baseline-2",
+          "partialPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Big Buck Bunny (2008)\\BigBuckBunny.mp4.partial",
+          "finalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Big Buck Bunny (2008)\\BigBuckBunny.mp4",
+          "physicalKey": "d:\\code\\memtest\\engmeta-library\\movies\\big buck bunny (2008)\\bigbuckbunny.mp4",
+          "mediaFileId": null,
+          "role": "Video",
+          "expectedBytes": 276134947,
+          "enginePath": "D:\\code\\memtest\\engmeta-library\\Movies\\Big Buck Bunny (2008)\\BigBuckBunny.mp4.partial",
+          "filed": false,
+          "id": "placement:015b076a321698a65baa6bc62e15421a5fe745a3:0"
+        }
+      ],
+      "rootId": "2bfd742b20d646dc8ac66f2dc0149a31",
+      "reservedBytes": 276134947,
+      "folders": [
+        {
+          "workId": "01a102fe-6b1e-72d0-8b02-b9cdc1e21ca2",
+          "rootId": "2bfd742b20d646dc8ac66f2dc0149a31",
+          "relativeItemFolder": "Movies\\Big Buck Bunny (2008)",
+          "externalItemFolder": null,
+          "createdAt": "2026-10-03T18:21:35.865921+00:00",
+          "updatedAt": "2026-10-03T18:21:35.865921+00:00",
+          "version": 1,
+          "id": "577580fb7f4742b6a4c2b1693c86aee1"
+        }
+      ],
+      "failure": null
+    },
+    "snapshot": {
+      "downloadId": "filing:015b076a321698a65baa6bc62e15421a5fe745a3",
+      "hash": "015b076a321698a65baa6bc62e15421a5fe745a3",
+      "metadataAvailable": true,
+      "attached": true,
+      "complete": false,
+      "stalledMetadata": false,
+      "stalledProgress": false,
+      "selectedBytes": 276134947,
+      "completedSelectedBytes": 0,
+      "bytesPerSecond": 0,
+      "peers": 0,
+      "seeders": 0,
+      "files": [
+        {
+          "index": 0,
+          "bytes": 276134947,
+          "completedBytes": 0,
+          "allocatedBytes": 0,
+          "selected": true,
+          "physicalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Big Buck Bunny (2008)\\BigBuckBunny.mp4.partial",
+          "allTouchingPiecesComplete": false
+        }
+      ],
+      "observedAt": "2026-10-03T18:21:35.8919674+00:00",
+      "failure": null,
+      "active": true,
+      "intent": "Run",
+      "eta": null,
+      "uploadedBytes": 0
+    }
+  },
+  "samples": [
+    {
+      "seconds": 0.001,
+      "engine": {
+        "listenPort": 34826,
+        "physical": {
+          "listenPort": 34826,
+          "maximumDownloadBytesPerSecond": 0,
+          "dhtState": "Ready",
+          "dhtNodes": 170,
+          "dhtCacheBytes": 4394,
+          "dhtReloadedNodes": 0,
+          "globalConnections": 400,
+          "payloadConnections": 120,
+          "probeConnections": 12,
+          "probeSlots": 10,
+          "maximumProbePieceBytes": 33554432,
+          "probeDiskBudgetBytes": 41943040,
+          "reservedProbeBytes": 0,
+          "localDiscovery": true,
+          "portForwarding": true
+        },
+        "torrents": [
+          {
+            "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "metadataAvailable": true,
+            "attached": true,
+            "complete": false,
+            "stalledMetadata": false,
+            "stalledProgress": false,
+            "selectedBytes": 129241752,
+            "completedSelectedBytes": 20709376,
+            "bytesPerSecond": 13743095,
+            "peers": 1,
+            "seeders": 1,
+            "files": [
+              {
+                "index": 0,
+                "bytes": 129241752,
+                "completedBytes": 20709376,
+                "allocatedBytes": 129236992,
+                "selected": true,
+                "physicalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+                "allTouchingPiecesComplete": false
+              }
+            ],
+            "observedAt": "2026-10-03T18:21:35.0749383+00:00",
+            "failure": null,
+            "active": true,
+            "intent": "Run",
+            "eta": "00:00:07.8972295",
+            "uploadedBytes": 0
+          }
+        ],
+        "diagnostics": [
+          {
+            "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "probe": false,
+            "state": "Downloading",
+            "progress": 15.991902834008098,
+            "uploadBytesPerSecond": 14625,
+            "payloadBytesReceived": 20955136,
+            "protocolBytesReceived": 16828,
+            "hashChecked": true,
+            "hashFails": 0,
+            "verifiedPieces": 79,
+            "totalPieces": 494,
+            "trackerCount": 4,
+            "verifiedPieceIndices": null,
+            "availablePeers": 0,
+            "connectionsEstablished": 4,
+            "connectionFailures": 0,
+            "discoveredPeers": {
+              "dht": 1,
+              "udp://open.stealth.si:80/announce": 10,
+              "udp://tracker.opentrackr.org:1337/announce": 12,
+              "https://tracker.gbitt.info/announce": 0,
+              "udp://tracker.torrent.eu.org:451/announce": 10
+            },
+            "lastDhtAnnounce": "2026-10-03T18:21:32.7801562Z",
+            "pieceLength": 262144,
+            "connectedPeers": [
+              {
+                "uri": "ipv4://127.0.0.1:48498/",
+                "seeder": true,
+                "choking": false,
+                "interested": true,
+                "outstandingRequests": 8,
+                "payloadBytesReceived": 20955136
+              }
+            ],
+            "trackers": [
+              {
+                "uri": "udp://tracker.opentrackr.org:1337/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.8811210"
+              },
+              {
+                "uri": "udp://open.stealth.si:80/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.8623733"
+              },
+              {
+                "uri": "udp://tracker.torrent.eu.org:451/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.9301158"
+              },
+              {
+                "uri": "https://tracker.gbitt.info/announce",
+                "status": "Offline",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "The tracker could not be contacted",
+                "timeSinceLastAnnounce": "00:00:01.0538122"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

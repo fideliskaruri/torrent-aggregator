@@ -1,0 +1,216 @@
+{
+  "status": 200,
+  "seconds": 2.484,
+  "response": {
+    "accepted": true,
+    "placement": {
+      "files": [
+        {
+          "downloadId": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+          "fileIndex": 0,
+          "selected": true,
+          "targetId": "01a102fe-6f4f-7949-991f-3196e8f5a509-engmeta-baseline-1",
+          "partialPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "finalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4",
+          "physicalKey": "d:\\code\\memtest\\engmeta-library\\movies\\sintel (2010)\\sintel.mp4",
+          "mediaFileId": null,
+          "role": "Video",
+          "expectedBytes": 129241752,
+          "enginePath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "filed": false,
+          "id": "placement:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c:0"
+        }
+      ],
+      "rootId": "2bfd742b20d646dc8ac66f2dc0149a31",
+      "reservedBytes": 129241752,
+      "folders": [
+        {
+          "workId": "01a102fe-6f4f-7949-991f-3196e8f5a509",
+          "rootId": "2bfd742b20d646dc8ac66f2dc0149a31",
+          "relativeItemFolder": "Movies\\Sintel (2010)",
+          "externalItemFolder": null,
+          "createdAt": "2026-10-03T18:21:33.1425529+00:00",
+          "updatedAt": "2026-10-03T18:21:33.1425529+00:00",
+          "version": 1,
+          "id": "f5bb7d4905a24df6b86dca72eb20c0c5"
+        }
+      ],
+      "failure": null
+    },
+    "snapshot": {
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "metadataAvailable": true,
+      "attached": true,
+      "complete": false,
+      "stalledMetadata": false,
+      "stalledProgress": false,
+      "selectedBytes": 129241752,
+      "completedSelectedBytes": 0,
+      "bytesPerSecond": 0,
+      "peers": 0,
+      "seeders": 0,
+      "files": [
+        {
+          "index": 0,
+          "bytes": 129241752,
+          "completedBytes": 0,
+          "allocatedBytes": 0,
+          "selected": true,
+          "physicalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "allTouchingPiecesComplete": false
+        }
+      ],
+      "observedAt": "2026-10-03T18:21:34.0244184+00:00",
+      "failure": null,
+      "active": true,
+      "intent": "Run",
+      "eta": null,
+      "uploadedBytes": 0
+    }
+  },
+  "samples": [
+    {
+      "seconds": 0.009,
+      "engine": {
+        "listenPort": 34826,
+        "physical": {
+          "listenPort": 34826,
+          "maximumDownloadBytesPerSecond": 0,
+          "dhtState": "Ready",
+          "dhtNodes": 170,
+          "dhtCacheBytes": 4420,
+          "dhtReloadedNodes": 0,
+          "globalConnections": 400,
+          "payloadConnections": 120,
+          "probeConnections": 12,
+          "probeSlots": 10,
+          "maximumProbePieceBytes": 33554432,
+          "probeDiskBudgetBytes": 41943040,
+          "reservedProbeBytes": 0,
+          "localDiscovery": true,
+          "portForwarding": true
+        },
+        "torrents": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "seconds": 1.012,
+      "engine": {
+        "listenPort": 34826,
+        "physical": {
+          "listenPort": 34826,
+          "maximumDownloadBytesPerSecond": 0,
+          "dhtState": "Ready",
+          "dhtNodes": 170,
+          "dhtCacheBytes": 4420,
+          "dhtReloadedNodes": 0,
+          "globalConnections": 400,
+          "payloadConnections": 120,
+          "probeConnections": 12,
+          "probeSlots": 10,
+          "maximumProbePieceBytes": 33554432,
+          "probeDiskBudgetBytes": 41943040,
+          "reservedProbeBytes": 0,
+          "localDiscovery": true,
+          "portForwarding": true
+        },
+        "torrents": [
+          {
+            "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "metadataAvailable": true,
+            "attached": true,
+            "complete": false,
+            "stalledMetadata": false,
+            "stalledProgress": false,
+            "selectedBytes": 129241752,
+            "completedSelectedBytes": 0,
+            "bytesPerSecond": 0,
+            "peers": 0,
+            "seeders": 0,
+            "files": [
+              {
+                "index": 0,
+                "bytes": 129241752,
+                "completedBytes": 0,
+                "allocatedBytes": 0,
+                "selected": true,
+                "physicalPath": "D:\\code\\memtest\\engmeta-library\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+                "allTouchingPiecesComplete": false
+              }
+            ],
+            "observedAt": "2026-10-03T18:21:34.0273532+00:00",
+            "failure": null,
+            "active": true,
+            "intent": "Run",
+            "eta": null,
+            "uploadedBytes": 0
+          }
+        ],
+        "diagnostics": [
+          {
+            "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "probe": false,
+            "state": "Downloading",
+            "progress": 0,
+            "uploadBytesPerSecond": 0,
+            "payloadBytesReceived": 0,
+            "protocolBytesReceived": 0,
+            "hashChecked": true,
+            "hashFails": 0,
+            "verifiedPieces": 0,
+            "totalPieces": 494,
+            "trackerCount": 4,
+            "verifiedPieceIndices": null,
+            "availablePeers": 16,
+            "connectionsEstablished": 3,
+            "connectionFailures": 0,
+            "discoveredPeers": {
+              "dht": 0,
+              "udp://open.stealth.si:80/announce": 5,
+              "udp://tracker.opentrackr.org:1337/announce": 6,
+              "https://tracker.gbitt.info/announce": 0,
+              "udp://tracker.torrent.eu.org:451/announce": 5
+            },
+            "lastDhtAnnounce": "2026-10-03T18:21:32.7801562Z",
+            "pieceLength": 262144,
+            "connectedPeers": [],
+            "trackers": [
+              {
+                "uri": "udp://tracker.opentrackr.org:1337/announce",
+                "status": "Connecting",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.3912513"
+              },
+              {
+                "uri": "udp://open.stealth.si:80/announce",
+                "status": "Connecting",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.3716858"
+              },
+              {
+                "uri": "udp://tracker.torrent.eu.org:451/announce",
+                "status": "Connecting",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.4422452"
+              },
+              {
+                "uri": "https://tracker.gbitt.info/announce",
+                "status": "Offline",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "The tracker could not be contacted",
+                "timeSinceLastAnnounce": "00:00:00.0157431"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

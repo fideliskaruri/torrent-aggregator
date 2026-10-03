@@ -1,0 +1,155 @@
+{
+  "workKey": "the-thing-1982",
+  "title": "The Thing",
+  "aliases": [
+    "A valami",
+    "John Carpenter's The Thing",
+    "La chose",
+    "Tvor",
+    "Object from Planet X",
+    "El enigma de otro mundo",
+    "A Coisa",
+    "더 씽",
+    "Creatura",
+    "The Thing – \"se\" jostakin",
+    "L'effroyable Chose",
+    "괴물",
+    "Coś",
+    "چیز",
+    "怪形",
+    "La cosa",
+    "Եսիմ ինչը",
+    "Varlıq"
+  ],
+  "names": [
+    {
+      "text": "The Thing",
+      "kind": "english"
+    },
+    {
+      "text": "The Thing",
+      "kind": "original"
+    },
+    {
+      "text": "A valami",
+      "kind": "synonym"
+    },
+    {
+      "text": "John Carpenter's The Thing",
+      "kind": "synonym"
+    },
+    {
+      "text": "La chose",
+      "kind": "synonym"
+    },
+    {
+      "text": "Tvor",
+      "kind": "synonym"
+    },
+    {
+      "text": "Object from Planet X",
+      "kind": "synonym"
+    },
+    {
+      "text": "El enigma de otro mundo",
+      "kind": "synonym"
+    },
+    {
+      "text": "A Coisa",
+      "kind": "synonym"
+    },
+    {
+      "text": "더 씽",
+      "kind": "synonym"
+    },
+    {
+      "text": "Creatura",
+      "kind": "synonym"
+    },
+    {
+      "text": "The Thing – \"se\" jostakin",
+      "kind": "synonym"
+    },
+    {
+      "text": "L'effroyable Chose",
+      "kind": "synonym"
+    },
+    {
+      "text": "괴물",
+      "kind": "synonym"
+    },
+    {
+      "text": "Coś",
+      "kind": "synonym"
+    },
+    {
+      "text": "چیز",
+      "kind": "synonym"
+    },
+    {
+      "text": "怪形",
+      "kind": "synonym"
+    },
+    {
+      "text": "La cosa",
+      "kind": "synonym"
+    },
+    {
+      "text": "Եսիմ ինչը",
+      "kind": "synonym"
+    },
+    {
+      "text": "Varlıq",
+      "kind": "synonym"
+    }
+  ],
+  "ids": {
+    "tmdb": 1091,
+    "anilist": null,
+    "mal": null,
+    "imdb": "tt0084787"
+  },
+  "format": "movie",
+  "originalLanguage": "en",
+  "provider": "tmdb",
+  "providerId": "1091",
+  "year": 1982,
+  "mediaType": "movie",
+  "isSeries": false,
+  "overview": "A research team in Antarctica is hunted by a shape-shifting alien that assumes the appearance of its victims.",
+  "rating": 8.075,
+  "ratingSource": "tmdb",
+  "posterUrl": "https://image.tmdb.org/t/p/w500/tzGY49kseSE9QAKk47uuDGwnSCu.jpg",
+  "backdropUrl": "https://image.tmdb.org/t/p/w1280/r9leYNa8nTRCceZrZhP1DXkgKVb.jpg",
+  "releaseDate": "1982-06-25",
+  "availability": null,
+  "infoHash": null,
+  "downloadFraction": null,
+  "transfer": null,
+  "seasons": [],
+  "season": null,
+  "episodes": [],
+  "episodesTruncated": false,
+  "library": {
+    "inLibrary": false,
+    "watchListItemId": null,
+    "monitored": false,
+    "status": null,
+    "cursorSeason": null,
+    "cursorEpisode": null,
+    "addPayload": {
+      "mediaType": "movie",
+      "externalId": "1091",
+      "title": "The Thing",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/tzGY49kseSE9QAKk47uuDGwnSCu.jpg",
+      "synopsis": "A research team in Antarctica is hunted by a shape-shifting alien that assumes the appearance of its victims.",
+      "rating": 8.075,
+      "workKey": "the-thing-1982",
+      "provider": "tmdb",
+      "providerId": "1091",
+      "format": "Movie"
+    }
+  },
+  "known": true,
+  "generatedAt": "2026-10-03T21:26:51.69187+03:00"
+}

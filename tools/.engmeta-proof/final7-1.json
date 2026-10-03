@@ -1,0 +1,183 @@
+{
+  "status": 200,
+  "seconds": 2.024,
+  "response": {
+    "accepted": true,
+    "placement": {
+      "files": [
+        {
+          "downloadId": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+          "fileIndex": 0,
+          "selected": true,
+          "targetId": "01a10308-be97-73a6-8372-c194a1cc82dd-engmeta-final7-1",
+          "partialPath": "D:\\code\\memtest\\engmeta-library7\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "finalPath": "D:\\code\\memtest\\engmeta-library7\\Movies\\Sintel (2010)\\Sintel.mp4",
+          "physicalKey": "d:\\code\\memtest\\engmeta-library7\\movies\\sintel (2010)\\sintel.mp4",
+          "mediaFileId": null,
+          "role": "Video",
+          "expectedBytes": 129241752,
+          "enginePath": "D:\\code\\memtest\\engmeta-library7\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "filed": false,
+          "id": "placement:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c:0"
+        }
+      ],
+      "rootId": "6bcd6a486db84fb1bff423c8444fa486",
+      "reservedBytes": 129241752,
+      "folders": [
+        {
+          "workId": "01a10308-be97-73a6-8372-c194a1cc82dd",
+          "rootId": "6bcd6a486db84fb1bff423c8444fa486",
+          "relativeItemFolder": "Movies\\Sintel (2010)",
+          "externalItemFolder": null,
+          "createdAt": "2026-10-03T18:31:08.8743517+00:00",
+          "updatedAt": "2026-10-03T18:31:08.8743517+00:00",
+          "version": 1,
+          "id": "3b97e94379034cbc82c0202d82d915bb"
+        }
+      ],
+      "failure": null
+    },
+    "snapshot": {
+      "downloadId": "filing:e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+      "metadataAvailable": true,
+      "attached": true,
+      "complete": false,
+      "stalledMetadata": false,
+      "stalledProgress": false,
+      "selectedBytes": 129241752,
+      "completedSelectedBytes": 0,
+      "bytesPerSecond": 0,
+      "peers": 0,
+      "seeders": 0,
+      "files": [
+        {
+          "index": 0,
+          "bytes": 129241752,
+          "completedBytes": 0,
+          "allocatedBytes": 0,
+          "selected": true,
+          "physicalPath": "D:\\code\\memtest\\engmeta-library7\\Movies\\Sintel (2010)\\Sintel.mp4.partial",
+          "allTouchingPiecesComplete": false
+        }
+      ],
+      "observedAt": "2026-10-03T18:31:09.7178485+00:00",
+      "failure": null,
+      "active": true,
+      "intent": "Run",
+      "eta": null,
+      "uploadedBytes": 0
+    }
+  },
+  "samples": [
+    {
+      "seconds": 0.007,
+      "engine": {
+        "listenPort": 17542,
+        "physical": {
+          "listenPort": 17542,
+          "maximumDownloadBytesPerSecond": 0,
+          "dhtState": "Initialising",
+          "dhtNodes": 5,
+          "dhtCacheBytes": 0,
+          "dhtReloadedNodes": 0,
+          "globalConnections": 400,
+          "payloadConnections": 120,
+          "probeConnections": 12,
+          "probeSlots": 10,
+          "maximumProbePieceBytes": 33554432,
+          "probeDiskBudgetBytes": 41943040,
+          "reservedProbeBytes": 0,
+          "localDiscovery": true,
+          "portForwarding": true
+        },
+        "torrents": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "seconds": 1.01,
+      "engine": {
+        "listenPort": 17542,
+        "physical": {
+          "listenPort": 17542,
+          "maximumDownloadBytesPerSecond": 0,
+          "dhtState": "Initialising",
+          "dhtNodes": 12,
+          "dhtCacheBytes": 0,
+          "dhtReloadedNodes": 0,
+          "globalConnections": 400,
+          "payloadConnections": 120,
+          "probeConnections": 12,
+          "probeSlots": 10,
+          "maximumProbePieceBytes": 33554432,
+          "probeDiskBudgetBytes": 41943040,
+          "reservedProbeBytes": 0,
+          "localDiscovery": true,
+          "portForwarding": true
+        },
+        "torrents": [],
+        "diagnostics": [
+          {
+            "downloadId": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "hash": "e1d833fe2adc88bc76b8b29e380b80e2ce43f82c",
+            "probe": true,
+            "state": "Metadata",
+            "progress": 0,
+            "uploadBytesPerSecond": 0,
+            "payloadBytesReceived": 0,
+            "protocolBytesReceived": 10229,
+            "hashChecked": false,
+            "hashFails": 0,
+            "verifiedPieces": 0,
+            "totalPieces": 494,
+            "trackerCount": 4,
+            "verifiedPieceIndices": null,
+            "availablePeers": 8,
+            "connectionsEstablished": 1,
+            "connectionFailures": 0,
+            "discoveredPeers": {
+              "udp://tracker.torrent.eu.org:451/announce": 9,
+              "udp://open.stealth.si:80/announce": 3,
+              "udp://tracker.opentrackr.org:1337/announce": 11,
+              "https://tracker.gbitt.info/announce": 0
+            },
+            "lastDhtAnnounce": "2026-10-03T18:31:08.3096039Z",
+            "pieceLength": 262144,
+            "connectedPeers": [],
+            "trackers": [
+              {
+                "uri": "udp://tracker.opentrackr.org:1337/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.4599126"
+              },
+              {
+                "uri": "udp://open.stealth.si:80/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.4111753"
+              },
+              {
+                "uri": "udp://tracker.torrent.eu.org:451/announce",
+                "status": "Ok",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "",
+                "timeSinceLastAnnounce": "00:00:00.5451928"
+              },
+              {
+                "uri": "https://tracker.gbitt.info/announce",
+                "status": "Offline",
+                "tierLastAnnounceSucceeded": true,
+                "failure": "The tracker could not be contacted",
+                "timeSinceLastAnnounce": "00:00:00.7973067"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

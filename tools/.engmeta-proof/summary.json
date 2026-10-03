@@ -1,0 +1,42 @@
+{
+  "attempts": [
+    {
+      "attempt": "final5-1",
+      "status": 200,
+      "seconds": 2.03,
+      "accepted": true
+    },
+    {
+      "attempt": "final5-2",
+      "status": 200,
+      "seconds": 1.005,
+      "accepted": true
+    },
+    {
+      "attempt": "final6-1",
+      "status": 200,
+      "seconds": 2.017,
+      "accepted": true
+    },
+    {
+      "attempt": "final6-2",
+      "status": 200,
+      "seconds": 1.006,
+      "accepted": true
+    },
+    {
+      "attempt": "final7-1",
+      "status": 200,
+      "seconds": 2.024,
+      "accepted": true
+    },
+    {
+      "attempt": "final7-2",
+      "status": 200,
+      "seconds": 1.005,
+      "accepted": true
+    }
+  ],
+  "successes": 6,
+  "medianSeconds": 1.5114999999999998
+}

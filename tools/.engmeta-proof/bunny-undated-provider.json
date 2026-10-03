@@ -1,0 +1,36 @@
+{
+  "adult": false,
+  "backdrop_path": null,
+  "belongs_to_collection": null,
+  "budget": 0,
+  "genres": [
+    {
+      "id": 10751,
+      "name": "Family"
+    }
+  ],
+  "homepage": "https://www.youtube.com/watch?v=dXPZTfJGVxE",
+  "id": 1627969,
+  "imdb_id": null,
+  "origin_country": [
+    "JP"
+  ],
+  "original_language": "en",
+  "original_title": "Big Buck Bunny",
+  "overview": "Honestly I don't know what to put here but ok",
+  "popularity": 0.4368,
+  "poster_path": null,
+  "production_companies": [],
+  "production_countries": [],
+  "release_date": "",
+  "revenue": 0,
+  "runtime": 0,
+  "softcore": false,
+  "spoken_languages": [],
+  "status": "Released",
+  "tagline": "",
+  "title": "Big Buck Bunny",
+  "video": false,
+  "vote_average": 10.0,
+  "vote_count": 1
+}

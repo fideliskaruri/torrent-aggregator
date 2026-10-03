@@ -1,0 +1,49 @@
+{
+  "input": {
+    "externalId": "10378",
+    "provider": "tmdb",
+    "providerId": "10378",
+    "mediaType": "movie",
+    "title": "Big Buck Bunny"
+  },
+  "status": 200,
+  "milliseconds": 3462,
+  "response": {
+    "item": {
+      "id": "ac9b485ac97b6d7de3deb835d792e7ec15b15865af374788c0e3958ecf9a51c1",
+      "userId": "local",
+      "workId": "01a102fe-6b1e-72d0-8b02-b9cdc1e21ca2",
+      "workKey": "tmdb:movie:10378",
+      "mediaType": "movie",
+      "externalId": "10378",
+      "provider": "tmdb",
+      "title": "Big Buck Bunny",
+      "posterUrl": "https://image.tmdb.org/t/p/w500/i9jJzvoXET4D9pOkoEwncSdNNER.jpg",
+      "synopsis": "Follow a day of the life of Big Buck Bunny when he meets three bullying rodents: Frank, Rinky, and Gamera. The rodents amuse themselves by harassing helpless creatures by throwing fruits, nuts and rocks at them. After the deaths of two of Bunny's favorite butterflies, and an offensive attack on Bunny himself, Bunny sets aside his gentle nature and orchestrates a complex plan for revenge.",
+      "rating": 6.5,
+      "status": "planned",
+      "monitored": false,
+      "lastChecked": "2026-10-03T21:19:51.3274019+03:00",
+      "nextCheckAt": null,
+      "nextCheckReason": null,
+      "lastEpisode": null,
+      "fromSeason": null,
+      "fromEpisode": null,
+      "cursorSeason": null,
+      "cursorEpisode": null,
+      "cursorMisses": 0,
+      "monitorMode": "ongoing",
+      "newEpisodesSince": null,
+      "latestReleaseTitle": null,
+      "latestReleaseAt": null,
+      "latestReleaseMagnet": null,
+      "nextEpisodeHint": null,
+      "createdAt": "2026-10-03T21:19:51.3274019+03:00",
+      "updatedAt": "2026-10-03T21:19:51.3274019+03:00",
+      "seederWaitSince": null,
+      "preferredResolution": null,
+      "ready": false
+    },
+    "existed": false
+  }
+}
