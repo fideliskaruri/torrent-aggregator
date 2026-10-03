@@ -1,0 +1,13 @@
+{
+  "method": "GET",
+  "path": "/api/title/rick-and-morty-2013/progress?session=contract-capture",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "rick-and-morty-2013",
+    "transfer": null,
+    "seasonTransfers": {},
+    "episodeTransfers": {},
+    "generatedAt": "2026-10-03T02:07:38.197Z"
+  }
+}

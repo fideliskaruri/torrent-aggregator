@@ -1,0 +1,25 @@
+{
+  "routes": 93,
+  "webRoutes": 83,
+  "serverOnly": 10,
+  "capturedRoutePatterns": 45,
+  "fromSourceOnly": 48,
+  "captures": 63,
+  "schemas": 63,
+  "uniqueTSMismatches": [
+    "/api/title/{workKey} $.ids.anilist missing-required",
+    "/api/title/{workKey} $.ids.mal missing-required",
+    "/api/title/{workKey} $.ids.tmdb missing-required",
+    "/api/title/{workKey}/links $.links[].mediaType missing-required",
+    "/api/title/{workKey}/links $.links[].season missing-required"
+  ],
+  "checks": [
+    "All capture JSON parsed",
+    "All bodies recursively capped at 20",
+    "All non-mutating route patterns covered",
+    "No duplicate method/path",
+    "No mutating capture methods",
+    "Every capture has a schema"
+  ],
+  "success": true
+}

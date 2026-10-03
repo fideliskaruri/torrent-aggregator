@@ -1,0 +1,29 @@
+{
+  "method": "GET",
+  "path": "/api/library/delete?watchListItemId=cmurpw4f8busyf2ap08vz5313&scope=show",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "ok": true,
+    "title": "Family Guy",
+    "plan": {
+      "scope": {
+        "kind": "show"
+      },
+      "outcome": "deletes",
+      "fileCount": 6,
+      "totalBytes": 257663073,
+      "missingFileCount": 0,
+      "releases": [
+        {
+          "name": "www.UIndex.org    -    Family.Guy.S01E01.Death.Has.a.Shadow.1080p.HEVC.x265-MeGusta",
+          "fileCount": 6,
+          "bytes": 257663073,
+          "filesRecorded": true
+        }
+      ],
+      "blocked": [],
+      "summary": "Deletes 6 files · 258 MB from this title."
+    }
+  }
+}

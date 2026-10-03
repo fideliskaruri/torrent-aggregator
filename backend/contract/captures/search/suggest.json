@@ -1,0 +1,32 @@
+{
+  "method": "GET",
+  "path": "/api/suggest?q=Sintel",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "suggestions": [
+      {
+        "title": "Sintel",
+        "aliases": [],
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+        "year": 2010,
+        "source": "tmdb",
+        "externalId": "45745"
+      },
+      {
+        "title": "Singel",
+        "aliases": [],
+        "mediaType": "tv",
+        "posterUrl": "https://static.tvmaze.com/uploads/images/original_untouched/518/1295549.jpg",
+        "year": 2018,
+        "source": "tvmaze",
+        "externalId": "76786"
+      }
+    ],
+    "query": "Sintel",
+    "canonicalQuery": "sintel",
+    "partial": false,
+    "failedProviders": []
+  }
+}

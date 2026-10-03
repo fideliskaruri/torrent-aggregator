@@ -1,0 +1,589 @@
+[
+  {
+    "capture": "captures\\features\\default.json",
+    "route": "/api/features",
+    "expectedType": "Features",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\health\\health.json",
+    "route": "/api/health",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\desktop\\status.json",
+    "route": "/api/desktop",
+    "expectedType": "DesktopStatus",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\notifications\\inbox.json",
+    "route": "/api/notifications",
+    "expectedType": "{items:NotificationItem[],unreadCount:number}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\notifications\\push-key.json",
+    "route": "/api/notifications/push/public-key",
+    "expectedType": "{publicKey:string}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\me\\owner.json",
+    "route": "/api/me",
+    "expectedType": "MeInfo",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\remote-access.json",
+    "route": "/api/settings/remote-access",
+    "expectedType": "RemoteAccessSettings",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\remote-check.json",
+    "route": "/api/settings/remote-access/check",
+    "expectedType": "RemoteAccessCheck",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\requests\\owner.json",
+    "route": "/api/requests",
+    "expectedType": "{requests:OwnerRequest[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\requests\\auto-approve.json",
+    "route": "/api/requests/auto-approve",
+    "expectedType": "AutoApproveConfig",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\timeline\\all.json",
+    "route": "/api/timeline",
+    "expectedType": "TimelineResponse",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\client\\torrents.json",
+    "route": "/api/client/torrents",
+    "expectedType": "{torrents:ClientTorrent[],...}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\health\\diagnostics.json",
+    "route": "/api/diagnostics/health",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\recovery.json",
+    "route": "/api/settings/download-recovery",
+    "expectedType": "RecoveryInfo",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\recovery-sources.json",
+    "route": "/api/settings/download-recovery/sources",
+    "expectedType": "SourceScan",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\folders.json",
+    "route": "/api/settings/browse-folders",
+    "expectedType": "{path:string,parent:string|null,entries:FolderPickerEntry[],...}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\client.json",
+    "route": "/api/settings/client",
+    "expectedType": "{settings:ClientForm & extra fields,defaults:unknown}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\activity\\history.json",
+    "route": "/api/history",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\activity\\all.json",
+    "route": "/api/activity",
+    "expectedType": "ActivityPage",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\activity\\sent.json",
+    "route": "/api/activity",
+    "expectedType": "ActivityPage",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\activity\\unread.json",
+    "route": "/api/activity/unread",
+    "expectedType": "{count:number}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\client\\alternatives.json",
+    "route": "/api/client/torrents/{hash}/alternatives",
+    "expectedType": "ReleaseAlternatives",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\wanted\\all.json",
+    "route": "/api/wanted",
+    "expectedType": "{wanted:WantedRow[],queue:unknown}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\rules\\all.json",
+    "route": "/api/rules",
+    "expectedType": "{rules:Rule[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\library\\backfill-estimate.json",
+    "route": "/api/library/backfill-estimate",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "POST"
+  },
+  {
+    "capture": "captures\\library\\family-guy-delete-plan.json",
+    "route": "/api/library/delete",
+    "expectedType": "{ok:boolean,title:string,plan:DeletePlan}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\library\\rick-and-morty-2013-delete-plan.json",
+    "route": "/api/library/delete",
+    "expectedType": "{ok:boolean,title:string,plan:DeletePlan}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\library\\sintel-2010-delete-plan.json",
+    "route": "/api/library/delete",
+    "expectedType": "{ok:boolean,title:string,plan:DeletePlan}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\family-guy-detail.json",
+    "route": "/api/title/{workKey}",
+    "expectedType": "TitleDetailPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.ids.anilist",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.ids.mal",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\rick-and-morty-2013-detail.json",
+    "route": "/api/title/{workKey}",
+    "expectedType": "TitleDetailPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.ids.tmdb",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.ids.anilist",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.ids.mal",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-2010-detail.json",
+    "route": "/api/title/{workKey}",
+    "expectedType": "TitleDetailPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.ids.anilist",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.ids.mal",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-detail.json",
+    "route": "/api/title/{workKey}",
+    "expectedType": "TitleDetailPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.ids.anilist",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.ids.mal",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\family-guy-links.json",
+    "route": "/api/title/{workKey}/links",
+    "expectedType": "{links:WorkLink[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.links[0].mediaType",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[0].season",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\rick-and-morty-2013-links.json",
+    "route": "/api/title/{workKey}/links",
+    "expectedType": "{links:WorkLink[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.links[0].mediaType",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[0].season",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[1].mediaType",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[1].season",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[2].season",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-2010-links.json",
+    "route": "/api/title/{workKey}/links",
+    "expectedType": "{links:WorkLink[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [
+      {
+        "actual": "absent",
+        "field": "$.links[0].mediaType",
+        "kind": "missing-required",
+        "expected": "present"
+      },
+      {
+        "actual": "absent",
+        "field": "$.links[0].season",
+        "kind": "missing-required",
+        "expected": "present"
+      }
+    ],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\family-guy-progress.json",
+    "route": "/api/title/{workKey}/progress",
+    "expectedType": "TitleProgressPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\rick-and-morty-2013-progress.json",
+    "route": "/api/title/{workKey}/progress",
+    "expectedType": "TitleProgressPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-2010-progress.json",
+    "route": "/api/title/{workKey}/progress",
+    "expectedType": "TitleProgressPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\family-guy-releases.json",
+    "route": "/api/title/{workKey}/releases",
+    "expectedType": "PickList",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\rick-and-morty-2013-releases.json",
+    "route": "/api/title/{workKey}/releases",
+    "expectedType": "PickList",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-2010-releases.json",
+    "route": "/api/title/{workKey}/releases",
+    "expectedType": "PickList",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\watchlist\\all.json",
+    "route": "/api/watchlist",
+    "expectedType": "{items:WatchItem[]}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\artwork\\sintel.json",
+    "route": "/api/artwork",
+    "expectedType": "{artwork:Record<string,Artwork>}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "POST"
+  },
+  {
+    "capture": "captures\\browse\\all.json",
+    "route": "/api/browse",
+    "expectedType": "BrowsePayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\browse\\anime.json",
+    "route": "/api/browse",
+    "expectedType": "BrowsePayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\browse\\films.json",
+    "route": "/api/browse",
+    "expectedType": "BrowsePayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\browse\\series.json",
+    "route": "/api/browse",
+    "expectedType": "BrowsePayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\recommendations\\rail.json",
+    "route": "/api/recommendations",
+    "expectedType": "{rail:RecommendationRail|null}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\family-guy-extras.json",
+    "route": "/api/title/{workKey}/extras",
+    "expectedType": "TitleExtrasPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\rick-and-morty-2013-extras.json",
+    "route": "/api/title/{workKey}/extras",
+    "expectedType": "TitleExtrasPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-2010-extras.json",
+    "route": "/api/title/{workKey}/extras",
+    "expectedType": "TitleExtrasPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\title\\sintel-extras.json",
+    "route": "/api/title/{workKey}/extras",
+    "expectedType": "TitleExtrasPayload",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\search\\titles.json",
+    "route": "/api/search/titles",
+    "expectedType": "{results:WorkSearchHit[],query?:string,canonicalQuery?:string,partial?:boolean,failedProviders?:string[],stale?:boolean}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\search\\suggest.json",
+    "route": "/api/suggest",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\sources.json",
+    "route": "/api/settings/sources",
+    "expectedType": "{sources:Source[],error?:string|null}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\source-test.json",
+    "route": "/api/settings/sources/{id}/test",
+    "expectedType": "{ok:boolean,status:string,message?:string|null}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "POST"
+  },
+  {
+    "capture": "captures\\settings\\tmdb.json",
+    "route": "/api/settings/tmdb",
+    "expectedType": "Status",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  },
+  {
+    "capture": "captures\\settings\\tmdb-test.json",
+    "route": "/api/settings/tmdb/test",
+    "expectedType": "{ok:boolean,status:string,message:string}",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "POST"
+  },
+  {
+    "capture": "captures\\search\\releases.json",
+    "route": "/api/search",
+    "expectedType": "No web consumer (server response source)",
+    "coverageNote": "Conservative subset: unresolved TS expressions, inheritance and generic aliases require manual review. Extra fields are allowed.",
+    "findings": [],
+    "method": "GET"
+  }
+]

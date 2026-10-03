@@ -1,0 +1,11 @@
+{
+  "method": "POST",
+  "path": "/api/settings/tmdb/test",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "ok": true,
+    "status": "ok",
+    "message": "TMDB accepted this key."
+  }
+}

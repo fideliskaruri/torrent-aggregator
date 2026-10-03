@@ -1,0 +1,22 @@
+{
+  "method": "GET",
+  "path": "/api/library/delete?watchListItemId=cmurr0f2vgcdsu9p3vv2ylgn7&scope=show",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "ok": true,
+    "title": "Sintel",
+    "plan": {
+      "scope": {
+        "kind": "show"
+      },
+      "outcome": "nothing-held",
+      "fileCount": 0,
+      "totalBytes": 0,
+      "missingFileCount": 0,
+      "releases": [],
+      "blocked": [],
+      "summary": "No files held for this title. Nothing to delete."
+    }
+  }
+}

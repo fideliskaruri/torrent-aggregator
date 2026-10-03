@@ -1,0 +1,139 @@
+{
+  "method": "GET",
+  "path": "/api/title/sintel-2010/extras?t=Sintel&type=movie&s=1",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "sintel-2010",
+    "season": null,
+    "seasonCount": null,
+    "seasons": [],
+    "airedEpisodes": {},
+    "episodes": [],
+    "moreLikeThis": [
+      {
+        "workKey": "legend-of-the-boneknapper-dragon-2010",
+        "href": "/title/legend-of-the-boneknapper-dragon-2010?t=Legend+of+the+BoneKnapper+Dragon&y=2010&type=movie&provider=tmdb&providerId=47626&sourceType=movie&series=0",
+        "title": "Legend of the BoneKnapper Dragon",
+        "year": 2010,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/74OqO31AaubZGgreiHIomFyOXUx.jpg",
+        "rating": 7.1
+      },
+      {
+        "workKey": "firebreather-2010",
+        "href": "/title/firebreather-2010?t=Firebreather&y=2010&type=movie&provider=tmdb&providerId=50337&sourceType=movie&series=0",
+        "title": "Firebreather",
+        "year": 2010,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/mTPC0ysx6pa91BK6dnnKvoynjb3.jpg",
+        "rating": 7.4
+      },
+      {
+        "workKey": "dragonheart-vengeance-2021",
+        "href": "/title/dragonheart-vengeance-2021?t=Dragonheart%3A+Vengeance&y=2021&type=movie&provider=tmdb&providerId=666750&sourceType=movie&series=0",
+        "title": "Dragonheart: Vengeance",
+        "year": 2021,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/qs6gz6atyQcAvqC6qZaslOjliUG.jpg",
+        "rating": 6.8
+      },
+      {
+        "workKey": "dragonheart-battle-for-the-heartfire-2017",
+        "href": "/title/dragonheart-battle-for-the-heartfire-2017?t=Dragonheart%3A+Battle+for+the+Heartfire&y=2017&type=movie&provider=tmdb&providerId=451644&sourceType=movie&series=0",
+        "title": "Dragonheart: Battle for the Heartfire",
+        "year": 2017,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/21awrY48uEiDOyLYALcuMgE5G7W.jpg",
+        "rating": 6
+      },
+      {
+        "workKey": "the-last-dragonslayer-2016",
+        "href": "/title/the-last-dragonslayer-2016?t=The+Last+Dragonslayer&y=2016&type=movie&provider=tmdb&providerId=431742&sourceType=movie&series=0",
+        "title": "The Last Dragonslayer",
+        "year": 2016,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/1aqqYXoLTER1N2mR9MD5CNGqxhA.jpg",
+        "rating": 5.9
+      },
+      {
+        "workKey": "minions-more-volume-1-2022",
+        "href": "/title/minions-more-volume-1-2022?t=Minions+%26+More+Volume+1&y=2022&type=movie&provider=tmdb&providerId=1029119&sourceType=movie&series=0",
+        "title": "Minions & More Volume 1",
+        "year": 2022,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/hjVIpMS8gOEaLB87kpgEOqdDCrk.jpg",
+        "rating": 7
+      },
+      {
+        "workKey": "marvel-one-shot-all-hail-the-king-2014",
+        "href": "/title/marvel-one-shot-all-hail-the-king-2014?t=Marvel+One-Shot%3A+All+Hail+the+King&y=2014&type=movie&provider=tmdb&providerId=253980&sourceType=movie&series=0",
+        "title": "Marvel One-Shot: All Hail the King",
+        "year": 2014,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/y0QYZPWgeGKOvyrzi6Oz3aJPxJa.jpg",
+        "rating": 6.7
+      },
+      {
+        "workKey": "welcome-to-the-club-2022",
+        "href": "/title/welcome-to-the-club-2022?t=Welcome+to+the+Club&y=2022&type=movie&provider=tmdb&providerId=1015602&sourceType=movie&series=0",
+        "title": "Welcome to the Club",
+        "year": 2022,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/kxB9E6fo0ycHzd13oOTHmGa5Njd.jpg",
+        "rating": 6.2
+      },
+      {
+        "workKey": "wendell-wild-2022",
+        "href": "/title/wendell-wild-2022?t=Wendell+%26+Wild&y=2022&type=movie&provider=tmdb&providerId=511817&sourceType=movie&series=0",
+        "title": "Wendell & Wild",
+        "year": 2022,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/5dsX6UAHqkQz1kiV8bs8SvjyVNa.jpg",
+        "rating": 6.6
+      },
+      {
+        "workKey": "strings-2004",
+        "href": "/title/strings-2004?t=Strings&y=2004&type=movie&provider=tmdb&providerId=21290&sourceType=movie&series=0",
+        "title": "Strings",
+        "year": 2004,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/lJJ5ePSlmx3BZ8jFPndboIA60iH.jpg",
+        "rating": 6.6
+      },
+      {
+        "workKey": "fire-and-ice-1983",
+        "href": "/title/fire-and-ice-1983?t=Fire+and+Ice&y=1983&type=movie&provider=tmdb&providerId=15035&sourceType=movie&series=0",
+        "title": "Fire and Ice",
+        "year": 1983,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/qj7j4vbdQKW8JXjyFHpIJlFrbmY.jpg",
+        "rating": 6.7
+      },
+      {
+        "workKey": "mythica-a-quest-for-heroes-2014",
+        "href": "/title/mythica-a-quest-for-heroes-2014?t=Mythica%3A+A+Quest+for+Heroes&y=2014&type=movie&provider=tmdb&providerId=321068&sourceType=movie&series=0",
+        "title": "Mythica: A Quest for Heroes",
+        "year": 2014,
+        "mediaType": "movie",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/n75lUF6T2uvy1ZhVyjmdfaTfDT5.jpg",
+        "rating": 5.9
+      }
+    ],
+    "overview": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+    "rating": 7.3,
+    "ratingSource": "tmdb",
+    "releaseDate": "2010-09-30",
+    "inTheatricalWindow": false,
+    "nextHomeReleaseAt": null,
+    "genres": [
+      "Animation",
+      "Fantasy"
+    ],
+    "voteCount": 178,
+    "certification": "PG",
+    "originalLanguage": "en",
+    "resolved": true,
+    "generatedAt": "2026-10-03T02:07:36.221Z"
+  }
+}

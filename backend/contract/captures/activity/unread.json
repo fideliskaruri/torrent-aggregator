@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/activity/unread",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "count": 100,
+    "capped": true
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "method": "GET",
+  "path": "/api/recommendations",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "rail": {
+      "seedTitle": "Family Guy",
+      "items": [
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "709",
+          "title": "Robot Chicken",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/x5O2W1JulF0TM16HEITgVNML3KS.jpg",
+          "year": 2005,
+          "rating": 7.6,
+          "format": null,
+          "isSeries": true
+        },
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "1433",
+          "title": "American Dad!",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/eb9sH2am9IUSQ8GhXTNAVoujk8W.jpg",
+          "year": 2005,
+          "rating": 7,
+          "format": null,
+          "isSeries": true
+        },
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "5921",
+          "title": "The Life & Times of Tim",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/rbMgK2e5HuOMqHFqBMDMahU7h4S.jpg",
+          "year": 2008,
+          "rating": 7.3,
+          "format": null,
+          "isSeries": true
+        },
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "4590",
+          "title": "The PJs",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/ktWIazs5psPUysf73v4UsbuSblv.jpg",
+          "year": 1999,
+          "rating": 6.9,
+          "format": null,
+          "isSeries": true
+        },
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "262375",
+          "title": "Long Story Short",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/22nh2kTuFpitrqTxxixhWjxEqFa.jpg",
+          "year": 2025,
+          "rating": 7.5,
+          "format": null,
+          "isSeries": true
+        },
+        {
+          "provider": "tmdb",
+          "sourceMediaType": "tv",
+          "mediaType": "tv",
+          "titleMediaType": "tv",
+          "externalId": "7985",
+          "title": "Seth MacFarlane's Cavalcade of Cartoon Comedy",
+          "posterUrl": "https://image.tmdb.org/t/p/w500/fqF6s89GdSyHTwuI4seqBrvapHR.jpg",
+          "year": 2008,
+          "rating": 5.9,
+          "format": null,
+          "isSeries": true
+        }
+      ]
+    }
+  }
+}

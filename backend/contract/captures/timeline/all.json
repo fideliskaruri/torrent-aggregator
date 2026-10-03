@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/timeline",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "entries": [],
+    "airTimesUnavailable": false
+  }
+}

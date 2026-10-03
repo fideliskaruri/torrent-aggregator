@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/rules",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "rules": []
+  }
+}

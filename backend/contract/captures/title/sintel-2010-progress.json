@@ -1,0 +1,13 @@
+{
+  "method": "GET",
+  "path": "/api/title/sintel-2010/progress?session=contract-capture",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "sintel-2010",
+    "transfer": null,
+    "seasonTransfers": {},
+    "episodeTransfers": {},
+    "generatedAt": "2026-10-03T02:07:36.207Z"
+  }
+}

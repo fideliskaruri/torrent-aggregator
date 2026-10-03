@@ -1,0 +1,57 @@
+{
+  "method": "GET",
+  "path": "/api/search/titles?q=Sintel",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "results": [
+      {
+        "workKey": "sintel-2010",
+        "title": "Sintel",
+        "year": 2010,
+        "category": "movies",
+        "provider": "tmdb",
+        "providerId": "45745",
+        "aliases": [],
+        "mediaType": "movie",
+        "titleMediaType": "movie",
+        "isSeries": false,
+        "format": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+        "overview": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+        "releaseDate": "2010-09-30",
+        "href": "/title/sintel-2010?t=Sintel&y=2010&type=movie&provider=tmdb&providerId=45745&sourceType=movie&series=0",
+        "externalIds": {
+          "tmdb": "45745",
+          "imdb": "tt1727587"
+        }
+      },
+      {
+        "workKey": "singel-2018",
+        "title": "Singel",
+        "year": 2018,
+        "category": "series",
+        "provider": "tvmaze",
+        "providerId": "76786",
+        "aliases": [],
+        "mediaType": "tv",
+        "titleMediaType": "tv",
+        "isSeries": true,
+        "format": null,
+        "posterUrl": "https://static.tvmaze.com/uploads/images/original_untouched/518/1295549.jpg",
+        "overview": "We follow eight single Norwegians through ups and downs. In this unique documentary series, we get an honest insight into the many different sides of being young and single in Norway today.",
+        "releaseDate": "2018-06-18",
+        "href": "/title/singel-2018?t=Singel&y=2018&type=tv&provider=tvmaze&providerId=76786&sourceType=tv&series=1",
+        "externalIds": {
+          "tvmaze": "76786"
+        }
+      }
+    ],
+    "query": "Sintel",
+    "canonicalQuery": "sintel",
+    "category": "all",
+    "partial": false,
+    "failedProviders": [],
+    "stale": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "method": "POST",
+  "path": "/api/artwork",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "artwork": {
+      "sintel:2010": {
+        "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+        "backdropUrl": null
+      }
+    }
+  }
+}

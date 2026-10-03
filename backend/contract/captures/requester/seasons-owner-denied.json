@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/requester/seasons?source=tmdb&sourceId=1399&mediaType=tv",
+  "status": 403,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "error": "Only people you share TorrentFlow with use these; the owner adds titles directly.",
+    "code": "requester_only"
+  }
+}

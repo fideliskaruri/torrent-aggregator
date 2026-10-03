@@ -1,0 +1,32 @@
+{
+  "method": "GET",
+  "path": "/api/desktop",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "supported": false,
+    "platform": "windows",
+    "version": "0.0.0",
+    "editable": true,
+    "autostart": {
+      "available": false,
+      "enabled": false,
+      "pointsElsewhere": false
+    },
+    "updates": {
+      "available": false,
+      "enabled": true,
+      "checking": false,
+      "lastCheckedAt": null,
+      "lastError": null,
+      "updateAvailable": false,
+      "latest": null,
+      "install": {
+        "state": "idle",
+        "receivedBytes": 0,
+        "totalBytes": null,
+        "error": null
+      }
+    }
+  }
+}

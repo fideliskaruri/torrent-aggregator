@@ -1,0 +1,242 @@
+{
+  "method": "GET",
+  "path": "/api/title/family-guy/extras?t=Family%20Guy&type=tv&s=1",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "family-guy",
+    "season": 1,
+    "seasonCount": 24,
+    "seasons": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20
+    ],
+    "airedEpisodes": {
+      "1": 7,
+      "2": 21,
+      "3": 22,
+      "4": 30,
+      "5": 18,
+      "6": 12,
+      "7": 16,
+      "8": 20,
+      "9": 18,
+      "10": 23,
+      "11": 22,
+      "12": 21,
+      "13": 18,
+      "14": 20,
+      "15": 20,
+      "16": 20,
+      "17": 20,
+      "18": 20,
+      "19": 20,
+      "20": 20,
+      "21": 20,
+      "22": 15,
+      "23": 18,
+      "24": 15
+    },
+    "episodes": [
+      {
+        "episode": 1,
+        "name": "Death Has a Shadow",
+        "overview": "After Peter heavily drinks at a bachelor party, even though he told Lois he would not, he gets fired from his job at the Happy-go-Lucky toy factory for being hung over. Peter soon applies for welfare, but after a mix-up, gets sent a check for $150,000. Eventually, Lois finds out, and Peter decides to return the money by dumping it from a blimp at the Super Bowl. He is arrested as a result, and his family ends up coming to his rescue.",
+        "airDate": "1999-01-31",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/uAqNaWTbOgCz4dRnEkSiUbmyMRL.jpg"
+      },
+      {
+        "episode": 2,
+        "name": "I Never Met the Dead Man",
+        "overview": "While teaching Meg to drive, Peter crashes into the town satellite dish, which knocks out the city's cable. He promises Meg that if she takes the blame, he'll get her a car. Without TV, Peter goes crazy, which drives the family insane. Meanwhile, after refusing to eat the broccoli that Lois gives him, Stewie attempts to build a weather control device that would destroy all vegetables.",
+        "airDate": "1999-04-11",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/1AVpcfXTYjJbAvJT7kYqI04FJ72.jpg"
+      },
+      {
+        "episode": 3,
+        "name": "Chitty Chitty Death Bang",
+        "overview": "Peter Allows Meg to go to a party with her new friend. This angers Lois because its the same day as Stewie's birthday. What Meg doesn't know is that she's actually attending a cult meeting. Peter comes to pick up Meg, when the Cult Leader follows. Stewie believes him to be the \"Man in White\", trying to return him to the womb.",
+        "airDate": "1999-04-18",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/ihUtIMyKzpQ9YHLRtxYpGQI4aAH.jpg"
+      },
+      {
+        "episode": 4,
+        "name": "Mind Over Murder",
+        "overview": "At Chris' soccer game, Peter gets into a fight with a woman, that he thought was a man, and punches her in the face.  After being placed under house arrest, Peter becomes restless and ends up turning the basement into a full bar.  Lois begins singing each night and becomes the main attraction.  Meanwhile, Stewie creates a time machine in order to avoid teething pain, but ends up taking back much more than that.",
+        "airDate": "1999-04-25",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/3ah3vai3eAoUDxxIRSGavkMiBjl.jpg"
+      },
+      {
+        "episode": 5,
+        "name": "A Hero Sits Next Door",
+        "overview": "When the Griffin Family gets new neighbors that move in next door, Lois quickly becomes friends with Bonnie, Meg soon becomes attracted to their son, Kevin, and Peter becomes annoyed by the entire situation.  After Peter injures the best player on his company's baseball team, Mr. Weed forces him to find a replacement, so Peter quickly changes his mind about his neighbors and invites Joe to play.  When Joe shows up at the game, Peter learns that he is in a wheelchair.  Joe ends up being the star of the game, which makes Peter jealous, as he wants to be a hero too.  Peter ends up trying to stop a bank robbery to prove his value, but ends up getting caught up in the whole situation.",
+        "airDate": "1999-05-01",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/LkJViTutHIn5Nu5zi9hpLLUvgj.jpg"
+      },
+      {
+        "episode": 6,
+        "name": "The Son Also Draws",
+        "overview": "Chris loses interest in being a youth scout, as he would rather pursue drawing and art instead. The Scout Master then kicks Chris out of the scouts. Peter then takes the family to the Big Apple to try to get Chris reinstated back into the scouts. After Peter takes a wrong turn on the way, the family ends up at a Native American casino. Lois then gets obsessed with the slot machines while Peter goes on a vision quest to prove that he has Native American blood in him.",
+        "airDate": "1999-05-02",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/97K85Wy0kUGqUsGRSZccguo1d2L.jpg"
+      },
+      {
+        "episode": 7,
+        "name": "Brian: Portrait of a Dog",
+        "overview": "When a heat wave hits Quahog, Peter gets Brian to enter a dog show to win $500 so that the family can get a new air conditioner. When they argue over a trick gone bad, Brian walks out on the family and Peter replaces him with a cat. Brian struggles to assert his civil rights and soon ends up at the pound. Luckily, Peter is able to bail him out by bribing the judge.",
+        "airDate": "1999-05-15",
+        "runtimeMin": 23,
+        "stillUrl": "https://image.tmdb.org/t/p/w300/ncrT6Qjm6ZjIM4aPvmX3ZXRxwRJ.jpg"
+      }
+    ],
+    "moreLikeThis": [
+      {
+        "workKey": "robot-chicken",
+        "href": "/title/robot-chicken?t=Robot+Chicken&y=2005&type=tv&provider=tmdb&providerId=709&sourceType=tv&series=1",
+        "title": "Robot Chicken",
+        "year": 2005,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/x5O2W1JulF0TM16HEITgVNML3KS.jpg",
+        "rating": 7.6
+      },
+      {
+        "workKey": "american-dad",
+        "href": "/title/american-dad?t=American+Dad%21&y=2005&type=tv&provider=tmdb&providerId=1433&sourceType=tv&series=1",
+        "title": "American Dad!",
+        "year": 2005,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/eb9sH2am9IUSQ8GhXTNAVoujk8W.jpg",
+        "rating": 7
+      },
+      {
+        "workKey": "the-life-times-of-tim",
+        "href": "/title/the-life-times-of-tim?t=The+Life+%26+Times+of+Tim&y=2008&type=tv&provider=tmdb&providerId=5921&sourceType=tv&series=1",
+        "title": "The Life & Times of Tim",
+        "year": 2008,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/rbMgK2e5HuOMqHFqBMDMahU7h4S.jpg",
+        "rating": 7.3
+      },
+      {
+        "workKey": "the-pjs",
+        "href": "/title/the-pjs?t=The+PJs&y=1999&type=tv&provider=tmdb&providerId=4590&sourceType=tv&series=1",
+        "title": "The PJs",
+        "year": 1999,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/ktWIazs5psPUysf73v4UsbuSblv.jpg",
+        "rating": 6.9
+      },
+      {
+        "workKey": "long-story-short",
+        "href": "/title/long-story-short?t=Long+Story+Short&y=2025&type=tv&provider=tmdb&providerId=262375&sourceType=tv&series=1",
+        "title": "Long Story Short",
+        "year": 2025,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/22nh2kTuFpitrqTxxixhWjxEqFa.jpg",
+        "rating": 7.5
+      },
+      {
+        "workKey": "seth-macfarlanes-cavalcade-of-cartoon-comedy",
+        "href": "/title/seth-macfarlanes-cavalcade-of-cartoon-comedy?t=Seth+MacFarlane%27s+Cavalcade+of+Cartoon+Comedy&y=2008&type=tv&provider=tmdb&providerId=7985&sourceType=tv&series=1",
+        "title": "Seth MacFarlane's Cavalcade of Cartoon Comedy",
+        "year": 2008,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/fqF6s89GdSyHTwuI4seqBrvapHR.jpg",
+        "rating": 5.9
+      },
+      {
+        "workKey": "china-il",
+        "href": "/title/china-il?t=China%2C+IL&y=2011&type=tv&provider=tmdb&providerId=39680&sourceType=tv&series=1",
+        "title": "China, IL",
+        "year": 2011,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/gxzKGspzftXVmhIquL2tYdt9ZU5.jpg",
+        "rating": 6.9
+      },
+      {
+        "workKey": "ten-year-old-tom",
+        "href": "/title/ten-year-old-tom?t=Ten+Year+Old+Tom&y=2021&type=tv&provider=tmdb&providerId=133808&sourceType=tv&series=1",
+        "title": "Ten Year Old Tom",
+        "year": 2021,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/mayaOgDJUn6c5ZbVPpH6OnCZGYX.jpg",
+        "rating": 6.9
+      },
+      {
+        "workKey": "shin-chan",
+        "href": "/title/shin-chan?t=Shin+Chan&y=2006&type=tv&provider=tmdb&providerId=262657&sourceType=tv&series=1",
+        "title": "Shin Chan",
+        "year": 2006,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/m4lklbc3fzGhTe8IxhVQ1JFV8et.jpg",
+        "rating": 7.9
+      },
+      {
+        "workKey": "the-boondocks",
+        "href": "/title/the-boondocks?t=The+Boondocks&y=2005&type=tv&provider=tmdb&providerId=2604&sourceType=tv&series=1",
+        "title": "The Boondocks",
+        "year": 2005,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/vAvT2RXjOpgH0COriRm9riPqA0m.jpg",
+        "rating": 8.3
+      },
+      {
+        "workKey": "solar-opposites",
+        "href": "/title/solar-opposites?t=Solar+Opposites&y=2020&type=tv&provider=tmdb&providerId=97645&sourceType=tv&series=1",
+        "title": "Solar Opposites",
+        "year": 2020,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/nuBD4dlO7gfg4RhW0sS0pTeiYRc.jpg",
+        "rating": 7.8
+      },
+      {
+        "workKey": "duncanville",
+        "href": "/title/duncanville?t=Duncanville&y=2020&type=tv&provider=tmdb&providerId=93292&sourceType=tv&series=1",
+        "title": "Duncanville",
+        "year": 2020,
+        "mediaType": "tv",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/fLJ74pNLxYrAMFBNI95VSDPiOGd.jpg",
+        "rating": 7.7
+      }
+    ],
+    "overview": "Sick, twisted, politically incorrect and Freakin' Sweet animated series featuring the adventures of the dysfunctional Griffin family. Bumbling Peter and long-suffering Lois have three kids. Stewie (a brilliant but sadistic baby bent on killing his mother and taking over the world), Meg (the oldest, and is the most unpopular girl in town) and Chris (the middle kid, he's not very bright but has a passion for movies). The final member of the family is Brian - a talking dog and much more than a pet, he keeps Stewie in check whilst sipping Martinis and sorting through his own life issues.",
+    "rating": 7.4,
+    "ratingSource": "tmdb",
+    "releaseDate": "1999-01-31",
+    "inTheatricalWindow": false,
+    "nextHomeReleaseAt": null,
+    "genres": [
+      "Animation",
+      "Comedy"
+    ],
+    "voteCount": 5127,
+    "certification": "TV-14",
+    "originalLanguage": "en",
+    "resolved": true,
+    "generatedAt": "2026-10-03T02:07:36.464Z"
+  }
+}

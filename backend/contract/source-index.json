@@ -1,0 +1,4471 @@
+{
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/features",
+      "file": "server\\TorrentFlow.Api\\Program.cs",
+      "line": 185
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "file": "server\\TorrentFlow.Api\\Program.cs",
+      "line": 208
+    },
+    {
+      "method": "GET",
+      "path": "/api/desktop",
+      "file": "server\\TorrentFlow.Api\\Desktop\\DesktopEndpoints.cs",
+      "line": 42
+    },
+    {
+      "method": "PUT",
+      "path": "/api/desktop/settings",
+      "file": "server\\TorrentFlow.Api\\Desktop\\DesktopEndpoints.cs",
+      "line": 49
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/update/check",
+      "file": "server\\TorrentFlow.Api\\Desktop\\DesktopEndpoints.cs",
+      "line": 93
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/update/install",
+      "file": "server\\TorrentFlow.Api\\Desktop\\DesktopEndpoints.cs",
+      "line": 103
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 17
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/read/{id}",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 23
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/read-all",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 26
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/push/public-key",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 31
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/push/subscription",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 32
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/notifications/push/subscription",
+      "file": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs",
+      "line": 39
+    },
+    {
+      "method": "GET",
+      "path": "/api/me",
+      "file": "server\\TorrentFlow.Api\\RemoteAccess\\RemoteAccessEndpoints.cs",
+      "line": 13
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/remote-access",
+      "file": "server\\TorrentFlow.Api\\RemoteAccess\\RemoteAccessEndpoints.cs",
+      "line": 48
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings/remote-access",
+      "file": "server\\TorrentFlow.Api\\RemoteAccess\\RemoteAccessEndpoints.cs",
+      "line": 54
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/remote-access/check",
+      "file": "server\\TorrentFlow.Api\\RemoteAccess\\RemoteAccessEndpoints.cs",
+      "line": 101
+    },
+    {
+      "method": "GET",
+      "path": "/api/requester/titles",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 27
+    },
+    {
+      "method": "GET",
+      "path": "/api/requester/seasons",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 43
+    },
+    {
+      "method": "GET",
+      "path": "/api/requester/requests",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 59
+    },
+    {
+      "method": "POST",
+      "path": "/api/requester/requests",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 62
+    },
+    {
+      "method": "POST",
+      "path": "/api/requester/requests/{id}/cancel",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 93
+    },
+    {
+      "method": "GET",
+      "path": "/api/requester/library",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 107
+    },
+    {
+      "method": "POST",
+      "path": "/api/requests/{id}/approve",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 111
+    },
+    {
+      "method": "POST",
+      "path": "/api/requests/{id}/retry",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 118
+    },
+    {
+      "method": "POST",
+      "path": "/api/requests/{id}/pick",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 126
+    },
+    {
+      "method": "POST",
+      "path": "/api/requests/{id}/decline",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 145
+    },
+    {
+      "method": "GET",
+      "path": "/api/requests",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 178
+    },
+    {
+      "method": "GET",
+      "path": "/api/requests/auto-approve",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 188
+    },
+    {
+      "method": "PUT",
+      "path": "/api/requests/auto-approve",
+      "file": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs",
+      "line": 195
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline",
+      "file": "server\\TorrentFlow.Api\\Timeline\\TimelineService.cs",
+      "line": 115
+    },
+    {
+      "method": "GET",
+      "path": "/api/client/torrents",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\ClientTorrentsController.cs",
+      "line": 43
+    },
+    {
+      "method": "POST",
+      "path": "/api/client/torrents",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\ClientTorrentsController.cs",
+      "line": 297
+    },
+    {
+      "method": "GET",
+      "path": "/api/diagnostics/health",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DiagnosticsHealthController.cs",
+      "line": 25
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/{transferId}/open",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadOpenController.cs",
+      "line": 25
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/{transferId}/keep",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadPromotionController.cs",
+      "line": 17
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/{transferId}/find-another",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadPromotionController.cs",
+      "line": 20
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/download-recovery",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadRecoveryController.cs",
+      "line": 37
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/download-recovery",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadRecoveryController.cs",
+      "line": 48
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/download-recovery/sources",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadRecoveryController.cs",
+      "line": 59
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/download-recovery/sources",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\DownloadRecoveryController.cs",
+      "line": 67
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/browse-folders",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\FoldersController.cs",
+      "line": 14
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/open-folder",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\FoldersController.cs",
+      "line": 56
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/untracked-files",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\FoldersController.cs",
+      "line": 135
+    },
+    {
+      "method": "POST",
+      "path": "/api/client/torrents/tidy",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\LayoutTidyController.cs",
+      "line": 10
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/client",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\SettingsClientController.cs",
+      "line": 28
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings/client",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\SettingsClientController.cs",
+      "line": 129
+    },
+    {
+      "method": "POST",
+      "path": "/api/torrent/send",
+      "file": "server\\TorrentFlow.Engine\\Controllers\\TorrentSendController.cs",
+      "line": 37
+    },
+    {
+      "method": "GET",
+      "path": "/api/history",
+      "file": "server\\TorrentFlow.Library\\Features\\Activity\\ActivityController.cs",
+      "line": 12
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/history",
+      "file": "server\\TorrentFlow.Library\\Features\\Activity\\ActivityController.cs",
+      "line": 21
+    },
+    {
+      "method": "GET",
+      "path": "/api/activity",
+      "file": "server\\TorrentFlow.Library\\Features\\Activity\\ActivityController.cs",
+      "line": 29
+    },
+    {
+      "method": "GET",
+      "path": "/api/activity/unread",
+      "file": "server\\TorrentFlow.Library\\Features\\Activity\\ActivityController.cs",
+      "line": 32
+    },
+    {
+      "method": "POST",
+      "path": "/api/automation/run",
+      "file": "server\\TorrentFlow.Library\\Features\\Automation\\AutomationScheduler.cs",
+      "line": 54
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/ondemand",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\OnDemandController.cs",
+      "line": 15
+    },
+    {
+      "method": "GET",
+      "path": "/api/client/torrents/{hash}/alternatives",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs",
+      "line": 8
+    },
+    {
+      "method": "POST",
+      "path": "/api/client/torrents/{hash}/alternatives",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs",
+      "line": 21
+    },
+    {
+      "method": "GET",
+      "path": "/api/wanted",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\WantedController.cs",
+      "line": 15
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/wanted",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\WantedController.cs",
+      "line": 39
+    },
+    {
+      "method": "POST",
+      "path": "/api/wanted/try",
+      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\WantedController.cs",
+      "line": 48
+    },
+    {
+      "method": "GET",
+      "path": "/api/rules",
+      "file": "server\\TorrentFlow.Library\\Features\\Rules\\RulesController.cs",
+      "line": 13
+    },
+    {
+      "method": "POST",
+      "path": "/api/rules",
+      "file": "server\\TorrentFlow.Library\\Features\\Rules\\RulesController.cs",
+      "line": 20
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/rules",
+      "file": "server\\TorrentFlow.Library\\Features\\Rules\\RulesController.cs",
+      "line": 20
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rules",
+      "file": "server\\TorrentFlow.Library\\Features\\Rules\\RulesController.cs",
+      "line": 65
+    },
+    {
+      "method": "POST",
+      "path": "/api/rules/run",
+      "file": "server\\TorrentFlow.Library\\Features\\Rules\\RulesController.cs",
+      "line": 74
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/backfill-estimate",
+      "file": "server\\TorrentFlow.Library\\Features\\Storage\\BackfillController.cs",
+      "line": 18
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/delete",
+      "file": "server\\TorrentFlow.Library\\Features\\Storage\\DeletionController.cs",
+      "line": 136
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/delete",
+      "file": "server\\TorrentFlow.Library\\Features\\Storage\\DeletionController.cs",
+      "line": 136
+    },
+    {
+      "method": "GET",
+      "path": "/api/title/{workKey}",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 23
+    },
+    {
+      "method": "GET",
+      "path": "/api/title/{workKey}/links",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 75
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/title/{workKey}/links/{provider}/{externalId}",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 84
+    },
+    {
+      "method": "GET",
+      "path": "/api/title/{workKey}/progress",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 92
+    },
+    {
+      "method": "POST",
+      "path": "/api/title/{workKey}",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 95
+    },
+    {
+      "method": "GET",
+      "path": "/api/title/{workKey}/releases",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 281
+    },
+    {
+      "method": "POST",
+      "path": "/api/title/{workKey}/releases",
+      "file": "server\\TorrentFlow.Library\\Features\\Titles\\TitleController.cs",
+      "line": 285
+    },
+    {
+      "method": "GET",
+      "path": "/api/watchlist",
+      "file": "server\\TorrentFlow.Library\\Features\\Watchlist\\WatchlistController.cs",
+      "line": 24
+    },
+    {
+      "method": "POST",
+      "path": "/api/watchlist",
+      "file": "server\\TorrentFlow.Library\\Features\\Watchlist\\WatchlistController.cs",
+      "line": 50
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/watchlist",
+      "file": "server\\TorrentFlow.Library\\Features\\Watchlist\\WatchlistController.cs",
+      "line": 50
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/watchlist",
+      "file": "server\\TorrentFlow.Library\\Features\\Watchlist\\WatchlistController.cs",
+      "line": 348
+    },
+    {
+      "method": "POST",
+      "path": "/api/watchlist/check",
+      "file": "server\\TorrentFlow.Library\\Features\\Watchlist\\WatchlistController.cs",
+      "line": 363
+    },
+    {
+      "method": "POST",
+      "path": "/api/artwork",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\ArtworkController.cs",
+      "line": 14
+    },
+    {
+      "method": "GET",
+      "path": "/api/browse",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\BrowseController.cs",
+      "line": 18
+    },
+    {
+      "method": "GET",
+      "path": "/api/recommendations",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\BrowseController.cs",
+      "line": 34
+    },
+    {
+      "method": "GET",
+      "path": "/api/title/{workKey}/extras",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\BrowseController.cs",
+      "line": 39
+    },
+    {
+      "method": "GET",
+      "path": "/api/search/titles",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\TitleSearchController.cs",
+      "line": 13
+    },
+    {
+      "method": "GET",
+      "path": "/api/suggest",
+      "file": "server\\TorrentFlow.Metadata\\Controllers\\TitleSearchController.cs",
+      "line": 55
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/sources",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\SourcesController.cs",
+      "line": 15
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings/sources/{id}",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\SourcesController.cs",
+      "line": 23
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/settings/sources/{id}",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\SourcesController.cs",
+      "line": 49
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/sources/{id}/test",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\SourcesController.cs",
+      "line": 59
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/tmdb",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\TmdbSettingsController.cs",
+      "line": 16
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings/tmdb",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\TmdbSettingsController.cs",
+      "line": 23
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/settings/tmdb",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\TmdbSettingsController.cs",
+      "line": 37
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/tmdb/test",
+      "file": "server\\TorrentFlow.Metadata\\Settings\\TmdbSettingsController.cs",
+      "line": 46
+    },
+    {
+      "method": "GET",
+      "path": "/api/search",
+      "file": "server\\TorrentFlow.Search\\SearchController.cs",
+      "line": 12
+    }
+  ],
+  "webReferences": [
+    {
+      "file": "web\\src\\app\\page.tsx",
+      "line": 12,
+      "text": "* `GET /api/browse` (the same `buildBrowsePayload` the server pass called), and"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 168,
+      "text": "/** Result of POST /api/client/torrents/tidy (LayoutTidyResult). */"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 200,
+      "text": "const res = await fetch(\"/api/client/torrents\", {"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 227,
+      "text": "const res = await fetch(`/api/downloads/${encodeURIComponent(torrent.transferId)}/${act}`, { method: \"POST\" }).catch(() => null);"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 328,
+      "text": "const res = await fetch(\"/api/client/torrents\");"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 437,
+      "text": "const res = await fetch(\"/api/settings/client\", {"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 754,
+      "text": "const res = await fetch(\"/api/torrent/send\", {"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 827,
+      "text": "const res = await fetch(\"/api/client/torrents\", {"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 936,
+      "text": "const res = await fetch(\"/api/client/torrents/tidy\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 966,
+      "text": "const res = await fetch(\"/api/settings/open-folder\", {"
+    },
+    {
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 1634,
+      "text": "`npm run test:errors`, which forces /api/client/torrents to 500 and"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\inbox.ts",
+      "line": 168,
+      "text": "? `/api/activity/unread?since=${encodeURIComponent(lastReadAt)}`"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\inbox.ts",
+      "line": 169,
+      "text": ": \"/api/activity/unread\";"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\page.tsx",
+      "line": 10,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\page.tsx",
+      "line": 100,
+      "text": "const activityQuery = useApiQuery<ActivityPage>("
+    },
+    {
+      "file": "web\\src\\app\\notifications\\page.tsx",
+      "line": 217,
+      "text": "const res = await fetch("
+    },
+    {
+      "file": "web\\src\\app\\notifications\\presentation.ts",
+      "line": 98,
+      "text": "return `/api/activity?${params.toString()}`;"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\use-unread.tsx",
+      "line": 2,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\notifications\\use-unread.tsx",
+      "line": 6,
+      "text": "const { data, refetch } = useApiQuery<{ unreadCount: number }>(\"/api/notifications?limit=1\", {"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 24,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 60,
+      "text": "// Only a real requester may call /api/requester/*; the owner's preview maps the owner's list instead."
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 61,
+      "text": "const ownerList = useApiQuery(caps.ownerSession ? \"/api/requests\" : null, {"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 65,
+      "text": "const mineList = useApiQuery(caps.ownerSession ? null : \"/api/requester/requests\", {"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 71,
+      "text": "const auto = useApiQuery(reviewing ? \"/api/requests/auto-approve\" : null, { select: parseAutoApprove, refreshMs: 60_000 });"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 96,
+      "text": "const res = await sessionAwareFetch(`/api/requests/${encodeURIComponent(request.id)}/${action}`, {"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 111,
+      "text": "list.refetch();"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 126,
+      "text": "list.refetch();"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 132,
+      "text": "const res = await sessionAwareFetch(\"/api/requests/auto-approve\", {"
+    },
+    {
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 143,
+      "text": "auto.refetch();"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 27,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 128,
+      "text": "const rulesQuery = useApiQuery<Rule[]>(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 162,
+      "text": "const res = await fetch(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 198,
+      "text": "const res = await fetch(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 221,
+      "text": "const res = await fetch(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 249,
+      "text": "const res = await fetch("
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 250,
+      "text": "`/api/rules?id=${encodeURIComponent(pendingRemove.id)}`,"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 308,
+      "text": "const res = await fetch(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 341,
+      "text": "const res = await fetch(\"/api/rules/run\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 50,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 230,
+      "text": "useApiQuery<number>(\"/api/rules\", {"
+    },
+    {
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 291,
+      "text": "const res = await fetch(\"/api/settings/client\");"
+    },
+    {
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 502,
+      "text": "const res = await fetch(\"/api/settings/client\", {"
+    },
+    {
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 667,
+      "text": "const res = await fetch(\"/api/settings/open-folder\", {"
+    },
+    {
+      "file": "web\\src\\app\\share\\page.tsx",
+      "line": 22,
+      "text": "* payload and posts it through the same /api/torrent/send path as Downloads."
+    },
+    {
+      "file": "web\\src\\app\\share\\page.tsx",
+      "line": 58,
+      "text": "const res = await fetch(\"/api/torrent/send\", {"
+    },
+    {
+      "file": "web\\src\\app\\upcoming\\page.tsx",
+      "line": 14,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\upcoming\\page.tsx",
+      "line": 20,
+      "text": "const list = useApiQuery<TimelineResponse>(\"/api/timeline\", { refreshMs: 30_000, emptyOnUnauthorized: false });"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 56,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 151,
+      "text": "* The Library's rows. The owner reads `/api/watchlist`; a requester reads"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 152,
+      "text": "* `/api/requester/library` (identity and art only), mapped onto the same row"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 154,
+      "text": "* same way, since `/api/requester/*` only answers requesters."
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 157,
+      "text": "const owner = useApiQuery<{ items?: WatchItem[] }>(ownerSession ? \"/api/watchlist\" : null, { refreshMs: 30_000 });"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 158,
+      "text": "const mine = useApiQuery<{ items?: WatchItem[] }>(ownerSession ? null : \"/api/requester/library\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 212,
+      "text": "/** `GET /api/library/delete`'s answer, exactly as the route serialises it. */"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 344,
+      "text": "* be read. See `useApiQuery`'s own header for why that is the worst failure"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 377,
+      "text": "const res = await fetch(\"/api/watchlist\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 395,
+      "text": "const res = await fetch(\"/api/watchlist\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 427,
+      "text": "const res = await fetch(\"/api/library/ondemand\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 494,
+      "text": "const res = await fetch(\"/api/watchlist\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 513,
+      "text": "const res = await fetch(\"/api/automation/run\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 557,
+      "text": "const res = await fetch("
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 558,
+      "text": "`/api/watchlist?id=${encodeURIComponent(pendingRemove.id)}`,"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 591,
+      "text": "const res = await fetch("
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 592,
+      "text": "`/api/library/delete?${deleteScopeQuery(item.id, scope)}`,"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 621,
+      "text": "const res = await fetch(\"/api/library/delete\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 663,
+      "text": "const res = await fetch(\"/api/torrent/send\", {"
+    },
+    {
+      "file": "web\\src\\app\\watchlist\\remove-copy.ts",
+      "line": 22,
+      "text": "* is the product rule (`DELETE /api/watchlist` removes the library row and"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-board.tsx",
+      "line": 57,
+      "text": "const res = await fetch(\"/api/library/ondemand\", {"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 5,
+      "text": "* install where `/api/browse` correctly returns `{\"rails\":[]}`, and a payload"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 13,
+      "text": "* authoritative second opinion from `/api/browse` through {@link useApiQuery},"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 34,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 50,
+      "text": "/** The empty state's retry starts over: a fresh mount re-asks `/api/browse` from the skeleton. */"
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 68,
+      "text": "const { data, loading, error, refetch } = useApiQuery<BrowsePayload>("
+    },
+    {
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 98,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\browse\\first-run.ts",
+      "line": 5,
+      "text": "* and `GET /api/browse` correctly answers `{\"rails\":[]}` because there is no"
+    },
+    {
+      "file": "web\\src\\components\\layout\\shell-gate.tsx",
+      "line": 5,
+      "text": "/** The owner's own machine never needs to wait for `/api/me`. */"
+    },
+    {
+      "file": "web\\src\\components\\layout\\shell-gate.tsx",
+      "line": 12,
+      "text": "* Everyone gets the same app. Every page waits for `/api/me` first, so the"
+    },
+    {
+      "file": "web\\src\\components\\layout\\shell-gate.tsx",
+      "line": 15,
+      "text": "* by construction, so it still renders if `/api/me` fails; the wait itself is"
+    },
+    {
+      "file": "web\\src\\components\\layout\\update-banner.tsx",
+      "line": 5,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\layout\\update-banner.tsx",
+      "line": 29,
+      "text": "const { data, refetch } = useApiQuery<DesktopStatus>(DESKTOP_URL, {"
+    },
+    {
+      "file": "web\\src\\components\\layout\\update-banner.tsx",
+      "line": 54,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 14,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 38,
+      "text": "const response = await sessionAwareFetch(`/api/notifications/${path}`, {"
+    },
+    {
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 69,
+      "text": "const { data, loading, error, refetch } = useApiQuery<{ items: NotificationItem[]; unreadCount: number }>(\"/api/notifications\", {"
+    },
+    {
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 82,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 220,
+      "text": "const response = await sessionAwareFetch(\"/api/notifications/push/public-key\", { cache: \"no-store\" });"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 6,
+      "text": "*   GET  /api/title/{workKey}/releases?season&episode&q → { query, releases[] }"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 7,
+      "text": "*   POST /api/title/{workKey}/releases { token }        → { ok, message, infoHash }"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 8,
+      "text": "*   POST /api/requests/{id}/pick { token }              → { ok, message, status }"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 53,
+      "text": "const base = `/api/title/${encodeURIComponent(target.workKey)}/releases`;"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 75,
+      "text": "const res = await sessionAwareFetch(`${base}?${params.toString()}`, { cache: \"no-store\", signal: controller.signal });"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 113,
+      "text": "const url = target.requestId ? `/api/requests/${encodeURIComponent(target.requestId)}/pick` : base;"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 114,
+      "text": "const res = await sessionAwareFetch(url, {"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 7,
+      "text": "*   GET  /api/client/torrents/{hash}/alternatives[?source=id]"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 9,
+      "text": "*   POST /api/client/torrents/{hash}/alternatives { token, allowBlocked? } → { ok, message, hash }"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 10,
+      "text": "*   POST /api/client/torrents/{hash}/alternatives { best: true, source? } → { ok, message, hash }"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 101,
+      "text": "return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 192,
+      "text": "const res = await sessionAwareFetch(url, { cache: \"no-store\", signal: controller.signal });"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 235,
+      "text": "const res = await sessionAwareFetch(endpoint, {"
+    },
+    {
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 263,
+      "text": "const res = await sessionAwareFetch(endpoint, {"
+    },
+    {
+      "file": "web\\src\\components\\requests\\request-dialog.tsx",
+      "line": 25,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\requests\\request-dialog.tsx",
+      "line": 82,
+      "text": "const seasonQuery = useApiQuery<number[]>(seasonsUrl, {"
+    },
+    {
+      "file": "web\\src\\components\\search\\search-overlay-state.ts",
+      "line": 61,
+      "text": "return { url: `/api/search/titles?${qs}`, kind: \"work\" };"
+    },
+    {
+      "file": "web\\src\\components\\search\\search-overlay.tsx",
+      "line": 242,
+      "text": "fetch(request.url, { signal: ac.signal })"
+    },
+    {
+      "file": "web\\src\\components\\search\\title-search.ts",
+      "line": 5,
+      "text": "* `/api/search/titles` payload onto the shared `TitleResult` card shape."
+    },
+    {
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 11,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 51,
+      "text": "const { data, loading, error, refetch } = useApiQuery<DesktopStatus>(DESKTOP_URL, {"
+    },
+    {
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 87,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 100,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 120,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 45,
+      "text": "const response = await fetch(\"/api/settings/download-recovery\", { signal, cache: \"no-store\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 112,
+      "text": "const response = await fetch(\"/api/settings/download-recovery/sources\", { cache: \"no-store\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 143,
+      "text": "const response = await fetch(\"/api/settings/download-recovery/sources\", {"
+    },
+    {
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 177,
+      "text": "const response = await fetch(\"/api/settings/download-recovery\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\folder-picker.tsx",
+      "line": 58,
+      "text": "const res = await fetch(`/api/settings/browse-folders${q}`);"
+    },
+    {
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 131,
+      "text": "const res = await sessionAwareFetch(\"/api/settings/remote-access\", {"
+    },
+    {
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 169,
+      "text": "const res = await sessionAwareFetch(\"/api/settings/remote-access/check\");"
+    },
+    {
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 216,
+      "text": "const res = await sessionAwareFetch(\"/api/settings/remote-access\", {"
+    },
+    {
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 57,
+      "text": "response = await fetch(`/api/settings/sources/${encodeURIComponent(source.id)}/test`, { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 163,
+      "text": "const response = await fetch(\"/api/settings/sources\", { cache: \"no-store\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 171,
+      "text": "const response = await fetch(`/api/settings/sources/${encodeURIComponent(id)}`, {"
+    },
+    {
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 178,
+      "text": "const response = await fetch(`/api/settings/sources/${id}`, { method: \"DELETE\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 227,
+      "text": "<Input id=\"new-torznab-url\" aria-label=\"New Torznab URL\" placeholder=\"http://localhost:9117/api/v2.0/indexers/all/results/torznab/api\""
+    },
+    {
+      "file": "web\\src\\components\\settings\\tmdb-settings.tsx",
+      "line": 24,
+      "text": "const response = await fetch(\"/api/settings/tmdb\", { cache: \"no-store\" });"
+    },
+    {
+      "file": "web\\src\\components\\settings\\tmdb-settings.tsx",
+      "line": 37,
+      "text": "const response = await fetch(`/api/settings/tmdb${action === \"test\" ? \"/test\" : \"\"}`, {"
+    },
+    {
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 103,
+      "text": "const res = await fetch(\"/api/settings/client\");"
+    },
+    {
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 157,
+      "text": "const res = await fetch(\"/api/settings/client\", {"
+    },
+    {
+      "file": "web\\src\\components\\tf\\open-file-button.tsx",
+      "line": 8,
+      "text": "* (`POST /api/downloads/{id}/open`, docs/api-open-file.md). The one control"
+    },
+    {
+      "file": "web\\src\\components\\tf\\page-query-boundary.tsx",
+      "line": 6,
+      "text": "/** What the boundary reads from a query. `useApiQuery`'s result fits as is. */"
+    },
+    {
+      "file": "web\\src\\components\\tf\\recommendation-rail.tsx",
+      "line": 49,
+      "text": "const res = await fetch(\"/api/recommendations\");"
+    },
+    {
+      "file": "web\\src\\components\\tf\\recommendation-rail.tsx",
+      "line": 67,
+      "text": "const res = await fetch(\"/api/watchlist\", {"
+    },
+    {
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 123,
+      "text": "* Turn answers into the fields `POST /api/watchlist` understands."
+    },
+    {
+      "file": "web\\src\\components\\title\\episode-list-state.ts",
+      "line": 67,
+      "text": "*  - **Signed-out / unauthorized extras.** `useApiQuery`'s"
+    },
+    {
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 9,
+      "text": "* `POST /api/watchlist` adds and monitors the title. The payload is built"
+    },
+    {
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 137,
+      "text": "fetch(\"/api/watchlist\", {"
+    },
+    {
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 153,
+      "text": "fetch(`/api/watchlist?id=${encodeURIComponent(itemId)}`, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\linked-records.tsx",
+      "line": 3,
+      "text": "* crosswalk, `GET /api/title/{workKey}/links`), where each match came from, and"
+    },
+    {
+      "file": "web\\src\\components\\title\\linked-records.tsx",
+      "line": 64,
+      "text": "const base = `/api/title/${encodeURIComponent(workKey)}/links`;"
+    },
+    {
+      "file": "web\\src\\components\\title\\linked-records.tsx",
+      "line": 69,
+      "text": "const res = await fetch(base, { headers: { accept: \"application/json\" } });"
+    },
+    {
+      "file": "web\\src\\components\\title\\linked-records.tsx",
+      "line": 85,
+      "text": "const res = await fetch(`${base}/${encodeURIComponent(link.provider)}/${encodeURIComponent(link.externalId)}`, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\merge-extras.ts",
+      "line": 4,
+      "text": "* `GET /api/title/[workKey]` answers from the local database — what we hold"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-action-request.ts",
+      "line": 114,
+      "text": "const res = await fetch(`/api/title/${encodeURIComponent(workKey)}`, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 41,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 308,
+      "text": "// idle title page hammered /api/title (network waterfall of identical GETs),"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 331,
+      "text": "useApiQuery<TitleDetailPayload>(url, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 341,
+      "text": "? `/api/title/${encodeURIComponent(props.workKey)}/progress?session=${transferPollSession}`"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 347,
+      "text": "} = useApiQuery<TitleProgressPayload>(progressUrl, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 374,
+      "text": "void refetch();"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 421,
+      "text": "} = useApiQuery<TitleExtrasPayload>(extrasUrl, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 488,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 601,
+      "text": "const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 671,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 693,
+      "text": "refetch();"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 810,
+      "text": "void refetch();"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 1775,
+      "text": "const base = `/api/title/${encodeURIComponent(props.workKey)}`;"
+    },
+    {
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 1875,
+      "text": "return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;"
+    },
+    {
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 9,
+      "text": "* the user takes (see `POST /api/title/[workKey]`), not a precondition for the"
+    },
+    {
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 121,
+      "text": "* Exactly what `POST /api/watchlist` needs to add this work, prepared"
+    },
+    {
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 275,
+      "text": "* The answer from `GET /api/title/[workKey]/extras`."
+    },
+    {
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 369,
+      "text": "/** What `POST /api/title/[workKey]` answers. */"
+    },
+    {
+      "file": "web\\src\\components\\title\\use-preferred-quality.ts",
+      "line": 4,
+      "text": "* `/api/settings/client` and exposes it for the Download quality picker."
+    },
+    {
+      "file": "web\\src\\components\\title\\use-preferred-quality.ts",
+      "line": 34,
+      "text": "const res = await fetch(\"/api/settings/client\");"
+    },
+    {
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 10,
+      "text": "/** One target from GET /api/wanted that has no release yet. */"
+    },
+    {
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 47,
+      "text": "const res = await fetch(`/api/wanted/try?${targetQuery(target)}`, { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 53,
+      "text": "const res = await fetch(`/api/wanted?${targetQuery(target)}`, { method: \"DELETE\" });"
+    },
+    {
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 71,
+      "text": "const res = await fetch(\"/api/wanted\");"
+    },
+    {
+      "file": "web\\src\\hooks\\use-api-query.ts",
+      "line": 2,
+      "text": "* `useApiQuery` — one honest answer to \"what is this panel doing right now?\""
+    },
+    {
+      "file": "web\\src\\hooks\\use-api-query.ts",
+      "line": 101,
+      "text": "export function useApiQuery<T = unknown>("
+    },
+    {
+      "file": "web\\src\\hooks\\use-api-query.ts",
+      "line": 208,
+      "text": "const res = await sessionAwareFetch(url, { signal: controller.signal });"
+    },
+    {
+      "file": "web\\src\\hooks\\use-download-prefs.ts",
+      "line": 44,
+      "text": "const res = await fetch(\"/api/settings/client\");"
+    },
+    {
+      "file": "web\\src\\hooks\\use-visible-poll.ts",
+      "line": 8,
+      "text": "* `useApiQuery`'s `refreshMs` runs on this too."
+    },
+    {
+      "file": "web\\src\\hooks\\use-work-artwork.ts",
+      "line": 47,
+      "text": "const res = await fetch(\"/api/artwork\", {"
+    },
+    {
+      "file": "web\\src\\lib\\api-json.ts",
+      "line": 43,
+      "text": "* Turns a failed `/api/torrent/send` answer into one user-facing message tied"
+    },
+    {
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 79,
+      "text": "/** The role `/api/me` reported. */"
+    },
+    {
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 88,
+      "text": "* `/api/requester/*` answers only when this is false."
+    },
+    {
+      "file": "web\\src\\lib\\connection-watch.ts",
+      "line": 3,
+      "text": "* `fetch` (not only `useApiQuery`), so a dropped tunnel or an expired"
+    },
+    {
+      "file": "web\\src\\lib\\connection-watch.ts",
+      "line": 49,
+      "text": "return parsed.origin === origin && parsed.pathname.startsWith(\"/api/\");"
+    },
+    {
+      "file": "web\\src\\lib\\connection-watch.ts",
+      "line": 108,
+      "text": "const res = await doFetch(\"/api/me\", { cache: \"no-store\", redirect: \"manual\" });"
+    },
+    {
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 30,
+      "text": "export const DESKTOP_URL = \"/api/desktop\";"
+    },
+    {
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 71,
+      "text": "const res = await sessionAwareFetch(\"/api/desktop/settings\", {"
+    },
+    {
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 81,
+      "text": "const res = await sessionAwareFetch(\"/api/desktop/update/check\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 87,
+      "text": "const res = await sessionAwareFetch(\"/api/desktop/update/install\", { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 2,
+      "text": "* Reading and changing \"downloads at once\" through `/api/settings/client`, the"
+    },
+    {
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 50,
+      "text": "const res = await fetch(\"/api/settings/client\", { cache: \"no-store\", signal });"
+    },
+    {
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 65,
+      "text": "res = await fetch(\"/api/settings/client\", {"
+    },
+    {
+      "file": "web\\src\\lib\\features.tsx",
+      "line": 2,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\lib\\features.tsx",
+      "line": 14,
+      "text": "const { data, loading, error } = useApiQuery<Features>(\"/api/features\", {"
+    },
+    {
+      "file": "web\\src\\lib\\open-download.ts",
+      "line": 30,
+      "text": "res = await fetch(`/api/downloads/${encodeURIComponent(id)}/open`, {"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 7,
+      "text": "/** One title from `GET /api/requester/titles`. No file paths, magnets or owner data. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 46,
+      "text": "/** Catalog sources `POST /api/requester/requests` accepts — keep with server `IMetadataResolver.Providers`. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 50,
+      "text": "/** One of my requests from `GET /api/requester/requests`. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 77,
+      "text": "/** One title from `GET /api/requester/library`: identity and art only. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 98,
+      "text": "/** One row of the owner's `GET /api/requests`. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 318,
+      "text": "* `/api/requester/seasons`; the owner's \"View as requester\" preview is still the"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 328,
+      "text": "return `/api/title/${encodeURIComponent(title.key)}/extras?${params}`;"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 330,
+      "text": "return `/api/requester/seasons?${new URLSearchParams({"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 418,
+      "text": "/** The exact body `POST /api/requester/requests` accepts. */"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 585,
+      "text": "const res = await sessionAwareFetch(`/api/requester/requests/${encodeURIComponent(id)}/cancel`, { method: \"POST\" });"
+    },
+    {
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 597,
+      "text": "const res = await sessionAwareFetch(\"/api/requester/requests\", {"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 42,
+      "text": "/** A successful `/api/me` proves the session is alive again (e.g. signed in in another tab). */"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 54,
+      "text": "return parsed.origin === origin && parsed.pathname.startsWith(\"/api/\");"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 83,
+      "text": "* restarting. Offline is ruled out directly; otherwise `/api/me` is asked with"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 95,
+      "text": "const probe = await fetch(\"/api/me\", {"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 111,
+      "text": "* `fetch` for same-origin `/api` calls made outside `useApiQuery`: throws"
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 114,
+      "text": "export async function sessionAwareFetch("
+    },
+    {
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 120,
+      "text": "res = await fetch(url, init);"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 10,
+      "text": "import { useApiQuery } from \"@/hooks/use-api-query\";"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 22,
+      "text": "/** Owner until `/api/me` says otherwise; the server enforces the real boundary. */"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 29,
+      "text": "/** True once `/api/me` has answered successfully. */"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 31,
+      "text": "/** `/api/me` failed before it ever answered, so the role is unknown. */"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 33,
+      "text": "/** Asks `/api/me` again. */"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 69,
+      "text": "* `/api/me` for the whole app. The minute poll also notices an expired"
+    },
+    {
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 73,
+      "text": "const { data, settled, refetch } = useApiQuery<MeInfo>(\"/api/me\", {"
+    },
+    {
+      "file": "web\\src\\lib\\sign-out.ts",
+      "line": 11,
+      "text": "* The service worker never caches `/api/*` or `/cdn-cgi/*`, so no identity"
+    },
+    {
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 129,
+      "text": "/** The complete browse payload — one round trip from `GET /api/browse`. */"
+    },
+    {
+      "file": "web\\src\\lib\\browse\\views.ts",
+      "line": 44,
+      "text": "return `/api/browse${search(view, genre)}`;"
+    },
+    {
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 39,
+      "text": "/** Category sent to `/api/search`. Null for the TMDB-backed scope. */"
+    }
+  ],
+  "types": [
+    {
+      "name": "ImportMetaEnv",
+      "file": "web\\src\\env.d.ts",
+      "line": 3,
+      "declaration": "interface ImportMetaEnv {"
+    },
+    {
+      "name": "RouteObject",
+      "file": "web\\src\\router.tsx",
+      "line": 7,
+      "declaration": "type RouteObject,"
+    },
+    {
+      "name": "Location",
+      "file": "web\\src\\app\\layout.tsx",
+      "line": 1,
+      "declaration": "type Location } from \"react-router\";"
+    },
+    {
+      "name": "DownloadLink",
+      "file": "web\\src\\app\\downloads\\download-link.ts",
+      "line": 6,
+      "declaration": "export interface DownloadLink {"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\app\\downloads\\download-transfer-row.tsx",
+      "line": 5,
+      "declaration": "type ReactNode } from \"react\";"
+    },
+    {
+      "name": "SeriesGroup",
+      "file": "web\\src\\app\\downloads\\download-transfer-row.tsx",
+      "line": 27,
+      "declaration": "type SeriesGroup,"
+    },
+    {
+      "name": "TorrentRowMenuHandlers",
+      "file": "web\\src\\app\\downloads\\download-transfer-row.tsx",
+      "line": 48,
+      "declaration": "type TorrentRowMenuHandlers,"
+    },
+    {
+      "name": "TransferRowKind",
+      "file": "web\\src\\app\\downloads\\download-transfer-row.tsx",
+      "line": 49,
+      "declaration": "type TransferRowKind,"
+    },
+    {
+      "name": "DownloadTransferRowProps",
+      "file": "web\\src\\app\\downloads\\download-transfer-row.tsx",
+      "line": 94,
+      "declaration": "export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {"
+    },
+    {
+      "name": "StatusCounts",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 38,
+      "declaration": "type StatusCounts } from \"./status-rollup\";"
+    },
+    {
+      "name": "is",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 40,
+      "declaration": "type is a superset. */"
+    },
+    {
+      "name": "TransferRow",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 41,
+      "declaration": "export interface TransferRow {"
+    },
+    {
+      "name": "CombinedTotals",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 253,
+      "declaration": "interface CombinedTotals {"
+    },
+    {
+      "name": "GroupEntry",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 272,
+      "declaration": "export interface GroupEntry<T> {"
+    },
+    {
+      "name": "SeasonBucket",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 289,
+      "declaration": "export interface SeasonBucket<T> extends CombinedTotals {"
+    },
+    {
+      "name": "SeriesGroup",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 299,
+      "declaration": "export interface SeriesGroup<T> extends CombinedTotals {"
+    },
+    {
+      "name": "SingleGroup",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 310,
+      "declaration": "interface SingleGroup<T> {"
+    },
+    {
+      "name": "DownloadGroup",
+      "file": "web\\src\\app\\downloads\\grouping.ts",
+      "line": 322,
+      "declaration": "export type DownloadGroup<T> = SeriesGroup<T> | SingleGroup<T>;"
+    },
+    {
+      "name": "WantedRow",
+      "file": "web\\src\\app\\downloads\\looking-section.tsx",
+      "line": 10,
+      "declaration": "type WantedRow,"
+    },
+    {
+      "name": "LookingGroup",
+      "file": "web\\src\\app\\downloads\\looking-section.tsx",
+      "line": 15,
+      "declaration": "interface LookingGroup {"
+    },
+    {
+      "name": "filter",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 2,
+      "declaration": "type filter: All, Movies, Series, Anime."
+    },
+    {
+      "name": "out",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 17,
+      "declaration": "type out of a torrent, which carries a raw release name rather than a"
+    },
+    {
+      "name": "LibraryTab",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 26,
+      "declaration": "type LibraryTab,"
+    },
+    {
+      "name": "MediaType",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 31,
+      "declaration": "type MediaType,"
+    },
+    {
+      "name": "DownloadTab",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 34,
+      "declaration": "export type DownloadTab = LibraryTab;"
+    },
+    {
+      "name": "DownloadRow",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 58,
+      "declaration": "export interface DownloadRow {"
+    },
+    {
+      "name": "of",
+      "file": "web\\src\\app\\downloads\\media-filter.ts",
+      "line": 66,
+      "declaration": "type of a download row, or null when nothing vouches for one."
+    },
+    {
+      "name": "OpenDownloadMode",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 7,
+      "declaration": "type OpenDownloadMode } from \"@/lib/open-download\";"
+    },
+    {
+      "name": "SendError",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 21,
+      "declaration": "type SendError } from \"@/lib/api-json\";"
+    },
+    {
+      "name": "WorkArtwork",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 54,
+      "declaration": "type WorkArtwork } from \"@/hooks/use-work-artwork\";"
+    },
+    {
+      "name": "SeriesGroup",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 67,
+      "declaration": "type SeriesGroup,"
+    },
+    {
+      "name": "DownloadTab",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 75,
+      "declaration": "type DownloadTab,"
+    },
+    {
+      "name": "SnapshotState",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 95,
+      "declaration": "type SnapshotState,"
+    },
+    {
+      "name": "DownloadTransferRowProps",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 101,
+      "declaration": "type DownloadTransferRowProps,"
+    },
+    {
+      "name": "ClientTorrent",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 111,
+      "declaration": "type ClientTorrent, type TorrentRowAction } from \"./types\";"
+    },
+    {
+      "name": "DownloadSort",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 125,
+      "declaration": "type DownloadSort,"
+    },
+    {
+      "name": "StatusFilter",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 132,
+      "declaration": "type StatusFilter = \"all\" | \"active\" | \"downloading\" | \"queued\" | \"ready\" | \"paused\" | \"attention\";"
+    },
+    {
+      "name": "TidyResult",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 169,
+      "declaration": "type TidyResult = {"
+    },
+    {
+      "name": "RowActionOutcome",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 188,
+      "declaration": "type RowActionOutcome = { ok: true } | { ok: false; reason: string };"
+    },
+    {
+      "name": "last",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 513,
+      "declaration": "type last, and through the shared rule: status answers \"what is"
+    },
+    {
+      "name": "DeleteResult",
+      "file": "web\\src\\app\\downloads\\page.tsx",
+      "line": 825,
+      "declaration": "type DeleteResult = { ok: boolean; name: string; msg?: string };"
+    },
+    {
+      "name": "ReleaseSource",
+      "file": "web\\src\\app\\downloads\\release-display.ts",
+      "line": 14,
+      "declaration": "type ReleaseSource } from \"@/lib/torrents/quality\";"
+    },
+    {
+      "name": "StatusCounts",
+      "file": "web\\src\\app\\downloads\\release-display.ts",
+      "line": 24,
+      "declaration": "type StatusCounts } from \"./status-rollup\";"
+    },
+    {
+      "name": "ReleaseDisplayFacts",
+      "file": "web\\src\\app\\downloads\\release-display.ts",
+      "line": 238,
+      "declaration": "export interface ReleaseDisplayFacts {"
+    },
+    {
+      "name": "TransferRowKind",
+      "file": "web\\src\\app\\downloads\\row-menu.tsx",
+      "line": 48,
+      "declaration": "export type TransferRowKind = \"torrent\" | \"episode\";"
+    },
+    {
+      "name": "TorrentRowMenuHandlers",
+      "file": "web\\src\\app\\downloads\\row-menu.tsx",
+      "line": 54,
+      "declaration": "export interface TorrentRowMenuHandlers {"
+    },
+    {
+      "name": "DownloadGroup",
+      "file": "web\\src\\app\\downloads\\season-selection.ts",
+      "line": 23,
+      "declaration": "type DownloadGroup,"
+    },
+    {
+      "name": "SeasonBucket",
+      "file": "web\\src\\app\\downloads\\season-selection.ts",
+      "line": 24,
+      "declaration": "type SeasonBucket,"
+    },
+    {
+      "name": "SeriesGroup",
+      "file": "web\\src\\app\\downloads\\season-selection.ts",
+      "line": 25,
+      "declaration": "type SeriesGroup,"
+    },
+    {
+      "name": "SeasonOption",
+      "file": "web\\src\\app\\downloads\\series-download-dialog.tsx",
+      "line": 28,
+      "declaration": "type SeasonOption } from \"@/components/tf/season-switcher\";"
+    },
+    {
+      "name": "GroupEntry",
+      "file": "web\\src\\app\\downloads\\series-download-dialog.tsx",
+      "line": 33,
+      "declaration": "type GroupEntry,"
+    },
+    {
+      "name": "SeasonBucket",
+      "file": "web\\src\\app\\downloads\\series-download-dialog.tsx",
+      "line": 34,
+      "declaration": "type SeasonBucket,"
+    },
+    {
+      "name": "SeriesGroup",
+      "file": "web\\src\\app\\downloads\\series-download-dialog.tsx",
+      "line": 35,
+      "declaration": "type SeriesGroup,"
+    },
+    {
+      "name": "SeriesDownloadDialogProps",
+      "file": "web\\src\\app\\downloads\\series-download-dialog.tsx",
+      "line": 45,
+      "declaration": "export interface SeriesDownloadDialogProps {"
+    },
+    {
+      "name": "SnapshotState",
+      "file": "web\\src\\app\\downloads\\snapshot-sync.ts",
+      "line": 27,
+      "declaration": "export interface SnapshotState<T> {"
+    },
+    {
+      "name": "SnapshotResult",
+      "file": "web\\src\\app\\downloads\\snapshot-sync.ts",
+      "line": 35,
+      "declaration": "export type SnapshotResult<T> ="
+    },
+    {
+      "name": "DownloadSort",
+      "file": "web\\src\\app\\downloads\\sort.ts",
+      "line": 12,
+      "declaration": "export type DownloadSort = (typeof DOWNLOAD_SORTS)[number];"
+    },
+    {
+      "name": "Group",
+      "file": "web\\src\\app\\downloads\\sort.ts",
+      "line": 28,
+      "declaration": "type Group = DownloadGroup<ClientTorrent>;"
+    },
+    {
+      "name": "StatusCounts",
+      "file": "web\\src\\app\\downloads\\status-rollup.ts",
+      "line": 12,
+      "declaration": "export interface StatusCounts {"
+    },
+    {
+      "name": "StatusTone",
+      "file": "web\\src\\app\\downloads\\status-rollup.ts",
+      "line": 21,
+      "declaration": "export type StatusTone = \"danger\" | \"accent\" | \"default\";"
+    },
+    {
+      "name": "StatusSummary",
+      "file": "web\\src\\app\\downloads\\status-rollup.ts",
+      "line": 23,
+      "declaration": "export interface StatusSummary {"
+    },
+    {
+      "name": "QueueWaitReason",
+      "file": "web\\src\\app\\downloads\\types.ts",
+      "line": 10,
+      "declaration": "export type QueueWaitReason = \"outside-window\" | \"queue-full\" | \"lower-lane\";"
+    },
+    {
+      "name": "ClientTorrent",
+      "file": "web\\src\\app\\downloads\\types.ts",
+      "line": 12,
+      "declaration": "export interface ClientTorrent {"
+    },
+    {
+      "name": "TorrentRowAction",
+      "file": "web\\src\\app\\downloads\\types.ts",
+      "line": 86,
+      "declaration": "export type TorrentRowAction = \"pause\" | \"resume\" | \"force\" | \"swap\" | \"keep\" | \"find-another\";"
+    },
+    {
+      "name": "DownloadLimits",
+      "file": "web\\src\\app\\downloads\\use-max-active.ts",
+      "line": 6,
+      "declaration": "type DownloadLimits,"
+    },
+    {
+      "name": "InboxCandidate",
+      "file": "web\\src\\app\\notifications\\inbox.ts",
+      "line": 26,
+      "declaration": "export interface InboxCandidate {"
+    },
+    {
+      "name": "NotificationKind",
+      "file": "web\\src\\app\\notifications\\inbox.ts",
+      "line": 35,
+      "declaration": "type NotificationKind = \"completion\" | \"failure\";"
+    },
+    {
+      "name": "Notification",
+      "file": "web\\src\\app\\notifications\\inbox.ts",
+      "line": 37,
+      "declaration": "export interface Notification {"
+    },
+    {
+      "name": "ActivityItem",
+      "file": "web\\src\\app\\notifications\\page.tsx",
+      "line": 31,
+      "declaration": "interface ActivityItem {"
+    },
+    {
+      "name": "ActivityPage",
+      "file": "web\\src\\app\\notifications\\page.tsx",
+      "line": 49,
+      "declaration": "interface ActivityPage {"
+    },
+    {
+      "name": "ActivityDayGroup",
+      "file": "web\\src\\app\\notifications\\presentation.ts",
+      "line": 108,
+      "declaration": "export type ActivityDayGroup<T> = {"
+    },
+    {
+      "name": "AutoApproveMode",
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 43,
+      "declaration": "type AutoApproveMode,"
+    },
+    {
+      "name": "AutoApproveRule",
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 44,
+      "declaration": "type AutoApproveRule,"
+    },
+    {
+      "name": "OwnerRequest",
+      "file": "web\\src\\app\\requests\\page.tsx",
+      "line": 45,
+      "declaration": "type OwnerRequest,"
+    },
+    {
+      "name": "RuleFilterFormState",
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 40,
+      "declaration": "type RuleFilterFormState,"
+    },
+    {
+      "name": "RuleFormState",
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 41,
+      "declaration": "type RuleFormState,"
+    },
+    {
+      "name": "Rule",
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 44,
+      "declaration": "interface Rule {"
+    },
+    {
+      "name": "RuleCategoryValue",
+      "file": "web\\src\\app\\rules\\page.tsx",
+      "line": 78,
+      "declaration": "type RuleCategoryValue = (typeof RULE_CATEGORY_OPTIONS)[number][\"value\"];"
+    },
+    {
+      "name": "UnsafeDownloadPathReason",
+      "file": "web\\src\\app\\settings\\download-path-safety.ts",
+      "line": 1,
+      "declaration": "export type UnsafeDownloadPathReason ="
+    },
+    {
+      "name": "DownloadPathSafety",
+      "file": "web\\src\\app\\settings\\download-path-safety.ts",
+      "line": 7,
+      "declaration": "export interface DownloadPathSafety {"
+    },
+    {
+      "name": "DownloadPathSafetyOptions",
+      "file": "web\\src\\app\\settings\\download-path-safety.ts",
+      "line": 12,
+      "declaration": "export interface DownloadPathSafetyOptions {"
+    },
+    {
+      "name": "DownloadWindow",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 57,
+      "declaration": "type DownloadWindow,"
+    },
+    {
+      "name": "DownloadWindowDraft",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 58,
+      "declaration": "type DownloadWindowDraft,"
+    },
+    {
+      "name": "UnsafeDownloadPathReason",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 63,
+      "declaration": "type UnsafeDownloadPathReason,"
+    },
+    {
+      "name": "ClientType",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 66,
+      "declaration": "type ClientType = \"qbittorrent\" | \"transmission\" | \"builtin\";"
+    },
+    {
+      "name": "ExternalClientType",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 67,
+      "declaration": "type ExternalClientType = Exclude<ClientType, \"builtin\">;"
+    },
+    {
+      "name": "AudioLanguage",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 68,
+      "declaration": "type AudioLanguage = \"auto\" | \"english\" | \"any\";"
+    },
+    {
+      "name": "ClientForm",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 70,
+      "declaration": "export interface ClientForm {"
+    },
+    {
+      "name": "DownloadPathWarning",
+      "file": "web\\src\\app\\settings\\page.tsx",
+      "line": 89,
+      "declaration": "interface DownloadPathWarning {"
+    },
+    {
+      "name": "ShareState",
+      "file": "web\\src\\app\\share\\page.tsx",
+      "line": 13,
+      "declaration": "type ShareState ="
+    },
+    {
+      "name": "TimelineResponse",
+      "file": "web\\src\\app\\upcoming\\page.tsx",
+      "line": 15,
+      "declaration": "type TimelineResponse } from \"./timeline\";"
+    },
+    {
+      "name": "TimelineEntry",
+      "file": "web\\src\\app\\upcoming\\timeline.ts",
+      "line": 1,
+      "declaration": "export type TimelineEntry = {"
+    },
+    {
+      "name": "TimelineResponse",
+      "file": "web\\src\\app\\upcoming\\timeline.ts",
+      "line": 19,
+      "declaration": "export type TimelineResponse = { entries: TimelineEntry[]; airTimesUnavailable: boolean };"
+    },
+    {
+      "name": "TimelineGroup",
+      "file": "web\\src\\app\\upcoming\\timeline.ts",
+      "line": 20,
+      "declaration": "export type TimelineGroup = { label: \"Today\" | \"Tomorrow\" | \"Later\"; entries: TimelineEntry[] };"
+    },
+    {
+      "name": "LibraryCardRow",
+      "file": "web\\src\\app\\watchlist\\card-state.ts",
+      "line": 22,
+      "declaration": "export interface LibraryCardRow {"
+    },
+    {
+      "name": "ActivityKind",
+      "file": "web\\src\\app\\watchlist\\card-state.ts",
+      "line": 61,
+      "declaration": "type ActivityKind = \"update\" | \"tracking\" | \"paused\" | null;"
+    },
+    {
+      "name": "ActivityLine",
+      "file": "web\\src\\app\\watchlist\\card-state.ts",
+      "line": 63,
+      "declaration": "export interface ActivityLine {"
+    },
+    {
+      "name": "LibraryTab",
+      "file": "web\\src\\app\\watchlist\\library-tabs.ts",
+      "line": 19,
+      "declaration": "export type LibraryTab = (typeof LIBRARY_TABS)[number];"
+    },
+    {
+      "name": "LibraryRow",
+      "file": "web\\src\\app\\watchlist\\library-tabs.ts",
+      "line": 32,
+      "declaration": "export interface LibraryRow {"
+    },
+    {
+      "name": "is",
+      "file": "web\\src\\app\\watchlist\\library-tabs.ts",
+      "line": 39,
+      "declaration": "type is deliberately *not* guessed into Movies. A row we cannot"
+    },
+    {
+      "name": "belong",
+      "file": "web\\src\\app\\watchlist\\library-tabs.ts",
+      "line": 71,
+      "declaration": "type belong to no narrower tab, so the parts genuinely do not add up. That"
+    },
+    {
+      "name": "and",
+      "file": "web\\src\\app\\watchlist\\library-tabs.ts",
+      "line": 73,
+      "declaration": "type and is worth knowing about."
+    },
+    {
+      "name": "MouseEvent",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 7,
+      "declaration": "type MouseEvent as ReactMouseEvent,"
+    },
+    {
+      "name": "LibraryTab",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 86,
+      "declaration": "type LibraryTab,"
+    },
+    {
+      "name": "WatchItem",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 93,
+      "declaration": "interface WatchItem {"
+    },
+    {
+      "name": "LastAutoSummary",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 193,
+      "declaration": "type LastAutoSummary = {"
+    },
+    {
+      "name": "DeleteScope",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 207,
+      "declaration": "type DeleteScope ="
+    },
+    {
+      "name": "DeletePlan",
+      "file": "web\\src\\app\\watchlist\\page.tsx",
+      "line": 213,
+      "declaration": "interface DeletePlan {"
+    },
+    {
+      "name": "RemoveFromLibraryCopy",
+      "file": "web\\src\\app\\watchlist\\remove-copy.ts",
+      "line": 29,
+      "declaration": "export interface RemoveFromLibraryCopy {"
+    },
+    {
+      "name": "AvailabilityTone",
+      "file": "web\\src\\components\\browse\\availability-chip.tsx",
+      "line": 7,
+      "declaration": "type AvailabilityTone,"
+    },
+    {
+      "name": "Unresolved",
+      "file": "web\\src\\components\\browse\\availability-chip.tsx",
+      "line": 8,
+      "declaration": "type Unresolved,"
+    },
+    {
+      "name": "Unresolved",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 37,
+      "declaration": "export type Unresolved = null;"
+    },
+    {
+      "name": "error",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 41,
+      "declaration": "type error,"
+    },
+    {
+      "name": "AvailabilityTone",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 52,
+      "declaration": "export type AvailabilityTone ="
+    },
+    {
+      "name": "AvailabilityMeta",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 59,
+      "declaration": "export interface AvailabilityMeta {"
+    },
+    {
+      "name": "LocalAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 133,
+      "declaration": "interface LocalAction {"
+    },
+    {
+      "name": "GetAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 141,
+      "declaration": "interface GetAction {"
+    },
+    {
+      "name": "SearchAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 156,
+      "declaration": "export interface SearchAction {"
+    },
+    {
+      "name": "BlockedAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 169,
+      "declaration": "interface BlockedAction {"
+    },
+    {
+      "name": "DownloadingAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 177,
+      "declaration": "interface DownloadingAction {"
+    },
+    {
+      "name": "CardAction",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 184,
+      "declaration": "export type CardAction = LocalAction | GetAction | SearchAction | BlockedAction | DownloadingAction;"
+    },
+    {
+      "name": "for",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 187,
+      "declaration": "type for an on-demand grab when the row does not name one."
+    },
+    {
+      "name": "into",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 415,
+      "declaration": "type into search for a card."
+    },
+    {
+      "name": "ActionStatus",
+      "file": "web\\src\\components\\browse\\availability.ts",
+      "line": 578,
+      "declaration": "export type ActionStatus = \"idle\" | \"pending\" | \"done\" | \"error\";"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\components\\browse\\browse-board.tsx",
+      "line": 1,
+      "declaration": "type ReactNode } from \"react\";"
+    },
+    {
+      "name": "ActionStatus",
+      "file": "web\\src\\components\\browse\\browse-board.tsx",
+      "line": 9,
+      "declaration": "type ActionStatus,"
+    },
+    {
+      "name": "CardAction",
+      "file": "web\\src\\components\\browse\\browse-board.tsx",
+      "line": 10,
+      "declaration": "type CardAction,"
+    },
+    {
+      "name": "or",
+      "file": "web\\src\\components\\browse\\browse-empty-state.tsx",
+      "line": 36,
+      "declaration": "type or genre view that came back with nothing, and the wider view to try instead. */"
+    },
+    {
+      "name": "BrowseEmptyView",
+      "file": "web\\src\\components\\browse\\browse-empty-state.tsx",
+      "line": 37,
+      "declaration": "export interface BrowseEmptyView {"
+    },
+    {
+      "name": "BrowseQuery",
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 25,
+      "declaration": "type BrowseQuery,"
+    },
+    {
+      "name": "BrowseView",
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 26,
+      "declaration": "type BrowseView,"
+    },
+    {
+      "name": "BrowseEmptyView",
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 30,
+      "declaration": "type BrowseEmptyView } from \"./browse-empty-state\";"
+    },
+    {
+      "name": "BrowseFirstRunProps",
+      "file": "web\\src\\components\\browse\\browse-first-run.tsx",
+      "line": 36,
+      "declaration": "interface BrowseFirstRunProps {"
+    },
+    {
+      "name": "BrowseQuery",
+      "file": "web\\src\\components\\browse\\browse-nav.tsx",
+      "line": 14,
+      "declaration": "type BrowseQuery,"
+    },
+    {
+      "name": "RailPreview",
+      "file": "web\\src\\components\\browse\\first-run.ts",
+      "line": 21,
+      "declaration": "export interface RailPreview {"
+    },
+    {
+      "name": "CountableRail",
+      "file": "web\\src\\components\\browse\\first-run.ts",
+      "line": 50,
+      "declaration": "export interface CountableRail {"
+    },
+    {
+      "name": "ActionStatus",
+      "file": "web\\src\\components\\browse\\hero-banner.tsx",
+      "line": 10,
+      "declaration": "type ActionStatus,"
+    },
+    {
+      "name": "CardAction",
+      "file": "web\\src\\components\\browse\\hero-banner.tsx",
+      "line": 11,
+      "declaration": "type CardAction,"
+    },
+    {
+      "name": "HeroPick",
+      "file": "web\\src\\components\\browse\\hero-banner.tsx",
+      "line": 13,
+      "declaration": "type HeroPick } from \"./hero\";"
+    },
+    {
+      "name": "HeroBannerProps",
+      "file": "web\\src\\components\\browse\\hero-banner.tsx",
+      "line": 23,
+      "declaration": "export interface HeroBannerProps {"
+    },
+    {
+      "name": "HeroPick",
+      "file": "web\\src\\components\\browse\\hero.ts",
+      "line": 14,
+      "declaration": "export interface HeroPick {"
+    },
+    {
+      "name": "MediaPosterVariant",
+      "file": "web\\src\\components\\browse\\media-poster-card.tsx",
+      "line": 23,
+      "declaration": "export type MediaPosterVariant = \"rail\" | \"search\" | \"library\" | \"row\" | \"episode\";"
+    },
+    {
+      "name": "CSSProperties",
+      "file": "web\\src\\components\\browse\\poster-image.tsx",
+      "line": 1,
+      "declaration": "type CSSProperties } from \"react\";"
+    },
+    {
+      "name": "ScrollMetrics",
+      "file": "web\\src\\components\\browse\\rail-scroll.ts",
+      "line": 10,
+      "declaration": "export interface ScrollMetrics {"
+    },
+    {
+      "name": "RailEdges",
+      "file": "web\\src\\components\\browse\\rail-scroll.ts",
+      "line": 16,
+      "declaration": "export interface RailEdges {"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\components\\browse\\rail.tsx",
+      "line": 1,
+      "declaration": "type ReactNode } from \"react\";"
+    },
+    {
+      "name": "RailProps",
+      "file": "web\\src\\components\\browse\\rail.tsx",
+      "line": 14,
+      "declaration": "export interface RailProps {"
+    },
+    {
+      "name": "ActionStatus",
+      "file": "web\\src\\components\\browse\\title-card.tsx",
+      "line": 12,
+      "declaration": "type ActionStatus,"
+    },
+    {
+      "name": "CardAction",
+      "file": "web\\src\\components\\browse\\title-card.tsx",
+      "line": 13,
+      "declaration": "type CardAction,"
+    },
+    {
+      "name": "TitleCardProps",
+      "file": "web\\src\\components\\browse\\title-card.tsx",
+      "line": 30,
+      "declaration": "export interface TitleCardProps {"
+    },
+    {
+      "name": "NavItem",
+      "file": "web\\src\\components\\layout\\mobile-nav.tsx",
+      "line": 43,
+      "declaration": "type NavItem,"
+    },
+    {
+      "name": "DesktopStatus",
+      "file": "web\\src\\components\\layout\\update-banner.tsx",
+      "line": 14,
+      "declaration": "type DesktopStatus,"
+    },
+    {
+      "name": "CheckScheduleProps",
+      "file": "web\\src\\components\\library\\check-schedule.tsx",
+      "line": 3,
+      "declaration": "type CheckScheduleProps = {"
+    },
+    {
+      "name": "LibraryStateItem",
+      "file": "web\\src\\components\\library\\library-state.ts",
+      "line": 3,
+      "declaration": "export interface LibraryStateItem {"
+    },
+    {
+      "name": "LibraryItemStatusKind",
+      "file": "web\\src\\components\\library\\library-state.ts",
+      "line": 17,
+      "declaration": "type LibraryItemStatusKind ="
+    },
+    {
+      "name": "LibraryItemState",
+      "file": "web\\src\\components\\library\\library-state.ts",
+      "line": 26,
+      "declaration": "export interface LibraryItemState {"
+    },
+    {
+      "name": "ActivityView",
+      "file": "web\\src\\components\\notifications\\activity-view-toggle.tsx",
+      "line": 7,
+      "declaration": "export type ActivityView = \"inbox\" | \"log\";"
+    },
+    {
+      "name": "NotificationItem",
+      "file": "web\\src\\components\\notifications\\notification-feed.tsx",
+      "line": 27,
+      "declaration": "export interface NotificationItem {"
+    },
+    {
+      "name": "ClientSession",
+      "file": "web\\src\\components\\providers\\session-provider.tsx",
+      "line": 11,
+      "declaration": "export type ClientSession = {"
+    },
+    {
+      "name": "stays",
+      "file": "web\\src\\components\\providers\\session-provider.tsx",
+      "line": 33,
+      "declaration": "type stays a union so the"
+    },
+    {
+      "name": "Density",
+      "file": "web\\src\\components\\providers\\ui-preferences.tsx",
+      "line": 3,
+      "declaration": "type Density = \"comfortable\" | \"compact\";"
+    },
+    {
+      "name": "InstallState",
+      "file": "web\\src\\components\\pwa\\install-app-card.tsx",
+      "line": 4,
+      "declaration": "type InstallState } from \"./install-state\";"
+    },
+    {
+      "name": "InstallState",
+      "file": "web\\src\\components\\pwa\\install-state.ts",
+      "line": 17,
+      "declaration": "export type InstallState ="
+    },
+    {
+      "name": "InstallPhase",
+      "file": "web\\src\\components\\pwa\\install-state.ts",
+      "line": 34,
+      "declaration": "export type InstallPhase = \"idle\" | \"prompting\" | \"declined\" | \"error\";"
+    },
+    {
+      "name": "InstallSignals",
+      "file": "web\\src\\components\\pwa\\install-state.ts",
+      "line": 36,
+      "declaration": "export type InstallSignals = {"
+    },
+    {
+      "name": "InstallPhase",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 3,
+      "declaration": "type InstallPhase,"
+    },
+    {
+      "name": "InstallSignals",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 4,
+      "declaration": "type InstallSignals,"
+    },
+    {
+      "name": "BeforeInstallPromptEvent",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 12,
+      "declaration": "type BeforeInstallPromptEvent = Event & {"
+    },
+    {
+      "name": "InstallSnapshot",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 17,
+      "declaration": "type InstallSnapshot = InstallSignals & {"
+    },
+    {
+      "name": "so",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 22,
+      "declaration": "interface so the"
+    },
+    {
+      "name": "InstallEnv",
+      "file": "web\\src\\components\\pwa\\install-store.ts",
+      "line": 26,
+      "declaration": "export type InstallEnv = {"
+    },
+    {
+      "name": "ReleasePickTarget",
+      "file": "web\\src\\components\\releases\\download-outcome-toast.ts",
+      "line": 5,
+      "declaration": "type ReleasePickTarget,"
+    },
+    {
+      "name": "DownloadOutcomeRetry",
+      "file": "web\\src\\components\\releases\\download-outcome-toast.ts",
+      "line": 13,
+      "declaration": "export interface DownloadOutcomeRetry {"
+    },
+    {
+      "name": "SourceSwapFacts",
+      "file": "web\\src\\components\\releases\\find-another-source.ts",
+      "line": 19,
+      "declaration": "export interface SourceSwapFacts {"
+    },
+    {
+      "name": "ReleaseLanguageInfo",
+      "file": "web\\src\\components\\releases\\release-card.tsx",
+      "line": 15,
+      "declaration": "type ReleaseLanguageInfo } from \"./release-language\";"
+    },
+    {
+      "name": "ReleaseBlockInfo",
+      "file": "web\\src\\components\\releases\\release-card.tsx",
+      "line": 18,
+      "declaration": "export interface ReleaseBlockInfo {"
+    },
+    {
+      "name": "ReleaseCardData",
+      "file": "web\\src\\components\\releases\\release-card.tsx",
+      "line": 26,
+      "declaration": "export interface ReleaseCardData {"
+    },
+    {
+      "name": "DataAttributes",
+      "file": "web\\src\\components\\releases\\release-card.tsx",
+      "line": 78,
+      "declaration": "type DataAttributes = { [key: `data-${string}`]: string | number | undefined };"
+    },
+    {
+      "name": "LanguageFit",
+      "file": "web\\src\\components\\releases\\release-language.tsx",
+      "line": 9,
+      "declaration": "export type LanguageFit = \"preferred\" | \"neutral\" | \"backup\" | \"clash\";"
+    },
+    {
+      "name": "ReleaseLanguageInfo",
+      "file": "web\\src\\components\\releases\\release-language.tsx",
+      "line": 11,
+      "declaration": "export interface ReleaseLanguageInfo {"
+    },
+    {
+      "name": "FormEvent",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 10,
+      "declaration": "type FormEvent } from \"react\";"
+    },
+    {
+      "name": "ReleaseCardData",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 22,
+      "declaration": "type ReleaseCardData } from \"./release-card\";"
+    },
+    {
+      "name": "ReleasePickTarget",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 25,
+      "declaration": "type ReleasePickTarget } from \"./release-picker-store\";"
+    },
+    {
+      "name": "PickRelease",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 27,
+      "declaration": "interface PickRelease extends ReleaseCardData {"
+    },
+    {
+      "name": "PickList",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 32,
+      "declaration": "interface PickList {"
+    },
+    {
+      "name": "LoadState",
+      "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
+      "line": 37,
+      "declaration": "type LoadState ="
+    },
+    {
+      "name": "ReleasePickTarget",
+      "file": "web\\src\\components\\releases\\release-picker-host.tsx",
+      "line": 4,
+      "declaration": "type ReleasePickTarget } from \"./release-picker-store\";"
+    },
+    {
+      "name": "ReleasePickTarget",
+      "file": "web\\src\\components\\releases\\release-picker-store.ts",
+      "line": 6,
+      "declaration": "export interface ReleasePickTarget {"
+    },
+    {
+      "name": "Listener",
+      "file": "web\\src\\components\\releases\\release-picker-store.ts",
+      "line": 21,
+      "declaration": "type Listener = (target: ReleasePickTarget) => void;"
+    },
+    {
+      "name": "ReleaseCardData",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 33,
+      "declaration": "type ReleaseCardData } from \"./release-card\";"
+    },
+    {
+      "name": "ReleaseLanguageInfo",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 34,
+      "declaration": "type ReleaseLanguageInfo } from \"./release-language\";"
+    },
+    {
+      "name": "ReleaseSwapHealth",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 37,
+      "declaration": "export interface ReleaseSwapHealth {"
+    },
+    {
+      "name": "ReleaseAlternative",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 45,
+      "declaration": "export interface ReleaseAlternative extends ReleaseCardData {"
+    },
+    {
+      "name": "ReleaseSwapSource",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 51,
+      "declaration": "export interface ReleaseSwapSource {"
+    },
+    {
+      "name": "ReleaseSwapCurrent",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 58,
+      "declaration": "export interface ReleaseSwapCurrent {"
+    },
+    {
+      "name": "ReleaseAlternatives",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 67,
+      "declaration": "export interface ReleaseAlternatives {"
+    },
+    {
+      "name": "ReleaseSwapSubject",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 78,
+      "declaration": "export interface ReleaseSwapSubject {"
+    },
+    {
+      "name": "LoadState",
+      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
+      "line": 139,
+      "declaration": "type LoadState ="
+    },
+    {
+      "name": "RequestState",
+      "file": "web\\src\\components\\requests\\request-action.tsx",
+      "line": 6,
+      "declaration": "type RequestState, type RequesterTitle } from \"@/lib/requests\";"
+    },
+    {
+      "name": "RequestScope",
+      "file": "web\\src\\components\\requests\\request-dialog.tsx",
+      "line": 32,
+      "declaration": "type RequestScope,"
+    },
+    {
+      "name": "RequesterTitle",
+      "file": "web\\src\\components\\requests\\request-dialog.tsx",
+      "line": 33,
+      "declaration": "type RequesterTitle,"
+    },
+    {
+      "name": "ReleaseStatus",
+      "file": "web\\src\\components\\search\\group-titles.ts",
+      "line": 18,
+      "declaration": "type ReleaseStatus } from \"@/lib/browse/release-status\";"
+    },
+    {
+      "name": "TitleResult",
+      "file": "web\\src\\components\\search\\group-titles.ts",
+      "line": 22,
+      "declaration": "export interface TitleResult {"
+    },
+    {
+      "name": "SearchScope",
+      "file": "web\\src\\components\\search\\search-overlay-state.ts",
+      "line": 17,
+      "declaration": "type SearchScope,"
+    },
+    {
+      "name": "SearchRequest",
+      "file": "web\\src\\components\\search\\search-overlay-state.ts",
+      "line": 24,
+      "declaration": "export interface SearchRequest {"
+    },
+    {
+      "name": "SearchDisplay",
+      "file": "web\\src\\components\\search\\search-overlay-state.ts",
+      "line": 73,
+      "declaration": "export type SearchDisplay ="
+    },
+    {
+      "name": "WorkSearchScope",
+      "file": "web\\src\\components\\search\\search-overlay.tsx",
+      "line": 45,
+      "declaration": "type WorkSearchScope,"
+    },
+    {
+      "name": "TitleResultCardProps",
+      "file": "web\\src\\components\\search\\title-result-card.tsx",
+      "line": 12,
+      "declaration": "interface TitleResultCardProps {"
+    },
+    {
+      "name": "TitleResultsListProps",
+      "file": "web\\src\\components\\search\\title-results-list.tsx",
+      "line": 9,
+      "declaration": "interface TitleResultsListProps {"
+    },
+    {
+      "name": "DesktopStatus",
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 19,
+      "declaration": "type DesktopStatus,"
+    },
+    {
+      "name": "DownloadProgress",
+      "file": "web\\src\\components\\settings\\desktop-section.tsx",
+      "line": 20,
+      "declaration": "type DownloadProgress,"
+    },
+    {
+      "name": "RecoveryInfo",
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 17,
+      "declaration": "interface RecoveryInfo {"
+    },
+    {
+      "name": "SourceCandidate",
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 23,
+      "declaration": "interface SourceCandidate {"
+    },
+    {
+      "name": "SourceScan",
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 35,
+      "declaration": "interface SourceScan {"
+    },
+    {
+      "name": "RecoveryResult",
+      "file": "web\\src\\components\\settings\\download-recovery.tsx",
+      "line": 40,
+      "declaration": "type RecoveryResult = { info: RecoveryInfo | null; error: boolean };"
+    },
+    {
+      "name": "DownloadWindowDraft",
+      "file": "web\\src\\components\\settings\\download-windows-panel.tsx",
+      "line": 21,
+      "declaration": "type DownloadWindowDraft,"
+    },
+    {
+      "name": "DownloadWindowsPanelProps",
+      "file": "web\\src\\components\\settings\\download-windows-panel.tsx",
+      "line": 25,
+      "declaration": "interface DownloadWindowsPanelProps {"
+    },
+    {
+      "name": "FolderPickerEntry",
+      "file": "web\\src\\components\\settings\\folder-picker.tsx",
+      "line": 25,
+      "declaration": "export interface FolderPickerEntry {"
+    },
+    {
+      "name": "FolderPickerProps",
+      "file": "web\\src\\components\\settings\\folder-picker.tsx",
+      "line": 31,
+      "declaration": "interface FolderPickerProps {"
+    },
+    {
+      "name": "in",
+      "file": "web\\src\\components\\settings\\max-active-downloads.tsx",
+      "line": 33,
+      "declaration": "type in; `inline` sits in a line of text. */"
+    },
+    {
+      "name": "RemoteAccessSettings",
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 24,
+      "declaration": "interface RemoteAccessSettings {"
+    },
+    {
+      "name": "RemoteAccessCheck",
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 45,
+      "declaration": "interface RemoteAccessCheck {"
+    },
+    {
+      "name": "RemoteAccessForm",
+      "file": "web\\src\\components\\settings\\remote-access-section.tsx",
+      "line": 55,
+      "declaration": "interface RemoteAccessForm {"
+    },
+    {
+      "name": "SettingsDisclosureProps",
+      "file": "web\\src\\components\\settings\\settings-disclosure.tsx",
+      "line": 10,
+      "declaration": "interface SettingsDisclosureProps {"
+    },
+    {
+      "name": "Source",
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 23,
+      "declaration": "interface Source {"
+    },
+    {
+      "name": "Update",
+      "file": "web\\src\\components\\settings\\sources-settings.tsx",
+      "line": 28,
+      "declaration": "type Update = (id: string, values: Record<string, unknown>) => Promise<void>;"
+    },
+    {
+      "name": "Status",
+      "file": "web\\src\\components\\settings\\tmdb-settings.tsx",
+      "line": 8,
+      "declaration": "interface Status {"
+    },
+    {
+      "name": "FormEvent",
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 18,
+      "declaration": "type FormEvent,"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 19,
+      "declaration": "type ReactNode,"
+    },
+    {
+      "name": "SettingsPayload",
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 41,
+      "declaration": "interface SettingsPayload {"
+    },
+    {
+      "name": "DownloadSetupContextValue",
+      "file": "web\\src\\components\\setup\\download-setup.tsx",
+      "line": 53,
+      "declaration": "interface DownloadSetupContextValue {"
+    },
+    {
+      "name": "StorageBar",
+      "file": "web\\src\\components\\storage\\storage-cap-dialog.tsx",
+      "line": 42,
+      "declaration": "type StorageBar,"
+    },
+    {
+      "name": "StorageBreakdownRow",
+      "file": "web\\src\\components\\storage\\storage-cap-dialog.tsx",
+      "line": 43,
+      "declaration": "type StorageBreakdownRow,"
+    },
+    {
+      "name": "StorageOverrideFacts",
+      "file": "web\\src\\components\\storage\\storage-cap-dialog.tsx",
+      "line": 44,
+      "declaration": "type StorageOverrideFacts,"
+    },
+    {
+      "name": "StorageCapDialogProps",
+      "file": "web\\src\\components\\storage\\storage-cap-dialog.tsx",
+      "line": 134,
+      "declaration": "export interface StorageCapDialogProps {"
+    },
+    {
+      "name": "StorageOverrideFacts",
+      "file": "web\\src\\components\\storage\\use-storage-cap-override.ts",
+      "line": 23,
+      "declaration": "type StorageOverrideFacts,"
+    },
+    {
+      "name": "StorageOverrideOutcome",
+      "file": "web\\src\\components\\storage\\use-storage-cap-override.ts",
+      "line": 24,
+      "declaration": "type StorageOverrideOutcome,"
+    },
+    {
+      "name": "UseStorageCapOverride",
+      "file": "web\\src\\components\\storage\\use-storage-cap-override.ts",
+      "line": 27,
+      "declaration": "export interface UseStorageCapOverride {"
+    },
+    {
+      "name": "DataAttributes",
+      "file": "web\\src\\components\\tf\\confirm-dialog.tsx",
+      "line": 14,
+      "declaration": "type DataAttributes = { [key: `data-${string}`]: string | boolean | undefined };"
+    },
+    {
+      "name": "PageQuery",
+      "file": "web\\src\\components\\tf\\page-query-boundary.tsx",
+      "line": 7,
+      "declaration": "export type PageQuery<T> = Pick<ApiQueryState<T>, \"data\" | \"loading\" | \"error\" | \"refetch\"> & {"
+    },
+    {
+      "name": "RailItem",
+      "file": "web\\src\\components\\tf\\recommendation-rail.tsx",
+      "line": 13,
+      "declaration": "type RailItem = RecommendationRail[\"items\"][number];"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\components\\tf\\season-switcher.tsx",
+      "line": 6,
+      "declaration": "type ReactNode } from \"react\";"
+    },
+    {
+      "name": "SeasonOption",
+      "file": "web\\src\\components\\tf\\season-switcher.tsx",
+      "line": 20,
+      "declaration": "export interface SeasonOption {"
+    },
+    {
+      "name": "SeasonSwitcherProps",
+      "file": "web\\src\\components\\tf\\season-switcher.tsx",
+      "line": 29,
+      "declaration": "type SeasonSwitcherProps ="
+    },
+    {
+      "name": "TfStatItem",
+      "file": "web\\src\\components\\tf\\stat-strip.tsx",
+      "line": 4,
+      "declaration": "export interface TfStatItem {"
+    },
+    {
+      "name": "AddSubject",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 22,
+      "declaration": "export interface AddSubject {"
+    },
+    {
+      "name": "StartPoint",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 31,
+      "declaration": "export type StartPoint ="
+    },
+    {
+      "name": "AddAnswers",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 39,
+      "declaration": "export interface AddAnswers {"
+    },
+    {
+      "name": "QuestionId",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 45,
+      "declaration": "type QuestionId = \"start-point\";"
+    },
+    {
+      "name": "AddQuestion",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 47,
+      "declaration": "export interface AddQuestion {"
+    },
+    {
+      "name": "AddPayloadFields",
+      "file": "web\\src\\components\\title\\add-to-library-questions.ts",
+      "line": 115,
+      "declaration": "export interface AddPayloadFields {"
+    },
+    {
+      "name": "EpisodeListLoadState",
+      "file": "web\\src\\components\\title\\episode-list-state.ts",
+      "line": 1,
+      "declaration": "export type EpisodeListLoadState ="
+    },
+    {
+      "name": "EpisodeListView",
+      "file": "web\\src\\components\\title\\episode-list-state.ts",
+      "line": 11,
+      "declaration": "export type EpisodeListView ="
+    },
+    {
+      "name": "EpisodeRowModel",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 65,
+      "declaration": "type EpisodeRowModel,"
+    },
+    {
+      "name": "EpisodeListLoadState",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 71,
+      "declaration": "type EpisodeListLoadState,"
+    },
+    {
+      "name": "TitleAction",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 76,
+      "declaration": "type TitleAction,"
+    },
+    {
+      "name": "TitleActionStatus",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 77,
+      "declaration": "type TitleActionStatus,"
+    },
+    {
+      "name": "SeasonGrabStatus",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 82,
+      "declaration": "type SeasonGrabStatus,"
+    },
+    {
+      "name": "SeasonProgress",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 88,
+      "declaration": "type SeasonProgress } from \"./season-progress\";"
+    },
+    {
+      "name": "EpisodeListProps",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 91,
+      "declaration": "export interface EpisodeListProps {"
+    },
+    {
+      "name": "PendingDownload",
+      "file": "web\\src\\components\\title\\episode-list.tsx",
+      "line": 168,
+      "declaration": "type PendingDownload ="
+    },
+    {
+      "name": "AddAnswers",
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 42,
+      "declaration": "type AddAnswers,"
+    },
+    {
+      "name": "AddSubject",
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 43,
+      "declaration": "type AddSubject,"
+    },
+    {
+      "name": "LibraryControlsProps",
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 47,
+      "declaration": "export interface LibraryControlsProps {"
+    },
+    {
+      "name": "Phase",
+      "file": "web\\src\\components\\title\\library-controls.tsx",
+      "line": 60,
+      "declaration": "type Phase = \"idle\" | \"pending\";"
+    },
+    {
+      "name": "WorkLink",
+      "file": "web\\src\\components\\title\\linked-records.tsx",
+      "line": 20,
+      "declaration": "export type WorkLink = {"
+    },
+    {
+      "name": "EpisodeRowModel",
+      "file": "web\\src\\components\\title\\merge-extras.ts",
+      "line": 27,
+      "declaration": "export type EpisodeRowModel = TitleEpisode & {"
+    },
+    {
+      "name": "MergedEpisodes",
+      "file": "web\\src\\components\\title\\merge-extras.ts",
+      "line": 34,
+      "declaration": "export interface MergedEpisodes {"
+    },
+    {
+      "name": "QualityValue",
+      "file": "web\\src\\components\\title\\quality-picker-state.ts",
+      "line": 33,
+      "declaration": "export type QualityValue = (typeof QUALITY_CHOICES)[number][\"value\"];"
+    },
+    {
+      "name": "QualityValue",
+      "file": "web\\src\\components\\title\\quality-picker.tsx",
+      "line": 33,
+      "declaration": "type QualityValue } from \"./quality-picker-state\";"
+    },
+    {
+      "name": "QualityPickerProps",
+      "file": "web\\src\\components\\title\\quality-picker.tsx",
+      "line": 35,
+      "declaration": "export interface QualityPickerProps {"
+    },
+    {
+      "name": "SeasonGrabEpisodeStatus",
+      "file": "web\\src\\components\\title\\season-grab-state.ts",
+      "line": 1,
+      "declaration": "type SeasonGrabEpisodeStatus = \"covered\" | \"missing\" | \"not_measured\";"
+    },
+    {
+      "name": "SeasonGrabEpisodeReport",
+      "file": "web\\src\\components\\title\\season-grab-state.ts",
+      "line": 3,
+      "declaration": "interface SeasonGrabEpisodeReport {"
+    },
+    {
+      "name": "SeasonGrabReport",
+      "file": "web\\src\\components\\title\\season-grab-state.ts",
+      "line": 9,
+      "declaration": "export interface SeasonGrabReport {"
+    },
+    {
+      "name": "SeasonGrabFailureReason",
+      "file": "web\\src\\components\\title\\season-grab-state.ts",
+      "line": 43,
+      "declaration": "export interface SeasonGrabFailureReason {"
+    },
+    {
+      "name": "SeasonGrabStatus",
+      "file": "web\\src\\components\\title\\season-grab-state.ts",
+      "line": 50,
+      "declaration": "export type SeasonGrabStatus ="
+    },
+    {
+      "name": "SeasonSources",
+      "file": "web\\src\\components\\title\\season-persistence.ts",
+      "line": 26,
+      "declaration": "export interface SeasonSources {"
+    },
+    {
+      "name": "SeasonResyncInput",
+      "file": "web\\src\\components\\title\\season-persistence.ts",
+      "line": 49,
+      "declaration": "export interface SeasonResyncInput extends SeasonSources {"
+    },
+    {
+      "name": "SeasonProgress",
+      "file": "web\\src\\components\\title\\season-progress-meter.tsx",
+      "line": 4,
+      "declaration": "type SeasonProgress } from \"./season-progress\";"
+    },
+    {
+      "name": "EpisodeRowModel",
+      "file": "web\\src\\components\\title\\season-progress.ts",
+      "line": 25,
+      "declaration": "type EpisodeRowModel } from \"./merge-extras\";"
+    },
+    {
+      "name": "SeasonProgress",
+      "file": "web\\src\\components\\title\\season-progress.ts",
+      "line": 28,
+      "declaration": "export interface SeasonProgress {"
+    },
+    {
+      "name": "PostTitleActionInput",
+      "file": "web\\src\\components\\title\\title-action-request.ts",
+      "line": 40,
+      "declaration": "export interface PostTitleActionInput {"
+    },
+    {
+      "name": "TitleAction",
+      "file": "web\\src\\components\\title\\title-actions.ts",
+      "line": 28,
+      "declaration": "export interface TitleAction {"
+    },
+    {
+      "name": "TitleActionStatus",
+      "file": "web\\src\\components\\title\\title-actions.ts",
+      "line": 57,
+      "declaration": "export type TitleActionStatus = \"idle\" | \"pending\" | \"done\" | \"error\";"
+    },
+    {
+      "name": "TitleTransferControl",
+      "file": "web\\src\\components\\title\\title-actions.ts",
+      "line": 105,
+      "declaration": "export interface TitleTransferControl {"
+    },
+    {
+      "name": "NavigateFunction",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 27,
+      "declaration": "type NavigateFunction } from \"react-router\";"
+    },
+    {
+      "name": "OpenDownloadMode",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 30,
+      "declaration": "type OpenDownloadMode } from \"@/lib/open-download\";"
+    },
+    {
+      "name": "SeasonProgress",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 56,
+      "declaration": "type SeasonProgress,"
+    },
+    {
+      "name": "WantedAction",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 68,
+      "declaration": "type WantedAction,"
+    },
+    {
+      "name": "RequesterTitle",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 71,
+      "declaration": "type RequesterTitle } from \"@/lib/requests\";"
+    },
+    {
+      "name": "TitleAction",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 87,
+      "declaration": "type TitleAction,"
+    },
+    {
+      "name": "TitleActionStatus",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 88,
+      "declaration": "type TitleActionStatus,"
+    },
+    {
+      "name": "SeasonGrabReport",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 97,
+      "declaration": "type SeasonGrabReport,"
+    },
+    {
+      "name": "SeasonGrabStatus",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 98,
+      "declaration": "type SeasonGrabStatus,"
+    },
+    {
+      "name": "ReleaseSwapSubject",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 108,
+      "declaration": "type ReleaseSwapSubject } from \"@/components/releases/release-swap-dialog\";"
+    },
+    {
+      "name": "TitleDetailProps",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 134,
+      "declaration": "export interface TitleDetailProps {"
+    },
+    {
+      "name": "at",
+      "file": "web\\src\\components\\title\\title-detail.tsx",
+      "line": 1246,
+      "declaration": "type at full"
+    },
+    {
+      "name": "HeroMetaInput",
+      "file": "web\\src\\components\\title\\title-hero-meta.tsx",
+      "line": 63,
+      "declaration": "export interface HeroMetaInput {"
+    },
+    {
+      "name": "TitleEpisode",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 21,
+      "declaration": "export interface TitleEpisode {"
+    },
+    {
+      "name": "TitleTransferState",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 59,
+      "declaration": "export type TitleTransferState = \"looking\" | \"waiting_english\" | \"waiting_season_list\" | \"queued\" | \"downloading\" | \"downloaded\" | \"failed\";"
+    },
+    {
+      "name": "TitleEpisodeTransfer",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 62,
+      "declaration": "export interface TitleEpisodeTransfer {"
+    },
+    {
+      "name": "TitleProgressPayload",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 76,
+      "declaration": "export interface TitleProgressPayload {"
+    },
+    {
+      "name": "TitleSeason",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 85,
+      "declaration": "export interface TitleSeason {"
+    },
+    {
+      "name": "TitleLibraryState",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 113,
+      "declaration": "export interface TitleLibraryState {"
+    },
+    {
+      "name": "WorkName",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 143,
+      "declaration": "export interface WorkName {"
+    },
+    {
+      "name": "WorkIds",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 149,
+      "declaration": "export interface WorkIds {"
+    },
+    {
+      "name": "TitleDetailPayload",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 157,
+      "declaration": "export interface TitleDetailPayload {"
+    },
+    {
+      "name": "TitleEpisodeMeta",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 252,
+      "declaration": "export interface TitleEpisodeMeta {"
+    },
+    {
+      "name": "TitleSimilar",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 263,
+      "declaration": "export interface TitleSimilar {"
+    },
+    {
+      "name": "TitleExtrasPayload",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 280,
+      "declaration": "export interface TitleExtrasPayload {"
+    },
+    {
+      "name": "TitleGrabResponse",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 370,
+      "declaration": "export interface TitleGrabResponse {"
+    },
+    {
+      "name": "TitleSeasonEpisodeTransfer",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 409,
+      "declaration": "interface TitleSeasonEpisodeTransfer {"
+    },
+    {
+      "name": "TitleSeasonGrabResponse",
+      "file": "web\\src\\components\\title\\types.ts",
+      "line": 421,
+      "declaration": "export interface TitleSeasonGrabResponse {"
+    },
+    {
+      "name": "QualityValue",
+      "file": "web\\src\\components\\title\\use-preferred-quality.ts",
+      "line": 18,
+      "declaration": "type QualityValue,"
+    },
+    {
+      "name": "TitleLinkParams",
+      "file": "web\\src\\components\\title\\work-key.ts",
+      "line": 246,
+      "declaration": "export interface TitleLinkParams {"
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\alert.tsx",
+      "line": 2,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\badge.tsx",
+      "line": 2,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\button.tsx",
+      "line": 2,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "UseEmblaCarouselType",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 4,
+      "declaration": "type UseEmblaCarouselType,"
+    },
+    {
+      "name": "CarouselApi",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 10,
+      "declaration": "type CarouselApi = UseEmblaCarouselType[1]"
+    },
+    {
+      "name": "UseCarouselParameters",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 11,
+      "declaration": "type UseCarouselParameters = Parameters<typeof useEmblaCarousel>"
+    },
+    {
+      "name": "CarouselOptions",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 12,
+      "declaration": "type CarouselOptions = UseCarouselParameters[0]"
+    },
+    {
+      "name": "CarouselPlugin",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 13,
+      "declaration": "type CarouselPlugin = UseCarouselParameters[1]"
+    },
+    {
+      "name": "CarouselProps",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 15,
+      "declaration": "type CarouselProps = {"
+    },
+    {
+      "name": "CarouselContextProps",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 22,
+      "declaration": "type CarouselContextProps = {"
+    },
+    {
+      "name": "CarouselApi",
+      "file": "web\\src\\components\\ui\\carousel.tsx",
+      "line": 233,
+      "declaration": "type CarouselApi,"
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\empty.tsx",
+      "line": 1,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\field.tsx",
+      "line": 2,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "Step",
+      "file": "web\\src\\components\\ui\\focus-return.ts",
+      "line": 47,
+      "declaration": "interface Step {"
+    },
+    {
+      "name": "FocusAnchor",
+      "file": "web\\src\\components\\ui\\focus-return.ts",
+      "line": 55,
+      "declaration": "interface FocusAnchor {"
+    },
+    {
+      "name": "AutoFocusHandler",
+      "file": "web\\src\\components\\ui\\focus-return.ts",
+      "line": 64,
+      "declaration": "type AutoFocusHandler = ((event: Event) => void) | undefined;"
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\input-group.tsx",
+      "line": 4,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "ToasterProps",
+      "file": "web\\src\\components\\ui\\sonner.tsx",
+      "line": 1,
+      "declaration": "type ToasterProps } from \"sonner\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\tabs.tsx",
+      "line": 4,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\toggle-group.tsx",
+      "line": 4,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "VariantProps",
+      "file": "web\\src\\components\\ui\\toggle.tsx",
+      "line": 2,
+      "declaration": "type VariantProps } from \"class-variance-authority\""
+    },
+    {
+      "name": "WantedRow",
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 11,
+      "declaration": "export interface WantedRow {"
+    },
+    {
+      "name": "WantedTarget",
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 29,
+      "declaration": "export interface WantedTarget {"
+    },
+    {
+      "name": "WantedAction",
+      "file": "web\\src\\components\\wanted\\wanted-actions.tsx",
+      "line": 36,
+      "declaration": "export type WantedAction = \"try-now\" | \"remove\";"
+    },
+    {
+      "name": "ApiQueryState",
+      "file": "web\\src\\hooks\\use-api-query.ts",
+      "line": 38,
+      "declaration": "export type ApiQueryState<T> = {"
+    },
+    {
+      "name": "UseApiQueryOptions",
+      "file": "web\\src\\hooks\\use-api-query.ts",
+      "line": 62,
+      "declaration": "export type UseApiQueryOptions<T> = {"
+    },
+    {
+      "name": "DownloadPrefs",
+      "file": "web\\src\\hooks\\use-download-prefs.ts",
+      "line": 4,
+      "declaration": "export interface DownloadPrefs {"
+    },
+    {
+      "name": "ReleaseArtworkQuery",
+      "file": "web\\src\\hooks\\use-work-artwork.ts",
+      "line": 7,
+      "declaration": "type ReleaseArtworkQuery,"
+    },
+    {
+      "name": "WorkArtworkSource",
+      "file": "web\\src\\hooks\\use-work-artwork.ts",
+      "line": 8,
+      "declaration": "type WorkArtworkSource,"
+    },
+    {
+      "name": "WorkArtwork",
+      "file": "web\\src\\hooks\\use-work-artwork.ts",
+      "line": 72,
+      "declaration": "export interface WorkArtwork {"
+    },
+    {
+      "name": "SendErrorField",
+      "file": "web\\src\\lib\\api-json.ts",
+      "line": 25,
+      "declaration": "export type SendErrorField = \"source\" | \"savePath\" | null;"
+    },
+    {
+      "name": "SendError",
+      "file": "web\\src\\lib\\api-json.ts",
+      "line": 27,
+      "declaration": "export interface SendError {"
+    },
+    {
+      "name": "SessionRole",
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 2,
+      "declaration": "type SessionRole } from \"@/lib/session\";"
+    },
+    {
+      "name": "Capabilities",
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 10,
+      "declaration": "export interface Capabilities {"
+    },
+    {
+      "name": "Capability",
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 27,
+      "declaration": "export type Capability = keyof Capabilities;"
+    },
+    {
+      "name": "CapabilityInfo",
+      "file": "web\\src\\lib\\capabilities.ts",
+      "line": 76,
+      "declaration": "export interface CapabilityInfo extends Capabilities {"
+    },
+    {
+      "name": "ConnectionState",
+      "file": "web\\src\\lib\\connection-watch.ts",
+      "line": 20,
+      "declaration": "export type ConnectionState = \"online\" | \"offline\" | \"unreachable\";"
+    },
+    {
+      "name": "ApiResponseVerdict",
+      "file": "web\\src\\lib\\connection-watch.ts",
+      "line": 61,
+      "declaration": "export type ApiResponseVerdict = \"ok\" | \"sign-in\" | \"unreachable\";"
+    },
+    {
+      "name": "DownloadState",
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 3,
+      "declaration": "export type DownloadState = \"idle\" | \"downloading\" | \"installing\" | \"done\" | \"failed\";"
+    },
+    {
+      "name": "DownloadProgress",
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 5,
+      "declaration": "export interface DownloadProgress {"
+    },
+    {
+      "name": "DesktopStatus",
+      "file": "web\\src\\lib\\desktop.ts",
+      "line": 12,
+      "declaration": "export interface DesktopStatus {"
+    },
+    {
+      "name": "DisplayPathMapping",
+      "file": "web\\src\\lib\\display-path.ts",
+      "line": 1,
+      "declaration": "export interface DisplayPathMapping {"
+    },
+    {
+      "name": "MaxActiveSource",
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 11,
+      "declaration": "export type MaxActiveSource = \"schedule\" | \"setting\";"
+    },
+    {
+      "name": "DownloadLimits",
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 13,
+      "declaration": "export interface DownloadLimits {"
+    },
+    {
+      "name": "SettingsBody",
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 21,
+      "declaration": "interface SettingsBody {"
+    },
+    {
+      "name": "SaveDownloadLimitResult",
+      "file": "web\\src\\lib\\download-limits.ts",
+      "line": 58,
+      "declaration": "export type SaveDownloadLimitResult ="
+    },
+    {
+      "name": "DownloadWindow",
+      "file": "web\\src\\lib\\download-windows.ts",
+      "line": 7,
+      "declaration": "export interface DownloadWindow {"
+    },
+    {
+      "name": "DownloadWindowDraft",
+      "file": "web\\src\\lib\\download-windows.ts",
+      "line": 19,
+      "declaration": "export interface DownloadWindowDraft {"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\lib\\features.tsx",
+      "line": 1,
+      "declaration": "type ReactNode } from \"react\";"
+    },
+    {
+      "name": "DisplayPathMapping",
+      "file": "web\\src\\lib\\features.tsx",
+      "line": 3,
+      "declaration": "type DisplayPathMapping } from \"@/lib/display-path\";"
+    },
+    {
+      "name": "Features",
+      "file": "web\\src\\lib\\features.tsx",
+      "line": 5,
+      "declaration": "export interface Features {"
+    },
+    {
+      "name": "FormatWhenStyle",
+      "file": "web\\src\\lib\\format.ts",
+      "line": 121,
+      "declaration": "export type FormatWhenStyle = \"relative\" | \"short\" | \"air\";"
+    },
+    {
+      "name": "Capabilities",
+      "file": "web\\src\\lib\\navigation.ts",
+      "line": 40,
+      "declaration": "type Capabilities, type Capability } from \"@/lib/capabilities\";"
+    },
+    {
+      "name": "NavItem",
+      "file": "web\\src\\lib\\navigation.ts",
+      "line": 42,
+      "declaration": "export type NavItem = {"
+    },
+    {
+      "name": "OpenDownloadMode",
+      "file": "web\\src\\lib\\open-download.ts",
+      "line": 5,
+      "declaration": "export type OpenDownloadMode = \"open\" | \"reveal\";"
+    },
+    {
+      "name": "OpenDownloadBody",
+      "file": "web\\src\\lib\\open-download.ts",
+      "line": 7,
+      "declaration": "interface OpenDownloadBody {"
+    },
+    {
+      "name": "RequesterTitle",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 8,
+      "declaration": "export interface RequesterTitle {"
+    },
+    {
+      "name": "RequestStatus",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 33,
+      "declaration": "export type RequestStatus ="
+    },
+    {
+      "name": "RequestScope",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 44,
+      "declaration": "export type RequestScope = \"movie\" | \"seasons\" | \"series\";"
+    },
+    {
+      "name": "RequestProvider",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 48,
+      "declaration": "export type RequestProvider = (typeof REQUEST_PROVIDERS)[number];"
+    },
+    {
+      "name": "RequesterRequest",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 51,
+      "declaration": "export interface RequesterRequest {"
+    },
+    {
+      "name": "RequesterLibraryTitle",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 78,
+      "declaration": "export interface RequesterLibraryTitle {"
+    },
+    {
+      "name": "OwnerRequest",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 99,
+      "declaration": "export interface OwnerRequest extends RequesterRequest {"
+    },
+    {
+      "name": "AutoApproveMode",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 161,
+      "declaration": "export type AutoApproveMode = \"none\" | \"moviesOnly\" | \"everything\";"
+    },
+    {
+      "name": "AutoApproveRule",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 163,
+      "declaration": "export interface AutoApproveRule {"
+    },
+    {
+      "name": "AutoApproveConfig",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 168,
+      "declaration": "export interface AutoApproveConfig {"
+    },
+    {
+      "name": "StatusTone",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 368,
+      "declaration": "export type StatusTone = \"accent\" | \"success\" | \"danger\" | \"outline\";"
+    },
+    {
+      "name": "RequestChoice",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 412,
+      "declaration": "export interface RequestChoice {"
+    },
+    {
+      "name": "RequestFailure",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 436,
+      "declaration": "export interface RequestFailure {"
+    },
+    {
+      "name": "RequestState",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 501,
+      "declaration": "export interface RequestState {"
+    },
+    {
+      "name": "RequestView",
+      "file": "web\\src\\lib\\requests.ts",
+      "line": 528,
+      "declaration": "export interface RequestView {"
+    },
+    {
+      "name": "SessionVia",
+      "file": "web\\src\\lib\\session-expiry.ts",
+      "line": 13,
+      "declaration": "export type SessionVia = \"local\" | \"tunnel\";"
+    },
+    {
+      "name": "ReactNode",
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 6,
+      "declaration": "type ReactNode,"
+    },
+    {
+      "name": "SessionVia",
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 16,
+      "declaration": "type SessionVia,"
+    },
+    {
+      "name": "SessionRole",
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 19,
+      "declaration": "export type SessionRole = \"owner\" | \"requester\";"
+    },
+    {
+      "name": "SessionInfo",
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 21,
+      "declaration": "export interface SessionInfo {"
+    },
+    {
+      "name": "MeInfo",
+      "file": "web\\src\\lib\\session.tsx",
+      "line": 37,
+      "declaration": "export type MeInfo = Pick<SessionInfo, \"role\" | \"via\" | \"email\" | \"pendingRequests\">;"
+    },
+    {
+      "name": "ErrorOptions",
+      "file": "web\\src\\lib\\toast.ts",
+      "line": 3,
+      "declaration": "type ErrorOptions = NonNullable<Parameters<typeof sonnerToast.error>[1]> & {"
+    },
+    {
+      "name": "ClassValue",
+      "file": "web\\src\\lib\\utils.ts",
+      "line": 1,
+      "declaration": "type ClassValue } from \"clsx\";"
+    },
+    {
+      "name": "Timer",
+      "file": "web\\src\\lib\\visible-poller.ts",
+      "line": 1,
+      "declaration": "type Timer = ReturnType<typeof setTimeout>;"
+    },
+    {
+      "name": "VisiblePollerDocument",
+      "file": "web\\src\\lib\\visible-poller.ts",
+      "line": 3,
+      "declaration": "type VisiblePollerDocument = Pick<"
+    },
+    {
+      "name": "VisiblePollerOptions",
+      "file": "web\\src\\lib\\visible-poller.ts",
+      "line": 8,
+      "declaration": "export interface VisiblePollerOptions {"
+    },
+    {
+      "name": "StopVisiblePoller",
+      "file": "web\\src\\lib\\visible-poller.ts",
+      "line": 17,
+      "declaration": "export type StopVisiblePoller = () => void;"
+    },
+    {
+      "name": "HistoryFacts",
+      "file": "web\\src\\lib\\activity\\history.ts",
+      "line": 1,
+      "declaration": "export interface HistoryFacts {"
+    },
+    {
+      "name": "HistoryFactRow",
+      "file": "web\\src\\lib\\activity\\history.ts",
+      "line": 10,
+      "declaration": "export interface HistoryFactRow {"
+    },
+    {
+      "name": "ReleaseStatus",
+      "file": "web\\src\\lib\\browse\\release-status.ts",
+      "line": 14,
+      "declaration": "export interface ReleaseStatus {"
+    },
+    {
+      "name": "TheatricalStatus",
+      "file": "web\\src\\lib\\browse\\release-status.ts",
+      "line": 71,
+      "declaration": "export interface TheatricalStatus {"
+    },
+    {
+      "name": "BrowseReleaseGate",
+      "file": "web\\src\\lib\\browse\\release-status.ts",
+      "line": 135,
+      "declaration": "export interface BrowseReleaseGate {"
+    },
+    {
+      "name": "or",
+      "file": "web\\src\\lib\\browse\\release-status.ts",
+      "line": 145,
+      "declaration": "type or a series can never inherit a bad"
+    },
+    {
+      "name": "CatalogIdentity",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 14,
+      "declaration": "export interface CatalogIdentity {"
+    },
+    {
+      "name": "AvailabilityState",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 39,
+      "declaration": "export type AvailabilityState = \"ready\" | \"warm\" | \"fetchable\" | \"unavailable\";"
+    },
+    {
+      "name": "RailItem",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 46,
+      "declaration": "export interface RailItem extends CatalogIdentity {"
+    },
+    {
+      "name": "for",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 73,
+      "declaration": "type for routing (anime | tv | movie). */"
+    },
+    {
+      "name": "Rail",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 108,
+      "declaration": "export interface Rail {"
+    },
+    {
+      "name": "home",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 120,
+      "declaration": "type home can be narrowed to. */"
+    },
+    {
+      "name": "BrowseType",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 121,
+      "declaration": "export type BrowseType = \"films\" | \"series\" | \"anime\";"
+    },
+    {
+      "name": "BrowseGenre",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 124,
+      "declaration": "export interface BrowseGenre {"
+    },
+    {
+      "name": "BrowsePayload",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 130,
+      "declaration": "export interface BrowsePayload {"
+    },
+    {
+      "name": "this",
+      "file": "web\\src\\lib\\browse\\types.ts",
+      "line": 134,
+      "declaration": "type this payload is narrowed to. */"
+    },
+    {
+      "name": "BrowseView",
+      "file": "web\\src\\lib\\browse\\views.ts",
+      "line": 9,
+      "declaration": "export type BrowseView = \"all\" | BrowseType;"
+    },
+    {
+      "name": "BrowseQuery",
+      "file": "web\\src\\lib\\browse\\views.ts",
+      "line": 18,
+      "declaration": "export interface BrowseQuery {"
+    },
+    {
+      "name": "reads",
+      "file": "web\\src\\lib\\browse\\views.ts",
+      "line": 24,
+      "declaration": "type reads as All; a genre needs a type. */"
+    },
+    {
+      "name": "TorrentClientType",
+      "file": "web\\src\\lib\\clients\\types.ts",
+      "line": 2,
+      "declaration": "export type TorrentClientType = \"qbittorrent\" | \"transmission\" | \"builtin\";"
+    },
+    {
+      "name": "StorageLimitKind",
+      "file": "web\\src\\lib\\library\\storage-format.ts",
+      "line": 10,
+      "declaration": "export type StorageLimitKind ="
+    },
+    {
+      "name": "StorageLimitKind",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 39,
+      "declaration": "type StorageLimitKind } from \"./storage-format\";"
+    },
+    {
+      "name": "StorageOverrideFacts",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 62,
+      "declaration": "export interface StorageOverrideFacts {"
+    },
+    {
+      "name": "StorageBreakdownRow",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 84,
+      "declaration": "export interface StorageBreakdownRow {"
+    },
+    {
+      "name": "StorageBar",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 91,
+      "declaration": "export interface StorageBar {"
+    },
+    {
+      "name": "StorageOverridePrompt",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 97,
+      "declaration": "export interface StorageOverridePrompt {"
+    },
+    {
+      "name": "StorageOverrideOutcome",
+      "file": "web\\src\\lib\\library\\storage-override.ts",
+      "line": 330,
+      "declaration": "export type StorageOverrideOutcome<T> ="
+    },
+    {
+      "name": "has",
+      "file": "web\\src\\lib\\metadata\\artwork.ts",
+      "line": 14,
+      "declaration": "type has a keyless"
+    },
+    {
+      "name": "ArtworkQuery",
+      "file": "web\\src\\lib\\metadata\\artwork.ts",
+      "line": 45,
+      "declaration": "export interface ArtworkQuery {"
+    },
+    {
+      "name": "Artwork",
+      "file": "web\\src\\lib\\metadata\\artwork.ts",
+      "line": 51,
+      "declaration": "export interface Artwork {"
+    },
+    {
+      "name": "was",
+      "file": "web\\src\\lib\\metadata\\media-type.ts",
+      "line": 20,
+      "declaration": "type was expected."
+    },
+    {
+      "name": "MediaType",
+      "file": "web\\src\\lib\\metadata\\media-type.ts",
+      "line": 31,
+      "declaration": "export type MediaType = \"anime\" | \"movie\" | \"tv\";"
+    },
+    {
+      "name": "CatalogSearchCategory",
+      "file": "web\\src\\lib\\metadata\\media-type.ts",
+      "line": 34,
+      "declaration": "export type CatalogSearchCategory = \"anime\" | \"movies\" | \"tv\";"
+    },
+    {
+      "name": "is",
+      "file": "web\\src\\lib\\metadata\\media-type.ts",
+      "line": 73,
+      "declaration": "type is unknown."
+    },
+    {
+      "name": "ArtworkQuery",
+      "file": "web\\src\\lib\\metadata\\release-art.ts",
+      "line": 17,
+      "declaration": "type ArtworkQuery } from \"./artwork\";"
+    },
+    {
+      "name": "ReleaseArtworkQuery",
+      "file": "web\\src\\lib\\metadata\\release-art.ts",
+      "line": 21,
+      "declaration": "export interface ReleaseArtworkQuery extends ArtworkQuery {"
+    },
+    {
+      "name": "is",
+      "file": "web\\src\\lib\\metadata\\release-art.ts",
+      "line": 206,
+      "declaration": "type is deliberately *not* part of it. The activity log proves why: a"
+    },
+    {
+      "name": "split",
+      "file": "web\\src\\lib\\metadata\\release-art.ts",
+      "line": 208,
+      "declaration": "type split one work into"
+    },
+    {
+      "name": "WorkArtworkSource",
+      "file": "web\\src\\lib\\metadata\\release-art.ts",
+      "line": 228,
+      "declaration": "export interface WorkArtworkSource {"
+    },
+    {
+      "name": "PollDecisionFacts",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 30,
+      "declaration": "interface PollDecisionFacts {"
+    },
+    {
+      "name": "PollSkipReason",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 48,
+      "declaration": "type PollSkipReason = \"hidden\" | \"in-flight\";"
+    },
+    {
+      "name": "PollDecision",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 50,
+      "declaration": "interface PollDecision {"
+    },
+    {
+      "name": "RequestDeadlineFacts",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 134,
+      "declaration": "interface RequestDeadlineFacts {"
+    },
+    {
+      "name": "OutstandingRequest",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 170,
+      "declaration": "interface OutstandingRequest {"
+    },
+    {
+      "name": "RequestSlot",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 187,
+      "declaration": "interface RequestSlot {"
+    },
+    {
+      "name": "RequestLifecycle",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 220,
+      "declaration": "export interface RequestLifecycle {"
+    },
+    {
+      "name": "VisibilityRefreshSkipReason",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 262,
+      "declaration": "type VisibilityRefreshSkipReason = \"not-stale\" | \"in-flight\";"
+    },
+    {
+      "name": "VisibilityRefreshDecision",
+      "file": "web\\src\\lib\\observability\\poll-schedule.ts",
+      "line": 264,
+      "declaration": "interface VisibilityRefreshDecision {"
+    },
+    {
+      "name": "Recommendation",
+      "file": "web\\src\\lib\\recommend\\index.ts",
+      "line": 18,
+      "declaration": "type Recommendation = {"
+    },
+    {
+      "name": "RecommendationRail",
+      "file": "web\\src\\lib\\recommend\\index.ts",
+      "line": 34,
+      "declaration": "export type RecommendationRail = {"
+    },
+    {
+      "name": "RuleFormState",
+      "file": "web\\src\\lib\\rules\\form.ts",
+      "line": 20,
+      "declaration": "export interface RuleFormState {"
+    },
+    {
+      "name": "RuleFilterFormState",
+      "file": "web\\src\\lib\\rules\\form.ts",
+      "line": 30,
+      "declaration": "export interface RuleFilterFormState {"
+    },
+    {
+      "name": "WorkSearchCategory",
+      "file": "web\\src\\lib\\search\\work-search.ts",
+      "line": 3,
+      "declaration": "type WorkSearchCategory = (typeof WORK_SEARCH_CATEGORIES)[number];"
+    },
+    {
+      "name": "WorkSearchScope",
+      "file": "web\\src\\lib\\search\\work-search.ts",
+      "line": 10,
+      "declaration": "export type WorkSearchScope = WorkSearchCategory | \"all\";"
+    },
+    {
+      "name": "WorkSearchProvider",
+      "file": "web\\src\\lib\\search\\work-search.ts",
+      "line": 12,
+      "declaration": "type WorkSearchProvider = \"tmdb\" | \"anilist\" | \"itunes\" | \"tvmaze\" | \"cinemeta\";"
+    },
+    {
+      "name": "WorkSearchMediaType",
+      "file": "web\\src\\lib\\search\\work-search.ts",
+      "line": 13,
+      "declaration": "type WorkSearchMediaType = \"movie\" | \"tv\" | \"anime\";"
+    },
+    {
+      "name": "WorkSearchHit",
+      "file": "web\\src\\lib\\search\\work-search.ts",
+      "line": 15,
+      "declaration": "export interface WorkSearchHit {"
+    },
+    {
+      "name": "RememberedSeasonMap",
+      "file": "web\\src\\lib\\title\\remembered-season.ts",
+      "line": 47,
+      "declaration": "type RememberedSeasonMap = Record<string, number>;"
+    },
+    {
+      "name": "EpisodeInfo",
+      "file": "web\\src\\lib\\torrents\\episodes.ts",
+      "line": 1,
+      "declaration": "export interface EpisodeInfo {"
+    },
+    {
+      "name": "ReleaseSource",
+      "file": "web\\src\\lib\\torrents\\quality.ts",
+      "line": 161,
+      "declaration": "export type ReleaseSource = keyof typeof SOURCE_TIER;"
+    },
+    {
+      "name": "LegacySectionScopeId",
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 4,
+      "declaration": "type LegacySectionScopeId ="
+    },
+    {
+      "name": "SearchScopeId",
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 11,
+      "declaration": "type SearchScopeId = WorkSearchScope | LegacySectionScopeId;"
+    },
+    {
+      "name": "SearchScopeKind",
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 19,
+      "declaration": "type SearchScopeKind = \"work\" | \"release\";"
+    },
+    {
+      "name": "AggregatorCategory",
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 22,
+      "declaration": "type AggregatorCategory ="
+    },
+    {
+      "name": "SearchScope",
+      "file": "web\\src\\lib\\torrents\\search-scopes.ts",
+      "line": 32,
+      "declaration": "export interface SearchScope {"
+    },
+    {
+      "name": "TorrentResult",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 2,
+      "declaration": "export interface TorrentResult {"
+    },
+    {
+      "name": "DownloadRoute",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 51,
+      "declaration": "interface DownloadRoute {"
+    },
+    {
+      "name": "TorrentSourceId",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 62,
+      "declaration": "export type TorrentSourceId ="
+    },
+    {
+      "name": "MediaMetadata",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 77,
+      "declaration": "export interface MediaMetadata {"
+    },
+    {
+      "name": "ClientTorrent",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 106,
+      "declaration": "interface ClientTorrent {"
+    },
+    {
+      "name": "OwnedClientTorrent",
+      "file": "web\\src\\lib\\torrents\\types.ts",
+      "line": 136,
+      "declaration": "export interface OwnedClientTorrent extends ClientTorrent {"
+    },
+    {
+      "name": "WorkIdentity",
+      "file": "web\\src\\lib\\torrents\\work-identity.ts",
+      "line": 55,
+      "declaration": "export type WorkIdentity = {"
+    }
+  ]
+}

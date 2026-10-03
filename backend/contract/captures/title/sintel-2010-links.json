@@ -1,0 +1,21 @@
+{
+  "method": "GET",
+  "path": "/api/title/sintel-2010/links",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "links": [
+      {
+        "provider": "imdb",
+        "externalId": "tt1727587",
+        "source": "provider",
+        "confidence": 1,
+        "verified": true,
+        "rejected": false,
+        "givesNames": false,
+        "names": [],
+        "url": "https://www.imdb.com/title/tt1727587/"
+      }
+    ]
+  }
+}

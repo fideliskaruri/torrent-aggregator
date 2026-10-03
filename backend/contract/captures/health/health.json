@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "path": "/api/health",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "status": "ok",
+    "live": true,
+    "ready": true,
+    "timestamp": "2026-10-03T02:07:33.575Z",
+    "process": {
+      "status": "up",
+      "uptimeSeconds": 771
+    },
+    "build": {
+      "id": "1.0.0+90ef5902eef6d3546eba0ac993d1e3570a6910c5"
+    },
+    "database": {
+      "status": "up",
+      "latencyMs": 1
+    }
+  }
+}

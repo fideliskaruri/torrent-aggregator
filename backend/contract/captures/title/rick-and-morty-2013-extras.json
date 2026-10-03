@@ -1,0 +1,151 @@
+{
+  "method": "GET",
+  "path": "/api/title/rick-and-morty-2013/extras?t=Rick%20and%20Morty&type=tv&s=1",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "rick-and-morty-2013",
+    "season": 1,
+    "seasonCount": 9,
+    "seasons": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "airedEpisodes": {
+      "1": 11,
+      "2": 10,
+      "3": 10,
+      "4": 10,
+      "5": 10,
+      "6": 10,
+      "7": 10,
+      "8": 10,
+      "9": 10
+    },
+    "episodes": [
+      {
+        "episode": 1,
+        "name": "Pilot",
+        "overview": null,
+        "airDate": "2013-12-02",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/292/730352.jpg",
+        "airStamp": "2013-12-03T03:30:00+00:00"
+      },
+      {
+        "episode": 2,
+        "name": "Lawnmower Dog",
+        "overview": null,
+        "airDate": "2013-12-09",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/292/730780.jpg",
+        "airStamp": "2013-12-10T03:30:00+00:00"
+      },
+      {
+        "episode": 3,
+        "name": "Anatomy Park",
+        "overview": null,
+        "airDate": "2013-12-16",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37914.jpg",
+        "airStamp": "2013-12-17T03:30:00+00:00"
+      },
+      {
+        "episode": 4,
+        "name": "M. Night Shaym-Aliens!",
+        "overview": null,
+        "airDate": "2014-01-13",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37915.jpg",
+        "airStamp": "2014-01-14T03:30:00+00:00"
+      },
+      {
+        "episode": 5,
+        "name": "Meeseeks and Destroy",
+        "overview": null,
+        "airDate": "2014-01-20",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37916.jpg",
+        "airStamp": "2014-01-21T03:30:00+00:00"
+      },
+      {
+        "episode": 6,
+        "name": "Rick Potion #9",
+        "overview": null,
+        "airDate": "2014-01-27",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37917.jpg",
+        "airStamp": "2014-01-28T03:30:00+00:00"
+      },
+      {
+        "episode": 7,
+        "name": "Raising Gazorpazorp",
+        "overview": null,
+        "airDate": "2014-03-10",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/579/1448989.jpg",
+        "airStamp": "2014-03-11T02:30:00+00:00"
+      },
+      {
+        "episode": 8,
+        "name": "Rixty Minutes",
+        "overview": null,
+        "airDate": "2014-03-17",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/579/1448990.jpg",
+        "airStamp": "2014-03-18T02:30:00+00:00"
+      },
+      {
+        "episode": 9,
+        "name": "Something Ricked This Way Comes",
+        "overview": null,
+        "airDate": "2014-03-24",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37920.jpg",
+        "airStamp": "2014-03-25T02:30:00+00:00"
+      },
+      {
+        "episode": 10,
+        "name": "Close Rick-Counters of the Rick Kind",
+        "overview": null,
+        "airDate": "2014-04-07",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37921.jpg",
+        "airStamp": "2014-04-08T02:30:00+00:00"
+      },
+      {
+        "episode": 11,
+        "name": "Ricksy Business",
+        "overview": null,
+        "airDate": "2014-04-14",
+        "runtimeMin": 30,
+        "stillUrl": "https://static.tvmaze.com/uploads/images/original_untouched/15/37922.jpg",
+        "airStamp": "2014-04-15T02:30:00+00:00"
+      }
+    ],
+    "moreLikeThis": [],
+    "overview": "Rick is a mentally gifted, but sociopathic and alcoholic scientist and a grandfather to Morty; an awkward, impressionable, and somewhat spineless teenage boy. Rick moves into the family home of Morty, where he immediately becomes a bad influence.",
+    "rating": 8.7,
+    "ratingSource": "tvmaze",
+    "releaseDate": "2013-12-02",
+    "inTheatricalWindow": false,
+    "nextHomeReleaseAt": null,
+    "genres": [
+      "Comedy",
+      "Adventure",
+      "Science-Fiction"
+    ],
+    "voteCount": null,
+    "certification": null,
+    "originalLanguage": null,
+    "resolved": true,
+    "generatedAt": "2026-10-03T02:07:38.211Z"
+  }
+}

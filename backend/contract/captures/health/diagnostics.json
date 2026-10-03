@@ -1,0 +1,69 @@
+{
+  "method": "GET",
+  "path": "/api/diagnostics/health",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "status": "ok",
+    "live": true,
+    "ready": true,
+    "timestamp": "2026-10-03T02:07:33.585Z",
+    "process": {
+      "status": "up",
+      "uptimeSeconds": 771
+    },
+    "build": {
+      "id": "1.0.0+90ef5902eef6d3546eba0ac993d1e3570a6910c5"
+    },
+    "database": {
+      "status": "up",
+      "latencyMs": 1
+    },
+    "caches": {},
+    "cacheRegistry": {
+      "names": [],
+      "missing": []
+    },
+    "enginePressure": {
+      "clientPresent": true,
+      "totals": {
+        "torrents": 0,
+        "active": 0,
+        "paused": 0,
+        "complete": 0,
+        "peers": 0,
+        "wires": 0,
+        "downloadSpeed": 0,
+        "uploadSpeed": 0,
+        "parking": 0,
+        "parkRetryPending": 0,
+        "completionMismatch": 0,
+        "verificationUnknown": 0
+      },
+      "torrents": []
+    },
+    "completionSweep": null,
+    "eventLoopDelay": null,
+    "eventLoopDelayRecent": null,
+    "components": [],
+    "runtime": {
+      "rssBytes": 456491008,
+      "privateBytes": 276791296,
+      "managedHeapBytes": 124601264,
+      "gcHeapSizeBytes": 192506104,
+      "gcCommittedBytes": 210116608,
+      "gcFragmentedBytes": 66211336,
+      "gcServer": false,
+      "gcCollections": [
+        806,
+        110,
+        13
+      ],
+      "threads": 57,
+      "handles": 1250,
+      "maxActiveDownloads": 5,
+      "maxConnections": 400,
+      "diskCacheBytes": 33554432
+    }
+  }
+}

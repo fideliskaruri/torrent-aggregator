@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/notifications/push/public-key",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "publicKey": "BD1GTeEUW_1aRrivflHBuTawEnWkx0HQ426mKEXWlYzYJXyBPXRCeNNK_DHrDSYTAZef2WV_vCFKro6kxzf1adI"
+  }
+}

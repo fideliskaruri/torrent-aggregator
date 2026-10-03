@@ -1,0 +1,2283 @@
+{
+  "method": "GET",
+  "path": "/api/search?q=Sintel&category=movies",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "query": "Sintel",
+    "results": [
+      {
+        "id": "apibay-apibay-79925957",
+        "title": "Sintel.2010.1080p.WEB.H264-CLASSiCALHD",
+        "magnet": "magnet:?xt=urn:btih:43f4001de4ab25d521c63684e2b69804193ed9d9&dn=Sintel.2010.1080p.WEB.H264-CLASSiCALHD&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+        "sizeBytes": 583689809,
+        "seeders": 28,
+        "leechers": 3,
+        "indexerSeeders": 22,
+        "swarmChecked": true,
+        "completed": 625,
+        "category": "207",
+        "source": "apibay",
+        "sourceUrl": "https://thepiratebay.org/description.php?id=79925957",
+        "publishedAt": "2025-07-22T19:50:24.000Z",
+        "tags": [
+          "1080p"
+        ],
+        "score": 1023220605000,
+        "health": 61,
+        "bestPick": true,
+        "groupKey": "sintel|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        },
+        "siteId": "79925957"
+      },
+      {
+        "id": "torrentscsv-torrentscsv-173283",
+        "title": "Sintel (2010) [720p] [BluRay] [YTS.MX]",
+        "magnet": "magnet:?xt=urn:btih:a779fa758f2229586eebc2e5960eb32fe5659596&dn=Sintel%20(2010)%20%5B720p%5D%20%5BBluRay%5D%20%5BYTS.MX%5D&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "a779fa758f2229586eebc2e5960eb32fe5659596",
+        "sizeBytes": 143156284,
+        "seeders": 13,
+        "leechers": 0,
+        "indexerSeeders": 751,
+        "swarmChecked": true,
+        "completed": 545,
+        "source": "torrentscsv",
+        "sourceUrl": "https://torrents-csv.com/#/search/torrent/Sintel%20(2010)%20%5B720p%5D%20%5BBluRay%5D%20%5BYTS.MX%5D/1",
+        "publishedAt": "2024-06-20T05:10:00.000Z",
+        "tags": [
+          "720p",
+          "BluRay"
+        ],
+        "score": 1023220504400,
+        "health": 55,
+        "bestPick": false,
+        "groupKey": "sintel|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "torrentscsv-torrentscsv-12063",
+        "title": "Sintel",
+        "magnet": "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "08ada5a7a6183aae1e09d831df6748d566095a10",
+        "sizeBytes": 129302391,
+        "seeders": 118,
+        "leechers": 29,
+        "indexerSeeders": 124,
+        "swarmChecked": true,
+        "completed": 6705,
+        "source": "torrentscsv",
+        "sourceUrl": "https://torrents-csv.com/#/search/torrent/Sintel/1",
+        "publishedAt": "2023-04-30T16:18:51.000Z",
+        "tags": [],
+        "score": 1023220006200,
+        "health": 72,
+        "bestPick": true,
+        "groupKey": "sintel",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "bitsearch-bitsearch-6a9759bffd5c0af65319979fb7832189f4f3c35d",
+        "title": "sintel.mp4",
+        "magnet": "magnet:?xt=urn:btih:6A9759BFFD5C0AF65319979FB7832189F4F3C35D&dn=%5BBitsearch.to%5D%20sintel.mp4&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.0x.tf%3A6969%2Fannounce&tr=udp%3A%2F%2Fwww.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "6a9759bffd5c0af65319979fb7832189f4f3c35d",
+        "sizeBytes": 123250000,
+        "sizeLabel": "123.25 MB",
+        "seeders": 14,
+        "leechers": 3,
+        "indexerSeeders": 17,
+        "swarmChecked": true,
+        "completed": 578,
+        "category": "Other/Video",
+        "source": "bitsearch",
+        "sourceUrl": "https://bitsearch.to/torrent/5c0657bb3319885846250283",
+        "publishedAt": "2018-12-04T00:00:00.000Z",
+        "tags": [],
+        "score": 1023220004400,
+        "health": 48,
+        "bestPick": false,
+        "groupKey": "sintel",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-61086c0a6122e79b5ea24ab238fe84c9bfdf183e",
+        "title": "Ð¡Ð¸Ð½Ñ‚ÐµÐ»   Sintel (2010) DMRip 1080p",
+        "magnet": "magnet:?xt=urn:btih:61086c0a6122e79b5ea24ab238fe84c9bfdf183e&dn=%C3%90%C2%A1%C3%90%C2%B8%C3%90%C2%BD%C3%91%E2%80%9A%C3%90%C2%B5%C3%90%C2%BB%20%20%20Sintel%20(2010)%20DMRip%201080p&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/61086C0A6122E79B5EA24AB238FE84C9BFDF183E.torrent?title=Ð¡Ð¸Ð½Ñ‚ÐµÐ»--Sintel-(2010)-DMRip-1080p",
+        "infoHash": "61086c0a6122e79b5ea24ab238fe84c9bfdf183e",
+        "sizeBytes": 1078548635,
+        "seeders": 1,
+        "leechers": 1,
+        "indexerSeeders": 16,
+        "swarmChecked": true,
+        "category": "movies",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/Ð¡Ð¸Ð½Ñ‚ÐµÐ»--Sintel-(2010)-DMRip-1080p-torrent-1068391.html",
+        "publishedAt": "2012-04-17T15:15:17.000Z",
+        "tags": [
+          "1080p"
+        ],
+        "score": 1023210602600,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "ð¡ð¸ð½ñ‚ðµð» sintel dmrip|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-f54bb3467901dd51bc83129d47894b8606fd0fb7",
+        "title": "Sintel 2010 1080p mkv",
+        "magnet": "magnet:?xt=urn:btih:f54bb3467901dd51bc83129d47894b8606fd0fb7&dn=Sintel%202010%201080p%20mkv&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/F54BB3467901DD51BC83129D47894B8606FD0FB7.torrent?title=Sintel-2010-1080p-mkv",
+        "infoHash": "f54bb3467901dd51bc83129d47894b8606fd0fb7",
+        "sizeBytes": 1172428172,
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 0,
+        "swarmChecked": true,
+        "category": "Other - Other",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/Sintel-2010-1080p-mkv-torrent-13176784.html",
+        "publishedAt": "2019-07-17T02:55:08.000Z",
+        "tags": [
+          "1080p"
+        ],
+        "score": 1023210601400,
+        "health": 14,
+        "bestPick": false,
+        "groupKey": "sintel|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "bitsearch-bitsearch-1dffd7fd797b2e39bd6c56a4a2a3df260215ef31",
+        "title": "Sintel.2010.720p.Theora.Ogv-VODO",
+        "magnet": "magnet:?xt=urn:btih:1DFFD7FD797B2E39BD6C56A4A2A3DF260215EF31&dn=%5BBitsearch.to%5D%20Sintel.2010.720p.Theora.Ogv-VODO&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "1dffd7fd797b2e39bd6c56a4a2a3df260215ef31",
+        "sizeBytes": 381220000,
+        "sizeLabel": "381.22 MB",
+        "seeders": 1,
+        "leechers": 2,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "category": "Other",
+        "source": "bitsearch",
+        "sourceUrl": "https://bitsearch.to/torrent/5c461f2929dd4319e45eebf6",
+        "publishedAt": "2019-01-03T00:00:00.000Z",
+        "tags": [
+          "720p"
+        ],
+        "score": 1023210502600,
+        "health": 12,
+        "bestPick": true,
+        "groupKey": "sintel theora ogv|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "apibay-apibay-79925846",
+        "title": "Sintel.2010.720p.WEB.H264-CLASSiCALHD",
+        "magnet": "magnet:?xt=urn:btih:150922bce30a1091e347741ebbf96072593a69b4&dn=Sintel.2010.720p.WEB.H264-CLASSiCALHD&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "150922bce30a1091e347741ebbf96072593a69b4",
+        "sizeBytes": 380905448,
+        "seeders": 1,
+        "leechers": 8,
+        "indexerSeeders": 11,
+        "swarmChecked": true,
+        "category": "207",
+        "source": "apibay",
+        "sourceUrl": "https://thepiratebay.org/description.php?id=79925846",
+        "publishedAt": "2025-07-22T19:24:44.000Z",
+        "tags": [
+          "720p"
+        ],
+        "score": 1023210502600,
+        "health": 9,
+        "bestPick": false,
+        "groupKey": "sintel|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        },
+        "siteId": "79925846"
+      },
+      {
+        "id": "torrentdownloads-torrentdownloads-a6ea88c974d97f8e3c043b5900eb8e5a05dd22df",
+        "title": "Sintel 2010 720p SURROUND x264-VODO",
+        "magnet": "magnet:?xt=urn:btih:a6ea88c974d97f8e3c043b5900eb8e5a05dd22df&dn=Sintel%202010%20720p%20SURROUND%20x264-VODO&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "a6ea88c974d97f8e3c043b5900eb8e5a05dd22df",
+        "sizeBytes": 228950003,
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "source": "torrentdownloads",
+        "sourceUrl": "https://www.torrentdownloads.pro/torrent/1652059055/Sintel-2010-720p-SURROUND-x264-VODO",
+        "publishedAt": "2010-10-01T17:50:19.000Z",
+        "tags": [
+          "720p",
+          "x264"
+        ],
+        "score": 1023210502600,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "sintel surround|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "torrentdownloads-torrentdownloads-7321eb0fcf2da6302e79cb7ea79edbe0189ef689",
+        "title": "Sintel 2010 720p X264 Vodo",
+        "magnet": "magnet:?xt=urn:btih:7321eb0fcf2da6302e79cb7ea79edbe0189ef689&dn=Sintel%202010%20720p%20X264%20Vodo&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "7321eb0fcf2da6302e79cb7ea79edbe0189ef689",
+        "sizeBytes": 200278016,
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "source": "torrentdownloads",
+        "sourceUrl": "https://www.torrentdownloads.pro/torrent/1652059187/Sintel-2010-720p-X264-Vodo",
+        "publishedAt": "2010-10-01T17:28:04.000Z",
+        "tags": [
+          "720p",
+          "x264"
+        ],
+        "score": 1023210502600,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "sintel vodo|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-71db02957d235b0678226ceb56702a0588cd4a42",
+        "title": "sintel_4k mov",
+        "magnet": "magnet:?xt=urn:btih:71db02957d235b0678226ceb56702a0588cd4a42&dn=sintel_4k%20mov&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/71DB02957D235B0678226CEB56702A0588CD4A42.torrent?title=sintel 4k-mov",
+        "infoHash": "71db02957d235b0678226ceb56702a0588cd4a42",
+        "sizeBytes": 5471004718,
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 0,
+        "swarmChecked": true,
+        "category": "Other - Other",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/sintel 4k-mov-torrent-12210675.html",
+        "publishedAt": "2019-02-08T02:11:00.000Z",
+        "tags": [
+          "2160p"
+        ],
+        "score": 1023210102600,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "sintel mov",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-64877b5490208c3015c0f5121287949d62622e54",
+        "title": "Sintel 4K UHD ENG FLAC ITA ENG Sub DMRip 1744p X264 ZMachine",
+        "magnet": "magnet:?xt=urn:btih:64877b5490208c3015c0f5121287949d62622e54&dn=Sintel%204K%20UHD%20ENG%20FLAC%20ITA%20ENG%20Sub%20DMRip%201744p%20X264%20ZMachine&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/64877B5490208C3015C0F5121287949D62622E54.torrent?title=Sintel-4K-UHD-ENG-FLAC-ITA-ENG-Sub-DMRip-1744p-X264-ZMachine",
+        "infoHash": "64877b5490208c3015c0f5121287949d62622e54",
+        "sizeBytes": 5132705003,
+        "seeders": 1,
+        "leechers": 12,
+        "indexerSeeders": 2,
+        "swarmChecked": true,
+        "category": "movies",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/Sintel-4K-UHD-ENG-FLAC-ITA-ENG-Sub-DMRip-1744p-X264-ZMachine-torrent-5610826.html",
+        "publishedAt": "2014-12-18T19:56:57.000Z",
+        "tags": [
+          "2160p",
+          "x264",
+          "FLAC",
+          "Sub"
+        ],
+        "score": 1023210102600,
+        "health": 9,
+        "bestPick": true,
+        "groupKey": "sintel eng ita eng dmrip zmachine",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3",
+        "title": "Sintel 2010 4k FLAC mkv",
+        "magnet": "magnet:?xt=urn:btih:1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3&dn=Sintel%202010%204k%20FLAC%20mkv&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/1F01523CD3314678AD59F9BB1D6CB0BD5D3BF3B3.torrent?title=Sintel-2010-4k-FLAC-mkv",
+        "infoHash": "1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3",
+        "sizeBytes": 4581131080,
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 2,
+        "swarmChecked": true,
+        "category": "Other - Other",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/Sintel-2010-4k-FLAC-mkv-torrent-13418759.html",
+        "publishedAt": "2019-09-04T07:01:20.000Z",
+        "tags": [
+          "2160p",
+          "FLAC"
+        ],
+        "score": 1023210101400,
+        "health": 14,
+        "bestPick": false,
+        "groupKey": "sintel|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "apibay-apibay-9192224",
+        "title": "Sintel.2010.4K.DMRip.Hi444PP.x264.DTSMA.SRT-MaLLIeHbKa",
+        "magnet": "magnet:?xt=urn:btih:c3c1502382317aef335205791a13966a250342ef&dn=Sintel.2010.4K.DMRip.Hi444PP.x264.DTSMA.SRT-MaLLIeHbKa&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "c3c1502382317aef335205791a13966a250342ef",
+        "sizeBytes": 3736069283,
+        "seeders": 1,
+        "leechers": 3,
+        "indexerSeeders": 3,
+        "swarmChecked": true,
+        "category": "207",
+        "source": "apibay",
+        "sourceUrl": "https://thepiratebay.org/description.php?id=9192224",
+        "publishedAt": "2013-11-14T06:10:53.000Z",
+        "tags": [
+          "2160p",
+          "x264"
+        ],
+        "score": 1023210101400,
+        "health": 11,
+        "bestPick": true,
+        "groupKey": "sintel dmrip hi444pp srt|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        },
+        "siteId": "9192224"
+      },
+      {
+        "id": "bitsearch-bitsearch-a97cf38232f073cbe83c34197437edfd702237c0",
+        "title": "Sintel.4k.UHD.ENG.FLAC.ITA.ENG.Sub.DMRip.1744p.X265_ZMachine.mkv",
+        "magnet": "magnet:?xt=urn:btih:A97CF38232F073CBE83C34197437EDFD702237C0&dn=%5BBitsearch.to%5D%20Sintel.4k.UHD.ENG.FLAC.ITA.ENG.Sub.DMRip.1744p.X265_ZMachine.mkv&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fipv4.tracker.harry.lu%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "a97cf38232f073cbe83c34197437edfd702237c0",
+        "sizeBytes": 3250000000,
+        "sizeLabel": "3.25 GB",
+        "seeders": 1,
+        "leechers": 13,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "category": "movies",
+        "source": "bitsearch",
+        "sourceUrl": "https://bitsearch.to/torrent/5c463c6329dd4319e4e4e572",
+        "publishedAt": "2019-01-06T00:00:00.000Z",
+        "tags": [
+          "2160p",
+          "x265",
+          "FLAC",
+          "Sub"
+        ],
+        "score": 1023210101400,
+        "health": 9,
+        "bestPick": false,
+        "groupKey": "sintel eng ita eng dmrip zmachine",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "limetorrents-limetorrents-3faba05e4880f30eeefcc64663420054b06c291f",
+        "title": "Sintel (2010) 2160p DMRip x264 DTS - ABI",
+        "magnet": "magnet:?xt=urn:btih:3faba05e4880f30eeefcc64663420054b06c291f&dn=Sintel%20(2010)%202160p%20DMRip%20x264%20DTS%20-%20ABI&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "torrentUrl": "https://itorrents.net/torrent/3FABA05E4880F30EEEFCC64663420054B06C291F.torrent?title=Sintel-(2010)-2160p-DMRip-x264-DTS--ABI",
+        "infoHash": "3faba05e4880f30eeefcc64663420054b06c291f",
+        "sizeBytes": 2019215246,
+        "seeders": 1,
+        "leechers": 1,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "category": "movies",
+        "source": "limetorrents",
+        "sourceUrl": "https://www.limetorrents.fun/Sintel-(2010)-2160p-DMRip-x264-DTS--ABI-torrent-8701185.html",
+        "publishedAt": "2017-03-13T14:35:55.000Z",
+        "tags": [
+          "2160p",
+          "x264",
+          "DTS"
+        ],
+        "score": 1023210101400,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "sintel dmrip abi|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "apibay-apibay-5925652",
+        "title": "Sintel",
+        "magnet": "magnet:?xt=urn:btih:19288989fd99a41ad24f30c23b0271e0a825ac5f&dn=Sintel&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "19288989fd99a41ad24f30c23b0271e0a825ac5f",
+        "sizeBytes": 463362531,
+        "seeders": 3,
+        "leechers": 0,
+        "indexerSeeders": 4,
+        "swarmChecked": true,
+        "completed": 97,
+        "category": "207",
+        "source": "apibay",
+        "sourceUrl": "https://thepiratebay.org/description.php?id=5925652",
+        "publishedAt": "2010-11-01T06:29:46.000Z",
+        "tags": [],
+        "score": 1023210003200,
+        "health": 29,
+        "bestPick": false,
+        "groupKey": "sintel",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        },
+        "siteId": "5925652"
+      },
+      {
+        "id": "bitsearch-bitsearch-e9546eb3bcdd1fb7a4df16200e57332d6f3874bd",
+        "title": "Sintel.2010.Theora-VODO",
+        "magnet": "magnet:?xt=urn:btih:E9546EB3BCDD1FB7A4DF16200E57332D6F3874BD&dn=%5BBitsearch.to%5D%20Sintel.2010.Theora-VODO&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Fipv4.tracker.harry.lu%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "e9546eb3bcdd1fb7a4df16200e57332d6f3874bd",
+        "sizeBytes": 285040000,
+        "sizeLabel": "285.04 MB",
+        "seeders": 2,
+        "leechers": 0,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "completed": 1,
+        "category": "Other/Video",
+        "source": "bitsearch",
+        "sourceUrl": "https://bitsearch.to/torrent/5c0fa3c88cadf20c26be1729",
+        "publishedAt": "2018-12-11T00:00:00.000Z",
+        "tags": [],
+        "score": 1023210003200,
+        "health": 23,
+        "bestPick": true,
+        "groupKey": "sintel theora vodo|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "bitsearch-bitsearch-24f5baa99091fded793452c49f1c83a4cf6034a8",
+        "title": "sintel_202207",
+        "magnet": "magnet:?xt=urn:btih:24F5BAA99091FDED793452C49F1C83A4CF6034A8&dn=%5BBitsearch.to%5D%20sintel_202207&tr=DHT&tr=udp%3A%2F%2Fbittorrent-tracker.e-n-c-r-y-p-t.net%3A1337%2Fannounce&tr=udp%3A%2F%2Fevan.im%3A6969%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Fleet-tracker.moe%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "24f5baa99091fded793452c49f1c83a4cf6034a8",
+        "sizeBytes": 1170000000,
+        "sizeLabel": "1.17 GB",
+        "seeders": 1,
+        "leechers": 0,
+        "indexerSeeders": 1,
+        "swarmChecked": true,
+        "category": "Other/Video",
+        "source": "bitsearch",
+        "sourceUrl": "https://bitsearch.to/torrent/6a4d2edca6a3be18868b8e4a",
+        "publishedAt": "2026-07-07T00:00:00.000Z",
+        "tags": [],
+        "score": 1023210002600,
+        "health": 14,
+        "bestPick": true,
+        "groupKey": "sintel 202207",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        }
+      },
+      {
+        "id": "apibay-apibay-6890242",
+        "title": "Sintel (2010)DVD5 nl subs NLT-Release",
+        "magnet": "magnet:?xt=urn:btih:c0da62bdfdb9ea44b2fab15b281e33ff72d4b4e7&dn=Sintel%20(2010)DVD5%20nl%20subs%20NLT-Release&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+        "infoHash": "c0da62bdfdb9ea44b2fab15b281e33ff72d4b4e7",
+        "sizeBytes": 785666923,
+        "seeders": 1,
+        "leechers": 2,
+        "indexerSeeders": 2,
+        "swarmChecked": true,
+        "category": "201",
+        "source": "apibay",
+        "sourceUrl": "https://thepiratebay.org/description.php?id=6890242",
+        "publishedAt": "2011-12-15T20:23:15.000Z",
+        "tags": [
+          "Sub"
+        ],
+        "score": 1023210002600,
+        "health": 12,
+        "bestPick": true,
+        "groupKey": "sintel dvd5 nl subs nlt release|Y2010",
+        "episode": {
+          "label": null,
+          "isBatch": false,
+          "isSeasonPack": false,
+          "isMultiSeason": false
+        },
+        "metadata": {
+          "source": "tmdb",
+          "mediaType": "movie",
+          "externalId": "45745",
+          "title": "Sintel",
+          "aliases": [],
+          "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+          "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+          "year": 2010,
+          "releaseDate": "2010-09-30",
+          "externalIds": {
+            "tmdb": "45745",
+            "imdb": "tt1727587"
+          }
+        },
+        "route": {
+          "kind": "movies",
+          "category": "Movies",
+          "confidence": "high",
+          "cleanTitle": "Sintel",
+          "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+          "relativePath": null
+        },
+        "siteId": "6890242"
+      }
+    ],
+    "groups": [
+      {
+        "key": "sintel|Y2010",
+        "label": "Sintel.2010.1080p.WEB.H264-CLASSiCALHD",
+        "best": {
+          "id": "apibay-apibay-79925957",
+          "title": "Sintel.2010.1080p.WEB.H264-CLASSiCALHD",
+          "magnet": "magnet:?xt=urn:btih:43f4001de4ab25d521c63684e2b69804193ed9d9&dn=Sintel.2010.1080p.WEB.H264-CLASSiCALHD&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "43f4001de4ab25d521c63684e2b69804193ed9d9",
+          "sizeBytes": 583689809,
+          "seeders": 28,
+          "leechers": 3,
+          "indexerSeeders": 22,
+          "swarmChecked": true,
+          "completed": 625,
+          "category": "207",
+          "source": "apibay",
+          "sourceUrl": "https://thepiratebay.org/description.php?id=79925957",
+          "publishedAt": "2025-07-22T19:50:24.000Z",
+          "tags": [
+            "1080p"
+          ],
+          "score": 1023220605000,
+          "health": 61,
+          "bestPick": true,
+          "groupKey": "sintel|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          },
+          "siteId": "79925957"
+        },
+        "alternatives": [
+          {
+            "id": "torrentscsv-torrentscsv-173283",
+            "title": "Sintel (2010) [720p] [BluRay] [YTS.MX]",
+            "magnet": "magnet:?xt=urn:btih:a779fa758f2229586eebc2e5960eb32fe5659596&dn=Sintel%20(2010)%20%5B720p%5D%20%5BBluRay%5D%20%5BYTS.MX%5D&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "infoHash": "a779fa758f2229586eebc2e5960eb32fe5659596",
+            "sizeBytes": 143156284,
+            "seeders": 13,
+            "leechers": 0,
+            "indexerSeeders": 751,
+            "swarmChecked": true,
+            "completed": 545,
+            "source": "torrentscsv",
+            "sourceUrl": "https://torrents-csv.com/#/search/torrent/Sintel%20(2010)%20%5B720p%5D%20%5BBluRay%5D%20%5BYTS.MX%5D/1",
+            "publishedAt": "2024-06-20T05:10:00.000Z",
+            "tags": [
+              "720p",
+              "BluRay"
+            ],
+            "score": 1023220504400,
+            "health": 55,
+            "bestPick": false,
+            "groupKey": "sintel|Y2010",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            }
+          },
+          {
+            "id": "limetorrents-limetorrents-f54bb3467901dd51bc83129d47894b8606fd0fb7",
+            "title": "Sintel 2010 1080p mkv",
+            "magnet": "magnet:?xt=urn:btih:f54bb3467901dd51bc83129d47894b8606fd0fb7&dn=Sintel%202010%201080p%20mkv&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "torrentUrl": "https://itorrents.net/torrent/F54BB3467901DD51BC83129D47894B8606FD0FB7.torrent?title=Sintel-2010-1080p-mkv",
+            "infoHash": "f54bb3467901dd51bc83129d47894b8606fd0fb7",
+            "sizeBytes": 1172428172,
+            "seeders": 1,
+            "leechers": 0,
+            "indexerSeeders": 0,
+            "swarmChecked": true,
+            "category": "Other - Other",
+            "source": "limetorrents",
+            "sourceUrl": "https://www.limetorrents.fun/Sintel-2010-1080p-mkv-torrent-13176784.html",
+            "publishedAt": "2019-07-17T02:55:08.000Z",
+            "tags": [
+              "1080p"
+            ],
+            "score": 1023210601400,
+            "health": 14,
+            "bestPick": false,
+            "groupKey": "sintel|Y2010",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            }
+          },
+          {
+            "id": "apibay-apibay-79925846",
+            "title": "Sintel.2010.720p.WEB.H264-CLASSiCALHD",
+            "magnet": "magnet:?xt=urn:btih:150922bce30a1091e347741ebbf96072593a69b4&dn=Sintel.2010.720p.WEB.H264-CLASSiCALHD&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "infoHash": "150922bce30a1091e347741ebbf96072593a69b4",
+            "sizeBytes": 380905448,
+            "seeders": 1,
+            "leechers": 8,
+            "indexerSeeders": 11,
+            "swarmChecked": true,
+            "category": "207",
+            "source": "apibay",
+            "sourceUrl": "https://thepiratebay.org/description.php?id=79925846",
+            "publishedAt": "2025-07-22T19:24:44.000Z",
+            "tags": [
+              "720p"
+            ],
+            "score": 1023210502600,
+            "health": 9,
+            "bestPick": false,
+            "groupKey": "sintel|Y2010",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            },
+            "siteId": "79925846"
+          },
+          {
+            "id": "limetorrents-limetorrents-1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3",
+            "title": "Sintel 2010 4k FLAC mkv",
+            "magnet": "magnet:?xt=urn:btih:1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3&dn=Sintel%202010%204k%20FLAC%20mkv&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "torrentUrl": "https://itorrents.net/torrent/1F01523CD3314678AD59F9BB1D6CB0BD5D3BF3B3.torrent?title=Sintel-2010-4k-FLAC-mkv",
+            "infoHash": "1f01523cd3314678ad59f9bb1d6cb0bd5d3bf3b3",
+            "sizeBytes": 4581131080,
+            "seeders": 1,
+            "leechers": 0,
+            "indexerSeeders": 2,
+            "swarmChecked": true,
+            "category": "Other - Other",
+            "source": "limetorrents",
+            "sourceUrl": "https://www.limetorrents.fun/Sintel-2010-4k-FLAC-mkv-torrent-13418759.html",
+            "publishedAt": "2019-09-04T07:01:20.000Z",
+            "tags": [
+              "2160p",
+              "FLAC"
+            ],
+            "score": 1023210101400,
+            "health": 14,
+            "bestPick": false,
+            "groupKey": "sintel|Y2010",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            }
+          }
+        ]
+      },
+      {
+        "key": "sintel",
+        "label": "Sintel",
+        "best": {
+          "id": "torrentscsv-torrentscsv-12063",
+          "title": "Sintel",
+          "magnet": "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "08ada5a7a6183aae1e09d831df6748d566095a10",
+          "sizeBytes": 129302391,
+          "seeders": 118,
+          "leechers": 29,
+          "indexerSeeders": 124,
+          "swarmChecked": true,
+          "completed": 6705,
+          "source": "torrentscsv",
+          "sourceUrl": "https://torrents-csv.com/#/search/torrent/Sintel/1",
+          "publishedAt": "2023-04-30T16:18:51.000Z",
+          "tags": [],
+          "score": 1023220006200,
+          "health": 72,
+          "bestPick": true,
+          "groupKey": "sintel",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": [
+          {
+            "id": "bitsearch-bitsearch-6a9759bffd5c0af65319979fb7832189f4f3c35d",
+            "title": "sintel.mp4",
+            "magnet": "magnet:?xt=urn:btih:6A9759BFFD5C0AF65319979FB7832189F4F3C35D&dn=%5BBitsearch.to%5D%20sintel.mp4&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.zerobytes.xyz%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.0x.tf%3A6969%2Fannounce&tr=udp%3A%2F%2Fwww.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "infoHash": "6a9759bffd5c0af65319979fb7832189f4f3c35d",
+            "sizeBytes": 123250000,
+            "sizeLabel": "123.25 MB",
+            "seeders": 14,
+            "leechers": 3,
+            "indexerSeeders": 17,
+            "swarmChecked": true,
+            "completed": 578,
+            "category": "Other/Video",
+            "source": "bitsearch",
+            "sourceUrl": "https://bitsearch.to/torrent/5c0657bb3319885846250283",
+            "publishedAt": "2018-12-04T00:00:00.000Z",
+            "tags": [],
+            "score": 1023220004400,
+            "health": 48,
+            "bestPick": false,
+            "groupKey": "sintel",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            }
+          },
+          {
+            "id": "apibay-apibay-5925652",
+            "title": "Sintel",
+            "magnet": "magnet:?xt=urn:btih:19288989fd99a41ad24f30c23b0271e0a825ac5f&dn=Sintel&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "infoHash": "19288989fd99a41ad24f30c23b0271e0a825ac5f",
+            "sizeBytes": 463362531,
+            "seeders": 3,
+            "leechers": 0,
+            "indexerSeeders": 4,
+            "swarmChecked": true,
+            "completed": 97,
+            "category": "207",
+            "source": "apibay",
+            "sourceUrl": "https://thepiratebay.org/description.php?id=5925652",
+            "publishedAt": "2010-11-01T06:29:46.000Z",
+            "tags": [],
+            "score": 1023210003200,
+            "health": 29,
+            "bestPick": false,
+            "groupKey": "sintel",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            },
+            "siteId": "5925652"
+          }
+        ]
+      },
+      {
+        "key": "ð¡ð¸ð½ñ‚ðµð» sintel dmrip|Y2010",
+        "label": "Ð¡Ð¸Ð½Ñ‚ÐµÐ»   Sintel (2010) DMRip 1080p",
+        "best": {
+          "id": "limetorrents-limetorrents-61086c0a6122e79b5ea24ab238fe84c9bfdf183e",
+          "title": "Ð¡Ð¸Ð½Ñ‚ÐµÐ»   Sintel (2010) DMRip 1080p",
+          "magnet": "magnet:?xt=urn:btih:61086c0a6122e79b5ea24ab238fe84c9bfdf183e&dn=%C3%90%C2%A1%C3%90%C2%B8%C3%90%C2%BD%C3%91%E2%80%9A%C3%90%C2%B5%C3%90%C2%BB%20%20%20Sintel%20(2010)%20DMRip%201080p&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "torrentUrl": "https://itorrents.net/torrent/61086C0A6122E79B5EA24AB238FE84C9BFDF183E.torrent?title=Ð¡Ð¸Ð½Ñ‚ÐµÐ»--Sintel-(2010)-DMRip-1080p",
+          "infoHash": "61086c0a6122e79b5ea24ab238fe84c9bfdf183e",
+          "sizeBytes": 1078548635,
+          "seeders": 1,
+          "leechers": 1,
+          "indexerSeeders": 16,
+          "swarmChecked": true,
+          "category": "movies",
+          "source": "limetorrents",
+          "sourceUrl": "https://www.limetorrents.fun/Ð¡Ð¸Ð½Ñ‚ÐµÐ»--Sintel-(2010)-DMRip-1080p-torrent-1068391.html",
+          "publishedAt": "2012-04-17T15:15:17.000Z",
+          "tags": [
+            "1080p"
+          ],
+          "score": 1023210602600,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "ð¡ð¸ð½ñ‚ðµð» sintel dmrip|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel theora ogv|Y2010",
+        "label": "Sintel.2010.720p.Theora.Ogv-VODO",
+        "best": {
+          "id": "bitsearch-bitsearch-1dffd7fd797b2e39bd6c56a4a2a3df260215ef31",
+          "title": "Sintel.2010.720p.Theora.Ogv-VODO",
+          "magnet": "magnet:?xt=urn:btih:1DFFD7FD797B2E39BD6C56A4A2A3DF260215EF31&dn=%5BBitsearch.to%5D%20Sintel.2010.720p.Theora.Ogv-VODO&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "1dffd7fd797b2e39bd6c56a4a2a3df260215ef31",
+          "sizeBytes": 381220000,
+          "sizeLabel": "381.22 MB",
+          "seeders": 1,
+          "leechers": 2,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "category": "Other",
+          "source": "bitsearch",
+          "sourceUrl": "https://bitsearch.to/torrent/5c461f2929dd4319e45eebf6",
+          "publishedAt": "2019-01-03T00:00:00.000Z",
+          "tags": [
+            "720p"
+          ],
+          "score": 1023210502600,
+          "health": 12,
+          "bestPick": true,
+          "groupKey": "sintel theora ogv|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel surround|Y2010",
+        "label": "Sintel 2010 720p SURROUND x264-VODO",
+        "best": {
+          "id": "torrentdownloads-torrentdownloads-a6ea88c974d97f8e3c043b5900eb8e5a05dd22df",
+          "title": "Sintel 2010 720p SURROUND x264-VODO",
+          "magnet": "magnet:?xt=urn:btih:a6ea88c974d97f8e3c043b5900eb8e5a05dd22df&dn=Sintel%202010%20720p%20SURROUND%20x264-VODO&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "a6ea88c974d97f8e3c043b5900eb8e5a05dd22df",
+          "sizeBytes": 228950003,
+          "seeders": 1,
+          "leechers": 0,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "source": "torrentdownloads",
+          "sourceUrl": "https://www.torrentdownloads.pro/torrent/1652059055/Sintel-2010-720p-SURROUND-x264-VODO",
+          "publishedAt": "2010-10-01T17:50:19.000Z",
+          "tags": [
+            "720p",
+            "x264"
+          ],
+          "score": 1023210502600,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "sintel surround|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel vodo|Y2010",
+        "label": "Sintel 2010 720p X264 Vodo",
+        "best": {
+          "id": "torrentdownloads-torrentdownloads-7321eb0fcf2da6302e79cb7ea79edbe0189ef689",
+          "title": "Sintel 2010 720p X264 Vodo",
+          "magnet": "magnet:?xt=urn:btih:7321eb0fcf2da6302e79cb7ea79edbe0189ef689&dn=Sintel%202010%20720p%20X264%20Vodo&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "7321eb0fcf2da6302e79cb7ea79edbe0189ef689",
+          "sizeBytes": 200278016,
+          "seeders": 1,
+          "leechers": 0,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "source": "torrentdownloads",
+          "sourceUrl": "https://www.torrentdownloads.pro/torrent/1652059187/Sintel-2010-720p-X264-Vodo",
+          "publishedAt": "2010-10-01T17:28:04.000Z",
+          "tags": [
+            "720p",
+            "x264"
+          ],
+          "score": 1023210502600,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "sintel vodo|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel mov",
+        "label": "sintel_4k mov",
+        "best": {
+          "id": "limetorrents-limetorrents-71db02957d235b0678226ceb56702a0588cd4a42",
+          "title": "sintel_4k mov",
+          "magnet": "magnet:?xt=urn:btih:71db02957d235b0678226ceb56702a0588cd4a42&dn=sintel_4k%20mov&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "torrentUrl": "https://itorrents.net/torrent/71DB02957D235B0678226CEB56702A0588CD4A42.torrent?title=sintel 4k-mov",
+          "infoHash": "71db02957d235b0678226ceb56702a0588cd4a42",
+          "sizeBytes": 5471004718,
+          "seeders": 1,
+          "leechers": 0,
+          "indexerSeeders": 0,
+          "swarmChecked": true,
+          "category": "Other - Other",
+          "source": "limetorrents",
+          "sourceUrl": "https://www.limetorrents.fun/sintel 4k-mov-torrent-12210675.html",
+          "publishedAt": "2019-02-08T02:11:00.000Z",
+          "tags": [
+            "2160p"
+          ],
+          "score": 1023210102600,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "sintel mov",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel eng ita eng dmrip zmachine",
+        "label": "Sintel 4K UHD ENG FLAC ITA ENG Sub DMRip 1744p X264 ZMachine",
+        "best": {
+          "id": "limetorrents-limetorrents-64877b5490208c3015c0f5121287949d62622e54",
+          "title": "Sintel 4K UHD ENG FLAC ITA ENG Sub DMRip 1744p X264 ZMachine",
+          "magnet": "magnet:?xt=urn:btih:64877b5490208c3015c0f5121287949d62622e54&dn=Sintel%204K%20UHD%20ENG%20FLAC%20ITA%20ENG%20Sub%20DMRip%201744p%20X264%20ZMachine&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "torrentUrl": "https://itorrents.net/torrent/64877B5490208C3015C0F5121287949D62622E54.torrent?title=Sintel-4K-UHD-ENG-FLAC-ITA-ENG-Sub-DMRip-1744p-X264-ZMachine",
+          "infoHash": "64877b5490208c3015c0f5121287949d62622e54",
+          "sizeBytes": 5132705003,
+          "seeders": 1,
+          "leechers": 12,
+          "indexerSeeders": 2,
+          "swarmChecked": true,
+          "category": "movies",
+          "source": "limetorrents",
+          "sourceUrl": "https://www.limetorrents.fun/Sintel-4K-UHD-ENG-FLAC-ITA-ENG-Sub-DMRip-1744p-X264-ZMachine-torrent-5610826.html",
+          "publishedAt": "2014-12-18T19:56:57.000Z",
+          "tags": [
+            "2160p",
+            "x264",
+            "FLAC",
+            "Sub"
+          ],
+          "score": 1023210102600,
+          "health": 9,
+          "bestPick": true,
+          "groupKey": "sintel eng ita eng dmrip zmachine",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": [
+          {
+            "id": "bitsearch-bitsearch-a97cf38232f073cbe83c34197437edfd702237c0",
+            "title": "Sintel.4k.UHD.ENG.FLAC.ITA.ENG.Sub.DMRip.1744p.X265_ZMachine.mkv",
+            "magnet": "magnet:?xt=urn:btih:A97CF38232F073CBE83C34197437EDFD702237C0&dn=%5BBitsearch.to%5D%20Sintel.4k.UHD.ENG.FLAC.ITA.ENG.Sub.DMRip.1744p.X265_ZMachine.mkv&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fipv4.tracker.harry.lu%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+            "infoHash": "a97cf38232f073cbe83c34197437edfd702237c0",
+            "sizeBytes": 3250000000,
+            "sizeLabel": "3.25 GB",
+            "seeders": 1,
+            "leechers": 13,
+            "indexerSeeders": 1,
+            "swarmChecked": true,
+            "category": "movies",
+            "source": "bitsearch",
+            "sourceUrl": "https://bitsearch.to/torrent/5c463c6329dd4319e4e4e572",
+            "publishedAt": "2019-01-06T00:00:00.000Z",
+            "tags": [
+              "2160p",
+              "x265",
+              "FLAC",
+              "Sub"
+            ],
+            "score": 1023210101400,
+            "health": 9,
+            "bestPick": false,
+            "groupKey": "sintel eng ita eng dmrip zmachine",
+            "episode": {
+              "label": null,
+              "isBatch": false,
+              "isSeasonPack": false,
+              "isMultiSeason": false
+            },
+            "metadata": {
+              "source": "tmdb",
+              "mediaType": "movie",
+              "externalId": "45745",
+              "title": "Sintel",
+              "aliases": [],
+              "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+              "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+              "year": 2010,
+              "releaseDate": "2010-09-30",
+              "externalIds": {
+                "tmdb": "45745",
+                "imdb": "tt1727587"
+              }
+            },
+            "route": {
+              "kind": "movies",
+              "category": "Movies",
+              "confidence": "high",
+              "cleanTitle": "Sintel",
+              "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+              "relativePath": null
+            }
+          }
+        ]
+      },
+      {
+        "key": "sintel dmrip hi444pp srt|Y2010",
+        "label": "Sintel.2010.4K.DMRip.Hi444PP.x264.DTSMA.SRT-MaLLIeHbKa",
+        "best": {
+          "id": "apibay-apibay-9192224",
+          "title": "Sintel.2010.4K.DMRip.Hi444PP.x264.DTSMA.SRT-MaLLIeHbKa",
+          "magnet": "magnet:?xt=urn:btih:c3c1502382317aef335205791a13966a250342ef&dn=Sintel.2010.4K.DMRip.Hi444PP.x264.DTSMA.SRT-MaLLIeHbKa&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "c3c1502382317aef335205791a13966a250342ef",
+          "sizeBytes": 3736069283,
+          "seeders": 1,
+          "leechers": 3,
+          "indexerSeeders": 3,
+          "swarmChecked": true,
+          "category": "207",
+          "source": "apibay",
+          "sourceUrl": "https://thepiratebay.org/description.php?id=9192224",
+          "publishedAt": "2013-11-14T06:10:53.000Z",
+          "tags": [
+            "2160p",
+            "x264"
+          ],
+          "score": 1023210101400,
+          "health": 11,
+          "bestPick": true,
+          "groupKey": "sintel dmrip hi444pp srt|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          },
+          "siteId": "9192224"
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel dmrip abi|Y2010",
+        "label": "Sintel (2010) 2160p DMRip x264 DTS - ABI",
+        "best": {
+          "id": "limetorrents-limetorrents-3faba05e4880f30eeefcc64663420054b06c291f",
+          "title": "Sintel (2010) 2160p DMRip x264 DTS - ABI",
+          "magnet": "magnet:?xt=urn:btih:3faba05e4880f30eeefcc64663420054b06c291f&dn=Sintel%20(2010)%202160p%20DMRip%20x264%20DTS%20-%20ABI&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "torrentUrl": "https://itorrents.net/torrent/3FABA05E4880F30EEEFCC64663420054B06C291F.torrent?title=Sintel-(2010)-2160p-DMRip-x264-DTS--ABI",
+          "infoHash": "3faba05e4880f30eeefcc64663420054b06c291f",
+          "sizeBytes": 2019215246,
+          "seeders": 1,
+          "leechers": 1,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "category": "movies",
+          "source": "limetorrents",
+          "sourceUrl": "https://www.limetorrents.fun/Sintel-(2010)-2160p-DMRip-x264-DTS--ABI-torrent-8701185.html",
+          "publishedAt": "2017-03-13T14:35:55.000Z",
+          "tags": [
+            "2160p",
+            "x264",
+            "DTS"
+          ],
+          "score": 1023210101400,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "sintel dmrip abi|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel theora vodo|Y2010",
+        "label": "Sintel.2010.Theora-VODO",
+        "best": {
+          "id": "bitsearch-bitsearch-e9546eb3bcdd1fb7a4df16200e57332d6f3874bd",
+          "title": "Sintel.2010.Theora-VODO",
+          "magnet": "magnet:?xt=urn:btih:E9546EB3BCDD1FB7A4DF16200E57332D6F3874BD&dn=%5BBitsearch.to%5D%20Sintel.2010.Theora-VODO&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Fipv4.tracker.harry.lu%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.moeking.me%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "e9546eb3bcdd1fb7a4df16200e57332d6f3874bd",
+          "sizeBytes": 285040000,
+          "sizeLabel": "285.04 MB",
+          "seeders": 2,
+          "leechers": 0,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "completed": 1,
+          "category": "Other/Video",
+          "source": "bitsearch",
+          "sourceUrl": "https://bitsearch.to/torrent/5c0fa3c88cadf20c26be1729",
+          "publishedAt": "2018-12-11T00:00:00.000Z",
+          "tags": [],
+          "score": 1023210003200,
+          "health": 23,
+          "bestPick": true,
+          "groupKey": "sintel theora vodo|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel 202207",
+        "label": "sintel_202207",
+        "best": {
+          "id": "bitsearch-bitsearch-24f5baa99091fded793452c49f1c83a4cf6034a8",
+          "title": "sintel_202207",
+          "magnet": "magnet:?xt=urn:btih:24F5BAA99091FDED793452C49F1C83A4CF6034A8&dn=%5BBitsearch.to%5D%20sintel_202207&tr=DHT&tr=udp%3A%2F%2Fbittorrent-tracker.e-n-c-r-y-p-t.net%3A1337%2Fannounce&tr=udp%3A%2F%2Fevan.im%3A6969%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Fleet-tracker.moe%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.bitsearch.to%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "24f5baa99091fded793452c49f1c83a4cf6034a8",
+          "sizeBytes": 1170000000,
+          "sizeLabel": "1.17 GB",
+          "seeders": 1,
+          "leechers": 0,
+          "indexerSeeders": 1,
+          "swarmChecked": true,
+          "category": "Other/Video",
+          "source": "bitsearch",
+          "sourceUrl": "https://bitsearch.to/torrent/6a4d2edca6a3be18868b8e4a",
+          "publishedAt": "2026-07-07T00:00:00.000Z",
+          "tags": [],
+          "score": 1023210002600,
+          "health": 14,
+          "bestPick": true,
+          "groupKey": "sintel 202207",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          }
+        },
+        "alternatives": []
+      },
+      {
+        "key": "sintel dvd5 nl subs nlt release|Y2010",
+        "label": "Sintel (2010)DVD5 nl subs NLT-Release",
+        "best": {
+          "id": "apibay-apibay-6890242",
+          "title": "Sintel (2010)DVD5 nl subs NLT-Release",
+          "magnet": "magnet:?xt=urn:btih:c0da62bdfdb9ea44b2fab15b281e33ff72d4b4e7&dn=Sintel%20(2010)DVD5%20nl%20subs%20NLT-Release&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.skynetcloud.site%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.gmi.gd%3A6969%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.theoks.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.corpscorp.online%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.nyaa.vc%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=http%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=http%3A%2F%2Ftracker.dler.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ducks.party%3A1984%2Fannounce&tr=udp%3A%2F%2Fretracker01-msk-virt.corbina.net%3A80%2Fannounce",
+          "infoHash": "c0da62bdfdb9ea44b2fab15b281e33ff72d4b4e7",
+          "sizeBytes": 785666923,
+          "seeders": 1,
+          "leechers": 2,
+          "indexerSeeders": 2,
+          "swarmChecked": true,
+          "category": "201",
+          "source": "apibay",
+          "sourceUrl": "https://thepiratebay.org/description.php?id=6890242",
+          "publishedAt": "2011-12-15T20:23:15.000Z",
+          "tags": [
+            "Sub"
+          ],
+          "score": 1023210002600,
+          "health": 12,
+          "bestPick": true,
+          "groupKey": "sintel dvd5 nl subs nlt release|Y2010",
+          "episode": {
+            "label": null,
+            "isBatch": false,
+            "isSeasonPack": false,
+            "isMultiSeason": false
+          },
+          "metadata": {
+            "source": "tmdb",
+            "mediaType": "movie",
+            "externalId": "45745",
+            "title": "Sintel",
+            "aliases": [],
+            "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+            "synopsis": "A wandering warrior finds an unlikely friend in the form of a young dragon. The two develop a close bond, until one day the dragon is snatched away. She then sets out on a relentless quest to reclaim her friend, finding in the end that her quest exacts a far greater price than she had ever imagined.",
+            "year": 2010,
+            "releaseDate": "2010-09-30",
+            "externalIds": {
+              "tmdb": "45745",
+              "imdb": "tt1727587"
+            }
+          },
+          "route": {
+            "kind": "movies",
+            "category": "Movies",
+            "confidence": "high",
+            "cleanTitle": "Sintel",
+            "savePath": "D:\\code\\memtest\\rebuild-baseline\\lib\\Movies\\Sintel (2010)",
+            "relativePath": null
+          },
+          "siteId": "6890242"
+        },
+        "alternatives": []
+      }
+    ],
+    "tookMs": 1268,
+    "totalCount": 94,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 5,
+    "sources": [
+      {
+        "id": "apibay",
+        "count": 32
+      },
+      {
+        "id": "torrentscsv",
+        "count": 3
+      },
+      {
+        "id": "knaben",
+        "count": 5
+      },
+      {
+        "id": "therarbg",
+        "count": 13
+      },
+      {
+        "id": "bitsearch",
+        "count": 20
+      },
+      {
+        "id": "limetorrents",
+        "count": 29
+      },
+      {
+        "id": "torrentdownloads",
+        "count": 50
+      },
+      {
+        "id": "torrentdownloadinfo",
+        "count": 27
+      },
+      {
+        "id": "yts",
+        "count": 1
+      }
+    ],
+    "availableSources": [
+      {
+        "id": "nyaa",
+        "name": "nyaa",
+        "enabledByDefault": true
+      },
+      {
+        "id": "animetosho",
+        "name": "animetosho",
+        "enabledByDefault": true
+      },
+      {
+        "id": "subsplease",
+        "name": "subsplease",
+        "enabledByDefault": true
+      },
+      {
+        "id": "apibay",
+        "name": "apibay",
+        "enabledByDefault": true
+      },
+      {
+        "id": "torrentscsv",
+        "name": "torrentscsv",
+        "enabledByDefault": true
+      },
+      {
+        "id": "knaben",
+        "name": "knaben",
+        "enabledByDefault": true
+      },
+      {
+        "id": "therarbg",
+        "name": "therarbg",
+        "enabledByDefault": true
+      },
+      {
+        "id": "bitsearch",
+        "name": "bitsearch",
+        "enabledByDefault": true
+      },
+      {
+        "id": "limetorrents",
+        "name": "limetorrents",
+        "enabledByDefault": true
+      },
+      {
+        "id": "torrentdownloads",
+        "name": "torrentdownloads",
+        "enabledByDefault": true
+      },
+      {
+        "id": "torrentdownloadinfo",
+        "name": "torrentdownloadinfo",
+        "enabledByDefault": true
+      },
+      {
+        "id": "yts",
+        "name": "yts",
+        "enabledByDefault": true
+      },
+      {
+        "id": "eztv",
+        "name": "eztv",
+        "enabledByDefault": true
+      },
+      {
+        "id": "1337x",
+        "name": "1337x",
+        "enabledByDefault": false
+      },
+      {
+        "id": "archive",
+        "name": "archive",
+        "enabledByDefault": false
+      }
+    ]
+  }
+}

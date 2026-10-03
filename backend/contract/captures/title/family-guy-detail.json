@@ -1,0 +1,95 @@
+{
+  "method": "GET",
+  "path": "/api/title/family-guy?t=Family%20Guy&type=tv",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "family-guy",
+    "title": "Family Guy",
+    "aliases": [],
+    "names": [
+      {
+        "text": "Family Guy",
+        "kind": "english"
+      }
+    ],
+    "ids": {
+      "tmdb": 1434,
+      "imdb": "tt0182576"
+    },
+    "format": "series",
+    "originalLanguage": "en",
+    "provider": "tmdb",
+    "providerId": "1434",
+    "year": 1999,
+    "mediaType": "tv",
+    "isSeries": true,
+    "overview": "Sick, twisted, politically incorrect and Freakin' Sweet animated series featuring the adventures of the dysfunctional Griffin family. Bumbling Peter and long-suffering Lois have three kids. Stewie (a brilliant but sadistic baby bent on killing his mother and taking over the world), Meg (the oldest, and is the most unpopular girl in town) and Chris (the middle kid, he's not very bright but has a passion for movies). The final member of the family is Brian - a talking dog and much more than a pet, he keeps Stewie in check whilst sipping Martinis and sorting through his own life issues.",
+    "rating": 7.4,
+    "ratingSource": "tmdb",
+    "posterUrl": "https://image.tmdb.org/t/p/w500/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg",
+    "backdropUrl": "https://image.tmdb.org/t/p/w1280/l7wShoIdIUwaDIbsHno9pO5MZXT.jpg",
+    "releaseDate": "1999-01-31",
+    "availability": "ready",
+    "infoHash": "e8dfc3c6b5f648cc9311892c82e996151f7166ac",
+    "downloadFraction": null,
+    "transfer": null,
+    "seasons": [
+      {
+        "season": 1,
+        "knownEpisodes": 1,
+        "downloadedEpisodes": 1,
+        "downloadingEpisodes": 0,
+        "pack": null,
+        "transfer": null
+      }
+    ],
+    "season": 1,
+    "episodes": [
+      {
+        "season": 1,
+        "episode": 1,
+        "label": "S01E01",
+        "availability": "ready",
+        "infoHash": "e8dfc3c6b5f648cc9311892c82e996151f7166ac",
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": {
+          "status": "downloaded",
+          "state": "downloaded",
+          "progress": 1,
+          "infoHash": "e8dfc3c6b5f648cc9311892c82e996151f7166ac",
+          "filePath": null,
+          "error": null,
+          "queuePosition": null,
+          "waitReason": null
+        }
+      }
+    ],
+    "episodesTruncated": false,
+    "library": {
+      "inLibrary": true,
+      "watchListItemId": "cmurpw4f8busyf2ap08vz5313",
+      "monitored": false,
+      "status": "watching",
+      "cursorSeason": null,
+      "cursorEpisode": null,
+      "addPayload": {
+        "mediaType": "tv",
+        "externalId": "work:family-guy",
+        "title": "Family Guy",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg",
+        "synopsis": "Sick, twisted, politically incorrect and Freakin' Sweet animated series featuring the adventures of the dysfunctional Griffin family. Bumbling Peter and long-suffering Lois have three kids. Stewie (a brilliant but sadistic baby bent on killing his mother and taking over the world), Meg (the oldest, and is the most unpopular girl in town) and Chris (the middle kid, he's not very bright but has a passion for movies). The final member of the family is Brian - a talking dog and much more than a pet, he keeps Stewie in check whilst sipping Martinis and sorting through his own life issues.",
+        "rating": 7.4,
+        "workKey": "family-guy",
+        "provider": "tmdb",
+        "providerId": "1434",
+        "format": "Series"
+      }
+    },
+    "known": true,
+    "generatedAt": "2026-10-03T02:07:36.441Z"
+  }
+}

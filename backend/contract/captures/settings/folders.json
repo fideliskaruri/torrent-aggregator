@@ -1,0 +1,27 @@
+{
+  "method": "GET",
+  "path": "/api/settings/browse-folders?path=D%3A%5Ccode%5Cmemtest%5Crebuild-baseline",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "path": "D:\\code\\memtest\\rebuild-baseline",
+    "parent": "D:\\code\\memtest",
+    "entries": [
+      {
+        "name": "app",
+        "path": "D:\\code\\memtest\\rebuild-baseline\\app",
+        "isDirectory": true
+      },
+      {
+        "name": "data",
+        "path": "D:\\code\\memtest\\rebuild-baseline\\data",
+        "isDirectory": true
+      },
+      {
+        "name": "lib",
+        "path": "D:\\code\\memtest\\rebuild-baseline\\lib",
+        "isDirectory": true
+      }
+    ]
+  }
+}

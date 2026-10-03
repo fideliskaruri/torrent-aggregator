@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/api/settings/download-recovery",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "dataDirectory": "D:\\code\\memtest\\rebuild-baseline\\data",
+    "downloadDirectory": "D:\\code\\memtest\\rebuild-baseline\\lib",
+    "hasMedia": false
+  }
+}

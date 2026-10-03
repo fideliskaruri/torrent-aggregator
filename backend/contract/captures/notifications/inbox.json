@@ -1,0 +1,211 @@
+{
+  "method": "GET",
+  "path": "/api/notifications",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "items": [
+      {
+        "id": "cmurr4697gces6p6urlx50bsu",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Big Buck Bunny (2008)",
+        "link": "/downloads?hash=2f24d03eab998ca672b8c1ef567a184609236c02",
+        "createdAt": "2026-10-03T02:06:51.307Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/i9jJzvoXET4D9pOkoEwncSdNNER.jpg"
+      },
+      {
+        "id": "cmurr0f2hgcdrcfoa7szf8gb5",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Sintel (2010)",
+        "link": "/downloads?hash=43f4001de4ab25d521c63684e2b69804193ed9d9",
+        "createdAt": "2026-10-03T02:03:56.106Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg"
+      },
+      {
+        "id": "cmurpw4f5busxs7gz1ev2mb6s",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Family Guy S01E01",
+        "link": "/downloads?hash=e8dfc3c6b5f648cc9311892c82e996151f7166ac",
+        "createdAt": "2026-10-03T01:32:36.065Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg"
+      },
+      {
+        "id": "cmurpft5gbusw2f3zz23zkq85",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E01",
+        "link": "/downloads?hash=24f91962522e0de9674d37f1d4103fefc80f28e8",
+        "createdAt": "2026-10-03T01:19:54.964Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmuroifd4busvgyt3wydea8d1",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E04",
+        "link": "/downloads?hash=f35d0acd9791072528d05e2f9ff27e8c9f2212f1",
+        "createdAt": "2026-10-03T00:53:57.448Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnzuoxbusu7ms3nrlgqzhy",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E11",
+        "link": "/downloads?hash=6e129da49638486e124583c9eda3a3d2b27d9d19",
+        "createdAt": "2026-10-03T00:39:30.849Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnxdqobuslfdl67wwz30vr",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Rick and Morty S01E11",
+        "link": "/downloads?hash=4e2350428a3966db5a8c7fc1d7b98f0dc89b26ad",
+        "createdAt": "2026-10-03T00:37:35.568Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnx257buskw07ay2ftcqwk",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E09",
+        "link": "/downloads?hash=c4f290a6d860058c7d8bc9408ee21bcf17a315a6",
+        "createdAt": "2026-10-03T00:37:20.539Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnvc9mbusdd2vu3cfufl9t",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Rick and Morty S01E11",
+        "link": "/downloads?hash=32da466e642e6fcabc4e8aef479d5b74d7331a05",
+        "createdAt": "2026-10-03T00:36:00.346Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurntem6busc0fvsvee84frw",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E10",
+        "link": "/downloads?hash=4eb401194defb57999403dceb2ed2e4682aa072c",
+        "createdAt": "2026-10-03T00:34:30.078Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnsndzbusatq1w6b0ztrwm",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E08",
+        "link": "/downloads?hash=5d1ad6aedd6838313e9b416cc053c2bd706c365b",
+        "createdAt": "2026-10-03T00:33:54.791Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnr1c0bus0ssbpanmq1wz9",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Rick and Morty S01E09",
+        "link": "/downloads?hash=5c8b34bd11fb82a9f36818f9ee91ddde4d178146",
+        "createdAt": "2026-10-03T00:32:39.552Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnqdzvburli8zcs0u0xuoj",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Rick and Morty S01E08",
+        "link": "/downloads?hash=b624d98d1af036637386819de2045f3358f2ad13",
+        "createdAt": "2026-10-03T00:32:09.307Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnp3hnburiqeke3e0zlacu",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E07",
+        "link": "/downloads?hash=b8a4fdf258166084687b579ae9fec6772fc0c7a4",
+        "createdAt": "2026-10-03T00:31:09.035Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnog95burhr8px8kfok2yf",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E06",
+        "link": "/downloads?hash=45558b006a94ca585fc2ca052517fad61bfa38ef",
+        "createdAt": "2026-10-03T00:30:38.921Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnl8a6burgprg0c738tdp0",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E02",
+        "link": "/downloads?hash=174e393d806d2e00a7c9c407eb5975f93f6bfae5",
+        "createdAt": "2026-10-03T00:28:08.622Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnkh7jburft5kep36ml214",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E03",
+        "link": "/downloads?hash=5b6e97c04eb3887022e49446c39b97a46b668794",
+        "createdAt": "2026-10-03T00:27:33.535Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurnijmdburdz0th4wt5nzrt",
+        "kind": "download.completed",
+        "title": "Download completed",
+        "body": "Rick and Morty S01E05",
+        "link": "/downloads?hash=80cea3f9e60c8f6b0c920f8b7904a78495c950e8",
+        "createdAt": "2026-10-03T00:26:03.349Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurndsk2buqvsxvbd7spskx8",
+        "kind": "download.summary",
+        "title": "Rick and Morty S1: 11 started",
+        "body": null,
+        "link": "/title/rick-and-morty-2013?s=1&run=cmurncgcwbup0a556u5foj0r9",
+        "createdAt": "2026-10-03T00:22:21.65Z",
+        "readAt": null,
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg"
+      },
+      {
+        "id": "cmurmnq5nbunegngxlobic1fm",
+        "kind": "download.failed",
+        "title": "Download failed",
+        "body": "Little Fires Everywhere S01E02",
+        "link": "/downloads?hash=f05d083318f55daba29bdf118714c05966f79a88",
+        "createdAt": "2026-10-03T00:02:05.483Z",
+        "readAt": null,
+        "posterUrl": "https://static.tvmaze.com/uploads/images/original_untouched/242/607118.jpg"
+      }
+    ],
+    "unreadCount": 68
+  }
+}

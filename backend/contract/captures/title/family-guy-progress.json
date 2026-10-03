@@ -1,0 +1,13 @@
+{
+  "method": "GET",
+  "path": "/api/title/family-guy/progress?session=contract-capture",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "family-guy",
+    "transfer": null,
+    "seasonTransfers": {},
+    "episodeTransfers": {},
+    "generatedAt": "2026-10-03T02:07:36.450Z"
+  }
+}

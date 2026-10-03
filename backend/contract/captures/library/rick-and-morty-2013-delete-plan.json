@@ -1,0 +1,113 @@
+{
+  "method": "GET",
+  "path": "/api/library/delete?watchListItemId=cmurnijn4burek4bdlif7w2jo&scope=show",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "ok": true,
+    "title": "Rick and Morty",
+    "plan": {
+      "scope": {
+        "kind": "show"
+      },
+      "outcome": "deletes",
+      "fileCount": 47,
+      "totalBytes": 7026965691,
+      "missingFileCount": 0,
+      "releases": [
+        {
+          "name": "Rick.and.Morty.S01E08.1080p.HEVC.x265-MeGusta",
+          "fileCount": 0,
+          "bytes": 384718251,
+          "filesRecorded": false
+        },
+        {
+          "name": "Rick.and.Morty.S01E09.1080p.HEVC.x265-MeGusta",
+          "fileCount": 0,
+          "bytes": 396022447,
+          "filesRecorded": false
+        },
+        {
+          "name": "Rick and Morty Season 1 - Extended Scene S01E11 The Rick Dance - BRRip 1080p x264",
+          "fileCount": 0,
+          "bytes": 32780000,
+          "filesRecorded": false
+        },
+        {
+          "name": "Rick.and.Morty.S01E11.1080p.HEVC.x265-MeGusta",
+          "fileCount": 0,
+          "bytes": 493423907,
+          "filesRecorded": false
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E04.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 501073478,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E02.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 435113724,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E03.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 463173872,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E05.1080p.HEVC.x265-MeGusta",
+          "fileCount": 6,
+          "bytes": 411237220,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E06.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 402357621,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E01.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 399156297,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E07.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 425447128,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick.and.Morty.S01E10.1080p.HEVC.x265-MeGusta",
+          "fileCount": 5,
+          "bytes": 532775391,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick and Morty S01E08 Rixty Minutes with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune",
+          "fileCount": 2,
+          "bytes": 661107852,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick and Morty S01E09 1080p BluRay DD5 1 x264-NTb",
+          "fileCount": 2,
+          "bytes": 682715723,
+          "filesRecorded": true
+        },
+        {
+          "name": "www.UIndex.org    -    Rick and Morty S01E11 Ricksy Business with Audio Description 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune",
+          "fileCount": 2,
+          "bytes": 805862780,
+          "filesRecorded": true
+        }
+      ],
+      "blocked": [],
+      "summary": "Deletes 47 files · 7.0 GB from this title. 4 releases with no recorded file list; the size shown is the full allocation."
+    }
+  }
+}

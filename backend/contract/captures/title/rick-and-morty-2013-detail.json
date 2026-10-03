@@ -1,0 +1,321 @@
+{
+  "method": "GET",
+  "path": "/api/title/rick-and-morty-2013?t=Rick%20and%20Morty&type=tv",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "rick-and-morty-2013",
+    "title": "Rick and Morty",
+    "aliases": [],
+    "names": [
+      {
+        "text": "Rick and Morty",
+        "kind": "english"
+      }
+    ],
+    "ids": {
+      "imdb": "tt2861424"
+    },
+    "format": "series",
+    "originalLanguage": null,
+    "provider": "tvmaze",
+    "providerId": "216",
+    "year": 2013,
+    "mediaType": "tv",
+    "isSeries": true,
+    "overview": "Follows a sociopathic genius scientist who drags his inherently timid grandson on adventures across the universe.",
+    "rating": 8.7,
+    "ratingSource": "tmdb",
+    "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg",
+    "backdropUrl": "https://image.tmdb.org/t/p/w1280/5BDNWWHweQL0q1fmTv7gmRXfnl4.jpg",
+    "releaseDate": "2013-12-02",
+    "availability": "ready",
+    "infoHash": "24f91962522e0de9674d37f1d4103fefc80f28e8",
+    "downloadFraction": null,
+    "transfer": null,
+    "seasons": [
+      {
+        "season": 0,
+        "knownEpisodes": 2,
+        "downloadedEpisodes": 0,
+        "downloadingEpisodes": 0,
+        "pack": null,
+        "transfer": null
+      },
+      {
+        "season": 1,
+        "knownEpisodes": 11,
+        "downloadedEpisodes": 11,
+        "downloadingEpisodes": 0,
+        "pack": null,
+        "transfer": null
+      }
+    ],
+    "season": 0,
+    "episodes": [
+      {
+        "season": 0,
+        "episode": 1,
+        "label": "S00E01",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 2,
+        "label": "S00E02",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 3,
+        "label": "S00E03",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 4,
+        "label": "S00E04",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 5,
+        "label": "S00E05",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 6,
+        "label": "S00E06",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 7,
+        "label": "S00E07",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 8,
+        "label": "S00E08",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 9,
+        "label": "S00E09",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 10,
+        "label": "S00E10",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 11,
+        "label": "S00E11",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 12,
+        "label": "S00E12",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 13,
+        "label": "S00E13",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 14,
+        "label": "S00E14",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 15,
+        "label": "S00E15",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 16,
+        "label": "S00E16",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 17,
+        "label": "S00E17",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 18,
+        "label": "S00E18",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 19,
+        "label": "S00E19",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      },
+      {
+        "season": 0,
+        "episode": 20,
+        "label": "S00E20",
+        "availability": null,
+        "infoHash": null,
+        "filePath": null,
+        "downloadFraction": null,
+        "nextUp": false,
+        "fromPack": false,
+        "transfer": null
+      }
+    ],
+    "episodesTruncated": false,
+    "library": {
+      "inLibrary": true,
+      "watchListItemId": "cmurnijn4burek4bdlif7w2jo",
+      "monitored": false,
+      "status": "watching",
+      "cursorSeason": null,
+      "cursorEpisode": null,
+      "addPayload": {
+        "mediaType": "tv",
+        "externalId": "work:rick-and-morty-2013",
+        "title": "Rick and Morty",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/owhkU6KRqdXoUQpjV8uyZGPtX58.jpg",
+        "synopsis": "Follows a sociopathic genius scientist who drags his inherently timid grandson on adventures across the universe.",
+        "rating": 8.7,
+        "workKey": "rick-and-morty-2013",
+        "provider": "tvmaze",
+        "providerId": "216",
+        "format": "Series"
+      }
+    },
+    "known": true,
+    "generatedAt": "2026-10-03T02:07:38.187Z"
+  }
+}

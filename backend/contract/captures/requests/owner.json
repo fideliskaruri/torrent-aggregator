@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/requests",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "requests": [],
+    "pendingCount": 0
+  }
+}

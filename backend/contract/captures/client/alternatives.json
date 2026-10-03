@@ -1,0 +1,245 @@
+{
+  "method": "GET",
+  "path": "/api/client/torrents/9c2b1060984884a46355f817ce621ca622d92ece/alternatives",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "health": {
+      "connectedPeers": 0,
+      "downloadBytesPerSecond": 0,
+      "stalledForSeconds": 0,
+      "state": "error"
+    },
+    "alternatives": [
+      {
+        "token": "ba622f7e871b4799b67e0643957670ca",
+        "hash": "5b006b344370b4878fe4cd41395a257a65393277",
+        "title": "Little Fires Everywhere S01E01 The Spark 1080p AMZN WEBRip DDP5 1 x264",
+        "seeders": 1,
+        "peers": 3,
+        "sizeBytes": 4317456541,
+        "quality": 1080,
+        "source": "limetorrents",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "neutral",
+          "basis": "none",
+          "confidence": "low",
+          "label": "Language not stated",
+          "english": "pass",
+          "englishReason": "Language not stated"
+        }
+      },
+      {
+        "token": "62678771e88c4e73a472a3679aa42c6e",
+        "hash": "a0f77741a322c9b214e43e4b80a2f5263f906590",
+        "title": "Little.Fires.Everywhere.S01E01.The.Spark.1080p.AMZN.WEB-DL.DDP5.",
+        "seeders": 1,
+        "peers": 7,
+        "sizeBytes": 4317458599,
+        "quality": 1080,
+        "source": "apibay",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "neutral",
+          "basis": "none",
+          "confidence": "low",
+          "label": "Language not stated",
+          "english": "pass",
+          "englishReason": "Language not stated"
+        }
+      },
+      {
+        "token": "89cb1b7e64874331acdf44409c8158e4",
+        "hash": "f82fc686bb7bee89d5df7d9a645bd88152d50426",
+        "title": "Little Fires Everywhere S01E01 1080p WEBDL DDP5 1 ITA ENG G66 mkv",
+        "seeders": 1,
+        "peers": 1,
+        "sizeBytes": 4896262717,
+        "quality": 1080,
+        "source": "therarbg",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [
+            "Italian",
+            "English"
+          ],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "backup",
+          "basis": "name",
+          "confidence": "high",
+          "label": "Italian and English audio",
+          "english": "pass",
+          "englishReason": "English audio"
+        }
+      },
+      {
+        "token": "ebb6634d941b4326b6ffdabdd726f0a0",
+        "hash": "49d64f44c7f382bf4112a30218539862103021d0",
+        "title": "Little Fires Everywhere S01E01 08 1080p DSNP WEB DL ITA ENG DDP5",
+        "seeders": 1,
+        "peers": 1,
+        "sizeBytes": 11274289152,
+        "quality": 1080,
+        "source": "therarbg",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [
+            "Italian",
+            "English"
+          ],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "backup",
+          "basis": "name",
+          "confidence": "high",
+          "label": "Italian and English audio",
+          "english": "pass",
+          "englishReason": "English audio"
+        }
+      },
+      {
+        "token": "6d0e7fd1d957487a8a8b0b06b9f97b5a",
+        "hash": "30cbffe2aa53b99eb82ead6da4c8c02c2b34fbac",
+        "title": "Little Fires Everywhere S01E01 08 1080p DSNP WEB DL ITA ENG DDP5",
+        "seeders": 1,
+        "peers": 0,
+        "sizeBytes": 15891378995,
+        "quality": 1080,
+        "source": "therarbg",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [
+            "Italian",
+            "English"
+          ],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "backup",
+          "basis": "name",
+          "confidence": "high",
+          "label": "Italian and English audio",
+          "english": "pass",
+          "englishReason": "English audio"
+        }
+      },
+      {
+        "token": "9ac04a2586c44edda6a8531a8d77e259",
+        "hash": "72f856928eaaf043638771906c716c349a0733bc",
+        "title": "Little Fires Everywhere S01E01 08 1080p WEBDL DDP5 1 ITA ENG G66",
+        "seeders": 1,
+        "peers": 1,
+        "sizeBytes": 38439957299,
+        "quality": 1080,
+        "source": "therarbg",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [
+            "Italian",
+            "English"
+          ],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "backup",
+          "basis": "name",
+          "confidence": "high",
+          "label": "Italian and English audio",
+          "english": "pass",
+          "englishReason": "English audio"
+        }
+      },
+      {
+        "token": "4a42042403514a40a8e5b43b71268d6b",
+        "hash": "648f1cd35de016c59e33f2cb297a884ba93d7c60",
+        "title": "Little Fires Everywhere S01e01 02 ITA ENG 1080p AMZN WEB DLMux H264 Morpheus",
+        "seeders": 1,
+        "peers": 2,
+        "sizeBytes": 8439610736,
+        "quality": 1080,
+        "source": "therarbg",
+        "why": "Unusual size for 1080p, 1 seeder",
+        "languages": {
+          "audio": [
+            "Italian",
+            "English"
+          ],
+          "subtitles": [],
+          "subtitleState": "unknown",
+          "fit": "backup",
+          "basis": "name",
+          "confidence": "high",
+          "label": "Italian and English audio",
+          "english": "pass",
+          "englishReason": "English audio"
+        }
+      }
+    ],
+    "sources": [
+      {
+        "id": "apibay",
+        "name": "apibay",
+        "count": 1
+      },
+      {
+        "id": "torrentscsv",
+        "name": "torrentscsv"
+      },
+      {
+        "id": "knaben",
+        "name": "knaben"
+      },
+      {
+        "id": "therarbg",
+        "name": "therarbg",
+        "count": 5
+      },
+      {
+        "id": "bitsearch",
+        "name": "bitsearch"
+      },
+      {
+        "id": "limetorrents",
+        "name": "limetorrents",
+        "count": 1
+      },
+      {
+        "id": "torrentdownloads",
+        "name": "torrentdownloads"
+      },
+      {
+        "id": "torrentdownloadinfo",
+        "name": "torrentdownloadinfo"
+      },
+      {
+        "id": "eztv",
+        "name": "eztv"
+      }
+    ],
+    "recommendedToken": "ba622f7e871b4799b67e0643957670ca",
+    "current": {
+      "title": "Little Fires Everywhere (2020) S01E01 The Spark (1080p HULU Webrip x265 10bit EAC3 5.1 - ArcX)[TAoE].mkv",
+      "source": "bitsearch",
+      "sizeBytes": 1160000000,
+      "quality": 1080,
+      "finished": false,
+      "languages": {
+        "audio": [],
+        "subtitles": [],
+        "subtitleState": "unknown",
+        "fit": "neutral",
+        "basis": "none",
+        "confidence": "low",
+        "label": "Language not stated",
+        "english": "pass",
+        "englishReason": "Language not stated"
+      }
+    }
+  }
+}

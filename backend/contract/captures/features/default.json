@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/api/features",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "runningInContainer": false,
+    "openFolder": true,
+    "displayPathMappings": []
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "method": "GET",
+  "path": "/api/settings/remote-access",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "enabled": false,
+    "tunnelPort": 3940,
+    "tunnelBindAddress": "127.0.0.1",
+    "teamDomain": null,
+    "audience": null,
+    "ownerEmails": [],
+    "allowRequesters": true,
+    "restartRequired": false,
+    "running": {
+      "enabled": false,
+      "tunnelPort": 3940,
+      "tunnelBindAddress": "127.0.0.1",
+      "listening": false,
+      "tunnelUrl": "http://127.0.0.1:3940"
+    },
+    "ownerPorts": [
+      3931
+    ],
+    "editable": true,
+    "via": "local",
+    "warnings": []
+  }
+}

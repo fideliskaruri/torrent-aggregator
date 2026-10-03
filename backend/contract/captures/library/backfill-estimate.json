@@ -1,0 +1,21 @@
+{
+  "method": "POST",
+  "path": "/api/library/backfill-estimate",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "ok": true,
+    "title": "Show",
+    "fromSeason": 1,
+    "toSeason": 2,
+    "seasons": 2,
+    "episodes": 44,
+    "estimatedBytes": 66000000000,
+    "estimatedLabel": "66.0 GB",
+    "freeBytes": 374658179072,
+    "freeLabel": "374.7 GB",
+    "canFit": false,
+    "message": "Downloads need setup first — choose a download folder and set a storage cap in Settings → Downloads.",
+    "note": "Estimate only — confirm in UI before any bulk grab. Default monitoring never bulk-grabs."
+  }
+}

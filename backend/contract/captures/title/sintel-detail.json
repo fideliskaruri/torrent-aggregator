@@ -1,0 +1,73 @@
+{
+  "method": "GET",
+  "path": "/api/title/sintel-2010?t=Sintel&y=2010&type=movie",
+  "status": 200,
+  "contentType": "application/json; charset=utf-8",
+  "body": {
+    "workKey": "sintel-2010",
+    "title": "Sintel",
+    "aliases": [],
+    "names": [
+      {
+        "text": "Sintel",
+        "kind": "english"
+      }
+    ],
+    "ids": {
+      "tmdb": 45745,
+      "imdb": "tt1727587"
+    },
+    "format": "movie",
+    "originalLanguage": "en",
+    "provider": "tmdb",
+    "providerId": "45745",
+    "year": 2010,
+    "mediaType": "movie",
+    "isSeries": false,
+    "overview": null,
+    "rating": null,
+    "ratingSource": null,
+    "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+    "backdropUrl": null,
+    "releaseDate": null,
+    "availability": "fetchable",
+    "infoHash": null,
+    "downloadFraction": null,
+    "transfer": {
+      "status": "failed",
+      "state": "failed",
+      "progress": 0,
+      "infoHash": null,
+      "filePath": null,
+      "error": "The requested file is no longer available.",
+      "queuePosition": null,
+      "waitReason": null
+    },
+    "seasons": [],
+    "season": null,
+    "episodes": [],
+    "episodesTruncated": false,
+    "library": {
+      "inLibrary": true,
+      "watchListItemId": "cmurr0f2vgcdsu9p3vv2ylgn7",
+      "monitored": false,
+      "status": "completed",
+      "cursorSeason": null,
+      "cursorEpisode": null,
+      "addPayload": {
+        "mediaType": "movie",
+        "externalId": "work:sintel-2010",
+        "title": "Sintel",
+        "posterUrl": "https://image.tmdb.org/t/p/w500/l98Zns4oQe1BSvbF4hJ8oL6VSf0.jpg",
+        "synopsis": null,
+        "rating": null,
+        "workKey": "sintel-2010",
+        "provider": "tmdb",
+        "providerId": "45745",
+        "format": "Movie"
+      }
+    },
+    "known": true,
+    "generatedAt": "2026-10-03T02:07:42.510Z"
+  }
+}
