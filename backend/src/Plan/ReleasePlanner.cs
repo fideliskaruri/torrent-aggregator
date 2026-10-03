@@ -44,7 +44,7 @@ public sealed class ReleasePlanner : IPlan
             if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(t, input))))
             {
                 foreach (var target in targets)
-                    Refuse("foreign_language", $"This release explicitly identifies audio other than {AudioLanguage(target, input)}.",
+                    Refuse("foreign_language", LanguageRejection(AudioLanguage(target, input)),
                         target.Id);
                 continue;
             }
@@ -149,7 +149,7 @@ public sealed class ReleasePlanner : IPlan
                 }
                 var language = AudioLanguage(target, input);
                 if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
-                { Refuse("foreign_language", $"This release explicitly identifies audio other than {language}.", target.Id); continue; }
+                { Refuse("foreign_language", LanguageRejection(language), target.Id); continue; }
                 var runtime = episode?.RuntimeMinutes ?? input.Work.Work.RuntimeMinutes;
                 var cap = target.MaxBytes ?? preference?.MaxBytesPerItem;
                 var selection = SelectFiles(target.Id, kept, files.Value, metadata, input.Work);
@@ -355,6 +355,9 @@ public sealed class ReleasePlanner : IPlan
         var markers = parsed.LanguageMarkers.Select(Language).ToArray();
         return markers.Contains(wanted) || markers.Contains("multi") || markers.Contains("dual");
     }
+    private static string LanguageRejection(string desired) => Language(desired) == "en"
+        ? "This release explicitly identifies non-English audio. Choose an English, DUAL/MULTI, or unmarked release."
+        : "This release clearly identifies a different audio language. Choose a release in your selected language.";
     private static string Language(string marker) => marker.Trim().ToLowerInvariant() switch
     {
         "english" or "eng" => "en", "russian" or "rus" or "lostfilm" => "ru",
