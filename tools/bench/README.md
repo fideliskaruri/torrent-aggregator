@@ -42,6 +42,9 @@ diagnostics are still reported honestly, not counted as gate passes.
 
 ## HTTP benchmark
 
+The isolated Phase 6 contract sandbox on loopback port 3962 is also allowed.
+Live port 3930 remains forbidden; other ports outside 3921–3940 remain rejected.
+
 ```powershell
 dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baseline --search-only
 dotnet run --project tools\bench -- --base http://127.0.0.1:3931 --label baseline-sintel --only "Sintel" --wait-seconds 120

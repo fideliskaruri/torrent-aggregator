@@ -496,9 +496,9 @@ internal sealed record Options(Uri Base, string Label, string? Titles, int WaitS
         }
         if (help) return new(new Uri("http://127.0.0.1:3931"), "help", null, 120, true, null, true, "");
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || !uri.IsLoopback || uri.Scheme != "http" ||
-            uri.Port is < 3921 or > 3940 || uri.Port == 3930 || uri.AbsolutePath != "/" || uri.Query.Length > 0 ||
+            (uri.Port is < 3921 or > 3940 && uri.Port != 3962) || uri.Port == 3930 || uri.AbsolutePath != "/" || uri.Query.Length > 0 ||
             uri.UserInfo.Length > 0 || uri.Fragment.Length > 0)
-            throw new ArgumentException("--base must be a loopback HTTP sandbox on ports 3921–3940, never live port 3930.");
+            throw new ArgumentException("--base must be a loopback HTTP sandbox on ports 3921–3940 or the isolated contract port 3962, never live port 3930.");
         if (string.IsNullOrWhiteSpace(label) || !Regex.IsMatch(label, @"^[A-Za-z0-9][A-Za-z0-9_-]*$"))
             throw new ArgumentException("--label must contain only letters, digits, underscores or hyphens.");
         if (wait is < 1 or > 3600) throw new ArgumentException("--wait-seconds must be 1–3600.");
