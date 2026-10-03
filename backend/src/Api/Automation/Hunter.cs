@@ -1,0 +1,112 @@
+using System.Collections.Immutable;
+using TorrentFlow.Domain;
+using TorrentFlow.Targets;
+
+namespace TorrentFlow.Api.Automation;
+
+internal sealed record HunterItem(string WorkKey, string EpisodeId, int Season, int Episode,
+    DateTimeOffset ExpectedAt, string Origin, string Status);
+internal sealed record HunterPass(string Lane, bool Busy, ImmutableArray<HunterItem> Items, int Owned,
+    int Existing, int Notifications, string? BlockedReason);
+
+internal sealed class Hunter(AutomationRepository repository, IMetadata metadata, TargetPipeline targets,
+    DiscoveryPlan discovery, IServiceScopeFactory scopes, IEngine engine)
+{
+    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly Dictionary<string, DateTimeOffset> nextWatch = new();
+    internal const string Boundary = "Targets does not yet accept Follow/Rule origin or a background first attempt. No downloads were started.";
+
+    internal async Task<HunterPass> RunAsync(bool probe, CancellationToken ct)
+    {
+        if (!await gate.WaitAsync(0, ct)) return new("background", true, [], 0, 0, 0, null);
+        try
+        {
+            await using var serviceScope = scopes.CreateAsyncScope();
+            var library = serviceScope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
+            var now = DateTimeOffset.UtcNow;
+            var snapshot = await targets.ReadAsync(ct);
+            var items = ImmutableArray.CreateBuilder<HunterItem>();
+            var ownedCount = 0;
+            var existingCount = 0;
+            foreach (var follow in (await repository.ReadAsync<FollowRow>(ct)).Where(f => f.Enabled))
+            {
+                var result = await metadata.GetWorkAsync(follow.WorkId, true, ct);
+                if (result.Work is not { } work) continue;
+                var aired = work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed &&
+                    e.AirAt is { } air && air <= now && air >= follow.NewEpisodesSince).ToArray();
+                if (follow.FromEpisodeId is { } from)
+                {
+                    var start = work.Episodes.FirstOrDefault(e => e.Id == from);
+                    if (start?.AirAt is not { } startAt) continue;
+                    aired = aired.Where(e => e.AirAt >= startAt).ToArray();
+                }
+                var owned = await library.OwnedAsync(new(work.Work.Id, [.. aired.Select(e => e.Id)], false), ct);
+                foreach (var episode in aired)
+                {
+                    if (owned.Any(o => o.EpisodeId == episode.Id)) { ownedCount++; continue; }
+                    if (snapshot.Targets.Any(t => t.WorkId == work.Work.Id && t.EpisodeId == episode.Id &&
+                        t.State != TargetState.Removed)) { existingCount++; continue; }
+                    var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
+                    if (season is null || season.Number < 1) continue;
+                    items.Add(new(work.Work.WorkKey, episode.Id, season.Number, episode.Number,
+                        episode.AirAt!.Value, "Follow", "blocked"));
+                }
+            }
+            var notifications = 0;
+            if (probe)
+            foreach (var watch in (await repository.ReadAsync<WatchItemRow>(ct)).Where(w => w.UpgradeWatch && w.UserId == "local"))
+            {
+                if (nextWatch.GetValueOrDefault(watch.Id) > now) continue;
+                nextWatch[watch.Id] = now.AddHours(6);
+                var work = (await metadata.GetWorkAsync(watch.WorkId, false, ct)).Work;
+                if (work is null) continue;
+                var preference = (await repository.ReadAsync<WorkPreferenceRow>(ct)).FirstOrDefault(p => p.WorkId == watch.WorkId);
+                var floor = preference?.PreferredResolution ?? 1080;
+                var scope = new TargetScope(work.Work.Id, [], work.Work.Kind == WorkKind.Film);
+                // Series watches need an explicit episode scope; never search the whole series as a film.
+                if (!scope.Film) continue;
+                var owned = await library.OwnedAsync(scope, ct);
+                if (owned.Any(o => o.Videos.Any(v => v.Resolution >= floor))) continue;
+                var result = await discovery.RunAsync(work, scope, new(floor, floor, null, null, null, 0),
+                    PriorityLane.Background, false, ct);
+                try
+                {
+                    foreach (var assignment in result.Plan.Assignments.Take(1))
+                    {
+                        var id = "quality:" + watch.Id + ":" + assignment.Hash;
+                        if ((await repository.ReadAsync<NotificationRow>(ct)).Any(n => n.Id == id)) continue;
+                        await repository.SaveAsync(new NotificationRow(id, "local", "quality",
+                            $"{floor}p is available", "Open the title and choose a release.",
+                            "/title/" + Uri.EscapeDataString(work.Work.WorkKey), id, now, null, true, null, 0), null, ct);
+                        notifications++;
+                    }
+                }
+                finally
+                {
+                    foreach (var handle in result.Evidence.Select(e => e.AdmissionHandle).OfType<ProbeHandle>().Distinct())
+                        await engine.ReleaseProbeAsync(handle, CancellationToken.None);
+                }
+            }
+            return new("background", false, items.ToImmutable(), ownedCount, existingCount, notifications,
+                items.Count > 0 ? Boundary : null);
+        }
+        finally { gate.Release(); }
+    }
+}
+
+internal sealed class HunterScheduler(Hunter hunter, IConfiguration configuration, ILogger<HunterScheduler> logger)
+    : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled")) return;
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(
+            Math.Clamp(configuration.GetValue("TorrentFlow:Scheduler:IntervalMinutes", 15), 1, 1440)));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try { await hunter.RunAsync(true, stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (Exception ex) { logger.LogWarning(ex, "Automatic checks failed; retrying on the next pass."); }
+        }
+    }
+}

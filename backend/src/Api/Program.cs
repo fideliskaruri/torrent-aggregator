@@ -10,6 +10,7 @@ using TorrentFlow.Api.Catalog;
 using TorrentFlow.Api.Requests;
 using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.Notifications;
+using TorrentFlow.Api.Automation;
 using TorrentFlow.Store;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -51,6 +52,7 @@ builder.Services.AddNotifications(dataDirectory);
 builder.Services.AddDevSources();
 builder.Services.AddCatalog();
 builder.Services.AddRequests();
+builder.Services.AddAutomation();
 builder.Services.AddDevEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
@@ -81,6 +83,7 @@ try
     app.MapDevFind();
     app.MapCatalog();
     app.MapRequests();
+    app.MapAutomation();
     app.MapDevEngine();
     app.MapDevPlan();
     app.MapDevDiscoveryPlan();
