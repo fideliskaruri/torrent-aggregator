@@ -17,6 +17,7 @@
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowUpCircle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,8 @@ import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { Badge } from "@/components/ui/badge";
 import { WatchStateChip, watchStateLabel } from "./watch-state";
 import { ownedLabel } from "./owned-state";
+import { OwnedQuality, useOwnedQualityActions } from "./owned-quality";
+import { toast } from "@/lib/toast";
 import { qualityLabel } from "@/lib/torrents/quality";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { MediaPoster } from "@/components/browse/media-poster-card";
@@ -130,6 +133,10 @@ export interface EpisodeListProps {
    * list (the wanted queue). Must be stable across polls.
    */
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
+  /** The title's work key, for owner Upgrade and Check again on owned episodes. */
+  workKey?: string;
+  /** Reloads the title after an owned-quality action. Must be stable across polls. */
+  onOwnedChanged?: () => void;
 }
 
 /** Stable per-row key for tracking one in-flight Download. */
@@ -161,6 +168,8 @@ export function EpisodeList({
   onFindAnotherSource,
   onPickRelease,
   onWantedAction,
+  workKey,
+  onOwnedChanged,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -261,6 +270,21 @@ export function EpisodeList({
   const activeProgress =
     season != null && !busy && view.kind !== "loading" ? seasonProgress[season] ?? null : null;
   const activeProgressLabel = activeProgress ? seasonProgressLabel(activeProgress) : null;
+  // "10 of 10 in your library, 4 can be upgraded to 1080p": the count covers the
+  // whole catalog season; the quality comes from the loaded rows' offers.
+  const upgradeable =
+    season != null ? seasons.find((s) => s.season === season)?.upgradeableEpisodes ?? 0 : 0;
+  const upgradeTo = qualityLabel(
+    episodes.reduce<number | null>(
+      (best, e) => (e.upgrade && (best == null || e.upgrade.resolution > best) ? e.upgrade.resolution : best),
+      null,
+    ),
+  );
+  const upgradeText =
+    upgradeable > 0 ? `${upgradeable} can be upgraded${upgradeTo ? ` to ${upgradeTo}` : ""}` : null;
+  const seasonLineLabel =
+    activeProgressLabel && upgradeText ? `${activeProgressLabel}, ${upgradeText}` : activeProgressLabel;
+  const seasonUpgrade = useOwnedQualityActions(workKey ?? "", { season: season ?? undefined }, onOwnedChanged);
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
@@ -308,14 +332,50 @@ export function EpisodeList({
               </p>
             ) : null}
 
-            {activeProgress && activeProgressLabel ? (
+            {activeProgress && seasonLineLabel ? (
               <SeasonProgressMeter
                 progress={activeProgress}
-                label={activeProgressLabel}
+                label={seasonLineLabel}
                 data-season-progress
               />
             ) : null}
           </div>
+
+          {canDownload && workKey && season != null && upgradeable > 0 ? (
+            <div
+              className={cn(
+                "flex items-center gap-2 sm:col-auto sm:row-auto sm:ml-auto sm:w-auto",
+                showSeasonGrab ? "col-span-2 row-start-3" : "col-start-2 row-start-1 ml-auto justify-end",
+              )}
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                data-season-upgrade
+                aria-label={`Upgrade ${upgradeable}, season ${season}${upgradeTo ? ` to ${upgradeTo}` : ""}`}
+                aria-busy={seasonUpgrade.pending === "upgrade" || undefined}
+                disabled={seasonUpgrade.pending !== null}
+                onClick={() =>
+                  void seasonUpgrade.upgrade().then((result) => {
+                    if (result.good) toast.success(`Season ${season}: ${result.text}`);
+                    else toast.error(`Season ${season}: ${result.text}`);
+                  })
+                }
+                className="relative"
+              >
+                <span className={cn("inline-flex items-center gap-1", seasonUpgrade.pending === "upgrade" && "invisible")}>
+                  <ArrowUpCircle aria-hidden />
+                  Upgrade {upgradeable}
+                </span>
+                {seasonUpgrade.pending === "upgrade" ? (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <Loader2 className="animate-spin" aria-hidden />
+                  </span>
+                ) : null}
+              </Button>
+            </div>
+          ) : null}
 
           {showSeasonGrab && canDownload && season != null ? (
             <div className="col-start-2 row-start-1 ml-auto flex items-center justify-end sm:col-auto sm:row-auto sm:w-auto">
@@ -424,6 +484,8 @@ export function EpisodeList({
                   onFindAnotherSource={onFindAnotherSource}
                   onPickRelease={onPickRelease}
                   onWantedAction={onWantedAction}
+                  workKey={workKey}
+                  onOwnedChanged={onOwnedChanged}
                 />
               ))}
             </ul>
@@ -593,6 +655,8 @@ function EpisodeCardImpl({
   onFindAnotherSource,
   onPickRelease,
   onWantedAction,
+  workKey,
+  onOwnedChanged,
 }: {
   episode: EpisodeRowModel;
   /** The whole work is future-dated — see `EpisodeListProps.gated`. */
@@ -602,6 +666,8 @@ function EpisodeCardImpl({
   onFindAnotherSource?: (hash: string, episodeLabel: string) => void;
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
+  workKey?: string;
+  onOwnedChanged?: () => void;
 }) {
   const { canDownload, canSeePaths } = useCapabilities();
   const { openFolder } = useFeatures();
@@ -957,17 +1023,20 @@ function EpisodeCardImpl({
                 className={cn(CARD_ACTION_PILL, "w-auto px-3 text-[13px]")}
               />
             </span>
-          ) : canDownload && ownedText ? (
+          ) : canDownload && ownedText && episode.owned ? (
             <span className={CARD_ACTION_SLOT}>
-              <Badge
-                data-episode-owned
-                aria-label={`${ownedText}, ${episode.label}`}
-                title={ownedText}
-                className={cn(CARD_ACTION_PILL, "border px-3 text-[13px] font-medium")}
-              >
-                <Check aria-hidden className="size-3.5 text-brand-foreground" />
-                {qualityLabel(episode.owned?.resolution) ?? "In library"}
-              </Badge>
+              <OwnedQuality
+                variant="row"
+                workKey={workKey ?? ""}
+                name={episode.label}
+                owned={episode.owned}
+                upgrade={workKey ? episode.upgrade : null}
+                bestAvailable={workKey ? episode.bestAvailable : null}
+                scope={{ season: episode.season, episode: episode.episode }}
+                canAct={canDownload && workKey != null}
+                onChanged={onOwnedChanged}
+                pillClassName={CARD_ACTION_PILL}
+              />
             </span>
           ) : canDownload && waitingForEnglish ? (
             <span className={CARD_ACTION_SLOT}>
@@ -1061,6 +1130,8 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
   if (a.onFindAnotherSource !== b.onFindAnotherSource) return false;
   if (a.onPickRelease !== b.onPickRelease) return false;
   if (a.onWantedAction !== b.onWantedAction) return false;
+  if (a.workKey !== b.workKey) return false;
+  if (a.onOwnedChanged !== b.onOwnedChanged) return false;
 
   const pe = a.episode;
   const ne = b.episode;
@@ -1075,6 +1146,9 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
     pe.fromPack !== ne.fromPack ||
     (pe.owned?.resolution ?? -1) !== (ne.owned?.resolution ?? -1) ||
     Boolean(pe.owned) !== Boolean(ne.owned) ||
+    (pe.upgrade?.resolution ?? -1) !== (ne.upgrade?.resolution ?? -1) ||
+    (pe.upgrade?.seeders ?? -1) !== (ne.upgrade?.seeders ?? -1) ||
+    (pe.bestAvailable?.checkedAt ?? null) !== (ne.bestAvailable?.checkedAt ?? null) ||
     (pe.state ?? null) !== (ne.state ?? null)
   ) {
     return false;

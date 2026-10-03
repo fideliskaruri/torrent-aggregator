@@ -1,0 +1,20 @@
+{
+  "root": {
+    "id": "dd535a29204b45aba15b89dcb8a805db",
+    "path": "D:\\code\\memtest\\lib-wupg",
+    "kinds": [
+      "Movies",
+      "TV"
+    ],
+    "priority": 0,
+    "reserveBytes": 0,
+    "enabled": true,
+    "online": true,
+    "reviewRequired": false,
+    "lastCheckedAt": "2026-10-04T00:51:30.7242004+03:00",
+    "lastError": null,
+    "version": 1,
+    "freeBytes": 349155217408
+  },
+  "failure": null
+}

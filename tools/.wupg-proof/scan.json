@@ -1,0 +1,119 @@
+{
+  "id": "bfa2ff17ffab46569c638372c25556f5",
+  "path": "D:\\code\\memtest\\import-wupg",
+  "state": "complete",
+  "total": 1,
+  "scanned": 1,
+  "items": [
+    {
+      "id": "dce68fb210324987b0827faacf9ed193",
+      "path": "D:\\code\\memtest\\import-wupg\\Sintel.2010.480p.mp4",
+      "bytes": 129241752,
+      "mtimeUtc": "2026-10-03T16:42:06.9467911+03:00",
+      "parsed": {
+        "rawName": "Sintel.2010.480p.mp4",
+        "title": "Sintel",
+        "year": 2010,
+        "seasons": [],
+        "episodes": [],
+        "absoluteNumbers": [],
+        "ranges": [],
+        "pack": false,
+        "multiSeason": false,
+        "specialType": null,
+        "quality": {
+          "resolution": 480,
+          "source": null,
+          "codec": null,
+          "hdr": null
+        },
+        "group": null,
+        "languageMarkers": [],
+        "clearlyForeign": false,
+        "sample": false,
+        "cam": false,
+        "kind": "Movie",
+        "foreign": "Unknown",
+        "unsafe": false,
+        "episodeRanges": [],
+        "absoluteRanges": []
+      },
+      "parents": [],
+      "group": "Confident",
+      "candidates": [
+        {
+          "workId": "01a103c0-39ea-73a2-8309-8276a705b7a2",
+          "title": "Sintel",
+          "year": 2010,
+          "kind": "Film",
+          "episodeId": null,
+          "season": null,
+          "episode": null,
+          "workKey": "tmdb:movie:45745"
+        }
+      ],
+      "sidecars": [],
+      "alreadyInLibrary": false,
+      "duplicateKey": "01a103c0-39ea-73a2-8309-8276a705b7a2:film",
+      "message": "Matched Sintel (2010)"
+    }
+  ],
+  "error": null,
+  "confident": [
+    {
+      "id": "dce68fb210324987b0827faacf9ed193",
+      "path": "D:\\code\\memtest\\import-wupg\\Sintel.2010.480p.mp4",
+      "bytes": 129241752,
+      "mtimeUtc": "2026-10-03T16:42:06.9467911+03:00",
+      "parsed": {
+        "rawName": "Sintel.2010.480p.mp4",
+        "title": "Sintel",
+        "year": 2010,
+        "seasons": [],
+        "episodes": [],
+        "absoluteNumbers": [],
+        "ranges": [],
+        "pack": false,
+        "multiSeason": false,
+        "specialType": null,
+        "quality": {
+          "resolution": 480,
+          "source": null,
+          "codec": null,
+          "hdr": null
+        },
+        "group": null,
+        "languageMarkers": [],
+        "clearlyForeign": false,
+        "sample": false,
+        "cam": false,
+        "kind": "Movie",
+        "foreign": "Unknown",
+        "unsafe": false,
+        "episodeRanges": [],
+        "absoluteRanges": []
+      },
+      "parents": [],
+      "group": "Confident",
+      "candidates": [
+        {
+          "workId": "01a103c0-39ea-73a2-8309-8276a705b7a2",
+          "title": "Sintel",
+          "year": 2010,
+          "kind": "Film",
+          "episodeId": null,
+          "season": null,
+          "episode": null,
+          "workKey": "tmdb:movie:45745"
+        }
+      ],
+      "sidecars": [],
+      "alreadyInLibrary": false,
+      "duplicateKey": "01a103c0-39ea-73a2-8309-8276a705b7a2:film",
+      "message": "Matched Sintel (2010)"
+    }
+  ],
+  "needsPick": [],
+  "unmatched": [],
+  "duplicates": []
+}

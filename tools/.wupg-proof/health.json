@@ -1,0 +1,20 @@
+{
+  "status": "ok",
+  "live": true,
+  "ready": true,
+  "version": "0.2.0+a7e683fa4b1db39c83474109777af9f1ec249116",
+  "uptimeSeconds": 4,
+  "timestamp": "2026-10-04T00:51:18.744262+03:00",
+  "process": {
+    "status": "up",
+    "uptimeSeconds": 4
+  },
+  "build": {
+    "id": "0.2.0+a7e683fa4b1db39c83474109777af9f1ec249116"
+  },
+  "database": {
+    "status": "up",
+    "ok": true,
+    "latencyMs": 144
+  }
+}

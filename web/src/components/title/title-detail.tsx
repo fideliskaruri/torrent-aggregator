@@ -49,6 +49,7 @@ import { libraryHint } from "./library-hint";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import { WatchStateChip } from "./watch-state";
 import { ownedLabel } from "./owned-state";
+import { OwnedQuality } from "./owned-quality";
 import {
   providerAiredFor,
   seasonProgressFromRows,
@@ -1140,8 +1141,8 @@ function TitleContent({
   // offered again. `payload.transfer` is title scope — an episode or season
   // grab elsewhere in this work must not silence the title's own control.
   const showDownload = !payload.isSeries && !gated;
-  // An owned film never offers Download: it says what you have. Upgrade needs
-  // quality-sweep evidence the title read does not carry yet (OPS-857).
+  // An owned film never offers Download: it says what you have, and the owner
+  // gets Upgrade or Check again from the quality sweep (OPS-857).
   const ownedFilm = payload.isSeries ? null : ownedLabel(payload.owned);
   const downloadAction: TitleAction = {
     kind: "get",
@@ -1385,14 +1386,17 @@ function TitleContent({
                     "Coming {date}" label and grayed art already say why, and a
                     disabled action is just clutter that does nothing. Tracking
                     it via "Add to library" stays available below. */}
-                {ownedFilm ? (
-                  <p
-                    data-title-owned
-                    className="flex min-h-10 items-center gap-2 text-[14px] font-medium text-foreground md:mr-2"
-                  >
-                    <CheckCircle2 aria-hidden className="size-4 shrink-0 text-brand-foreground" />
-                    {ownedFilm}
-                  </p>
+                {ownedFilm && payload.owned ? (
+                  <OwnedQuality
+                    variant="title"
+                    workKey={workKey}
+                    name={title}
+                    owned={payload.owned}
+                    upgrade={payload.upgrade}
+                    bestAvailable={payload.bestAvailable}
+                    canAct={caps.canDownload}
+                    onChanged={onLibraryChanged}
+                  />
                 ) : !caps.canDownload ? (
                   gated ? null : (
                     <RequestAction
@@ -1649,6 +1653,8 @@ function TitleContent({
             onFindAnotherSource={caps.canDownload ? handleFindEpisodeSource : undefined}
             onPickRelease={caps.canDownload ? handlePickEpisodeRelease : undefined}
             onWantedAction={caps.canDownload ? handleWantedAction : undefined}
+            workKey={workKey}
+            onOwnedChanged={onLibraryChanged}
           />
 
         ) : null}
