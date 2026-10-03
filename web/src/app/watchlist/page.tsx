@@ -87,7 +87,7 @@ import {
 } from "./library-tabs";
 import { activityLine, needsAttention, positionLine } from "./card-state";
 import { CheckSchedule } from "@/components/library/check-schedule";
-import { removeFromLibraryCopy } from "./remove-copy";
+import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 
 interface WatchItem {
@@ -555,16 +555,12 @@ export default function WatchlistPage() {
     setRemoving(true);
     try {
       const res = await fetch(
-        `/api/watchlist?id=${encodeURIComponent(pendingRemove.id)}`,
+        `/api/watchlist?id=${encodeURIComponent(pendingRemove.id)}&confirm=true`,
         { method: "DELETE" },
       );
       if (res.ok) {
         setItems((prev) => prev.filter((i) => i.id !== pendingRemove.id));
-        // Says the second half out loud. The toast is the last thing the user
-        // sees and is the only confirmation that the promise was kept.
-        toast.success("Removed from library", {
-          description: "Downloaded files were kept.",
-        });
+        toast.success("Removed from library");
       } else {
         toast.error("Could not remove item");
       }
@@ -975,7 +971,7 @@ export default function WatchlistPage() {
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => setPendingRemove(item)}
+                      onClick={() => item.ready ? openDeleteFiles(item) : setPendingRemove(item)}
                       aria-label="Remove from library"
                       className="shrink-0 text-subtle-foreground hover:text-destructive"
                     >
@@ -1274,8 +1270,10 @@ export default function WatchlistPage() {
           pendingDelete
             ? deletePlan?.outcome === "nothing-held" ||
               (deletePlan?.outcome === "deletes" && deletePlan.fileCount === 0)
-              ? `Nothing for “${pendingDelete.title}” is on your disk. The title stays in your library.`
-              : `This removes the media for “${pendingDelete.title}” from your disk. It cannot be undone, and the title stays in your library.`
+              ? deleteScope.kind === "show"
+                ? `No files for “${pendingDelete.title}” are on your disk. Removing the title also stops looking for it.`
+                : `No files for this selection are on your disk. Removing its records stops looking for these episodes.`
+              : `This deletes the selected files for “${pendingDelete.title}” from your disk and stops looking for them. Deleting the whole title also removes it from your library. This cannot be undone.`
             : undefined
         }
         variant="destructive"
@@ -1346,7 +1344,7 @@ export default function WatchlistPage() {
                     {/* The server's sentence, not a locally re-derived one. */}
                     <p className="text-foreground">
                       {deletePlan.outcome === "deletes" && deletePlan.fileCount === 0
-                        ? "No files for this are on disk. This only removes the release record."
+                        ? "No files for this are on disk. This removes the stored records and stops looking for this selection."
                         : deletePlan.summary}
                     </p>
                     {deletePlan.releases.length ? (

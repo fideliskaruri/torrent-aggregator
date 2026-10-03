@@ -43,6 +43,7 @@ import {
   type AddSubject,
 } from "./add-to-library-questions";
 import type { TitleLibraryState } from "./types";
+import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 
 export interface LibraryControlsProps {
   library: TitleLibraryState;
@@ -150,7 +151,7 @@ export function LibraryControls({
     if (!itemId) return;
     void send(
       () =>
-        fetch(`/api/watchlist?id=${encodeURIComponent(itemId)}`, {
+        fetch(`/api/watchlist?id=${encodeURIComponent(itemId)}&confirm=true`, {
           method: "DELETE",
         }),
       "Could not remove this from your library",
@@ -375,11 +376,11 @@ export function LibraryControls({
         contentData={{ "data-remove-library-dialog": true }}
         confirmData={{ "data-remove-library-confirm": true }}
         onCloseAutoFocus={returnFocus}
-        title="Remove from library?"
-        description={`${title?.trim() ? `“${title.trim()}”` : "This title"} leaves your library and TorrentFlow stops looking for it. Downloaded files are kept.`}
+        title={removeFromLibraryCopy(title).title}
+        description={removeFromLibraryCopy(title).body}
         variant="destructive"
         busy={busy}
-        confirmLabel="Remove, keep files"
+        confirmLabel={removeFromLibraryCopy(title).confirmLabel}
         onConfirm={remove}
       />
     </div>

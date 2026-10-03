@@ -27,7 +27,7 @@ internal static class LibraryEndpoints
     private sealed record DeleteInput(string? WatchListItemId, string? Scope, int? Season, int? Episode, bool Confirm = false);
 
     private static async Task<IResult> Delete(HttpContext http, CatalogState state,
-        ILibraryRepository library, TargetPipeline targets, DevFiling filing, CancellationToken ct)
+        ILibraryRepository library, ILibraryPlacement placement, TargetPipeline targets, DevFiling filing, CancellationToken ct)
     {
         var mutate = HttpMethods.IsPost(http.Request.Method);
         var input = mutate ? await http.Request.ReadFromJsonAsync<DeleteInput>(ct) :
@@ -42,8 +42,10 @@ internal static class LibraryEndpoints
             input.Scope == "episode" && input.Episode is not (>= 1 and <= 100000))
             return Results.BadRequest(new { ok = false, error = "Invalid scope",
                 message = "Choose a title, season or episode to delete.", reason = "bad-scope" });
-        var item = (await state.ReadAsync<WatchItemRow>(CatalogState.Query(input.WatchListItemId,
-            userId: AccessIdentity.UserId(http)), ct)).SingleOrDefault();
+        var actor = AccessIdentity.UserId(http);
+        var item = (await LibraryRead.ItemsAsync(actor,
+            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct),
+            library, placement, ct)).SingleOrDefault(i => i.Id == input.WatchListItemId);
         if (item is null) return Results.NotFound(new { error = "Not found" });
         var work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).Single();
         var names = await state.ReadAsync<WorkNameRow>(CatalogState.Query(workId: item.WorkId), ct);
@@ -68,8 +70,15 @@ internal static class LibraryEndpoints
         if (plan.Outcome != "deletes") return Results.Json(new { ok = false, error = plan.Outcome == "blocked" ? "Refused" : "Nothing to delete",
             message = plan.Summary, reason = plan.Outcome, plan }, statusCode: 409);
         var result = await filing.DeleteLibraryAsync(targets, preview, ct);
-        if (result.Ok) await targets.ScopeActionAsync(work.WorkKey,
-            input.Scope == "show" ? null : input.Season, input.Scope == "episode" ? input.Episode : null, TargetAction.Remove, ct);
+        if (result.Ok)
+        {
+            await targets.ScopeActionAsync(work.WorkKey,
+                input.Scope == "show" ? null : input.Season, input.Scope == "episode" ? input.Episode : null, TargetAction.Remove, ct);
+            if (input.Scope == "show" && !await state.RemoveAsync(actor, item.Id, ct))
+                return Results.Json(result with { Ok = false, Failed = result.Failed.Add(new(title,
+                    "The files were deleted, but this title could not be removed from your library. Reload and remove it again.")) },
+                    statusCode: 409);
+        }
         return Results.Ok(result);
     }
 
