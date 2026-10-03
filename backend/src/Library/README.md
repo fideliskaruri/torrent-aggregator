@@ -33,6 +33,68 @@ shows each filed video immediately. Removal waits for its ordered filing operati
 drains the hash, removes partials and unchanged owned finals, and prunes the hidden
 fragments. An external final that appeared during a collision is left alone.
 
+## Folder import
+
+`MediaImport` composes the Domain Parser, Metadata, inventory and placement ports.
+It does not depend on Engine or Targets. `Api\ImportEndpoints.cs` contains only HTTP
+composition and the bounded, session-local background scan handles. The existing
+captured `/api/settings/download-recovery/sources` contract imports external torrent
+clients, not folders; it is unchanged.
+
+All new routes are owner-only, including reads containing paths:
+
+| Method | Route | Body / response |
+|---|---|---|
+| POST | `/api/library/imports/scan` | `{"path":"D:\\Media"}`; 202 `{scanId,state}` immediately |
+| GET | `/api/library/imports/{scanId}` | `state`, `total`, `scanned`, `items`, `confident`, `needsPick`, `unmatched`, `duplicates`, optional `error` |
+| POST | `/api/library/imports/{scanId}/confirm` | `{mode:"TrackInPlace"|"Move"|"Copy",rootId?,items:[{itemId,workId,episodeId?}]}` |
+| GET | `/api/library/imports/operations` | Interrupted operation paths, stages and reasons needing review |
+| POST | `/api/library/roots/{rootId}/rescan` | Present/offline/missing/dropped counts and drive status |
+| GET | `/api/library/owned/{workId}` | Existing have-it projection; optional `episodeId` / `film=true` |
+
+Review items retain separate filename/ancestor parse evidence, parsed quality,
+candidate work and exact episode IDs, sidecars, and an already-owned marker.
+Duplicate keys group all locations of the same film/episode; confirmation rejects
+selecting two of them. A missing episode mapping requires an explicit valid catalog
+episode pick. Unmatched files may also be explicitly assigned at confirmation.
+The scan root itself is not title evidence (a folder named `Incoming` must not turn
+unknown files into the film of that name). Junctions are never followed.
+
+Nothing writes files or inventory before confirmation. Track-in-place retains the
+source path, with a null root outside enrolled roots. Move and copy reuse placement,
+including existing title pins, Jellyfin kind/season folders and sidecar names.
+Original basenames are retained as required by design 1.5. No destination is overwritten.
+Every selected video must have a recognized container signature.
+The signature atom is shared with download filing; AVI, ASF and transport-stream
+fixtures are covered, and renamed WAV/audio and executable headers are refused.
+
+Verification uses **full SHA-256**, not sampled hashes: import is explicit and runs
+outside the instant scan acknowledgement, so the additional sequential reads are
+worth eliminating a sampling blind spot. Size, source mtime and non-link ancestry
+are checked too. Copies use exclusive `.partial` creation, durable flush, verified
+atomic publication, and another final digest before inventory commit. All video and
+sidecar rows for an item commit together with its operation stages; only then may a
+move delete digest-verified originals. Copy never counts its retained source as a
+second inventory file. Imported origin is internal only; the shared have-it query
+immediately exposes the same quality/ownership as downloaded media.
+
+SQLite FileOperation/FilePathClaim rows protect both ends across concurrent calls
+and survive interruptions. Completed operation references are released so they
+cannot prevent the 30-day missing-file expiry. Scan proposals expire on restart;
+an interrupted operation is left for explicit path review rather than guessed or
+destructively replayed. Automatic recovery of pre-inventory proposals is not
+implemented here; the operations read endpoint exposes that limitation honestly.
+
+Root reconciliation reuses marker/volume identity and mass-vanish protection.
+Incomplete or offline scans mark files offline and cannot confirm missing files.
+A missing file stays owned until a second complete scan at least six hours later;
+only confirmed missing rows older than 30 days can be pruned. Returning files clear
+both missing timestamps. Offline rows are never pruned.
+
+The gitignored import proof is `tools\.import-proof\summary.json`, using copied
+licensed Blender videos plus explicitly synthetic release-named video fixtures.
+It owns only port 3946 and `D:\code\memtest\rebuild-import`.
+
 ## HTTP integration proof
 
 `tools\.filing-proof\summary.json` is intentionally gitignored. The proof uses

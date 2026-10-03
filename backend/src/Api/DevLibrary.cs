@@ -18,10 +18,12 @@ internal static class DevLibrary
 
     internal static IServiceCollection AddDevLibrary(this IServiceCollection services) =>
         services.AddScoped<ILibraryPlacement, LibraryPlacement>()
+            .AddScoped<MediaImport>().AddSingleton<ImportJobs>()
             .AddSingleton<DevFiling>().AddHostedService<DevFilingHost>();
 
     internal static async Task MapDevLibraryAsync(this WebApplication app)
     {
+        app.MapImports();
         // The old settings are read-only migration input; no auto-enrollment or old-drive writes.
         if (app.Configuration["TorrentFlow:Library:LegacyDatabase"] is { Length: > 0 } legacy)
         {

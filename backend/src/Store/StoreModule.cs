@@ -24,6 +24,7 @@ public static class StoreModule
         services.AddKeyedScoped<IStore, AccessStoreCapability>("access");
         services.AddSingleton<ICheckRepository, CheckRepository>();
         services.AddScoped<ILibraryRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
+        services.AddScoped<ILibraryImportRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         return services;
     }
 }

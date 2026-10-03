@@ -80,11 +80,7 @@ public sealed class DownloadFiling
                     return new("InvalidVideo", "The downloaded video is too small.", null, true);
                 using var stream = File.OpenRead(path);
                 Span<byte> header = stackalloc byte[16];
-                if (stream.Read(header) < 12 ||
-                    !(header[..4].SequenceEqual(new byte[] { 0x1a, 0x45, 0xdf, 0xa3 }) ||
-                      header.Slice(4, 4).SequenceEqual("ftyp"u8) ||
-                      header[..4].SequenceEqual("RIFF"u8) || header[0] == 0x47 ||
-                      header[..4].SequenceEqual(new byte[] { 0, 0, 1, 0xba })))
+                if (!VideoSignature.Recognized(header[..stream.Read(header)]))
                     return new("InvalidVideo", "The downloaded file is not a recognized video.", null, true);
             }
             return null;
