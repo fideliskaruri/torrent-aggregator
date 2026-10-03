@@ -58,20 +58,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             var info = new FileInfo(item.Path);
             if (!info.Exists || info.Length != item.Bytes || info.LastWriteTimeUtc != item.MtimeUtc.UtcDateTime)
                 continue;
-            var pick = item.Candidates[0];
-            var root = roots.Where(r => LibraryPaths.IsInside(r.Path, item.Path))
-                .OrderByDescending(r => r.Path.Length).FirstOrDefault();
-            var now = DateTimeOffset.UtcNow;
-            var quality = item.Parsed.Quality;
-            var details = await DetailsAsync(item.Path, ct);
-            var file = new MediaFileRow("adopted:" + physical, pick.WorkId, pick.EpisodeId, root?.Id,
-                item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
-                VideoDimensions.Resolution(details.Width, details.Height) ??
-                    quality.Resolution ?? item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(r => r is not null),
-                quality.Source, Path.GetExtension(item.Path).TrimStart('.'), quality.Codec, null, details.Width, details.Height,
-                null, details.RuntimeSeconds, null, [], origin, null, null, now, now, null,
-                FilePresence.Present, null, null, null, 1);
-            if (await placement.RecordAsync(file, null, ct) is null)
+            if (await TrackInPlaceAsync(item, item.Candidates[0].WorkId, item.Candidates[0].EpisodeId, roots, origin, ct) is null)
                 await reviews.DecideAsync(scan.Id, item.Id, "adopted", ct);
         }
         await reviews.SaveAsync(scan with { State = "complete" }, ct);
@@ -358,23 +345,8 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
                     results.Add(new(item.Id, item.Path, false, null, true));
                     continue;
                 }
-                var roots = await placement.RootsAsync(ct);
-                var root = roots.Where(r => LibraryPaths.IsInside(r.Path, item.Path))
-                    .OrderByDescending(r => r.Path.Length).FirstOrDefault();
-                var details = await DetailsAsync(item.Path, ct);
-                var quality = new Quality(item.Parsed.Quality.Resolution ??
-                    item.Parents.Select(p => p.Quality.Resolution).FirstOrDefault(v => v is not null),
-                    item.Parsed.Quality.Source ?? item.Parents.Select(p => p.Quality.Source).FirstOrDefault(v => v is not null),
-                    item.Parsed.Quality.Codec ?? item.Parents.Select(p => p.Quality.Codec).FirstOrDefault(v => v is not null),
-                    item.Parsed.Quality.Hdr ?? item.Parents.Select(p => p.Quality.Hdr).FirstOrDefault(v => v is not null));
-                var now = DateTimeOffset.UtcNow;
-                var media = new MediaFileRow("import:" + scan.Id + ":" + item.Id, pick.WorkId, pick.EpisodeId,
-                    root?.Id, item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
-                    VideoDimensions.Resolution(details.Width, details.Height) ?? quality.Resolution,
-                    quality.Source, Path.GetExtension(item.Path).TrimStart('.'), quality.Codec, null,
-                    details.Width, details.Height, quality.Hdr, details.RuntimeSeconds, null, [],
-                    MediaOrigin.Imported, null, null, now, now, null, FilePresence.Present, null, now, null, 1);
-                var failure = await placement.RecordAsync(media, null, ct);
+                var failure = await TrackInPlaceAsync(item, pick.WorkId, pick.EpisodeId, await placement.RootsAsync(ct),
+                    MediaOrigin.Imported, ct);
                 results.Add(new(item.Id, failure is null ? item.Path : null, failure is null, failure?.Message));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
@@ -383,6 +355,25 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             }
         }
         return new(results.ToImmutable());
+    }
+
+    private async Task<Failure?> TrackInPlaceAsync(ImportReviewItem item, string workId, string? episodeId,
+        ImmutableArray<StorageRootRow> roots, MediaOrigin origin, CancellationToken ct)
+    {
+        var root = roots.Where(r => LibraryPaths.IsInside(r.Path, item.Path))
+            .OrderByDescending(r => r.Path.Length).FirstOrDefault();
+        var details = await DetailsAsync(item.Path, ct);
+        T? Inherit<T>(Func<Quality, T?> get) => get(item.Parsed.Quality) ??
+            item.Parents.Select(p => get(p.Quality)).FirstOrDefault(v => v is not null);
+        var physical = LibraryPaths.PhysicalKey(item.Path);
+        var now = DateTimeOffset.UtcNow;
+        var media = new MediaFileRow("media:" + physical, workId, episodeId, root?.Id,
+            item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
+            VideoDimensions.Resolution(details.Width, details.Height) ?? Inherit(q => q.Resolution),
+            Inherit(q => q.Source), Path.GetExtension(item.Path).TrimStart('.'), Inherit(q => q.Codec), null,
+            details.Width, details.Height, Inherit(q => q.Hdr), details.RuntimeSeconds, null, [],
+            origin, null, null, now, now, null, FilePresence.Present, null, now, null, 1);
+        return await placement.RecordAsync(media, null, ct);
     }
 
     private static void Stable(ImportSidecar file)
