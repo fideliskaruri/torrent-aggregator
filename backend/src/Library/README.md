@@ -59,6 +59,10 @@ selecting two of them. A missing episode mapping requires an explicit valid cata
 episode pick. Unmatched files may also be explicitly assigned at confirmation.
 The scan root itself is not title evidence (a folder named `Incoming` must not turn
 unknown files into the film of that name). Junctions are never followed.
+Video extensions are removed before parsing title evidence, with the original
+filename retained for review. Ambiguous film names offer the catalog's top picks
+instead of being marked unmatched; unique matches retain their confidence.
+Destination collisions report import-specific guidance without changing download messages.
 
 Nothing writes files or inventory before confirmation. Track-in-place retains the
 source path, with a null root outside enrolled roots. Move and copy reuse placement,

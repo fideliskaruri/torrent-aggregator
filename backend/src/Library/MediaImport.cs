@@ -47,7 +47,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         {
             ct.ThrowIfCancellationRequested();
             var info = new FileInfo(file);
-            var parsed = parser.Parse(Path.GetFileName(file));
+            var parsed = parser.Parse(Path.GetFileNameWithoutExtension(file)) with { RawName = Path.GetFileName(file) };
             var parents = ImmutableArray.CreateBuilder<ParsedRelease>();
             var parent = Path.GetDirectoryName(file);
             for (var depth = 0; depth < 4 && parent is not null && LibraryPaths.IsInside(path, file); depth++)
@@ -141,7 +141,8 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
         if (confident)
             return first.EpisodeId is null ? $"Matched {label}" : $"Matched {first.Title}, season {first.Season} episode {first.Episode}";
         var works = candidates.Select(c => c.WorkId).Distinct().Count();
-        if (works > 1) return $"{works} titles match this name";
+        if (works > 1) return candidates.All(c => c.Kind == WorkKind.Film)
+            ? "Several films match this name" : $"{works} titles match this name";
         if (parsed.Episodes.Length > 1 || parsed.AbsoluteNumbers.Length > 1) return "This file holds several episodes";
         if (parsed.Sample) return "This looks like a sample clip";
         if (guessed)
@@ -251,7 +252,10 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             var placed = await placement.PlaceAsync(new(work, [target],
                 new(mediaId, [mediaId], selections, files.Sum(f => f.Bytes), "import"),
                 torrentFiles, [], [], input.RootId, null, null), ct);
-            if (placed.Failure is not null) return new(item.Id, null, false, placed.Failure.Message);
+            if (placed.Failure is not null) return new(item.Id, null, false,
+                placed.Failure.Code == "FileCollision"
+                    ? "A file already uses the destination name. Review the duplicate before importing."
+                    : placed.Failure.Message);
             rootId = placed.RootId;
             folder = placed.Folders.SingleOrDefault();
             destinations = placed.Files.OrderBy(f => f.FileIndex).Select(f => f.FinalPath!).ToArray();
