@@ -20,9 +20,13 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
     private readonly Dictionary<string, Flight> flights = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CacheEntry> cache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> poolAccess = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> poolRetryRevisions = new(StringComparer.Ordinal);
     private long access;
     private long retryRevision;
-    internal long RetryRevision => Interlocked.Read(ref retryRevision);
+    internal long RetryRevision(string poolKey)
+    {
+        lock (sync) return poolRetryRevisions.GetValueOrDefault(poolKey);
+    }
     private static int BackgroundLimit(IConfiguration configuration)
     {
         var limit = configuration.GetValue<int?>("TorrentFlow:Find:BackgroundRequestLimit") ?? 6;
@@ -226,6 +230,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                             foreach (var expired in owner.cache.Where(p => p.Value.PoolKey == oldest).Select(p => p.Key).ToArray())
                                 owner.cache.Remove(expired);
                             owner.poolAccess.Remove(oldest);
+                            owner.poolRetryRevisions.Remove(oldest);
                         }
                     }
                     if (owner.flights.GetValueOrDefault(key) == this) owner.flights.Remove(key);
@@ -241,7 +246,9 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                         await owner.persistent.SaveAsync(key, sourceId, query, latest, stored, save.Token,
                             expiry, backgroundRetry && !budgetRefused || failureRetryAttempted);
                         if (backgroundRetry && latest.Results.Length > 0)
-                            Interlocked.Increment(ref owner.retryRevision);
+                            lock (owner.sync)
+                                if (owner.poolAccess.ContainsKey(poolKey))
+                                    owner.poolRetryRevisions[poolKey] = ++owner.retryRevision;
                     }
                     catch (OperationCanceledException) when (save.IsCancellationRequested)
                     { owner.logger.LogWarning("Find cache persistence was interrupted for {SourceId}.", sourceId); }

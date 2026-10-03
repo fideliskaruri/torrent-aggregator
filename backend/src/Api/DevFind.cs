@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -33,7 +32,8 @@ internal static class DevFind
         });
     }
 
-    private static async Task<IResult> SearchAsync(HttpContext http, IMetadata metadata, IFind find, CancellationToken ct)
+    private static async Task<IResult> SearchAsync(HttpContext http, IMetadata metadata, IFind find,
+        DiscoveryPlan discovery, CancellationToken ct)
     {
         if (!Owner(http)) return Results.StatusCode(403);
         var key = http.Request.Query["workKey"].ToString();
@@ -72,7 +72,7 @@ internal static class DevFind
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope,
             new(null, null, null, null, null, 0), lane == "background" ? PriorityLane.Background : PriorityLane.Owner,
             SearchNamePhase.English, [], 0, 0)
-            { ProvisionalGood = !suppliedFeedback && !exhaust, Exhaust = exhaust };
+            { Exhaust = exhaust };
         CandidateBatch? last = null;
         if (suppliedFeedback && !stream) return Results.BadRequest(new { error = "feedback_requires_stream" });
         if (stream) http.Response.ContentType = "application/x-ndjson";
@@ -80,12 +80,19 @@ internal static class DevFind
         if (channel is not null) Sessions[request.SessionId] = channel;
         try
         {
-            await foreach (var batch in find.SearchAsync(request, channel?.Reader.ReadAllAsync(ct) ?? NoFeedback(ct), ct))
+            if (!suppliedFeedback)
             {
-                last = batch;
-                if (!stream) continue;
-                await http.Response.WriteAsync(JsonSerializer.Serialize(Project(batch), Json) + "\n", ct);
-                await http.Response.Body.FlushAsync(ct);
+                var measured = await discovery.RunAsync(work, scope, request.Policy, request.Lane, exhaust, ct,
+                    stream ? WriteBatch : null);
+                last = measured.Find;
+            }
+            else
+            {
+                await foreach (var batch in find.SearchAsync(request, channel!.Reader.ReadAllAsync(ct), ct))
+                {
+                    last = batch;
+                    await WriteBatch(batch);
+                }
             }
         }
         finally
@@ -104,10 +111,15 @@ internal static class DevFind
             sharedInFlight = last?.Queries.Any(q => q.SharedInFlight) == true,
             sourceRequests = last?.SourceRequests, windowSourceRequests = last?.WindowSourceRequests,
             requestLimit = last?.RequestLimit, cachedPool = last?.CachedPool,
-            health = request.ProvisionalGood
-                ? "Provisional only: structural match and trusted seeds >= 1. Check and Plan have not approved this release."
-                : "Not measured. Check and Plan supply eligibility feedback."
+            health = suppliedFeedback ? "Check and Plan eligibility is supplied by the diagnostic caller."
+                : "Measured by Check and gated by Plan. Only preferred Good coverage stops later tiers."
         }, Json);
+
+        async Task WriteBatch(CandidateBatch batch)
+        {
+            await http.Response.WriteAsync(JsonSerializer.Serialize(Project(batch), Json) + "\n", ct);
+            await http.Response.Body.FlushAsync(ct);
+        }
     }
 
     private static object Project(CandidateBatch batch) => new
@@ -136,18 +148,11 @@ internal static class DevFind
         sharedInFlight = batch.Queries.Any(q => q.SharedInFlight)
     };
 
-    private static bool Owner(HttpContext http)
+    internal static bool Owner(HttpContext http)
     {
         var actor = AccessIdentity.Actor(http);
         return actor.Role == UserRole.Owner && actor.TrustedLocal &&
             http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
     }
 
-    private static async IAsyncEnumerable<SearchFeedback> NoFeedback(
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        await Task.CompletedTask;
-        ct.ThrowIfCancellationRequested();
-        yield break;
-    }
 }

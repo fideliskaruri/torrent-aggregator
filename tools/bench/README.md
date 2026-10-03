@@ -79,3 +79,65 @@ Outputs: `tools\bench\results\<label>-<yyyyMMdd-HHmm>.csv` and `.md`, updated af
 The sandbox initially contained **27 copied download rows**, including every Rick and Morty S1 episode marked downloaded, but an empty library. Those pre-existing rows are preserved. The requested Rick full run therefore safely reports **blocked**, rather than measuring existing "ready" claims or deleting copied downloads. A clean sandbox is needed for its genuine acquisition benchmark.
 
 Initial 120-second runs: Sintel completed; Big Buck Bunny stayed at 0%, with 0 peers after a failed first release and a stalled replacement. Both had verified API cleanup. Inspect the produced Markdown/CSV for timing, hashes and seed evidence. `/api/downloads` is not the list endpoint (404); the web's list endpoint is `/api/client/torrents`.
+# Checked dry-run planning (Phase 3.6)
+
+```powershell
+dotnet run --project tools\bench -- plan --base http://127.0.0.1:3948 --label devplan --repeat 2 --out tools\.devplan-proof
+```
+
+Runs the ten hard-set scopes (including Frieren season 1 and episode 5) through
+`GET /api/dev/plan`. Writes one full JSON response per scope/run, an incremental CSV,
+and a Markdown summary. Options: `--only "Frieren"`, `--quality 1080`,
+`--quality-floor 720`, `--lane background`, `--exhaust`, `--repeat 1`, `--label`,
+`--base` and `--out`. A repeat reuses source answers and persisted Check verdicts.
+Waiting/uncovered scopes remain explicitly reported, not rounded up to successful plans.
+
+The endpoint is development-only, trusted-loopback owner-only. Inputs are `workKey`
+(or canonical `workId`), `kind` (`film`, `series`, `anime`), `scope` (`film`, `season`,
+`episode`), `season`, `episode`, `preferredQuality` (default 1080), optional
+`qualityFloor`, `lane` (`owner`/`background`), and optional `exhaust=true`.
+An explicitly selected `preferredQuality` is also the minimum, following the owner's
+quality-floor rule; `qualityFloor` can supply a separate owner's policy for diagnostics.
+Films have no coordinates; series numbering must be confirmed by Metadata.
+
+Find streams candidates into Check while source searches continue. Api's temporary
+`DiscoveryPlan` composition passes actual Plan feedback back to Find. Only complete
+scope coverage by **Good** assignments at exact preferred resolution or the explicit
+quality floor stops later tiers. Weak/Unknown never stop discovery; Unknown is deferred
+until all Find tiers permitted by the request cap have finished. `exhaust=true`
+disables the coverage stop for diagnosis. The default `/api/dev/find` uses this same
+composition; its manually supplied feedback mode remains available.
+
+Responses contain monotonic first-candidate, first-verdict and plan-ready timings,
+source HTTP counts and query/cache traces, candidate parses and trusted listed seeds,
+Check metrics, assignments with target/file selections and reasons, and all Find/Plan
+rejections. A null plan-ready means the scope is not fully covered. Candidate rows
+whose targets were already covered are explicitly marked as not probed; their Unknown
+placeholder is not a measured verdict. Probe submissions are hash-deduplicated, with
+up to three outstanding hashes per uncovered target and ten per owner scope (two for
+background); Check still owns shared-flight and physical lane admission.
+
+No Download/Target rows are admitted, and no admission capability is retained.
+Metadata, source caches, Release metadata and Verdict caches are the only permitted
+persistence. Check releases probe capabilities and cleans bounded probe payloads
+before returning. Real titles must never be fully downloaded by this command.
+
+Baseline comparison uses Phase 0 `baseline-search-final-20261003-0509.csv`. Its
+first-result metric is an atomic **unchecked search response**, not a checked plan,
+so the summary keeps it separate from first-verdict and plan-ready.
+
+Post-OPS-719 verification covered nine of the ten scopes. Frieren S1 remained
+8/28: missing episode air dates prevent otherwise healthy season packs from
+passing Plan's finished-season gate (OPS-727); redirecting anime torrent URLs
+also remain Unknown (OPS-728). Complete coverage is not necessarily all-Good:
+Money Heist includes an exhausted, safe-file Unknown assignment waiting for seeders.
+Cold Prison Break and Money Heist planning took approximately 558 and 359 seconds;
+their cached repeat HTTP responses took 1.53 and 2.25 seconds. Every repeat used
+zero source HTTP requests and zero fresh probes. These are diagnostics, not a
+claim that the Phase 3 performance/completeness gate passed.
+
+Lookalike failures count wrong-work hashes that reach selected assignments, not
+hashes correctly rejected by Plan. Scorpion King is additionally checked against
+Find's candidate pool. Full run evidence is kept in gitignored
+`tools\.devplan-proof`, including the corrected cold-run CSV/Markdown and the
+hash-level lookalike audit.

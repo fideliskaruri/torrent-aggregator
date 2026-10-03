@@ -29,15 +29,27 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
             ? "OwnerRequestLimit" : "BackgroundRequestLimit")}") ?? (request.Lane == PriorityLane.Owner ? 12 : 6);
         if (limit is < 1 or > 64) throw new InvalidOperationException("Find request limits must be between 1 and 64.");
         var requestBudget = new SourceRequestBudget(limit);
+        var windowBudget = requestBudget;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var settings = await SettingsAsync(lifetime.Token);
-        var cacheable = request.ProvisionalGood || request.Exhaust;
+        var scopePoolKey = JsonSerializer.Serialize(new
+        {
+            work = request.Work.Work.Id,
+            seasons = request.Work.Episodes.Where(e => request.Scope.EpisodeIds.Contains(e.Id))
+                .Select(e => e.SeasonId).Distinct().Order(StringComparer.Ordinal).ToArray(),
+            request.Scope.Film,
+            request.Work.Work.NumberingVersion
+        });
         var answerKey = JsonSerializer.Serialize(new
         {
             request.Work.Work.Id,
             request.Work.Work.Year,
+            request.Work.Work.Kind,
+            request.Work.Work.Format,
+            request.Work.Work.Anime,
             request.Work.Work.NumberingVersion,
-            names = request.Work.Names,
+            names = request.Work.Names.Select(n => new
+                { Value = SearchQueries.Fold(n.Value), n.Label, n.LinkId, n.Ordinal, n.Authoritative }),
             episodeIds = request.Scope.EpisodeIds.Order(StringComparer.Ordinal),
             request.Scope.Film,
             request.SourceIds,
@@ -49,14 +61,16 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
             settings
         });
         ScopeAnswer? cached;
+        CandidateBatch? resumed = null;
         lock (cacheSync) answers.TryGetValue(answerKey, out cached);
-        if (cacheable && cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow &&
-            (cached.Batch.ProvisionalStopped || cached.RetryRevision == flights.RetryRevision))
+        if (cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow &&
+            (cached.Batch.ProvisionalStopped || cached.Batch.EarlyStopped ||
+                cached.RetryRevision == flights.RetryRevision(scopePoolKey)))
         {
-            requestBudget.Finish();
-            yield return cached.Batch with
+            var replay = cached.Batch with
             {
                 SessionId = request.SessionId,
+                PoolRevision = 1,
                 CachedPool = true,
                 SourceRequests = 0,
                 WindowSourceRequests = cached.Budget.Used,
@@ -65,20 +79,62 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                 Elapsed = timer.Elapsed,
                 Queries = [.. cached.Batch.Queries.Select(q => q with { CacheHit = true, SharedInFlight = false })]
             };
-            yield break;
+            if (request.ProvisionalGood || request.Exhaust || !cached.Batch.EarlyStopped)
+            {
+                requestBudget.Finish();
+                yield return replay;
+                yield break;
+            }
+            // A cached early-stop pool is not proof for another quality/ownership policy.
+            // Replay the pool first; the caller re-runs Check + Plan before any new HTTP.
+            yield return replay with { Complete = false, EarlyStopped = false };
+            var approved = false;
+            using (var revalidation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token))
+            {
+                revalidation.CancelAfter(TimeSpan.FromSeconds(20));
+                await using var reader = feedback.GetAsyncEnumerator(revalidation.Token);
+                try
+                {
+                    while (await reader.MoveNextAsync())
+                    {
+                        var answer = reader.Current;
+                        if (answer.PoolRevision != 1) continue;
+                        approved = answer.Stop && (request.Scope.Film ? answer.FilmCovered :
+                            request.Scope.EpisodeIds.All(answer.CoveredEpisodeIds.Contains));
+                        if (approved || answer.NeedFallbackTier) break;
+                    }
+                }
+                catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { }
+            }
+            if (approved || cached.Budget.Used >= limit)
+            {
+                requestBudget.Finish();
+                yield return replay with { Complete = true, EarlyStopped = approved, Elapsed = timer.Elapsed };
+                yield break;
+            }
+            requestBudget.Finish();
+            requestBudget = new SourceRequestBudget(limit, cached.Budget);
+            windowBudget = cached.Budget;
+            resumed = replay;
         }
         using var admission = await budget.EnterAsync(request.Lane, lifetime.Token);
-        var retryRevision = flights.RetryRevision;
+        var retryRevision = flights.RetryRevision(scopePoolKey);
         var signals = Channel.CreateUnbounded<SearchFeedback>(new() { SingleReader = true, SingleWriter = true });
         var feedbackTask = ListenAsync(feedback, signals.Writer, lifetime.Token);
         var pool = new CandidatePool(parser, request.Work, request.Scope);
         var traces = new Dictionary<string, FindQueryTrace>(StringComparer.Ordinal);
+        if (resumed is not null)
+            foreach (var trace in resumed.Queries)
+            {
+                pool.Add(trace.Result, trace.Query);
+                traces[trace.NamePhase + "\0" + trace.SourceId + "\0" + trace.Query] = trace;
+            }
         var covered = new HashSet<string>(StringComparer.Ordinal);
         var filmCovered = false;
         var early = false;
         var provisional = false;
-        long revision = 0;
-        TimeSpan? first = null;
+        long revision = resumed is null ? 0 : 1;
+        TimeSpan? first = resumed?.FirstCandidateAt;
         var phase = SearchNamePhase.English;
         var tier = SourceTier.Core;
         var lastFeedbackRevision = -1L;
@@ -113,8 +169,8 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
             ProvisionalStopped = provisional,
             SourceRequests = requestBudget.Used,
             RequestLimit = limit,
-            WindowSourceRequests = requestBudget.Used,
-            RequestBudgetExhausted = requestBudget.Used >= limit,
+            WindowSourceRequests = windowBudget.Used,
+            RequestBudgetExhausted = windowBudget.Used >= limit,
             EnglishLabelMissing = !request.Work.Names.Any(n => n.Label == NameLabel.English)
         };
         try
@@ -125,7 +181,7 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                 foreach (var currentTier in new[] { SourceTier.Core, SourceTier.Fallback })
                 {
                     Feedback();
-                    if (early || provisional || requestBudget.Used >= limit) break;
+                    if (early || provisional || windowBudget.Used >= limit) break;
                     tier = currentTier;
                     var selected = settings.Where(s => s.Enabled && s.Tier == tier && Supports(s, request.Work))
                         .Where(s => request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id))
@@ -142,7 +198,8 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                     using var tierCancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                     var results = Channel.CreateUnbounded<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)>(
                         new() { SingleReader = true, SingleWriter = false });
-                    var producers = ProduceTierAsync(request, phase, plans, requestBudget, results.Writer, tierCancel.Token);
+                    var producers = ProduceTierAsync(request, phase, plans, requestBudget, scopePoolKey,
+                        results.Writer, tierCancel.Token);
                     try
                     {
                         while (true)
@@ -193,20 +250,17 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
                     if (!request.Exhaust && !needFallback && (filmCovered || covered.Count > 0))
                         break;
                 }
-                if (early || provisional || requestBudget.Used >= limit ||
+                if (early || provisional || windowBudget.Used >= limit ||
                     !request.Exhaust && !needFallback && (filmCovered || covered.Count > 0)) break;
             }
             var final = Snapshot(true);
-            if (cacheable)
+            lock (cacheSync)
             {
-                lock (cacheSync)
-                {
-                    var expiry = traces.Values.Where(t => t.Result.CacheExpiresAt is not null)
-                        .Select(t => t.Result.CacheExpiresAt!.Value)
-                        .Append(DateTimeOffset.UtcNow.AddMinutes(30)).Min();
-                    answers[answerKey] = new(final, expiry, retryRevision, requestBudget);
-                    while (answers.Count > 200) answers.Remove(answers.MinBy(pair => pair.Value.ExpiresAt).Key);
-                }
+                var expiry = traces.Values.Where(t => t.Result.CacheExpiresAt is not null)
+                    .Select(t => t.Result.CacheExpiresAt!.Value)
+                    .Append(DateTimeOffset.UtcNow.AddMinutes(30)).Min();
+                answers[answerKey] = new(final, expiry, retryRevision, windowBudget);
+                while (answers.Count > 200) answers.Remove(answers.MinBy(pair => pair.Value.ExpiresAt).Key);
             }
             yield return final;
         }
@@ -219,7 +273,7 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
     }
 
     private async Task ProduceTierAsync(SearchRequest request, SearchNamePhase phase,
-        (SourceSettings Source, string Query)[] plans, SourceRequestBudget requestBudget,
+        (SourceSettings Source, string Query)[] plans, SourceRequestBudget requestBudget, string poolKey,
         ChannelWriter<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)> output,
         CancellationToken ct)
     {
@@ -235,13 +289,6 @@ internal sealed class FindService(IParser parser, SourceFlights flights, SearchB
             { RequestBudget = requestBudget };
             var seasonIds = request.Work.Episodes.Where(e => request.Scope.EpisodeIds.Contains(e.Id))
                 .Select(e => e.SeasonId).Distinct().Order(StringComparer.Ordinal).ToArray();
-            var poolKey = JsonSerializer.Serialize(new
-            {
-                work = request.Work.Work.Id,
-                seasons = seasonIds,
-                request.Scope.Film,
-                request.Work.Work.NumberingVersion
-            });
             var key = JsonSerializer.Serialize(new
             {
                 queryVersion = 3,
