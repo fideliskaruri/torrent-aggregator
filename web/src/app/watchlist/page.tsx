@@ -1272,7 +1272,8 @@ export default function WatchlistPage() {
         title="Delete downloaded files?"
         description={
           pendingDelete
-            ? deletePlan?.outcome === "deletes" && deletePlan.fileCount === 0
+            ? deletePlan?.outcome === "nothing-held" ||
+              (deletePlan?.outcome === "deletes" && deletePlan.fileCount === 0)
               ? `Nothing for “${pendingDelete.title}” is on your disk. The title stays in your library.`
               : `This removes the media for “${pendingDelete.title}” from your disk. It cannot be undone, and the title stays in your library.`
             : undefined
@@ -1287,7 +1288,9 @@ export default function WatchlistPage() {
         confirmLabel={
           deletePlan?.outcome === "deletes"
             ? deleteButtonLabel(deletePlan)
-            : "Delete files"
+            : deletePlan?.outcome === "nothing-held"
+              ? "Nothing to delete"
+              : "Delete files"
         }
         onConfirm={() => void confirmDeleteFiles()}
       >
