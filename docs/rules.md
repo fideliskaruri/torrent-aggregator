@@ -109,5 +109,5 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - Code review checks one thing: overcomplication. Is this simpler than it could be? Flag extra layers, needless abstraction, guessing logic, essays and dead paths; skip style nits.
 - Test a new implementation by running that small module on its own (a focused script or a single endpoint against a temp DB). Do not boot the whole app, seed full data or run proof rituals unless the change spans modules.
 
-- One downloads folder: D:\Torrents. All test downloads go there (a subfolder per test is fine). No agent creates its own testing area, data copy or seeder elsewhere.
+- One home for everything: app data in D:\Torrents\AppData (user env var TorrentFlow__DataDirectory points there) and downloads in D:\Torrents\Downloads (set as the storage root on first run). No agent creates its own testing area, data copy or seeder elsewhere.
 - When a worktree is merged and the coordinator has approved it (the agent followed the brief), delete the worktree right away. Keep the branch.
