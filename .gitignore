@@ -98,6 +98,7 @@ server/**/data.migrated-*/
 # Autopilot arming state is per-machine, not project configuration.
 docs/.autopilot.json
 tools/.engine-proof/
+tools/.download-proof/
 tools/.find-proof/
 tools/.check-proof/
 tools/.plan-proof/

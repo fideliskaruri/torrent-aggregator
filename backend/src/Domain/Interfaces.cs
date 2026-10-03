@@ -77,6 +77,8 @@ public interface IEngine
     Task<EngineFilingPermit> PrepareDeleteAsync(EngineDeleteRequest request, CancellationToken cancellationToken);
     Task<EngineResult> CompleteFilingAsync(EngineFilingPermit permit, bool published, CancellationToken cancellationToken);
     Task ApplyQueueAsync(EngineQueuePolicy policy, CancellationToken cancellationToken);
+    Task UpdateSettingsAsync(EngineSettings settings, CancellationToken cancellationToken);
+    Task<ImmutableArray<EngineEvent>> ReadEventsAsync(CancellationToken cancellationToken);
     Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken cancellationToken);
     Task RecoverAsync(ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> files, CancellationToken cancellationToken);
 }

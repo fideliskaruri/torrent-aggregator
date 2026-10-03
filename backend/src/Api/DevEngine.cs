@@ -26,6 +26,7 @@ internal static class DevEngine
             probeDiskBudgetBytes: sp.GetRequiredService<IConfiguration>()
                 .GetValue<long>("TorrentFlow:Engine:ProbeDiskBytes", 40L * 1024 * 1024)));
         services.AddSingleton<IEngine>(sp => sp.GetRequiredService<MonoTorrentEngine>());
+        services.AddSingleton<DevDownloads>();
         services.AddHostedService<EngineHost>();
         return services;
     }
@@ -33,6 +34,7 @@ internal static class DevEngine
     internal static void MapDevEngine(this WebApplication app)
     {
         if (!app.Environment.IsDevelopment()) return;
+        app.MapDevDownloads();
         var group = app.MapGroup("/api/dev/engine").AddEndpointFilter(async (context, next) =>
         {
             var http = context.HttpContext;
@@ -188,7 +190,7 @@ internal static class DevEngine
     private sealed record AddInput(string Magnet, int[] Files, string SavePath, string? ProbeToken = null);
     private sealed record IntentInput(bool Run);
 
-    private sealed class EngineHost(MonoTorrentEngine engine, IServiceScopeFactory scopes,
+    private sealed class EngineHost(MonoTorrentEngine engine, DevDownloads downloads, IServiceScopeFactory scopes,
         IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
     {
         private bool initialized;
@@ -209,17 +211,23 @@ internal static class DevEngine
                 }
                 throw new InvalidOperationException("Engine listen port settings changed repeatedly. Restart to retry.");
             }, environment.IsDevelopment(), ct);
+            if (environment.IsDevelopment()) await downloads.RecoverAsync(ct);
             initialized = true;
             await base.StartAsync(ct);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+            var ticks = 0;
             try
             {
                 while (await timer.WaitForNextTickAsync(stoppingToken))
-                    try { await engine.TickAsync(environment.IsDevelopment(), stoppingToken); }
+                    try
+                    {
+                        if (environment.IsDevelopment()) await downloads.TickAsync(stoppingToken);
+                        if (++ticks % 20 == 0) await engine.TickAsync(environment.IsDevelopment(), stoppingToken);
+                    }
                     catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
                     { logger.LogError(ex, "Engine tick failed; the next tick will retry."); }
             }

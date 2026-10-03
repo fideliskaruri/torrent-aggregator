@@ -295,7 +295,13 @@ public sealed record EngineFileSnapshot(int Index, long Bytes, long CompletedByt
 public sealed record EngineSnapshot(string DownloadId, string Hash, bool MetadataAvailable,
     bool Attached, bool Complete, bool StalledMetadata, bool StalledProgress,
     long SelectedBytes, long CompletedSelectedBytes, long BytesPerSecond, int Peers, int Seeders,
-    ImmutableArray<EngineFileSnapshot> Files, DateTimeOffset ObservedAt, Failure? Failure);
+    ImmutableArray<EngineFileSnapshot> Files, DateTimeOffset ObservedAt, Failure? Failure)
+{
+    public bool Active { get; init; }
+    public DownloadIntent Intent { get; init; }
+    public TimeSpan? Eta { get; init; }
+    public long UploadedBytes { get; init; }
+}
 public sealed record ProbeHandle(string Token, string Hash, bool CreatedByProbe, bool ObservesLiveTransfer,
     DateTimeOffset ExpiresAt);
 public sealed record ProbeAttachment(ProbeHandle? Handle, ImmutableArray<TorrentFile>? Files, Failure? Failure);
@@ -306,7 +312,14 @@ public sealed record EngineAdmissionClaim(string Token, string Hash, string Down
     ProbeHandle? FromProbe, DateTimeOffset ExpiresAt);
 public sealed record EngineResult(bool Accepted, EngineSnapshot? Snapshot, Failure? Failure);
 public sealed record QueueAdmission(string DownloadId, bool Run);
-public sealed record EngineQueuePolicy(ImmutableArray<QueueAdmission> Admissions);
+public sealed record EngineQueuePolicy(ImmutableArray<QueueAdmission> Admissions)
+{
+    // Optional caller-computed ordering. Targets still owns eligibility and durable intent.
+    public ImmutableArray<EngineQueueOrder> Order { get; init; } = [];
+    public int? MaximumActive { get; init; }
+}
+public sealed record EngineQueueOrder(string DownloadId, long Rank, TargetPriority Priority, bool Now, bool Eligible);
+public sealed record EngineEvent(string DownloadId, string Hash, string Kind, EngineSnapshot Snapshot);
 public sealed record EngineFilingRequest(string OperationId, string DownloadId, ImmutableArray<FileBinding> FinalBindings);
 public sealed record EngineDeleteRequest(string OperationId, string DownloadId,
     ImmutableArray<int> FileIndices, ImmutableArray<FileBinding> UnwantedBindings);
