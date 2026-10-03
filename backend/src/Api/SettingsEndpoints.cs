@@ -29,6 +29,7 @@ internal static class SettingsEndpoints
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { return Results.Json(new { error = "Could not save settings. Check access to the data directory." }, statusCode: 503); }
         });
+        group.MapJellyfin(HostPaths.DataDirectory(app.Configuration));
         group.MapGet("/tmdb", async (CancellationToken ct) => Results.Json(await service.TmdbAsync(null, false, ct)));
         group.MapPut("/tmdb", async (JsonElement body, CancellationToken ct) =>
             Results.Json(await service.TmdbAsync(body.GetProperty("apiKey").GetString() ??

@@ -178,10 +178,11 @@ internal static class CatalogEndpoints
         var follow = (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault();
         var coordinate = CatalogProjection.Coordinate(w, follow);
         var owned = await state.OwnedAsync(w.Work.Id, ct);
+        var jellyfin = await JellyfinEndpoints.ReadTitle(h, w, owned, ct);
         var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
             w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
         int? Id(string provider) => Number(w.Links.FirstOrDefault(l => l.Provider == provider && l.Status == LinkStatus.Verified)?.ExternalId);
-        return Json(new
+        return JellyfinEndpoints.TitleJson(new
         {
             workKey, title = CatalogProjection.Title(w), aliases = CatalogProjection.Aliases(w),
             names = w.Names.DistinctBy(n => (n.Value, n.Label)).Select(n => new { text = n.Value, kind = n.Label.ToString().ToLowerInvariant() }),
@@ -194,6 +195,7 @@ internal static class CatalogEndpoints
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
             downloadFraction = (double?)null, transfer = (object?)null,
+            watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
             {
                 season = s.Number, knownEpisodes = s.ExpectedEpisodeCount ?? w.Episodes.Count(e => e.SeasonId == s.Id),
@@ -207,6 +209,7 @@ internal static class CatalogEndpoints
                 availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null,
                 infoHash = (string?)null, filePath = (string?)null, downloadFraction = (double?)null,
                 nextUp = false, fromPack = false, transfer = (object?)null,
+                watchState = jellyfin?.Episodes.GetValueOrDefault(e.Id),
             }), episodesTruncated = episodes.Length > 200,
             library = new
             {
