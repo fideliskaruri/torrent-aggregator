@@ -46,10 +46,10 @@ internal sealed partial class MetadataService
                 type == "films" ? "/discover/movie" : "/discover/tv",
                 GenreQuery(type, genre), "top", "POPULARITY_DESC")];
         var animeSpecs = specs.Where(s => s.Type == "anime").ToArray();
-        var anime = animeSpecs.Length == 0 ? null : new Lazy<Task<Dictionary<string, ProviderAnswer[]>>>(() =>
+        var anime = animeSpecs.Length == 0 ? null : new Lazy<Dictionary<string, Task<ProviderAnswer[]>>>(() =>
             anilist.BrowseBatchAsync(animeSpecs.Select(s => (s.Id, s.AnimeSort,
                 (query.Genre ?? genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id) is { } g
-                    ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, pageCount: 1));
+                    ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, sizeForOverlap: true));
         var tasks = specs.Select(s => RailAsync(s, query.Genre ??
             genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id, cancellationToken, anime, configured, hasTmdb)).ToArray();
         var rails = await ApplyCachedHomeReleasesAsync(await Task.WhenAll(tasks), cancellationToken);
@@ -70,11 +70,27 @@ internal sealed partial class MetadataService
                 }
             if (holes.Count == 0) break;
             expanded.UnionWith(holes);
-            var moreAnime = new Lazy<Task<Dictionary<string, ProviderAnswer[]>>>(() =>
-                anilist.BrowseBatchAsync(holes.Select(i => specs[i]).Where(s => s.Type == "anime")
-                    .Select(s => (s.Id, s.AnimeSort,
-                        (query.Genre ?? genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id) is { } g
-                            ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, firstPage: 2, pageCount: 1));
+            var moreAnime = new Lazy<Dictionary<string, Task<ProviderAnswer[]>>>(() =>
+            {
+                var needed = holes.Select(i => specs[i]).Where(s => s.Type == "anime").ToArray();
+                var replenishment = LoadAsync();
+                return needed.ToDictionary(s => s.Id, async s => (await replenishment)[s.Id]);
+
+                async Task<Dictionary<string, ProviderAnswer[]>> LoadAsync()
+                {
+                    var initial = new Dictionary<string, ProviderAnswer[]>();
+                    foreach (var spec in needed) initial.Add(spec.Id, await anime!.Value[spec.Id]);
+                    var prefetched = needed.Where(s => initial[s.Id].Length > 1)
+                        .ToDictionary(s => s.Id, s => initial[s.Id][1..]);
+                    var missing = needed.Where(s => !prefetched.ContainsKey(s.Id)).ToArray();
+                    if (missing.Length > 0)
+                        foreach (var pair in anilist.BrowseBatchAsync(missing.Select(s => (s.Id, s.AnimeSort,
+                            (query.Genre ?? genres.FirstOrDefault(g => s.Id == type + "-" + g.Id)?.Id) is { } g
+                                ? GenreName(g) : null, s.Seasonal)).ToArray(), cancellationToken, firstPage: 2, pageCount: 1))
+                            prefetched.Add(pair.Key, await pair.Value);
+                    return prefetched;
+                }
+            });
             var replenished = await Task.WhenAll(holes.Select(i => RailAsync(specs[i], query.Genre ??
                 genres.FirstOrDefault(g => specs[i].Id == type + "-" + g.Id)?.Id, cancellationToken,
                 moreAnime, configured, hasTmdb, replenish: true)));
@@ -146,7 +162,7 @@ internal sealed partial class MetadataService
     }
 
     private async Task<(BrowseRail? Rail, bool Stale)> RailAsync(RailSpec spec, string? genre, CancellationToken ct,
-        Lazy<Task<Dictionary<string, ProviderAnswer[]>>>? anime, MetadataSettings configured, bool hasTmdb,
+        Lazy<Dictionary<string, Task<ProviderAnswer[]>>>? anime, MetadataSettings configured, bool hasTmdb,
         bool replenish = false)
     {
         var cacheId = ProviderHttp.Id("rail:" + spec.Id);
@@ -169,7 +185,7 @@ internal sealed partial class MetadataService
         var failed = false;
         if (spec.Type == "anime" && configured.EnabledProviders.Contains("anilist"))
         {
-            var answers = (await anime!.Value)[spec.Id];
+            var answers = (await anime!.Value[spec.Id]).Take(1).ToArray();
             failed = answers.Any(answer => !answer.Complete || answer.Stale);
             foreach (var media in answers.SelectMany(answer => answer.Json?.Items() ?? []))
             {

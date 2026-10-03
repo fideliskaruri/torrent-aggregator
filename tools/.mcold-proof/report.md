@@ -106,3 +106,90 @@ Builds of the isolated experiments had zero warnings/errors. No unit tests,
 excluded-module edits, live-server changes or independent-agent messages were
 made. Proof children were stopped by recorded literal PID; isolated worktree,
 build output and created data directories were removed before handoff.
+
+## OPS-848: aliased rails and prefetched replenishment
+
+The clean production candidate meets the requested three-run anime gate.
+Each run starts a new process on 3962 with a newly created, entirely empty data
+directory. No Fribb fixture, other provider response, Browse rail or catalog row
+is copied in. The scheduler is disabled and TMDB is supplied only in the child
+environment. Nothing reads or changes the owner's stable data or 3930/PID 3188.
+
+| Run | Cold anime (s) | Immediate warm (s) | Rails / cards | Physical AniList requests |
+|---|---:|---:|---:|---:|
+| 1 | 3.921 | 0.175 | 11 / 264 | 2 |
+| 2 | 2.887 | 0.190 | 11 / 264 | 2 |
+| 3 | 2.869 | 0.189 | 11 / 264 | 2 |
+
+Before: the previous map-only three-run control was 7.413 / 8.962 / 8.036 s
+cold and 0.173 / 0.172 / 0.160 s warm. A fresh empty-data control in this
+follow-up measured 5.676 s cold and 0.170 s warm, again with all 264 cards.
+
+### Root-cause repair
+
+- The 11 rails now share two aliased requests instead of four initial requests
+  followed by two serial replenishment requests. Each request covers at most six
+  rails, and the overlap-heavy genre batch starts first under the unchanged
+  700 ms gate.
+- Comedy and slice-of-life, the measured downstream deduplication shortages,
+  fetch both existing 50-item pages up front. These are candidate-pool sizing
+  hints, not new content policy: initial selection still consumes only page one,
+  and page two is consumed only when the existing selector finds a shortage.
+  Any other rail can still request its original second page. The five-page TMDB,
+  two-page AniList, 96-stored-candidate and 24/48-visible-card ceilings are unchanged.
+- Every rail awaits its own batch task. Mapping and durable rail persistence
+  overlap the other HTTP request instead of waiting at a whole-batch barrier.
+- No deadline, concurrency or provider start spacing changed. No background
+  service, cache of raw provider JSON, prewarming, reduced rail set, missing
+  presentation field or partial-success shortcut ships.
+
+### Real HTTP and identity proof
+
+`anil-measure.py anil-final 3` records the six responses, timings, literal child
+PIDs and successful provider cache receipts. `check-shapes.py anil-final` checks
+the declared API shape; `anil-verify.py` checks the six exact final captures.
+All six are HTTP 200, all 11 rails contain exactly 24 cards, all 264 work keys
+are unique, and every cold/warm card field and canonical ID is identical
+(only the response-level generatedAt changes).
+
+Every rail's ordered provider IDs are **exactly equal** to both
+`map-before-1-anime-cold.json` and the fresh follow-up baseline: 264/264 cards,
+with no replacement or removal. The legacy backend contract snapshot also has
+11 rails of 24, and the declared schema passes; its live-provider ordering is
+older and is not falsely claimed to be an exact ID/order match. Per-rail overlap,
+added/removed IDs and all final IDs are retained in `anil-final-verification.json`.
+
+Each final database has exactly two complete raw AniList response receipts
+covering all 13 requested Page aliases, plus the 11 rail caches. There is no
+inline retry: both physical flights therefore succeeded without HTTP 429.
+**429 count: 0 in all three final runs.** Equivalent traced batch candidates
+also recorded only HTTP 200. Immediate warm reads need no provider calls.
+
+Additional fresh-server checks: All returns its nine full 24-card featured rails
+and a real 20-card In cinemas rail (236 cards total), 2.306 s cold / 0.144 s warm;
+anime comedy and action genre grids each return 48 cards, respectively
+2.134 / 0.054 s and 1.410 / 0.058 s. Cold/warm rail content is identical.
+The first variant assertion incorrectly demanded 24 In cinemas cards; that
+proof assertion was corrected to the existing 1–24-card cinema contract.
+
+Release build: **0 warnings, 0 errors**. No unit tests. Source self-review
+confirmed unchanged queries, card fields, release gates, deduplication, ordering,
+daily/stale cache policy and canonical persistence. Production diagnostics used
+while investigating were removed before the final clean build and three runs.
+
+### Honest limits and discarded experiments
+
+The final clean three-run gate is proven, not a guarantee about provider outages
+or every future latency percentile. Earlier instrumented candidates exceeded
+4 s on some runs; a body-transfer outlier also exceeded 6 s. Those samples were
+not deleted or treated as passing. Larger 22-page requests and two-stage thin
+selection/full presentation requests were slower and were discarded. HTTP/2
+negotiation and request-local projection sharing did not establish a reliable
+benefit and were discarded too. Only aliased batching, independent completion
+and measured second-page sizing ship.
+
+This lane did not run provider failure/429 injection, requester/personal-seed,
+keyless, converted-data or the whole backend benchmark. Coordinator/independent
+QA review remains outstanding. All proof children were stopped by literal
+recorded PID. The isolated worktree, output and created data directories are
+removed at handoff; tools/.gitignore and other lanes' dirty files are untouched.

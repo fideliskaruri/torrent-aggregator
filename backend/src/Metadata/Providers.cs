@@ -119,23 +119,36 @@ internal sealed class AniListClient(ProviderHttp http)
             PresentationFields + "}}}}}", new { id = int.Parse(id, System.Globalization.CultureInfo.InvariantCulture) }, ct,
             TimeSpan.FromDays(1));
 
-    internal async Task<Dictionary<string, ProviderAnswer[]>> BrowseBatchAsync(
+    internal Dictionary<string, Task<ProviderAnswer[]>> BrowseBatchAsync(
         (string Id, string Sort, string? Genre, bool Seasonal)[] rails, CancellationToken ct,
-        int firstPage = 1, int pageCount = 2)
+        int firstPage = 1, int pageCount = 2, bool sizeForOverlap = false)
     {
-        var answers = await Task.WhenAll(rails.Chunk(3).Select(batch => BrowseBatchSliceAsync(batch, ct, firstPage, pageCount)));
-        return answers.SelectMany(a => a).ToDictionary(a => a.Key, a => a.Value);
+        if (rails.Length == 0) return [];
+        // Start the larger, overlap-heavy genre batch first while the other request waits for the provider gate.
+        var result = new Dictionary<string, Task<ProviderAnswer[]>>();
+        foreach (var batch in rails.Chunk(6).Reverse())
+        {
+            var answer = BrowseBatchSliceAsync(batch, ct, firstPage, pageCount, sizeForOverlap);
+            foreach (var rail in batch) result.Add(rail.Id, ReadRailAsync(answer, rail.Id));
+        }
+        return result;
+
+        static async Task<ProviderAnswer[]> ReadRailAsync(Task<Dictionary<string, ProviderAnswer[]>> answer, string id) =>
+            (await answer)[id];
     }
 
     private async Task<Dictionary<string, ProviderAnswer[]>> BrowseBatchSliceAsync(
         (string Id, string Sort, string? Genre, bool Seasonal)[] rails, CancellationToken ct,
-        int firstPage, int pageCount)
+        int firstPage, int pageCount, bool sizeForOverlap)
     {
         var month = DateTimeOffset.Now.Month;
         var season = month <= 3 ? "WINTER" : month <= 6 ? "SPRING" : month <= 9 ? "SUMMER" : "FALL";
         var selections = new List<string>();
+        // These pools overlap earlier visible rails heavily. Prefetch their second page, but only consume it on a shortage.
+        var pages = rails.Select(rail => sizeForOverlap &&
+            rail.Genre is not ("Comedy" or "Slice of Life") ? 1 : pageCount).ToArray();
         for (var i = 0; i < rails.Length; i++)
-            for (var page = firstPage; page < firstPage + pageCount; page++)
+            for (var page = firstPage; page < firstPage + pages[i]; page++)
                 selections.Add($"r{i}p{page}:Page(page:{page},perPage:50){{media(type:ANIME,isAdult:false,sort:{rails[i].Sort}" +
                     (rails[i].Genre is { } genre ? ",genre:" + JsonSerializer.Serialize(genre) : "") +
                     (rails[i].Seasonal ? $",season:{season},seasonYear:{DateTimeOffset.Now.Year}" : "") +
@@ -145,7 +158,7 @@ internal sealed class AniListClient(ProviderHttp http)
         var result = new Dictionary<string, ProviderAnswer[]>();
         for (var i = 0; i < rails.Length; i++)
         {
-            result[rails[i].Id] = Enumerable.Range(firstPage, pageCount).Select(page =>
+            result[rails[i].Id] = Enumerable.Range(firstPage, pages[i]).Select(page =>
             {
                 var node = answer.Json?.Obj("data").Obj($"r{i}p{page}");
                 var valid = node is { ValueKind: JsonValueKind.Object } &&

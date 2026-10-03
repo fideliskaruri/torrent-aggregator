@@ -1,0 +1,128 @@
+[
+  {
+    "phase": "anil-all",
+    "rails": [
+      {
+        "id": "films-popular",
+        "count": 24
+      },
+      {
+        "id": "series-popular",
+        "count": 24
+      },
+      {
+        "id": "anime-season",
+        "count": 24
+      },
+      {
+        "id": "films-new",
+        "count": 24
+      },
+      {
+        "id": "series-new",
+        "count": 24
+      },
+      {
+        "id": "anime-trending",
+        "count": 24
+      },
+      {
+        "id": "films-top",
+        "count": 24
+      },
+      {
+        "id": "series-top",
+        "count": 24
+      },
+      {
+        "id": "anime-top",
+        "count": 24
+      },
+      {
+        "id": "films-cinemas",
+        "count": 20
+      }
+    ],
+    "cold_warm_equal": true,
+    "timings": [
+      {
+        "phase": "anil-all",
+        "route": "/api/browse",
+        "run": 1,
+        "mode": "cold",
+        "pid": 52460,
+        "status": 200,
+        "seconds": 2.306
+      },
+      {
+        "phase": "anil-all",
+        "route": "/api/browse",
+        "run": 1,
+        "mode": "warm",
+        "pid": 52460,
+        "status": 200,
+        "seconds": 0.144
+      }
+    ]
+  },
+  {
+    "phase": "anil-comedy",
+    "rails": [
+      {
+        "id": "anime-comedy",
+        "count": 48
+      }
+    ],
+    "cold_warm_equal": true,
+    "timings": [
+      {
+        "phase": "anil-comedy",
+        "route": "/api/browse?type=anime&genre=comedy",
+        "run": 1,
+        "mode": "cold",
+        "pid": 10340,
+        "status": 200,
+        "seconds": 2.134
+      },
+      {
+        "phase": "anil-comedy",
+        "route": "/api/browse?type=anime&genre=comedy",
+        "run": 1,
+        "mode": "warm",
+        "pid": 10340,
+        "status": 200,
+        "seconds": 0.054
+      }
+    ]
+  },
+  {
+    "phase": "anil-action",
+    "rails": [
+      {
+        "id": "anime-action",
+        "count": 48
+      }
+    ],
+    "cold_warm_equal": true,
+    "timings": [
+      {
+        "phase": "anil-action",
+        "route": "/api/browse?type=anime&genre=action",
+        "run": 1,
+        "mode": "cold",
+        "pid": 14800,
+        "status": 200,
+        "seconds": 1.41
+      },
+      {
+        "phase": "anil-action",
+        "route": "/api/browse?type=anime&genre=action",
+        "run": 1,
+        "mode": "warm",
+        "pid": 14800,
+        "status": 200,
+        "seconds": 0.058
+      }
+    ]
+  }
+]

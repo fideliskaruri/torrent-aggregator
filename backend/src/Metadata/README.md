@@ -68,9 +68,10 @@ payload file writes, or additional hosted service.
   Recommendations use the same listing commit.
 
 HTTP calls have a 10-second total queue/network deadline (Cinemeta/TVmaze/iTunes 8s,
-IMDb suggestions 5s, IMDb names 4s, Fribb 20s); no inline retry. AniList's one 700ms
-start gate stays below 90/minute; four concurrent calls overlap the network work,
-background concurrency leaves a foreground slot, and background network calls
+IMDb suggestions 5s, IMDb names 4s, Fribb 20s); no inline retry. AniList retains its one 700ms
+start gate and four concurrent calls; its currently advertised allowance is 30 requests/minute,
+so Browse reduces physical calls through aliased queries rather than increasing concurrency.
+Background concurrency leaves a foreground slot, and background network calls
 have 60s startup grace. Each provider admits at most 64
 pending calls. Real 429/503 Retry-After cooldowns are independent; absent 429 headers
 start at 30s and back off to 300s. AniList chains have a separate 12s total deadline.
@@ -99,11 +100,19 @@ Only visible cards are claimed when deduplicating rails.
 
 Browse persists compact native name projections (including labels and provider
 provenance), not redundant IDs/timestamps on every name in a candidate pool.
-AniList batches up to three rails into an aliased GraphQL query;
-listing queries omit detail-only relations/airing enrichment. TMDB starts with each
+AniList batches up to six rails into an aliased GraphQL query. The complete 11-rail
+anime view therefore starts two requests, with the overlap-heavy genre batch first.
+Each rail maps and saves as soon as its own
+batch completes, without waiting for the other batch.
+Comedy and slice-of-life prefetch their second 50-item page in those requests:
+these are pool-sizing hints, not different content rules. Selection still starts
+with each rail's first page and consumes its prefetched second page only after an
+actual downstream deduplication shortage. Other shortages retain the same second-page
+replenishment, batched together; no candidate ceiling, rail or visible-card limit changes.
+Listing queries omit detail-only relations/airing enrichment. TMDB starts with each
 rail's first page before its next two, so a full Films view never
 overfills the provider's bounded admission queue. The shared visible-card selector
-requests the remaining TMDB pages or AniList's second page only for rails that
+consumes remaining TMDB pages or AniList's second page only for rails that
 actually need more candidates after deduplication and release gating. The provider
 pool ceiling, ordering and 24/48-card limits remain unchanged; this is not a
 smaller response disguised as faster work. TMDB has a four-call concurrency

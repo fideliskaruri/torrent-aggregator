@@ -1,0 +1,1040 @@
+[
+  {
+    "phase": "anil-after",
+    "samples": [
+      {
+        "phase": "anil-after",
+        "run": 1,
+        "mode": "cold",
+        "pid": 28860,
+        "status": 200,
+        "seconds": 6.105,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-after",
+        "run": 1,
+        "mode": "warm",
+        "pid": 28860,
+        "status": 200,
+        "seconds": 0.211,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-after",
+        "run": 2,
+        "mode": "cold",
+        "pid": 27656,
+        "status": 200,
+        "seconds": 4.424,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-after",
+        "run": 2,
+        "mode": "warm",
+        "pid": 27656,
+        "status": 200,
+        "seconds": 0.201,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-after",
+        "run": 3,
+        "mode": "cold",
+        "pid": 32876,
+        "status": 200,
+        "seconds": 6.285,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-after",
+        "run": 3,
+        "mode": "warm",
+        "pid": 32876,
+        "status": 200,
+        "seconds": 0.172,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-after-1-anime.log",
+        "http": []
+      },
+      {
+        "file": "anil-after-2-anime.log",
+        "http": []
+      },
+      {
+        "file": "anil-after-3-anime.log",
+        "http": []
+      }
+    ]
+  },
+  {
+    "phase": "anil-balanced",
+    "samples": [
+      {
+        "phase": "anil-balanced",
+        "run": 1,
+        "mode": "cold",
+        "pid": 14508,
+        "status": 200,
+        "seconds": 4.694,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-balanced",
+        "run": 1,
+        "mode": "warm",
+        "pid": 14508,
+        "status": 200,
+        "seconds": 0.131,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-balanced",
+        "run": 2,
+        "mode": "cold",
+        "pid": 60776,
+        "status": 200,
+        "seconds": 3.638,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-balanced",
+        "run": 2,
+        "mode": "warm",
+        "pid": 60776,
+        "status": 200,
+        "seconds": 0.162,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-balanced",
+        "run": 3,
+        "mode": "cold",
+        "pid": 61328,
+        "status": 200,
+        "seconds": 3.542,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-balanced",
+        "run": 3,
+        "mode": "warm",
+        "pid": 61328,
+        "status": 200,
+        "seconds": 0.155,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-balanced-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1618.5",
+          "ANIL_HTTP anilist status=200 headers_ms=1671.8",
+          "ANIL_HTTP anilist parsed_ms=2896.3",
+          "ANIL_HTTP anilist complete_ms=2967.4",
+          "ANIL_HTTP anilist parsed_ms=2705.2",
+          "ANIL_HTTP anilist complete_ms=2745.6"
+        ]
+      },
+      {
+        "file": "anil-balanced-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=637.1",
+          "ANIL_HTTP anilist status=200 headers_ms=661.9",
+          "ANIL_HTTP anilist parsed_ms=1912.1",
+          "ANIL_HTTP anilist complete_ms=1981.0",
+          "ANIL_HTTP anilist parsed_ms=1682.0",
+          "ANIL_HTTP anilist complete_ms=1711.3"
+        ]
+      },
+      {
+        "file": "anil-balanced-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=643.8",
+          "ANIL_HTTP anilist status=200 headers_ms=532.7",
+          "ANIL_HTTP anilist parsed_ms=1895.6",
+          "ANIL_HTTP anilist complete_ms=1965.4",
+          "ANIL_HTTP anilist parsed_ms=1543.3",
+          "ANIL_HTTP anilist complete_ms=1577.6"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-compact",
+    "samples": [
+      {
+        "phase": "anil-compact",
+        "run": 1,
+        "mode": "cold",
+        "pid": 53776,
+        "status": 200,
+        "seconds": 12.29,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-compact",
+        "run": 1,
+        "mode": "warm",
+        "pid": 53776,
+        "status": 200,
+        "seconds": 0.155,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-compact",
+        "run": 2,
+        "mode": "cold",
+        "pid": 35708,
+        "status": 200,
+        "seconds": 5.345,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-compact",
+        "run": 2,
+        "mode": "warm",
+        "pid": 35708,
+        "status": 200,
+        "seconds": 0.192,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-compact",
+        "run": 3,
+        "mode": "cold",
+        "pid": 62920,
+        "status": 200,
+        "seconds": 6.652,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-compact",
+        "run": 3,
+        "mode": "warm",
+        "pid": 62920,
+        "status": 200,
+        "seconds": 0.209,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-compact-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=3999.0",
+          "ANIL_HTTP anilist complete_ms=5975.9",
+          "ANIL_HTTP anilist status=200 headers_ms=533.5",
+          "ANIL_HTTP anilist complete_ms=5141.6"
+        ]
+      },
+      {
+        "file": "anil-compact-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=756.4",
+          "ANIL_HTTP anilist complete_ms=2214.8",
+          "ANIL_HTTP anilist status=200 headers_ms=464.0",
+          "ANIL_HTTP anilist complete_ms=1565.7"
+        ]
+      },
+      {
+        "file": "anil-compact-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=746.3",
+          "ANIL_HTTP anilist complete_ms=3524.3",
+          "ANIL_HTTP anilist status=200 headers_ms=411.4",
+          "ANIL_HTTP anilist complete_ms=1460.8"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-detail",
+    "samples": [
+      {
+        "phase": "anil-detail",
+        "run": 1,
+        "mode": "cold",
+        "pid": 10908,
+        "status": 200,
+        "seconds": 8.851,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-detail",
+        "run": 1,
+        "mode": "warm",
+        "pid": 10908,
+        "status": 200,
+        "seconds": 0.158,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-detail-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=4200.9",
+          "ANIL_HTTP anilist parsed_ms=5452.7",
+          "ANIL_HTTP anilist complete_ms=5551.3",
+          "ANIL_HTTP anilist status=200 headers_ms=588.6",
+          "ANIL_HTTP anilist parsed_ms=1872.3",
+          "ANIL_HTTP anilist complete_ms=1898.2"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-final-traced",
+    "samples": [
+      {
+        "phase": "anil-final-traced",
+        "run": 1,
+        "mode": "cold",
+        "pid": 35208,
+        "status": 200,
+        "seconds": 4.626,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-final-traced",
+        "run": 1,
+        "mode": "warm",
+        "pid": 35208,
+        "status": 200,
+        "seconds": 0.18,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-final-traced",
+        "run": 2,
+        "mode": "cold",
+        "pid": 58596,
+        "status": 200,
+        "seconds": 3.566,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-final-traced",
+        "run": 2,
+        "mode": "warm",
+        "pid": 58596,
+        "status": 200,
+        "seconds": 0.149,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-final-traced",
+        "run": 3,
+        "mode": "cold",
+        "pid": 56784,
+        "status": 200,
+        "seconds": 3.682,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-final-traced",
+        "run": 3,
+        "mode": "warm",
+        "pid": 56784,
+        "status": 200,
+        "seconds": 0.192,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-final-traced-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1912.8",
+          "ANIL_HTTP anilist status=200 headers_ms=1565.1",
+          "ANIL_HTTP anilist parsed_ms=3161.1",
+          "ANIL_HTTP anilist complete_ms=3223.4",
+          "ANIL_HTTP anilist parsed_ms=2577.9",
+          "ANIL_HTTP anilist complete_ms=2613.8"
+        ]
+      },
+      {
+        "file": "anil-final-traced-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=635.8",
+          "ANIL_HTTP anilist status=200 headers_ms=594.3",
+          "ANIL_HTTP anilist parsed_ms=1911.0",
+          "ANIL_HTTP anilist complete_ms=1970.7",
+          "ANIL_HTTP anilist parsed_ms=1600.8",
+          "ANIL_HTTP anilist complete_ms=1634.7"
+        ]
+      },
+      {
+        "file": "anil-final-traced-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=613.3",
+          "ANIL_HTTP anilist status=200 headers_ms=565.5",
+          "ANIL_HTTP anilist parsed_ms=1855.2",
+          "ANIL_HTTP anilist complete_ms=1929.1",
+          "ANIL_HTTP anilist parsed_ms=1593.3",
+          "ANIL_HTTP anilist complete_ms=1626.6"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-http2",
+    "samples": [
+      {
+        "phase": "anil-http2",
+        "run": 1,
+        "mode": "cold",
+        "pid": 50292,
+        "status": 200,
+        "seconds": 4.2,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-http2",
+        "run": 1,
+        "mode": "warm",
+        "pid": 50292,
+        "status": 200,
+        "seconds": 0.153,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-http2",
+        "run": 2,
+        "mode": "cold",
+        "pid": 62644,
+        "status": 200,
+        "seconds": 3.365,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-http2",
+        "run": 2,
+        "mode": "warm",
+        "pid": 62644,
+        "status": 200,
+        "seconds": 0.148,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-http2",
+        "run": 3,
+        "mode": "cold",
+        "pid": 40900,
+        "status": 200,
+        "seconds": 3.282,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-http2",
+        "run": 3,
+        "mode": "warm",
+        "pid": 40900,
+        "status": 200,
+        "seconds": 0.188,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-http2-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1677.6",
+          "ANIL_HTTP anilist status=200 headers_ms=1572.9",
+          "ANIL_HTTP anilist parsed_ms=2933.6",
+          "ANIL_HTTP anilist complete_ms=2994.7",
+          "ANIL_HTTP anilist parsed_ms=2599.9",
+          "ANIL_HTTP anilist complete_ms=2614.9"
+        ]
+      },
+      {
+        "file": "anil-http2-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=680.5",
+          "ANIL_HTTP anilist status=200 headers_ms=479.0",
+          "ANIL_HTTP anilist parsed_ms=1946.9",
+          "ANIL_HTTP anilist complete_ms=2010.7",
+          "ANIL_HTTP anilist parsed_ms=1677.6",
+          "ANIL_HTTP anilist complete_ms=1692.6"
+        ]
+      },
+      {
+        "file": "anil-http2-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=672.9",
+          "ANIL_HTTP anilist status=200 headers_ms=424.1",
+          "ANIL_HTTP anilist parsed_ms=1941.0",
+          "ANIL_HTTP anilist complete_ms=1999.2",
+          "ANIL_HTTP anilist parsed_ms=1441.9",
+          "ANIL_HTTP anilist complete_ms=1457.3"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-independent",
+    "samples": [
+      {
+        "phase": "anil-independent",
+        "run": 1,
+        "mode": "cold",
+        "pid": 39732,
+        "status": 200,
+        "seconds": 4.227,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-independent",
+        "run": 1,
+        "mode": "warm",
+        "pid": 39732,
+        "status": 200,
+        "seconds": 0.191,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-independent",
+        "run": 2,
+        "mode": "cold",
+        "pid": 62264,
+        "status": 200,
+        "seconds": 3.504,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-independent",
+        "run": 2,
+        "mode": "warm",
+        "pid": 62264,
+        "status": 200,
+        "seconds": 0.159,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-independent",
+        "run": 3,
+        "mode": "cold",
+        "pid": 4120,
+        "status": 200,
+        "seconds": 3.29,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-independent",
+        "run": 3,
+        "mode": "warm",
+        "pid": 4120,
+        "status": 200,
+        "seconds": 0.154,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-independent-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1572.8",
+          "ANIL_HTTP anilist status=200 headers_ms=1375.2",
+          "ANIL_HTTP anilist parsed_ms=2817.9",
+          "ANIL_HTTP anilist complete_ms=2900.7",
+          "ANIL_HTTP anilist parsed_ms=2391.7",
+          "ANIL_HTTP anilist complete_ms=2408.6"
+        ]
+      },
+      {
+        "file": "anil-independent-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=617.8",
+          "ANIL_HTTP anilist status=200 headers_ms=544.5",
+          "ANIL_HTTP anilist parsed_ms=1865.6",
+          "ANIL_HTTP anilist complete_ms=1933.2",
+          "ANIL_HTTP anilist parsed_ms=1573.3",
+          "ANIL_HTTP anilist complete_ms=1596.9"
+        ]
+      },
+      {
+        "file": "anil-independent-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=578.8",
+          "ANIL_HTTP anilist status=200 headers_ms=543.7",
+          "ANIL_HTTP anilist parsed_ms=1833.7",
+          "ANIL_HTTP anilist complete_ms=1904.6",
+          "ANIL_HTTP anilist parsed_ms=1551.8",
+          "ANIL_HTTP anilist complete_ms=1566.6"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-seven",
+    "samples": [
+      {
+        "phase": "anil-seven",
+        "run": 1,
+        "mode": "cold",
+        "pid": 55732,
+        "status": 200,
+        "seconds": 4.819,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-seven",
+        "run": 1,
+        "mode": "warm",
+        "pid": 55732,
+        "status": 200,
+        "seconds": 0.204,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-seven",
+        "run": 2,
+        "mode": "cold",
+        "pid": 37000,
+        "status": 200,
+        "seconds": 3.528,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-seven",
+        "run": 2,
+        "mode": "warm",
+        "pid": 37000,
+        "status": 200,
+        "seconds": 0.135,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-seven",
+        "run": 3,
+        "mode": "cold",
+        "pid": 38552,
+        "status": 200,
+        "seconds": 3.376,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-seven",
+        "run": 3,
+        "mode": "warm",
+        "pid": 38552,
+        "status": 200,
+        "seconds": 0.172,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-seven-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=884.0",
+          "ANIL_HTTP anilist status=200 headers_ms=2245.8",
+          "ANIL_HTTP anilist parsed_ms=1900.3",
+          "ANIL_HTTP anilist complete_ms=1980.4",
+          "ANIL_HTTP anilist parsed_ms=3502.6",
+          "ANIL_HTTP anilist complete_ms=3525.8"
+        ]
+      },
+      {
+        "file": "anil-seven-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=718.4",
+          "ANIL_HTTP anilist status=200 headers_ms=443.0",
+          "ANIL_HTTP anilist parsed_ms=1969.3",
+          "ANIL_HTTP anilist complete_ms=2073.1",
+          "ANIL_HTTP anilist parsed_ms=1457.1",
+          "ANIL_HTTP anilist complete_ms=1504.6"
+        ]
+      },
+      {
+        "file": "anil-seven-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=669.5",
+          "ANIL_HTTP anilist status=200 headers_ms=430.4",
+          "ANIL_HTTP anilist parsed_ms=1939.3",
+          "ANIL_HTTP anilist complete_ms=2045.9",
+          "ANIL_HTTP anilist parsed_ms=1437.0",
+          "ANIL_HTTP anilist complete_ms=1469.6"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-shared",
+    "samples": [
+      {
+        "phase": "anil-shared",
+        "run": 1,
+        "mode": "cold",
+        "pid": 4172,
+        "status": 200,
+        "seconds": 4.337,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-shared",
+        "run": 1,
+        "mode": "warm",
+        "pid": 4172,
+        "status": 200,
+        "seconds": 0.201,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-shared",
+        "run": 2,
+        "mode": "cold",
+        "pid": 40084,
+        "status": 200,
+        "seconds": 6.05,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-shared",
+        "run": 2,
+        "mode": "warm",
+        "pid": 40084,
+        "status": 200,
+        "seconds": 0.206,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-shared",
+        "run": 3,
+        "mode": "cold",
+        "pid": 18296,
+        "status": 200,
+        "seconds": 3.599,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-shared",
+        "run": 3,
+        "mode": "warm",
+        "pid": 18296,
+        "status": 200,
+        "seconds": 0.165,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-shared-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1624.2",
+          "ANIL_HTTP anilist status=200 headers_ms=1401.0",
+          "ANIL_HTTP anilist parsed_ms=2862.9",
+          "ANIL_HTTP anilist complete_ms=2934.6",
+          "ANIL_HTTP anilist parsed_ms=2414.5",
+          "ANIL_HTTP anilist complete_ms=2446.9"
+        ]
+      },
+      {
+        "file": "anil-shared-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=533.0",
+          "ANIL_HTTP anilist status=200 headers_ms=554.2",
+          "ANIL_HTTP anilist parsed_ms=3958.2",
+          "ANIL_HTTP anilist complete_ms=4031.0",
+          "ANIL_HTTP anilist parsed_ms=4220.6",
+          "ANIL_HTTP anilist complete_ms=4238.3"
+        ]
+      },
+      {
+        "file": "anil-shared-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=593.2",
+          "ANIL_HTTP anilist status=200 headers_ms=380.1",
+          "ANIL_HTTP anilist parsed_ms=2169.7",
+          "ANIL_HTTP anilist complete_ms=2240.0",
+          "ANIL_HTTP anilist parsed_ms=1810.1",
+          "ANIL_HTTP anilist complete_ms=1826.7"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-sized",
+    "samples": [
+      {
+        "phase": "anil-sized",
+        "run": 1,
+        "mode": "cold",
+        "pid": 42044,
+        "status": 200,
+        "seconds": 6.331,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-sized",
+        "run": 1,
+        "mode": "warm",
+        "pid": 42044,
+        "status": 200,
+        "seconds": 0.165,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-sized",
+        "run": 2,
+        "mode": "cold",
+        "pid": 50816,
+        "status": 200,
+        "seconds": 3.882,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-sized",
+        "run": 2,
+        "mode": "warm",
+        "pid": 50816,
+        "status": 200,
+        "seconds": 0.178,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-sized",
+        "run": 3,
+        "mode": "cold",
+        "pid": 57184,
+        "status": 200,
+        "seconds": 8.048,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-sized",
+        "run": 3,
+        "mode": "warm",
+        "pid": 57184,
+        "status": 200,
+        "seconds": 0.157,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-sized-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=3339.0",
+          "ANIL_HTTP anilist parsed_ms=4944.2",
+          "ANIL_HTTP anilist complete_ms=5043.1"
+        ]
+      },
+      {
+        "file": "anil-sized-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=691.6",
+          "ANIL_HTTP anilist parsed_ms=2312.0",
+          "ANIL_HTTP anilist complete_ms=2430.8"
+        ]
+      },
+      {
+        "file": "anil-sized-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=756.0",
+          "ANIL_HTTP anilist parsed_ms=6698.6",
+          "ANIL_HTTP anilist complete_ms=6797.2"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-thin",
+    "samples": [
+      {
+        "phase": "anil-thin",
+        "run": 1,
+        "mode": "cold",
+        "pid": 37548,
+        "status": 200,
+        "seconds": 7.344,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-thin",
+        "run": 1,
+        "mode": "warm",
+        "pid": 37548,
+        "status": 200,
+        "seconds": 0.2,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-thin",
+        "run": 2,
+        "mode": "cold",
+        "pid": 57936,
+        "status": 200,
+        "seconds": 4.681,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-thin",
+        "run": 2,
+        "mode": "warm",
+        "pid": 57936,
+        "status": 200,
+        "seconds": 0.169,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-thin",
+        "run": 3,
+        "mode": "cold",
+        "pid": 59372,
+        "status": 200,
+        "seconds": 5.241,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-thin",
+        "run": 3,
+        "mode": "warm",
+        "pid": 59372,
+        "status": 200,
+        "seconds": 0.199,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-thin-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=3078.8",
+          "ANIL_HTTP anilist parsed_ms=4076.7",
+          "ANIL_HTTP anilist complete_ms=4144.4",
+          "ANIL_HTTP anilist status=200 headers_ms=540.3",
+          "ANIL_HTTP anilist parsed_ms=1585.0",
+          "ANIL_HTTP anilist complete_ms=1598.6"
+        ]
+      },
+      {
+        "file": "anil-thin-2-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=745.8",
+          "ANIL_HTTP anilist parsed_ms=1742.5",
+          "ANIL_HTTP anilist complete_ms=1809.6",
+          "ANIL_HTTP anilist status=200 headers_ms=430.4",
+          "ANIL_HTTP anilist parsed_ms=1465.1",
+          "ANIL_HTTP anilist complete_ms=1481.2"
+        ]
+      },
+      {
+        "file": "anil-thin-3-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=859.2",
+          "ANIL_HTTP anilist parsed_ms=1876.3",
+          "ANIL_HTTP anilist complete_ms=1943.0",
+          "ANIL_HTTP anilist status=200 headers_ms=447.3",
+          "ANIL_HTTP anilist parsed_ms=1480.0",
+          "ANIL_HTTP anilist complete_ms=1497.7"
+        ]
+      }
+    ]
+  },
+  {
+    "phase": "anil-trace",
+    "samples": [
+      {
+        "phase": "anil-trace",
+        "run": 1,
+        "mode": "cold",
+        "pid": 53488,
+        "status": 200,
+        "seconds": 8.447,
+        "rails": 11,
+        "cards": 264
+      },
+      {
+        "phase": "anil-trace",
+        "run": 1,
+        "mode": "warm",
+        "pid": 53488,
+        "status": 200,
+        "seconds": 0.183,
+        "rails": 11,
+        "cards": 264
+      }
+    ],
+    "traces": [
+      {
+        "file": "anil-trace-1-anime.log",
+        "http": [
+          "ANIL_HTTP anilist status=200 headers_ms=1976.3",
+          "ANIL_HTTP anilist status=200 headers_ms=2968.9",
+          "ANIL_HTTP anilist complete_ms=5585.9",
+          "ANIL_HTTP anilist complete_ms=6939.6"
+        ]
+      }
+    ]
+  }
+]
