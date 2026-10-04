@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { get } from "@/lib/api";
 import {
   ArrowUp,
   Check,
@@ -55,7 +56,7 @@ export function FolderPicker({
     setError(null);
     try {
       const q = path ? `?path=${encodeURIComponent(path)}` : "";
-      const res = await fetch(`/api/settings/browse-folders${q}`);
+      const res = await get(`/api/settings/browse-folders${q}`);
       const raw = await res.text();
       if (!raw.trim()) {
         throw new Error(

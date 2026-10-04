@@ -9,9 +9,10 @@ import { keepFocusNear } from "@/components/ui/focus-return";
 import { PageSkeletonFrame } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { DataList } from "@/components/tf/data-list";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
-import { sessionAwareFetch } from "@/lib/session-expiry";
+import { send } from "@/lib/api";
 import { formatWhen } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { isReleasePickLink, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
@@ -29,7 +30,7 @@ export interface NotificationItem {
 }
 
 async function mutate(path: string, method = "POST", body?: unknown) {
-  const response = await sessionAwareFetch(`/api/notifications/${path}`, {
+  const response = await send(`/api/notifications/${path}`, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -110,9 +111,10 @@ export function NotificationFeed() {
           </div>
         ) : (
           <Card className="gap-0 py-0">
-            <ul className="divide-y divide-border">
-              {data?.items.map(item => <li key={item.id} data-notification-id={item.id} data-unread={!item.readAt}
-                className="flex min-w-0 flex-wrap items-start gap-3 p-4">
+            <DataList items={data?.items ?? []} getKey={(item) => item.id} className="divide-y divide-border space-y-0"
+              renderRow={(item) => (
+                <div data-notification-id={item.id} data-unread={!item.readAt}
+                  className="flex min-w-0 flex-wrap items-start gap-3 p-4">
                 <span aria-hidden className={cn("mt-2 size-2 shrink-0 rounded-full", item.readAt ? "bg-transparent" : "bg-brand")} />
                 <div className="min-w-0 flex-1 space-y-1">
                   <p className={item.readAt ? "text-muted-foreground" : "font-semibold text-foreground"}>{item.title}</p>
@@ -130,8 +132,9 @@ export function NotificationFeed() {
                   void read(item.id);
                 }}
                   aria-label={`Mark ${item.title} read`} data-notification-read className="min-h-11">Mark read</Button>}
-              </li>)}
-            </ul>
+                </div>
+              )}
+            />
           </Card>
         )}
       {data && data.items.length === 100 && <p className="text-xs text-subtle-foreground">Showing the latest 100 notifications. Mark all read also clears older unread entries.</p>}

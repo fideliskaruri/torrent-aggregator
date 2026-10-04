@@ -1,4 +1,5 @@
 import { readJsonBody } from "@/lib/api-json";
+import { send } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 /** `open` starts the computer's own player; `reveal` shows the file in its folder. */
@@ -27,7 +28,7 @@ export async function openDownload(
 ): Promise<boolean> {
   let res: Response;
   try {
-    res = await fetch(`/api/downloads/${encodeURIComponent(id)}/open`, {
+    res = await send(`/api/downloads/${encodeURIComponent(id)}/open`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode }),

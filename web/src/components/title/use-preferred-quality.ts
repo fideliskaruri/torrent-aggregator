@@ -1,4 +1,5 @@
 import { useCapabilities } from "@/lib/capabilities";
+import { get } from "@/lib/api";
 /**
  * Quality-selection hook — reads the user's preferred resolution from
  * `/api/settings/client` and exposes it for the Download quality picker.
@@ -31,7 +32,7 @@ async function fetchPreferredResolution(): Promise<QualityValue> {
 
   inflight = (async () => {
     try {
-      const res = await fetch("/api/settings/client");
+      const res = await get("/api/settings/client");
       if (!res.ok) return DEFAULT_RESOLUTION;
       const data = await res.json();
       const raw = data?.settings?.preferredResolution as number | null | undefined;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { get, send } from "@/lib/api";
 import { useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { MaxActiveDownloadsControl } from "@/components/settings/max-active-downloads";
@@ -203,7 +204,7 @@ async function postRowAction(
   act: "pause" | "resume" | "force",
   torrent: ClientTorrent,
 ): Promise<RowActionOutcome> {
-  const res = await fetch("/api/client/torrents", {
+  const res = await send("/api/client/torrents", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -230,7 +231,7 @@ async function postHeldDecision(
   act: "keep" | "find-another",
   torrent: ClientTorrent,
 ): Promise<RowActionOutcome> {
-  const res = await fetch(`/api/downloads/${encodeURIComponent(torrent.transferId)}/${act}`, { method: "POST" }).catch(() => null);
+  const res = await send(`/api/downloads/${encodeURIComponent(torrent.transferId)}/${act}`, { method: "POST" }).catch(() => null);
   if (!res) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
   const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(res);
   if (res.ok && data?.ok !== false) return { ok: true };
@@ -334,7 +335,7 @@ export default function ClientPage() {
       return true;
     };
     try {
-      const res = await fetch("/api/client/torrents");
+      const res = await get("/api/client/torrents");
       const text = await res.text();
       let data: {
         torrents?: ClientTorrent[];
@@ -443,7 +444,7 @@ export default function ClientPage() {
   async function switchToBuiltin() {
     setSwitchingBuiltin(true);
     try {
-      const res = await fetch("/api/settings/client", {
+      const res = await send("/api/settings/client", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ switchToBuiltin: true }),
@@ -756,7 +757,7 @@ export default function ClientPage() {
     const label = transferLabel(torrent);
     invalidateInFlight();
     try {
-      const response = await fetch(`/api/downloads/${encodeURIComponent(torrent.transferId)}/find-another`, {
+      const response = await send(`/api/downloads/${encodeURIComponent(torrent.transferId)}/find-another`, {
         method: "POST",
       });
       const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
@@ -796,7 +797,7 @@ export default function ClientPage() {
     if (!(await ensureDownloadSetup())) return;
     setSendingRaw(true);
     try {
-      const res = await fetch("/api/torrent/send", {
+      const res = await send("/api/torrent/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -869,7 +870,7 @@ export default function ClientPage() {
     try {
       type DeleteResult = { ok: boolean; name: string; msg?: string };
       const post = async (payload: Record<string, unknown>) => {
-        const res = await fetch("/api/client/torrents", {
+        const res = await send("/api/client/torrents", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "delete", deleteFiles, ...payload }),
@@ -978,7 +979,7 @@ export default function ClientPage() {
   async function tidyFolders() {
     setTidying(true);
     try {
-      const res = await fetch("/api/client/torrents/tidy", { method: "POST" });
+      const res = await send("/api/client/torrents/tidy", { method: "POST" });
       const data = (await res.json().catch(() => null)) as TidyResult | null;
       if (!res.ok || !data) {
         toast.error("Could not tidy folders. Try again.");
@@ -1008,7 +1009,7 @@ export default function ClientPage() {
   async function openDownloadFolder(t: ClientTorrent) {
     setOpeningHash(t.transferId);
     try {
-      const res = await fetch("/api/settings/open-folder", {
+      const res = await send("/api/settings/open-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,4 +1,5 @@
 import { readJsonBody } from "@/lib/api-json";
+import { get, send } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,7 @@ let prefetched: { promise: Promise<RecoveryResult>; result: RecoveryResult | nul
 
 async function fetchRecovery(signal?: AbortSignal): Promise<RecoveryResult> {
   try {
-    const response = await fetch("/api/settings/download-recovery", { signal, cache: "no-store" });
+    const response = await get("/api/settings/download-recovery", { signal, cache: "no-store" });
     if (response.status === 404 || response.status === 403) return { info: null, error: false }; // Owner-only, hidden on remote access.
     if (!response.ok) throw new Error("Could not inspect download storage");
     return { info: await readJsonBody<RecoveryInfo>(response), error: false };
@@ -109,7 +110,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
   async function scanSources() {
     setSourceState("loading");
     try {
-      const response = await fetch("/api/settings/download-recovery/sources", { cache: "no-store" });
+      const response = await get("/api/settings/download-recovery/sources", { cache: "no-store" });
       if (response.status === 404 || response.status === 403) {
         setInfo(null);
         setSourceScan(null);
@@ -140,7 +141,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     setSourceBusy(true);
     const pending = toast.loading("Importing selected torrents…");
     try {
-      const response = await fetch("/api/settings/download-recovery/sources", {
+      const response = await send("/api/settings/download-recovery/sources", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ids: [...selectedIds], acknowledged: true }),
@@ -174,7 +175,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
   async function importFiles() {
     setBusy(true);
     try {
-      const response = await fetch("/api/settings/download-recovery", { method: "POST" });
+      const response = await send("/api/settings/download-recovery", { method: "POST" });
       const result = ((await readJsonBody(response)) ?? {}) as { imported?: number; restoredTorrents?: number; failedTorrents?: number; error?: string };
       if (!response.ok) throw new Error(result.error || "Import failed");
       const message = `Imported ${result.imported ?? 0} local files; restored ${result.restoredTorrents ?? 0} torrents.`;
@@ -293,4 +294,3 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     </Dialog>
   </div>;
 }
-

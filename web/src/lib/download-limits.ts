@@ -4,6 +4,7 @@
  * status line. The PUT is a partial update, so `{ maxActiveDownloads }` alone
  * changes nothing else.
  */
+import { get, send } from "@/lib/api";
 import { readJsonBody } from "@/lib/api-json";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 
@@ -47,7 +48,7 @@ function limitsFrom(body: SettingsBody | null): DownloadLimits | null {
 
 export async function readDownloadLimits(signal?: AbortSignal): Promise<DownloadLimits | null> {
   try {
-    const res = await fetch("/api/settings/client", { cache: "no-store", signal });
+    const res = await get("/api/settings/client", { cache: "no-store", signal });
     if (!res.ok) return null;
     return limitsFrom(await readJsonBody<SettingsBody>(res));
   } catch {
@@ -62,7 +63,7 @@ export type SaveDownloadLimitResult =
 export async function setMaxActiveDownloads(value: number): Promise<SaveDownloadLimitResult> {
   let res: Response;
   try {
-    res = await fetch("/api/settings/client", {
+    res = await send("/api/settings/client", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ maxActiveDownloads: value }),

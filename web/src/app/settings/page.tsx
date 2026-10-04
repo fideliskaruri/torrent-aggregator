@@ -1,4 +1,5 @@
 import { QualityOptions } from "@/components/settings/quality-options";
+import { get, send } from "@/lib/api";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery, prefetchDownloadRecovery } from "@/components/settings/download-recovery";
@@ -283,7 +284,7 @@ export default function SettingsPage() {
       // Held with the settings so the storage block lands with the form, not after it.
       const recovery = prefetchDownloadRecovery();
       try {
-        const res = await fetch("/api/settings/client");
+        const res = await get("/api/settings/client");
         await recovery;
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as {
@@ -494,7 +495,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const downloadWindows = form.downloadWindows.map(toWindow);
-      const res = await fetch("/api/settings/client", {
+      const res = await send("/api/settings/client", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -659,7 +660,7 @@ export default function SettingsPage() {
     }
     setOpeningPath(path || category || "default");
     try {
-      const res = await fetch("/api/settings/open-folder", {
+      const res = await send("/api/settings/open-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: path || null, category: category || null }),

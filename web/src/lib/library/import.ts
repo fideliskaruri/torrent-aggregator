@@ -1,4 +1,4 @@
-import { readJsonBody } from "@/lib/api-json";
+import { send } from "@/lib/api";
 
 /** Library kinds a drive accepts, in the server's enum order. */
 export const LIBRARY_KINDS = [
@@ -64,17 +64,13 @@ export interface ImportResultItem {
 
 /** Sends JSON to a library route and returns the body, or throws the server's own message. */
 export async function libraryRequest<T>(method: string, url: string, body?: unknown): Promise<T> {
-  let res: Response;
+  let res;
   try {
-    res = await fetch(url, {
-      method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    res = await send<T>(url, { method, body });
   } catch {
     throw new Error("TorrentFlow didn't answer. Check that it's running, then try again.");
   }
-  const json = await readJsonBody<Record<string, unknown>>(res);
+  const json = res.data as Record<string, unknown> | null;
   if (!res.ok) {
     const failure = json?.failure as { message?: string } | undefined;
     const message = failure?.message ?? (typeof json?.message === "string" ? json.message : null);

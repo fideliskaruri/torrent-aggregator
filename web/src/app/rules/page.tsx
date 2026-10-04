@@ -1,4 +1,5 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useState } from "react";
+import { send } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { ConfirmAction } from "@/components/tf/confirm-action";
+import { DataList } from "@/components/tf/data-list";
+import { FilterBar, type FilterField } from "@/components/tf/filter-bar";
+import { BulkBar } from "@/components/tf/bulk-bar";
+import { StatusChip } from "@/components/tf/status-chip";
+import { useSelection } from "@/components/tf/use-selection";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
@@ -55,6 +62,10 @@ interface Rule {
   lastMatchTitle: string | null;
   matchCount: number;
 }
+
+const RULE_FILTERS: FilterField<Rule>[] = [
+  { key: "name", label: "Search rules", kind: "search" },
+];
 
 const sourceChipClass =
   "h-auto min-h-11 max-w-full shrink rounded-full border border-border bg-muted px-2.5 py-1.5 text-xs font-normal leading-snug whitespace-normal break-words text-center text-muted-foreground hover:text-foreground data-[state=on]:border-brand/50 data-[state=on]:bg-brand-dim data-[state=on]:text-brand-foreground lg:min-h-7";
@@ -130,10 +141,14 @@ export default function RulesPage() {
   });
   const { data: rulesData, refetch: load } = rulesQuery;
   const rules = rulesData ?? [];
+  const [rulePredicate, setRulePredicate] = useState<(rule: Rule) => boolean>(() => () => true);
+  const updateRulePredicate = useCallback((predicate: (rule: Rule) => boolean) => {
+    setRulePredicate(() => predicate);
+  }, []);
+  const filteredRules = rules.filter(rulePredicate);
+  const selection = useSelection(filteredRules, (rule) => rule.id);
   const [running, setRunning] = useState(false);
   const [runReviewOpen, setRunReviewOpen] = useState(false);
-  const [pendingRemove, setPendingRemove] = useState<Rule | null>(null);
-  const [removing, setRemoving] = useState(false);
   const [retargeting, setRetargeting] = useState<string | null>(null);
   const [retargetCategories, setRetargetCategories] = useState<
     Record<string, RuleCategoryValue>
@@ -159,7 +174,7 @@ export default function RulesPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     try {
-      const res = await fetch("/api/rules", {
+      const res = await send("/api/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildRuleCreatePayload(form)),
@@ -195,7 +210,7 @@ export default function RulesPage() {
    */
   async function toggle(id: string, enabled: boolean) {
     try {
-      const res = await fetch("/api/rules", {
+      const res = await send("/api/rules", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildRuleTogglePayload(id, enabled)),
@@ -218,7 +233,7 @@ export default function RulesPage() {
       retargetCategories[rule.id] ?? normalizeRuleCategory(rule.category);
     setRetargeting(rule.id);
     try {
-      const res = await fetch("/api/rules", {
+      const res = await send("/api/rules", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildRuleRetargetPayload(rule.id, nextCategory)),
@@ -242,30 +257,26 @@ export default function RulesPage() {
     }
   }
 
-  async function confirmRemove() {
-    if (!pendingRemove) return;
-    setRemoving(true);
-    try {
-      const res = await fetch(
-        `/api/rules?id=${encodeURIComponent(pendingRemove.id)}`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) {
-        // The dialog stays open and the rule stays listed. Closing it and
-        // announcing "Rule deleted" on a failed request told the user the
-        // thing was gone while it was still running.
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Could not delete rule");
-        return;
+  async function deleteRule(rule: Rule) {
+    const res = await send(`/api/rules?id=${encodeURIComponent(rule.id)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(res.error?.message ?? "Could not delete rule");
+  }
+
+  async function deleteSelectedRules() {
+    const count = selection.selected.length;
+    const results = await Promise.all(selection.selected.map(async (rule) => {
+      try {
+        await deleteRule(rule);
+        return true;
+      } catch {
+        return false;
       }
-      setPendingRemove(null);
-      toast.success("Rule deleted");
-      void load();
-    } catch {
-      toast.error("Could not delete rule");
-    } finally {
-      setRemoving(false);
-    }
+    }));
+    const failures = results.filter((ok) => !ok).length;
+    selection.clear();
+    void load();
+    if (failures) throw new Error(`Could not delete ${failures} of ${count} rules. The list has been refreshed.`);
+    toast.success(`${count} ${count === 1 ? "rule" : "rules"} deleted`);
   }
 
   function setSources(sources: string[]) {
@@ -305,7 +316,7 @@ export default function RulesPage() {
     const filters = filtersForRule(rule);
     setSavingFilters(rule.id);
     try {
-      const res = await fetch("/api/rules", {
+      const res = await send("/api/rules", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildRuleFilterPayload(rule.id, filters)),
@@ -338,7 +349,7 @@ export default function RulesPage() {
     }
     setRunning(true);
     try {
-      const res = await fetch("/api/rules/run", { method: "POST" });
+      const res = await send("/api/rules/run", { method: "POST" });
       const data = await res.json().catch(() => ({
         ok: false,
         message: "TorrentFlow didn't send back a result. Check Downloads, then run the rules again.",
@@ -556,8 +567,23 @@ export default function RulesPage() {
         </Button>
       </form>
 
-      <div className="space-y-2">
-        {rules.map((rule) => {
+      <FilterBar fields={RULE_FILTERS} onPredicateChange={updateRulePredicate}>
+        {({ clearFilters }) => (
+        <>
+        <DataList
+          items={filteredRules}
+          getKey={(rule) => rule.id}
+          selection={selection}
+          noResults={rules.length > 0 && !filteredRules.length}
+          onClearFilters={clearFilters}
+          empty={
+            <TfEmptyState
+              icon={Zap}
+              title="No rules yet"
+              description="Create a rule above to auto-send matching releases."
+            />
+          }
+          renderRow={(rule) => {
           const category = describeRuleCategory(rule.category);
           const selectedRetarget =
             retargetCategories[rule.id] ?? normalizeRuleCategory(rule.category);
@@ -572,16 +598,11 @@ export default function RulesPage() {
           const sizeSummary = bytesToMaxSizeGbInput(rule.maxSizeBytes);
           const filterEdit = filtersForRule(rule);
           return (
-            <div
-              key={rule.id}
-              className="surface p-4 flex flex-wrap items-start gap-3"
-            >
+            <div className="surface p-4 flex flex-wrap items-start gap-3">
               <div className="flex-1 min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-foreground">{rule.name}</p>
-                  <Badge variant={rule.enabled ? "accent" : "secondary"}>
-                    {rule.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
+                  <StatusChip label={rule.enabled ? "Enabled" : "Disabled"} tone={rule.enabled ? "active" : "neutral"} />
                   {!category.supported ? (
                     <Badge variant="secondary">Unsupported category</Badge>
                   ) : null}
@@ -752,27 +773,38 @@ export default function RulesPage() {
                 />
                 Enabled
               </Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setPendingRemove(rule)}
-                aria-label="Delete rule"
-                className="text-subtle-foreground hover:text-destructive"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <ConfirmAction
+                label={<><Trash2 className="size-4" /><span className="sr-only">Delete rule</span></>}
+                title="Delete rule?"
+                description={`"${rule.name}" stops matching releases. Past sends stay in Notifications.`}
+                confirmLabel="Delete rule"
+                onConfirm={async () => {
+                  await deleteRule(rule);
+                  toast.success("Rule deleted");
+                  void load();
+                }}
+                buttonProps={{ size: "icon-sm", "aria-label": "Delete rule", className: "text-subtle-foreground hover:text-destructive" }}
+              />
             </div>
           );
-        })}
-        {!rules.length ? (
-          <TfEmptyState
-            icon={Zap}
-            title="No rules yet"
-            description="Create a rule above to auto-send matching releases."
-          />
-        ) : null}
-      </div>
+          }}
+        />
+        <BulkBar
+          count={selection.selected.length}
+          onClear={selection.clear}
+          actions={
+            <ConfirmAction
+              label="Delete selected"
+              title="Delete selected rules?"
+              description={`This will delete ${selection.selected.length} selected ${selection.selected.length === 1 ? "rule" : "rules"}.`}
+              confirmLabel="Delete rules"
+              onConfirm={deleteSelectedRules}
+            />
+          }
+        />
+        </>
+        )}
+      </FilterBar>
 
       <ConfirmDialog
         open={runReviewOpen}
@@ -790,22 +822,6 @@ export default function RulesPage() {
         onConfirm={() => void runAll().finally(() => setRunReviewOpen(false))}
       />
 
-      <ConfirmDialog
-        open={Boolean(pendingRemove)}
-        onOpenChange={(open) => {
-          if (!open) setPendingRemove(null);
-        }}
-        title="Delete rule?"
-        description={
-          pendingRemove
-            ? `"${pendingRemove.name}" stops matching releases. Past sends stay in Notifications.`
-            : undefined
-        }
-        variant="destructive"
-        busy={removing}
-        confirmLabel="Delete rule"
-        onConfirm={() => void confirmRemove()}
-      />
     </div>
     )}
     </PageQueryBoundary>

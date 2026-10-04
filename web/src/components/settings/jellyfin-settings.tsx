@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { get, send } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +40,7 @@ export function JellyfinSettings() {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/settings/jellyfin", { cache: "no-store" });
+      const response = await get("/api/settings/jellyfin", { cache: "no-store" });
       const body = await readJsonBody<Status>(response);
       if (!response.ok || !body) throw new Error();
       apply(body);
@@ -55,7 +56,7 @@ export function JellyfinSettings() {
     setBusy(true);
     setResult(null);
     try {
-      const response = await fetch("/api/settings/jellyfin", {
+      const response = await send("/api/settings/jellyfin", {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft()),
       });
       const body = await readJsonBody(response);
@@ -71,7 +72,7 @@ export function JellyfinSettings() {
     setBusy(true);
     setResult(null);
     try {
-      const response = await fetch("/api/settings/jellyfin/test", {
+      const response = await send("/api/settings/jellyfin/test", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft()),
       });
       const body = await readJsonBody<{ ok: boolean; message: string }>(response);
@@ -87,7 +88,7 @@ export function JellyfinSettings() {
     setBusy(true);
     setResult(null);
     try {
-      const response = await fetch("/api/settings/jellyfin", { method: "DELETE" });
+      const response = await send("/api/settings/jellyfin", { method: "DELETE" });
       const body = await readJsonBody<Status>(response);
       if (!response.ok || !body) throw new Error();
       apply(body);

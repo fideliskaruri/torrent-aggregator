@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { get, send } from "@/lib/api";
 import type { Artwork } from "@/lib/metadata/artwork";
 import {
   artworkQueryFor,
@@ -44,7 +45,7 @@ function announce() {
 async function postArtwork(
   queries: ReleaseArtworkQuery[],
 ): Promise<Record<string, Artwork>> {
-  const res = await fetch("/api/artwork", {
+  const res = await send("/api/artwork", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

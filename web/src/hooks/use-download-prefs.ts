@@ -1,4 +1,5 @@
 import { useCapabilities } from "@/lib/capabilities";
+import { get } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 
 export interface DownloadPrefs {
@@ -41,7 +42,7 @@ async function fetchPrefs(): Promise<DownloadPrefs> {
 
   inflight = (async () => {
     try {
-      const res = await fetch("/api/settings/client");
+      const res = await get("/api/settings/client");
       if (!res.ok) {
         return {
           category: "",
