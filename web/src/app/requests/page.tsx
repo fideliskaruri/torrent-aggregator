@@ -4,9 +4,6 @@ import { openReleasePicker,PICK_RELEASE_LABEL } from "@/components/releases/rele
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { MediaPoster } from "@/components/browse/media-poster-card";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
@@ -29,8 +26,7 @@ canRetryRequest,
 statusTone,
 type OwnerRequest,
 } from "@/lib/requests";
-
-const REASON_MAX = 500;
+import { RequestDeclineDialog } from "./request-decline-dialog";
 
 /**
  * One page for everyone. The owner sees the inbox of every request, with
@@ -268,37 +264,16 @@ export default function RequestsPage() {
         )}
       </PageQueryBoundary>
 
-      <ConfirmDialog
-        open={declining != null}
+      <RequestDeclineDialog
+        request={declining}
+        reason={reason}
+        onReasonChange={setReason}
         onOpenChange={(open) => (!open ? setDeclining(null) : undefined)}
-        contentData={{ "data-owner-decline-dialog": true }}
-        confirmData={{ "data-owner-decline-confirm": true }}
-        title={`Decline ${declining?.title ?? "this request"}?`}
-        description="They'll see it was declined, and your reason if you give one."
-        cancelLabel="Keep it"
-        variant="destructive"
-        confirmLabel="Decline request"
         onConfirm={() => {
           if (declining) void decide(declining, "decline", reason);
           setDeclining(null);
         }}
-      >
-          <div className="space-y-1.5">
-            <Label htmlFor="decline-reason" className="text-xs text-muted-foreground">
-              Reason <span className="font-normal text-subtle-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="decline-reason"
-              value={reason}
-              maxLength={REASON_MAX}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              className="min-h-20"
-              placeholder="Already on a streaming service, for example"
-              data-owner-decline-reason
-            />
-          </div>
-      </ConfirmDialog>
+      />
     </div>
   );
 }
