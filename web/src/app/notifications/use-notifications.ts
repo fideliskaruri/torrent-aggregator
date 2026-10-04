@@ -21,7 +21,7 @@ interface NotificationResponse {
 }
 
 function parseNotifications(json: unknown): NotificationResponse {
-  const body = (json ?? {}) as { items?: unknown; unreadCount?: unknown };
+  const body = (json ?? {}) as { items?: unknown; unreadCount: number };
   const rows = Array.isArray(body.items) ? body.items : [];
   const items = rows.flatMap((value): NotificationItem[] => {
     const row = (value ?? {}) as Record<string, unknown>;
@@ -41,7 +41,7 @@ function parseNotifications(json: unknown): NotificationResponse {
   });
   return {
     items,
-    unreadCount: typeof body.unreadCount === "number" ? body.unreadCount : items.filter((item) => item.unread).length,
+    unreadCount: body.unreadCount,
   };
 }
 
@@ -53,13 +53,10 @@ export function useNotifications() {
     select: parseNotifications,
   });
 
-  async function mutate(paths: readonly string[], method = "POST") {
+  async function mutate(actions: readonly { url: string; method?: "POST" | "DELETE" }[]) {
     setBusy(true);
     try {
-      const responses = await Promise.all(paths.map(async (path) => {
-        const endpoint = path ? `/api/notifications/${path}` : "/api/notifications";
-        return send(endpoint, { method });
-      }));
+      const responses = await Promise.all(actions.map(({ url, method = "POST" }) => send(url, { method })));
       const failed = responses.find((response) => !response.ok);
       if (failed) throw failed.error ?? new Error(`Could not update notifications (${failed.status}). Try again.`);
     } finally {
@@ -70,20 +67,22 @@ export function useNotifications() {
   }
 
   async function markRead(id: string) {
-    await mutate([`read/${encodeURIComponent(id)}`]);
+    await mutate([{ url: `/api/notifications/read/${encodeURIComponent(id)}` }]);
   }
 
-  async function markAllRead(ids?: readonly string[]) {
-    if (!ids || ids.length === 0) {
-      await mutate(["read-all"]);
-      return;
-    }
-    await mutate(ids.map((id) => `read/${encodeURIComponent(id)}`));
+  async function markManyRead(ids: readonly string[]) {
+    await mutate(ids.map((id) => ({
+      url: `/api/notifications/read/${encodeURIComponent(id)}`,
+    })));
+  }
+
+  async function markAllRead() {
+    await mutate([{ url: "/api/notifications/read-all" }]);
   }
 
   async function clearAll() {
-    await mutate([""], "DELETE");
+    await mutate([{ url: "/api/notifications", method: "DELETE" }]);
   }
 
-  return { query, busy, markRead, markManyRead: markAllRead, markAllRead: () => markAllRead(), clearAll };
+  return { query, busy, markRead, markManyRead, markAllRead, clearAll };
 }

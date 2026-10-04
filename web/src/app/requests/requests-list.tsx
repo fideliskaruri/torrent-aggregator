@@ -1,17 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
-import { Check, Inbox, Loader2, RotateCw, Search, X } from "lucide-react";
+import { Check, Loader2, RotateCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/tf/confirm-action";
 import { DataList } from "@/components/tf/data-list";
 import { FilterBar, type FilterField } from "@/components/tf/filter-bar";
 import { BulkBar } from "@/components/tf/bulk-bar";
 import { StatusChip } from "@/components/tf/status-chip";
-import { TfEmptyState } from "@/components/tf/empty-state";
 import { useSelection } from "@/components/tf/use-selection";
 import { MediaPoster } from "@/components/browse/media-poster-card";
 import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { AIRING_NOTE, canRetryRequest, progressLabel, scopeLabel, statusTone } from "@/lib/requests";
-import type { OwnerRequest, RequestStatus } from "@/lib/requests";
+import type { OwnerRequest } from "@/lib/requests";
 import { RequestDeclineDialog } from "./request-decline-dialog";
 
 const KEY = (request: OwnerRequest) => request.id;
@@ -33,11 +32,6 @@ const FILTER_FIELDS: readonly FilterField<OwnerRequest>[] = [
     ],
   },
 ];
-
-function chipTone(status: RequestStatus): "active" | "done" | "error" | "neutral" {
-  const tone = statusTone(status);
-  return tone === "accent" ? "active" : tone === "success" ? "done" : tone === "danger" ? "error" : "neutral";
-}
 
 export function RequestsList({
   rows,
@@ -62,20 +56,6 @@ export function RequestsList({
   const filterChange = useCallback((next: (request: OwnerRequest) => boolean) => setPredicate(() => next), []);
   const clearFilters = useCallback(() => setPredicate(() => () => true), []);
 
-  const empty = rows.length ? (
-    <TfEmptyState icon={Search} title="No requests match" description="Clear the filters to see other requests." />
-  ) : reviewer ? (
-    <TfEmptyState icon={Inbox} title="No requests" description="When a friend asks for a title it shows up here." />
-  ) : (
-    <TfEmptyState
-      icon={Inbox}
-      title="No requests yet"
-      description="Browse or search for something, then press Request."
-      actionLabel="Go to Browse"
-      actionHref="/"
-    />
-  );
-
   async function approveSelected() {
     const selected = selection.selected.filter((request) => request.status === "pending");
     selection.clear();
@@ -90,14 +70,14 @@ export function RequestsList({
             items={filtered}
             getKey={KEY}
             selection={reviewer ? selection : undefined}
-            empty={empty}
             noResults={Boolean(rows.length && activeCount)}
             onClearFilters={clearFilters}
             className="space-y-2"
             renderRow={(request) => {
               const busy = busyId === request.id;
-              const shown = request.status === "pending" ? request.status : (request.phase ?? request.status);
-              const from = (request.requesters.length ? request.requesters : [request.requestedBy]).filter(Boolean).join(", ");
+              const shown = request.phase ?? request.status;
+              const from = request.requesters.join(", ");
+              const tone = statusTone(shown);
               return (
                 <div className="surface flex min-w-0 flex-wrap items-start gap-3 p-3 sm:gap-4" data-owner-request-row={request.status}>
                   <MediaPoster variant="row" src={request.posterUrl} title={request.title} />
@@ -110,7 +90,7 @@ export function RequestsList({
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusChip
                           label={request.status === "pending" && reviewer ? "Waiting for you" : progressLabel(shown, request.done, request.total)}
-                          tone={chipTone(shown)}
+                          tone={tone === "accent" ? "active" : tone === "success" ? "done" : tone === "danger" ? "error" : "neutral"}
                           className="text-xs"
                         />
                         <span className="text-xs text-subtle-foreground">{scopeLabel(request)}</span>

@@ -84,15 +84,13 @@ export function olderActivityAction(
   return hasMore ? "fetch" : "none";
 }
 
-/** The feed URL for a page, with the cursor contract in one place. The cursor
- * is an opaque server token — build it only from a previous `nextCursor`. */
+/** The sent-download log URL. Cursors come only from the server. */
 export function activityPageUrl(options: {
-  sentOnly: boolean;
   cursor?: string | null;
   limit?: number;
 }): string {
   const params = new URLSearchParams();
-  if (options.sentOnly) params.set("filter", "sent");
+  params.set("filter", "sent");
   params.set("limit", String(options.limit ?? ACTIVITY_PAGE_SIZE));
   if (options.cursor) params.set("cursor", options.cursor);
   return `/api/activity?${params.toString()}`;
