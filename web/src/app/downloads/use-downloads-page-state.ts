@@ -20,7 +20,6 @@ export function useDownloadsPageState() {
   const { ensureDownloadSetup } = useDownloadSetup();
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(null);
   const [openingHash, setOpeningHash] = useState<string | null>(null);
-  const [tidying, setTidying] = useState(false);
   const [findAnotherTorrent, setFindAnotherTorrent] = useState<ClientTorrent | null>(null);
   const [findingAnother, setFindingAnother] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -59,7 +58,7 @@ export function useDownloadsPageState() {
 
   return {
     displayPath, ensureDownloadSetup, pendingDelete, setPendingDelete,
-    openingHash, setOpeningHash, tidying, setTidying,
+    openingHash, setOpeningHash,
     findAnotherTorrent, setFindAnotherTorrent, findingAnother, setFindingAnother,
     selected, setSelected, filter, setFilter,
     statusFilter, setStatusFilter, mediaTab, setMediaTab, sort, setSort,

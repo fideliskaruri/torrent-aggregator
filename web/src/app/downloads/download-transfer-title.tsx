@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 
-export const TRANSFER_THUMB_PX = 40;
+const TRANSFER_THUMB_PX = 40;
 
 export function transferTitleParts({
   title,

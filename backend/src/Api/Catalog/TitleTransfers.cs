@@ -103,12 +103,10 @@ internal static class TitleTransfers
         return new(film is null ? null : Transfer([film], DownloadFor(film)), seasonTransfers, episodeTransfers);
     }
 
-    private static string WaitingState(TargetRow target)
+    private static string WaitingState(TargetRow target) => target.ReasonCode switch
     {
-        var label = DownloadRowView.WantedStatusLabel(target.State, target.ReasonText);
-        if (label.Contains("episode list", StringComparison.OrdinalIgnoreCase) ||
-            label.Contains("season list", StringComparison.OrdinalIgnoreCase))
-            return "waiting_season_list";
-        return label.Contains("English", StringComparison.OrdinalIgnoreCase) ? "waiting_english" : "looking";
-    }
+        WaitReason.MetadataUnavailable => "waiting_season_list",
+        WaitReason.MappingUncertain => "waiting_english",
+        _ => "looking",
+    };
 }

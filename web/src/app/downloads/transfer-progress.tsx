@@ -1,15 +1,14 @@
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
-import { isDownloaded, isError, isPaused, isQueued } from "./grouping";
 import type { DownloadStatus } from "./types";
 
 /** The fill colour of every transfer bar: done, failed, waiting or moving. */
 export function transferBarTone(status: DownloadStatus, failing = false): string {
-  return isDownloaded(status)
+  return status === "ready"
     ? "bg-success"
-    : isError(status) || failing
+    : status === "error" || failing
       ? "bg-destructive"
-      : isPaused(status) || isQueued(status)
+      : status === "paused" || status === "queued"
         ? "bg-subtle-foreground"
         : "bg-primary";
 }

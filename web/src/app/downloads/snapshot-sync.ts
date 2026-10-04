@@ -27,20 +27,16 @@
 export interface SnapshotState<T> {
   torrents: T[];
   error: string | null;
-  offline: boolean;
   /** The last applied snapshot was a complete, successful read of the client. */
   authoritative: boolean;
 }
 
 export type SnapshotResult<T> =
   | { ok: true; torrents: T[] }
-  /** The request completed but the client is unreachable / errored. */
-  | { ok: false; error: string; offline: boolean; torrents?: T[] }
-  /** The request itself failed (network, bad JSON, aborted). */
-  | { ok: false; error: string; offline?: undefined; torrents?: undefined };
+  | { ok: false; error: string };
 
 export function emptySnapshotState<T>(): SnapshotState<T> {
-  return { torrents: [], error: null, offline: false, authoritative: false };
+  return { torrents: [], error: null, authoritative: false };
 }
 
 /**
@@ -54,22 +50,11 @@ export function applySnapshot<T>(
   result: SnapshotResult<T>,
 ): SnapshotState<T> {
   if (result.ok) {
-    return { torrents: result.torrents, error: null, offline: false, authoritative: true };
+    return { torrents: result.torrents, error: null, authoritative: true };
   }
-  // An offline/errored client can still report rows it knows about; prefer
-  // those. But a failure list is never authoritative emptiness: our own API
-  // ships `torrents: []` on every failure body (400/500 and the 502/503
-  // client-unreachable branch), so `result.torrents ?? prev.torrents` would
-  // still wipe the last good rows and force-close the series dialog on a
-  // sleeping laptop. An absent *or empty* failure list means "we could not
-  // look", which is exactly when the last good list is the honest thing to
-  // show. Only a successful read may empty the page.
-  const reported = result.torrents;
-  const torrents = reported && reported.length > 0 ? reported : prev.torrents;
   return {
-    torrents,
+    torrents: prev.torrents,
     error: result.error,
-    offline: Boolean(result.offline),
     authoritative: false,
   };
 }

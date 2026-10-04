@@ -1,7 +1,5 @@
-import { WAITING_FOR_ENGLISH_LABEL, WAITING_FOR_SEASON_LIST_LABEL } from "@/components/title/title-actions";
 import type { WantedRow, WantedTarget } from "@/components/wanted/wanted-actions";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
-import { normalizeMediaType } from "@/lib/metadata/media-type";
 import { titleWithYear } from "./release-display";
 import type { DownloadMediaKind } from "./types";
 
@@ -12,10 +10,8 @@ export interface WantedGroup extends WantedTarget {
   mediaType: string | null;
   mediaKind: DownloadMediaKind | null;
   label: string | null;
+  statusLabel: string;
   looking: boolean;
-  waitingForEnglish: boolean;
-  waitingForSeasonList: boolean;
-  why: string | null;
   nextAttemptAt: string | null;
   name: string;
   rows: WantedRow[];
@@ -28,14 +24,6 @@ export interface WantedTitle {
   mediaType: string | null;
   mediaKind: DownloadMediaKind | null;
   groups: WantedGroup[];
-}
-
-function wantedMediaKind(mediaType: string | null | undefined): DownloadMediaKind | null {
-  const normalized = normalizeMediaType(mediaType);
-  if (normalized === "movie") return "movie";
-  if (normalized === "anime") return "anime";
-  if (normalized === "tv") return "series";
-  return null;
 }
 
 export function groupWantedRows(rows: readonly WantedRow[]): WantedGroup[] {
@@ -69,14 +57,12 @@ export function groupWantedRows(rows: readonly WantedRow[]): WantedGroup[] {
       title: first.season == null ? titleWithYear(name, first.year) : name,
       year: first.year ?? null,
       mediaType: first.mediaType ?? null,
-      mediaKind: wantedMediaKind(first.mediaType),
+      mediaKind: first.mediaKind ?? null,
       season: first.season ?? null,
       episode: singleEpisode,
       label,
+      statusLabel: items.find((item) => item.looking)?.statusLabel ?? first.statusLabel,
       looking: items.some((item) => item.looking),
-      waitingForEnglish: items.some((item) => item.error?.startsWith(WAITING_FOR_ENGLISH_LABEL) ?? false),
-      waitingForSeasonList: items.some((item) => item.error?.startsWith(WAITING_FOR_SEASON_LIST_LABEL) ?? false),
-      why: items.find((item) => item.why)?.why ?? items.find((item) => item.error)?.error ?? null,
       nextAttemptAt,
       name,
       rows: items,
@@ -102,12 +88,6 @@ export function groupWantedTitles(groups: readonly WantedGroup[]): WantedTitle[]
       groups: items,
     }))
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
-}
-
-export function wantedGroupStateLabel(group: WantedGroup): string {
-  if (group.waitingForSeasonList) return "Waiting for season list";
-  if (group.waitingForEnglish) return "Waiting for English";
-  return group.looking ? "Searching" : "Not found yet";
 }
 
 function nextTry(iso: string | null): string {
@@ -136,8 +116,4 @@ export function wantedSubtitle(title: WantedTitle): string {
 
 export function wantedGroupName(group: WantedGroup): string {
   return group.label ? `${group.title} ${group.label}` : group.title;
-}
-
-export function wantedTitleKeyForDownload(groupKey: string, workKey: string | null | undefined): string {
-  return groupKey.trim() || workKey?.trim() || groupKey;
 }

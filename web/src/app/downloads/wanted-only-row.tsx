@@ -1,12 +1,11 @@
-import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { openReleasePicker } from "@/components/releases/release-picker-store";
 import { titlePath } from "@/components/title/work-key";
 import { wantedSubtitle, wantedTooltip, type WantedTitle } from "./wanted-groups";
 import { SearchingBadge } from "./searching-badge";
 import { WantedMenuActions } from "./wanted-menu-actions";
+import { transferTitleParts } from "./download-transfer-title";
 import type { useDownloads } from "./use-downloads";
 
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
@@ -20,19 +19,15 @@ export function WantedOnlyRow({ title, wanted }: { title: WantedTitle; wanted: W
     season: primary.season,
   });
   const subtitle = wantedSubtitle(title);
+  const heading = transferTitleParts({ title: title.title, href, heading: true });
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 px-3 py-2.5 transition-colors hover:bg-muted/60 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3"
       data-wanted-only-row={title.workKey}>
       <span aria-hidden className="size-4 shrink-0" />
       <div className="flex min-w-0 items-center gap-2.5">
-        <Link to={href} tabIndex={-1} aria-hidden className="shrink-0">
-          <TfWorkThumb title={title.title} sizePx={40} />
-        </Link>
+        {heading.thumb}
         <div className="min-w-0 flex-1 space-y-1">
-          <Link to={href} className="block min-h-11 truncate rounded-sm text-[13px] font-medium leading-snug outline-none hover:text-brand-foreground focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
-            data-wanted-title>
-            {title.title}
-          </Link>
+          <span data-wanted-title>{heading.text}</span>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {subtitle ? <p className="text-[12px] text-muted-foreground" data-wanted-subtitle>{subtitle}</p> : null}
             <SearchingBadge groups={title.groups} />
