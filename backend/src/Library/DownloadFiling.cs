@@ -72,29 +72,19 @@ public sealed class DownloadFiling
         CancellationToken ct)
     {
         var files = await repository.BindingsAsync(ct);
-        var operations = await repository.FilingOperationsAsync(ct);
         var result = ImmutableArray.CreateBuilder<EngineRecoveryFiles>();
         foreach (var group in files.GroupBy(f => f.DownloadId))
         {
             var recovered = ImmutableArray.CreateBuilder<EngineRecoveryBinding>();
             foreach (var file in group)
             {
-                var path = file.EnginePath!;
+                var path = file.EnginePath ?? file.PartialPath!;
                 var filed = file.Filed;
-                var operation = operations.SingleOrDefault(o => o.Id == $"file:{file.Id}");
-                if (!file.Filed && operation is not null && file.FinalPath is { } final &&
-                    (file.PartialPath is not null && LibraryPaths.PhysicalKey(file.PartialPath) ==
-                        LibraryPaths.PhysicalKey(final) || !File.Exists(file.PartialPath)) && File.Exists(final))
+                if (!filed && file.FinalPath is { } final && !File.Exists(file.PartialPath) && File.Exists(final))
                 {
-                    if (await DigestAsync(final, ct) != operation.ExpectedDigest)
-                    {
-                        // Keep the missing partial binding protected. Engine reports the failed
-                        // hash check as waiting instead of binding or overwriting this other file.
-                        recovered.Add(new(file.FileIndex, path, false, true));
-                        continue;
-                    }
                     path = final;
-                    filed = true;
+                    recovered.Add(new(file.FileIndex, path, false, false));
+                    continue;
                 }
                 recovered.Add(new(file.FileIndex, path, file.Selected && !filed, filed));
             }
@@ -159,9 +149,9 @@ public sealed class DownloadFiling
         { return new("FileBusy", "The completed file cannot be read. Close any app using it and try again.", null, false); }
     }
 
-    public static MediaFileRow Media(DownloadFilingContext context, DownloadFileRow binding)
+    public static MediaFileRow Media(DownloadRow download, WorkSnapshot work, TargetRow target,
+        int? resolution, string? source, DownloadFileRow binding)
     {
-        var target = context.Targets.Single(t => t.Id == binding.TargetId);
         var now = DateTimeOffset.UtcNow;
         var path = binding.FinalPath!;
         LibraryPaths.NoLinks(path);
@@ -173,15 +163,15 @@ public sealed class DownloadFiling
             Id = $"downloaded:{identity}",
             WorkId = target.WorkId,
             EpisodeId = target.EpisodeId,
-            RootId = context.Download.RootId,
+            RootId = download.RootId,
             Path = path,
             PhysicalKey = LibraryPaths.PhysicalKey(path),
             Role = binding.Role,
             ParentMediaFileId = null,
             Bytes = binding.ExpectedBytes,
             MtimeUtc = File.GetLastWriteTimeUtc(path),
-            Resolution = VideoDimensions.Resolution(dimensions.Width, dimensions.Height) ?? context.Resolution,
-            Source = context.Source,
+            Resolution = VideoDimensions.Resolution(dimensions.Width, dimensions.Height) ?? resolution,
+            Source = source,
             Container = Path.GetExtension(path).TrimStart('.'),
             VideoCodec = null,
             VideoProfile = null,
@@ -206,7 +196,7 @@ public sealed class DownloadFiling
     }
 
     public static async Task DeletePayloadAsync(ImmutableArray<DownloadFileRow> bindings, string itemFolder, string hash,
-        ImmutableArray<FileOperationRow> operations, ImmutableArray<MediaFileRow> media, CancellationToken ct)
+        ImmutableArray<MediaFileRow> media, CancellationToken ct)
     {
         var ownedMedia = media.Where(m => bindings.Any(f => f.DownloadId == m.DownloadId &&
             (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToArray();
@@ -225,9 +215,8 @@ public sealed class DownloadFiling
             if (file.EnginePath is { } enginePath && enginePath != file.FinalPath) paths.Add(enginePath);
             if (file.FinalPath is { } final && File.Exists(final))
             {
-                var operation = operations.SingleOrDefault(o => o.Id == $"file:{file.Id}");
-                var digest = media.SingleOrDefault(m => m.Id == file.MediaFileId)?.ContentDigest ?? operation?.ExpectedDigest;
-                if (file.Filed || file.EnginePath == final || operation is not null && !File.Exists(file.PartialPath))
+                var digest = media.SingleOrDefault(m => m.Id == file.MediaFileId)?.ContentDigest;
+                if (file.Filed || file.EnginePath == final)
                 {
                     if (digest is null || await DigestAsync(final, ct) != digest)
                         throw new IOException("The file at the final path changed. It was left untouched. Review it before removing it.");

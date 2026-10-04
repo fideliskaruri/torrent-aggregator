@@ -24,12 +24,11 @@ public sealed partial class LibraryPlacement
             var season = episode is null ? null : work.Seasons.SingleOrDefault(s => s.Id == episode.SeasonId);
             if (!film && season is null || film && target.EpisodeId is not null)
                 return Reject("MappingUncertain", "A selected item has no confirmed season and episode.");
-            var directory = film ? itemFolder : LibraryPaths.Within(itemFolder, $"Season {season!.Number:00}");
-            var mapped = LibraryLayout.Names(input.Files, targetFiles, directory);
+            var mapped = LibraryLayout.Names(work, target, input.Files, targetFiles, film);
             foreach (var selection in targetFiles)
             {
                 var file = input.Files.Single(f => f.Index == selection.FileIndex);
-                var final = LibraryPaths.Within(directory, mapped[file.Index]);
+                var final = LibraryPaths.Within(itemFolder, mapped[file.Index]);
                 var key = LibraryPaths.PhysicalKey(final);
                 if (!used.Add(key) || File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".partial") ||
                     bindings.Any(b => b.PhysicalKey == key) || media.Any(m => m.PhysicalKey == key))

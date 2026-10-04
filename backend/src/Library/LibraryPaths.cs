@@ -34,7 +34,7 @@ public static class LibraryPaths
     public static string ItemFolder(string title, string workId, int? year, bool film)
     {
         var name = SafeTitle(title, workId);
-        return film && year is >= 1870 and <= 2100 && !name.Contains($"({year})", StringComparison.Ordinal)
+        return year is >= 1870 and <= 2100 && !name.Contains($"({year})", StringComparison.Ordinal)
             ? $"{name} ({year})" : name;
     }
 

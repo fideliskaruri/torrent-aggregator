@@ -122,7 +122,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
             }
             catch
             {
-                await engine.DetachAsync(id, CancellationToken.None);
+                await engine.StopAndReleaseFilesAsync(id, CancellationToken.None);
                 var persisted = (await store.ReadAsync<RawIntentRow>(CatalogState.Query(id), CancellationToken.None)).SingleOrDefault();
                 if (persisted is not null)
                 {
@@ -139,7 +139,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                     await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.RawIntent,
                         id, persisted.Version, null)], CancellationToken.None);
                 }
-                await ((IEngineRetirement)engine).ForgetAsync(id, CancellationToken.None);
+                await engine.DeleteTorrentAsync(id, CancellationToken.None);
                 throw;
             }
             finally
@@ -231,20 +231,10 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
 
     private async Task PublishAsync(EngineSnapshot snapshot, string root, CancellationToken ct)
     {
-        var final = snapshot.Files.Where(f => f.Selected).Select(f => new FileBinding(f.Index,
-            f.PhysicalPath![..^".partial".Length], false)).ToImmutableArray();
-        var permit = await engine.PrepareFilingAsync(new(Guid.NewGuid().ToString("N"), snapshot.DownloadId, final), ct);
-        if (permit.Failure is not null) throw new InvalidOperationException(permit.Failure.Message);
-        var published = false;
-        try
-        {
-            var publication = await engine.PublishFilingAsync(permit, ct);
-            if (!publication.Accepted) throw new IOException(publication.Failure?.Message);
-            RawDownloadFiles.CompletePublication(snapshot, root);
-            published = true;
-        }
-        finally { await engine.CompleteFilingAsync(permit, published, CancellationToken.None); }
-        await engine.DetachAsync(snapshot.DownloadId, ct);
+        var stopped = await engine.StopAndReleaseFilesAsync(snapshot.DownloadId, ct);
+        if (!stopped.WritesDrained || stopped.Failure is not null)
+            throw new IOException(stopped.Failure?.Message ?? "The download could not stop writing.");
+        RawDownloadFiles.CompletePublication(snapshot, root);
         await engine.SaveDevStateAsync(ct);
     }
 
@@ -335,7 +325,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 [new(raw with { DownloadId = null, Version = raw.Version + 1 }, raw.Version, null)], [], ct);
             await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
             await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.RawIntent, raw.Id, raw.Version + 1, null)], ct);
-            await ((IEngineRetirement)engine).ForgetAsync(row.Id, ct);
+            await engine.DeleteTorrentAsync(row.Id, ct);
             await engine.SaveDevStateAsync(ct);
             return new { removed = true, files = paths.Length };
         }

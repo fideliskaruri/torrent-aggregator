@@ -13,7 +13,7 @@ using TorrentFile = TorrentFlow.Domain.TorrentFile;
 namespace TorrentFlow.Engine;
 
 /// <summary>One physical client. Targets owns intent; Library owns payload paths.</summary>
-public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, IEngineRetirement, IExternalEngineAdmission, IAsyncDisposable
+public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmission, IAsyncDisposable
 {
     private sealed class Entry(TorrentManager manager, string id, bool probe)
     {
@@ -44,8 +44,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
     private readonly Dictionary<string, ProbeHandle> handles = [];
     private readonly Dictionary<string, EngineAdmissionClaim> claims = [];
     private readonly Dictionary<string, string> registered = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, EngineFilingPermit> permits = [];
-    private readonly Dictionary<string, ImmutableArray<FileBinding>> filingBindings = [];
     private readonly Action<string> log;
     private readonly IEngineFileState? fileState;
     private readonly string directory;
@@ -559,8 +557,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         var hash = admission.Download.Hash;
         if (admission.Download.AdmissionToken != admission.AdmissionToken)
             return Fail("claim_mismatch", "The admission token does not match the durable download.");
-        if (permits.Values.Any(p => p.DownloadId == admission.Download.Id))
-            return Fail("filing", "File publication is in progress.");
         if (registered.TryGetValue(hash, out var id))
             return id == admission.Download.Id ? null : Fail("owned_hash", "This hash belongs to another download.");
         if (!claims.TryGetValue(admission.AdmissionToken, out var claim) || claim.Hash != hash ||
@@ -630,7 +626,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             if (entry is null) return Rejected("not_attached", "Recover the download before changing its selection.");
             if (files.Any(f => f.Selected && entry.Filed.Contains(f.FileIndex)))
                 return Rejected("filed", "An already filed file cannot be selected for download again.");
-            if (permits.Values.Any(p => p.DownloadId == downloadId)) return Rejected("filing", "File publication is in progress.");
             await entry.Manager.StopAsync(TimeSpan.Zero);
             entry.Run = false;
             await BindAsync(entry.Manager, files);
@@ -642,7 +637,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         finally { gate.Release(); }
     }
 
-    public async Task<EngineDrainResult> DetachAsync(string downloadId, CancellationToken ct)
+    public async Task<EngineDrainResult> StopAndReleaseFilesAsync(string downloadId, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
@@ -654,18 +649,17 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 entries.Remove(pair.Key);
             }
             await ReconcileQueueAsync();
-            return new(downloadId, true, true, null);
         }
         finally { gate.Release(); }
+        await SaveDevStateAsync(ct);
+        return new(downloadId, true, true, null);
     }
 
-    public async Task ForgetAsync(string downloadId, CancellationToken ct)
+    public async Task DeleteTorrentAsync(string downloadId, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
         {
-            if (permits.Values.Any(p => p.DownloadId == downloadId))
-                throw new InvalidOperationException("Finish file publication before retiring this download.");
             var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == downloadId);
             if (pair.Value is not null)
             {
@@ -680,6 +674,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
             await ReconcileQueueAsync();
         }
         finally { gate.Release(); }
+        await SaveDevStateAsync(ct);
     }
 
     public async Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken ct)
@@ -741,121 +736,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 complete += Math.Max(0, Math.Min(file.OffsetInTorrent + file.Length, ((long)piece + 1) * pieceLength)
                     - Math.Max(file.OffsetInTorrent, (long)piece * pieceLength));
         return complete;
-    }
-
-    // MoveFileAsync serializes the no-overwrite rename and path update on MonoTorrent's I/O loop.
-    // Stop/flush fences boundary writes; the remaining selection resumes only after acknowledgement.
-    public async Task<EngineFilingPermit> PrepareFilingAsync(EngineFilingRequest request, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct);
-        try
-        {
-            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == request.DownloadId);
-            if (pair.Value is null)
-                return new("", request.DownloadId, [], false, Fail("not_attached", "Recover the download before filing."));
-            if (permits.Values.Any(p => p.DownloadId == request.DownloadId))
-                return new("", request.DownloadId, [], false, Fail("filing", "Another file is being published."));
-            if (request.FinalBindings.IsDefaultOrEmpty || request.FinalBindings.Any(b =>
-                b.FileIndex < 0 || b.FileIndex >= pair.Value.Manager.Files.Count ||
-                !pair.Value.Manager.Files[b.FileIndex].BitField.AllTrue || !Path.IsPathFullyQualified(b.AbsolutePath)))
-                return new("", request.DownloadId, [], false, Fail("invalid_binding", "Every filing binding must name a complete torrent file and an absolute path."));
-            foreach (var binding in request.FinalBindings)
-            {
-                RefusePayloadLinks(binding.AbsolutePath);
-                var file = pair.Value.Manager.Files[binding.FileIndex];
-                if (!string.Equals(Path.GetDirectoryName(file.FullPath), Path.GetDirectoryName(binding.AbsolutePath),
-                    StringComparison.OrdinalIgnoreCase))
-                    return new("", request.DownloadId, [], false, Fail("invalid_binding", "Publication must stay in the same folder."));
-                if (!string.Equals(file.FullPath, binding.AbsolutePath, StringComparison.OrdinalIgnoreCase) &&
-                    (File.Exists(binding.AbsolutePath) || Directory.Exists(binding.AbsolutePath)))
-                    return new("", request.DownloadId, [], false, Fail("file_collision", "A file already uses the destination name. Review the duplicate before filing."));
-            }
-            await StopDownloadAsync(pair.Value);
-            foreach (var binding in request.FinalBindings)
-            {
-                var file = pair.Value.Manager.Files[binding.FileIndex];
-                await pair.Value.Manager.SetFilePriorityAsync(file, Priority.DoNotDownload);
-            }
-            var permit = new EngineFilingPermit(Guid.NewGuid().ToString("N"), request.DownloadId,
-                [.. request.FinalBindings.Select(b => b.FileIndex)], false, null);
-            permits[permit.Token] = permit;
-            filingBindings[permit.Token] = request.FinalBindings;
-            return permit;
-        }
-        finally { gate.Release(); }
-    }
-
-    public async Task<EngineResult> PublishFilingAsync(EngineFilingPermit permit, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct);
-        try
-        {
-            if (!permits.TryGetValue(permit.Token, out var issued) || issued != permit ||
-                !filingBindings.TryGetValue(permit.Token, out var bindings))
-                return Rejected("invalid_permit", "Prepare the file before publishing it.");
-            var entry = entries.Values.Single(e => !e.Probe && e.Id == permit.DownloadId);
-            foreach (var binding in bindings)
-            {
-                var file = entry.Manager.Files[binding.FileIndex];
-                RefusePayloadLinks(binding.AbsolutePath);
-                if (!file.BitField.AllTrue) return Rejected("hash_incomplete", "The file's boundary pieces are not verified.");
-                if (!string.Equals(file.FullPath, binding.AbsolutePath, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (File.Exists(binding.AbsolutePath) || Directory.Exists(binding.AbsolutePath))
-                        return Rejected("file_collision", "A file already uses the destination name. Review the duplicate before filing.");
-                    await entry.Manager.MoveFileAsync(file, binding.AbsolutePath);
-                }
-                entry.Filed.Add(binding.FileIndex);
-            }
-            await SaveResumeAsync(entry.Manager);
-            return new(true, await SnapshotAsync(entry), null);
-        }
-        finally { gate.Release(); }
-    }
-
-    public async Task<EngineFilingPermit> PrepareDeleteAsync(EngineDeleteRequest request, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct);
-        try
-        {
-            var pair = entries.SingleOrDefault(p => !p.Value.Probe && p.Value.Id == request.DownloadId);
-            if (pair.Value is not null)
-            {
-                var manager = pair.Value.Manager;
-                if (request.FileIndices.IsDefaultOrEmpty || request.FileIndices.Any(i => i < 0 || i >= manager.Files.Count))
-                    return new("", request.DownloadId, [], false, Fail("invalid_selection", "Provide valid file indices for deletion."));
-                if (!SelectedComplete(manager) && manager.Files.Select((f, i) => (f, i))
-                    .Any(f => f.f.Priority != Priority.DoNotDownload && !request.FileIndices.Contains(f.i)))
-                    return new("", request.DownloadId, request.FileIndices, false,
-                        Fail("shared_pack_busy", "Other selected files are still downloading. Disk deletion must wait."));
-                await RemoveManagerAsync(pair.Value, true);
-                entries.Remove(pair.Key);
-            }
-            var permit = new EngineFilingPermit(Guid.NewGuid().ToString("N"), request.DownloadId, request.FileIndices, true, null);
-            permits[permit.Token] = permit;
-            return permit;
-        }
-        finally { gate.Release(); }
-    }
-
-    public async Task<EngineResult> CompleteFilingAsync(EngineFilingPermit permit, bool published, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct);
-        try
-        {
-            if (!permits.Remove(permit.Token, out var issued) || issued != permit)
-                return Rejected("invalid_permit", "The filing permit is no longer active.");
-            filingBindings.Remove(permit.Token);
-            var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == permit.DownloadId);
-            if (!published && entry is not null)
-                foreach (var index in permit.FileIndices.Where(i => !entry.Filed.Contains(i)))
-                    await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], Priority.Normal);
-            // A failed inventory commit leaves the final binding protected for retry;
-            // never reverse publication into a path that could collide with a new download.
-            await ReconcileQueueAsync();
-            return new(true, null, null);
-        }
-        finally { gate.Release(); }
     }
 
     public async Task ApplyQueueAsync(EngineQueuePolicy policy, CancellationToken ct)
@@ -1174,8 +1054,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
                 if (registered.TryGetValue(hash, out var id))
                 {
                     queueOrder.Remove(id);
-                    foreach (var token in permits.Where(p => p.Value.DownloadId == id).Select(p => p.Key).ToArray())
-                        permits.Remove(token);
                 }
                 registered.Remove(hash);
                 return [];

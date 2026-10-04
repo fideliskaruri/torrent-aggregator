@@ -682,13 +682,7 @@ public sealed record EngineQueuePolicy(ImmutableArray<QueueAdmission> Admissions
 }
 public sealed record EngineQueueOrder(string DownloadId, long Rank, TargetPriority Priority, bool Now, bool Eligible);
 public sealed record EngineEvent(string DownloadId, string Hash, string Kind, EngineSnapshot Snapshot);
-public sealed record EngineFilingRequest(string OperationId, string DownloadId, ImmutableArray<FileBinding> FinalBindings);
-public sealed record EngineDeleteRequest(string OperationId, string DownloadId,
-    ImmutableArray<int> FileIndices, ImmutableArray<FileBinding> UnwantedBindings);
-public sealed record EngineFilingPermit(string Token, string DownloadId, ImmutableArray<int> FileIndices,
-    bool Detached, Failure? Failure);
 public sealed record EngineDrainResult(string DownloadId, bool Detached, bool WritesDrained, Failure? Failure);
-public sealed record FileExecutionProof(EngineFilingPermit? FilingPermit, EngineDrainResult? Drain);
 public sealed record DownloadWindow(ImmutableArray<DayOfWeek> Days, TimeOnly Start, TimeOnly End,
     int? DownloadBytesPerSecond, int? UploadBytesPerSecond);
 public sealed record PlacementInput(WorkSnapshot? Work, ImmutableArray<TargetRow> Targets, Assignment Assignment,
@@ -696,8 +690,6 @@ public sealed record PlacementInput(WorkSnapshot? Work, ImmutableArray<TargetRow
     ImmutableArray<OwnedItem> Owned, string? ExplicitRootId, string? ExplicitDirectory, LibraryKind? ExplicitKind);
 public sealed record PlacementResult(ImmutableArray<DownloadFileRow> Files, string? RootId,
     long ReservedBytes, ImmutableArray<WorkFolderRow> Folders, Failure? Failure);
-public sealed record FilingRequest(string DownloadId, ImmutableArray<EngineFileSnapshot> Files,
-    EngineFilingPermit? Permit, bool RawImportReview);
 public sealed record LibraryChanges(ImmutableArray<MediaFileRow> Media,
     ImmutableArray<DownloadFileRow> DownloadFiles, ImmutableArray<StorageRootRow> Roots,
     ImmutableArray<WorkFolderRow> Folders, ImmutableArray<FileOperationRow> Operations,

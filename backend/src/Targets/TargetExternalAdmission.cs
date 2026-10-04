@@ -133,7 +133,7 @@ public sealed partial class TargetPipeline
             }
             catch (Exception ex)
             {
-                await engine.DetachAsync(id, CancellationToken.None);
+                await engine.StopAndReleaseFilesAsync(id, CancellationToken.None);
                 var persisted = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(id), CancellationToken.None)).SingleOrDefault();
                 if (persisted is not null)
                 {
@@ -148,7 +148,7 @@ public sealed partial class TargetPipeline
                     return new(true, null, new("FileBusy",
                         "The transfer was saved and will retry when the original files can be opened.", null, false));
                 }
-                await ((IEngineRetirement)engine).ForgetAsync(id, CancellationToken.None);
+                await engine.DeleteTorrentAsync(id, CancellationToken.None);
                 throw new IOException("The transfer could not be reserved. Scan the original client and try again.", ex);
             }
             finally { await engine.ReleaseAdmissionClaimAsync(token, CancellationToken.None); }
