@@ -1,28 +1,26 @@
 using System.Collections.Immutable;
+using System.Linq.Expressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Requests;
 
-public sealed class RequestService(IStore store, IMetadata metadata, TargetPipeline pipeline)
+public sealed class RequestService(TargetStore store, IMetadata metadata, TargetPipeline pipeline)
 {
     private readonly CatalogState catalog = new(store);
     public static readonly SemaphoreSlim Gate = new(1, 1);
 
-    public Task<ImmutableArray<T>> Read<T>(StoreQuery query, CancellationToken ct) where T : StoreRow =>
-        catalog.ReadAsync<T>(query, ct);
+    public Task<T[]> Read<T>(Expression<Func<T, bool>>? where, CancellationToken ct) where T : class =>
+        store.ListAsync(where, ct);
 
     public async Task Commit(string actor, IEnumerable<RowWrite> writes, CancellationToken ct,
         IEnumerable<RowDelete>? deletes = null)
     {
-        var key = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow { Id = $"commit:requests:{actor}:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = actor, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "Request", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
-        var result = await store.CommitAsync(new(key, StoreOwner.Targets,
-            [.. writes, new(receipt, null, null)], [.. deletes ?? []]), ct);
-        if (!result.Applied) throw new InvalidOperationException("The request changed. Reload and try again.");
+        if (!await store.SaveAsync(writes, deletes ?? [], ct))
+            throw new InvalidOperationException("The request changed. Reload and try again.");
     }
 
     public async Task<RequestRow> Create(string user, CreateRequest input, CancellationToken ct)
@@ -42,10 +40,10 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
             film ? "movie" : "tv"), input.Title, input.Year, film ? WorkKind.Film : WorkKind.Series), ct);
         var work = resolved.Work ?? throw new ArgumentException(
             "This title could not be resolved. Check its provider and try again.");
-        var mine = await Read<RequestRow>(CatalogState.Query(userId: user), ct);
+        var mine = await Read<RequestRow>(row => row.UserId == user, ct);
         var seasons = input.Scope == "series" ? work.Seasons.Select(s => s.Number).ToImmutableArray() :
             input.Seasons.Distinct().Order().ToImmutableArray();
-        var priorItems = await Read<RequestItemRow>(CatalogState.Query(), ct);
+        var priorItems = await Read<RequestItemRow>(null, ct);
         var priorOwned = await catalog.OwnedAsync(work.Work.Id, ct);
         bool Fulfilled(RequestRow r)
         {
@@ -57,7 +55,7 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
             (film || r.Scope == RequestScope.Series || input.Scope == "series" || r.ScopeData.Seasons.Intersect(seasons).Any()) &&
             !Fulfilled(r)))
             throw new RequestConflict("duplicate", "You've already asked for this.");
-        var settings = (await Read<SettingRow>(CatalogState.Query("requests"), ct)).Single();
+        var settings = (await Read<SettingRow>(row => row.Id == "requests", ct)).Single();
         var maximum = settings.Value.TryGetProperty("maxOpenPerRequester", out var max) ? max.GetInt32() : 20;
         if (mine.Count(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved && !Fulfilled(r)) >= maximum)
             throw new RequestConflict("too_many_open", $"You have {maximum} open requests. Wait for the owner to handle them.");
@@ -83,14 +81,14 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
 
     public async Task<RequestRow> Decide(string id, string actor, string action, string? reason, CancellationToken ct)
     {
-        var request = (await Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+        var request = (await Read<RequestRow>(row => row.Id == id, ct)).SingleOrDefault()
             ?? throw new KeyNotFoundException("Request not found.");
         if (action == "decline" && request.Decision != RequestDecision.Pending)
             throw new RequestConflict("not_pending", "Only a pending request can be declined.");
         if (action == "approve" && request.Decision is RequestDecision.Declined or RequestDecision.Cancelled)
             throw new RequestConflict("not_pending", "Retry this request before approving it.");
         var now = DateTimeOffset.UtcNow;
-        var shared = (await Read<RequestRow>(CatalogState.Query(workId: request.WorkId), ct))
+        var shared = (await Read<RequestRow>(row => row.WorkId == request.WorkId, ct))
             .Where(r => SameAsk(r, request) && (r.Id == id || r.Decision == RequestDecision.Pending ||
                 action != "decline" && r.Decision == RequestDecision.Approved))
             .OrderBy(r => r.CreatedAt).ToArray();
@@ -105,7 +103,7 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
             foreach (var next in changes) await Acquire(next, ct);
             if (action == "retry")
             {
-                var items = await Read<RequestItemRow>(CatalogState.Query() with { RequestId = id }, ct);
+                var items = await Read<RequestItemRow>(row => row.RequestId == id, ct);
                 foreach (var targetId in items.Where(i => i.Settlement == ItemSettlement.Open && i.TargetId is not null)
                     .Select(i => i.TargetId!).Distinct())
                     await pipeline.ActionAsync(targetId, TargetAction.TryNow, ct);
@@ -121,8 +119,8 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
     public async Task ApprovePendingForDownloadNow(TargetRow target, CancellationToken ct)
     {
         if (target.NowAt is null) return;
-        var items = await Read<RequestItemRow>(CatalogState.Query() with { TargetId = target.Id }, ct);
-        var requests = await Read<RequestRow>(CatalogState.Query(), ct);
+        var items = await Read<RequestItemRow>(row => row.TargetId == target.Id, ct);
+        var requests = await Read<RequestRow>(null, ct);
         var changes = items.Select(i => i.RequestId).Distinct()
             .Select(id => requests.FirstOrDefault(r => r.Id == id))
             .Where(r => r is { Decision: RequestDecision.Pending })
@@ -141,15 +139,16 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
 
     public async Task Acquire(RequestRow request, CancellationToken ct)
     {
-        var work = (await Read<WorkRow>(CatalogState.Query(request.WorkId), ct)).Single();
-        var priorItems = await Read<RequestItemRow>(CatalogState.Query() with { RequestId = request.Id }, ct);
+        var work = (await Read<WorkRow>(row => row.Id == request.WorkId, ct)).Single();
+        var priorItems = await Read<RequestItemRow>(row => row.RequestId == request.Id, ct);
         var priorTargets = (await pipeline.ReadAsync(ct)).Targets;
         var seasons = request.Scope == RequestScope.Series
-            ? (await Read<SeasonRow>(CatalogState.Query(workId: request.WorkId), ct)).Select(s => s.Number)
+            ? (await Read<SeasonRow>(row => row.WorkId == request.WorkId, ct)).Select(s => s.Number)
             : request.ScopeData.Seasons;
-        var seasonRows = await Read<SeasonRow>(CatalogState.Query(workId: request.WorkId), ct);
-        var episodes = await Read<EpisodeRow>(CatalogState.Query(), ct);
-        var preferences = (await Read<WorkPreferenceRow>(CatalogState.Query(workId: request.WorkId), ct)).FirstOrDefault();
+        var seasonRows = await Read<SeasonRow>(row => row.WorkId == request.WorkId, ct);
+        var seasonIds = seasonRows.Select(row => row.Id).ToArray();
+        var episodes = await Read<EpisodeRow>(row => seasonIds.Contains(row.SeasonId), ct);
+        var preferences = (await Read<WorkPreferenceRow>(row => row.WorkId == request.WorkId, ct)).FirstOrDefault();
         bool Settled(string? episodeId) => priorItems.Any(i => i.EpisodeId == episodeId &&
             (i.Settlement != ItemSettlement.Open || priorTargets.Any(t => t.Id == i.TargetId && t.State == TargetState.Removed)));
         var inputs = new List<AcquireInput>();
@@ -168,17 +167,17 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
         foreach (var input in inputs)
         {
             var result = await pipeline.AcceptRequestAsync(input, request.Id, ct);
-            await RequestTargetAdapter.Attach(store, catalog, request, result.TargetIds, ct);
+            await RequestTargetAdapter.Attach(store, request, result.TargetIds, ct);
         }
     }
 
     public async Task Reconcile(CancellationToken ct)
     {
-        var requests = await Read<RequestRow>(CatalogState.Query(), ct);
+        var requests = await Read<RequestRow>(null, ct);
         foreach (var request in requests.Where(r => r.Decision == RequestDecision.Approved))
         {
             var owned = await catalog.OwnedAsync(request.WorkId, ct);
-            var items = await Read<RequestItemRow>(CatalogState.Query() with { RequestId = request.Id }, ct);
+            var items = await Read<RequestItemRow>(row => row.RequestId == request.Id, ct);
             var targets = (await pipeline.ReadAsync(ct)).Targets;
             var now = DateTimeOffset.UtcNow;
             var writes = items.Where(i => i.Settlement == ItemSettlement.Open)
@@ -199,11 +198,11 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
 
     public async Task<object> Project(RequestRow request, bool owner, CancellationToken ct)
     {
-        var work = (await Read<WorkRow>(CatalogState.Query(request.WorkId), ct)).Single();
-        var names = await Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct);
-        var link = (await Read<WorkLinkRow>(CatalogState.Query(workId: work.Id), ct))
+        var work = (await Read<WorkRow>(row => row.Id == request.WorkId, ct)).Single();
+        var names = await Read<WorkNameRow>(row => row.WorkId == work.Id, ct);
+        var link = (await Read<WorkLinkRow>(row => row.WorkId == work.Id, ct))
             .OrderByDescending(l => l.IsPrimary).FirstOrDefault();
-        var items = await Read<RequestItemRow>(CatalogState.Query() with { RequestId = request.Id }, ct);
+        var items = await Read<RequestItemRow>(row => row.RequestId == request.Id, ct);
         var snapshot = await pipeline.ReadAsync(ct);
         var ids = items.Where(i => i.TargetId is not null).Select(i => i.TargetId).ToHashSet();
         var targets = snapshot.Targets.Where(t => ids.Contains(t.Id)).ToArray();
@@ -217,29 +216,30 @@ public sealed class RequestService(IStore store, IMetadata metadata, TargetPipel
                 items.Any(i => i.Settlement == ItemSettlement.StoppedByOwner) ||
                     targets.Any(t => t.State == TargetState.Waiting && t.SubstantiveMisses > 0)
                         ? done > 0 ? "partial" : "failed" : "approved";
-        var associations = await Read<DownloadTargetRow>(CatalogState.Query(), ct);
+        var associations = await Read<DownloadTargetRow>(null, ct);
         var downloads = snapshot.Downloads.Where(d => associations.Any(a => a.DownloadId == d.Id &&
             ids.Contains(a.TargetId) && a.Role == AssociationRole.Current)).ToArray();
         var live = snapshot.Live.Where(l => downloads.Any(d => d.Id == l.DownloadId)).ToArray();
-        var releases = await Read<ReleaseRow>(CatalogState.Query(), ct);
+        var releases = await Read<ReleaseRow>(null, ct);
         var release = releases.FirstOrDefault(r => downloads.Any(d => d.Hash == r.Id) ||
             targets.Any(t => t.ChosenReleaseHash == r.Id));
-        var bindings = await Read<DownloadFileRow>(CatalogState.Query(), ct);
+        var bindings = await Read<DownloadFileRow>(null, ct);
         var relevantFiles = live.SelectMany(l => l.Files.Where(f => bindings.Any(b =>
             b.DownloadId == l.DownloadId && b.FileIndex == f.Index && b.Selected && ids.Contains(b.TargetId)))).ToArray();
         var bytes = relevantFiles.Sum(f => f.Bytes);
         var completed = relevantFiles.Sum(f => f.CompletedBytes);
         var speed = live.Sum(l => l.BytesPerSecond);
-        var requester = (await Read<UserRow>(CatalogState.Query(request.UserId), ct)).SingleOrDefault();
+        var requester = (await Read<UserRow>(row => row.Id == request.UserId, ct)).SingleOrDefault();
         var requesters = new List<string>();
         if (owner)
         {
-            var shared = (await Read<RequestRow>(CatalogState.Query(workId: request.WorkId), ct))
+            var shared = (await Read<RequestRow>(row => row.WorkId == request.WorkId, ct))
                 .Where(r => SameAsk(r, request) && r.Decision == request.Decision).ToArray();
-            var users = await Read<UserRow>(CatalogState.Query(), ct);
+            var users = await Read<UserRow>(null, ct);
             requesters.AddRange(shared.Select(r => users.FirstOrDefault(u => u.Id == r.UserId)?.NormalizedEmail ?? r.UserId));
         }
-        var episodes = await Read<EpisodeRow>(CatalogState.Query(), ct);
+        var episodeIds = items.Select(item => item.EpisodeId).OfType<string>().ToArray();
+        var episodes = await Read<EpisodeRow>(row => episodeIds.Contains(row.Id), ct);
         var expected = targets.Select(t => t.ExpectedAt).Where(d => d is not null).Min() ??
             (request.Scope == RequestScope.Film ? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt :
                 episodes.Where(e => items.Any(i => i.EpisodeId == e.Id)).Select(e => e.AirAt).Where(d => d > DateTimeOffset.UtcNow).Min());

@@ -19,8 +19,8 @@ public sealed partial class TargetPipeline
     public async Task<RecoverySettings> RecoverySettingsAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("recovery"), ct)).SingleOrDefault();
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var row = (await store.ListAsync<SettingRow>(setting => setting.Id == "recovery", ct)).SingleOrDefault();
         return row is null ? new() : SettingsCatalog.Read<RecoverySettings>(row);
     }
 
@@ -33,9 +33,9 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var old = (await store.ReadAsync<SettingRow>(CatalogState.Query("recovery"), ct)).SingleOrDefault();
-            var engineRow = (await store.ReadAsync<SettingRow>(CatalogState.Query("engine"), ct)).Single();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var old = (await store.ListAsync<SettingRow>(setting => setting.Id == "recovery", ct)).SingleOrDefault();
+            var engineRow = (await store.ListAsync<SettingRow>(setting => setting.Id == "engine", ct)).Single();
             var settings = SettingsCatalog.Read<EngineSettings>(engineRow) with
             {
                 MetadataStallSeconds = value.MetadataStallSeconds,
@@ -55,12 +55,13 @@ public sealed partial class TargetPipeline
     public Task<TargetActionReply> FindAnotherAsync(string targetId, CancellationToken ct) =>
         FindAnotherCoreAsync(targetId, null, ct);
 
-    internal static async Task<ImmutableHashSet<string>> ExcludedAsync(IStore store, string workKey,
+    internal static async Task<ImmutableHashSet<string>> ExcludedAsync(TargetStore store, string workKey,
         string? current, CancellationToken ct)
     {
-        var blocks = await new CatalogState(store).ReadAsync<BlockRow>(CatalogState.Query(), ct);
-        return blocks.Where(b => (b.WorkKey is null || b.WorkKey == workKey) &&
-            (b.Until is null || b.Until > DateTimeOffset.UtcNow)).Select(b => b.Hash)
+        var now = DateTimeOffset.UtcNow;
+        var blocks = await store.ListAsync<BlockRow>(b => (b.WorkKey == null || b.WorkKey == workKey) &&
+            (b.Until == null || b.Until > now), ct);
+        return blocks.Select(b => b.Hash)
             .Concat(current is null ? [] : new[] { current }).ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -79,16 +80,15 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
-            var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var links = await store.ListAsync<DownloadTargetRow>(null, ct);
             var targetIds = links.Where(l => l.DownloadId == download.Id && l.Role == AssociationRole.Current)
                 .Select(l => l.TargetId).ToHashSet(StringComparer.Ordinal);
             var targets = snapshot.Targets.Where(t => targetIds.Contains(t.Id) && t.WorkId == target.WorkId &&
                 t.State != TargetState.Removed).ToArray();
             targetIds.IntersectWith(targets.Select(t => t.Id));
 
-            var work = (await store.ReadAsync<WorkRow>(CatalogState.Query(target.WorkId), ct)).SingleOrDefault();
+            var work = (await store.ListAsync<WorkRow>(row => row.Id == target.WorkId, ct)).SingleOrDefault();
             if (work is null) return new(false, 0, 0, [targetId], "The title is no longer available.");
             var now = DateTimeOffset.UtcNow;
             await CommitAsync(store, [
@@ -97,7 +97,7 @@ public sealed partial class TargetPipeline
             ], [], ct);
 
             await DeleteDownloadFilesAsync(download.Hash, ct);
-            var current = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: target.WorkId), ct);
+            var current = await store.ListAsync<TargetRow>(row => row.WorkId == target.WorkId, ct);
             var reset = current.Where(t => targetIds.Contains(t.Id) && t.State == TargetState.Removed)
                 .Select(t => new RowWrite(t with
                 {

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
@@ -11,9 +12,9 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     private const string Prefix = "targets:";
     private readonly SemaphoreSlim gate = new(1, 1);
 
-    private async Task CleanRetiredAsync(IStore store, ILibraryDownloadRepository repository,
+    private async Task CleanRetiredAsync(TargetStore store, ILibraryDownloadRepository repository,
         DownloadRow download, ImmutableArray<DownloadFileRow> files,
-        ImmutableArray<DownloadTargetRow> links, CancellationToken ct)
+        IEnumerable<DownloadTargetRow> links, CancellationToken ct)
     {
         foreach (var file in files.Where(f => !f.Filed && f.EnginePath is not null))
         {
@@ -37,11 +38,10 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-            var current = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
+            var current = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, ct);
             targets = [.. targets.Where(t => current.Any(c => c.Id == t.Id && c.State == TargetState.Planning &&
                 c.LeaseToken == t.LeaseToken))];
             if (targets.IsEmpty) return;
@@ -54,7 +54,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 TargetIds = [.. targets.Select(t => t.Id)],
                 Files = [.. assignment.Files.Where(f => targets.Any(t => t.Id == f.TargetId))],
             };
-            var oldDownload = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
+            var oldDownload = (await store.ListAsync<DownloadRow>(null, ct))
                 .SingleOrDefault(d => d.Hash == assignment.Hash);
             if (oldDownload is not null)
             {
@@ -92,7 +92,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 await stateGate.WaitAsync(ct);
                 try
                 {
-                    current = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
+                    current = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, ct);
                     var claimedTargets = targets.Select(t => current.Single(c => c.Id == t.Id)).ToArray();
                     if (claimedTargets.Any(t => t.State != TargetState.Planning || targets.All(p => p.Id != t.Id ||
                         p.LeaseToken != t.LeaseToken))) return;
@@ -106,17 +106,17 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 finally { stateGate.Release(); }
                 if (!await repository.SavePlacementAsync(files, placement.Folders, ct))
                     throw new IOException("The library placement changed.");
-                var fresh = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), ct);
+                var fresh = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, ct);
                 if (targets.Any(t => fresh.All(f => f.Id != t.Id || f.State != TargetState.Fetching)))
                     throw new IOException("The download intent changed before it could start.");
                 var admission = new EngineAdmission(download, candidate,
                     [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
                 await engine.ApplyQueueAsync(new([])
                 {
-                    Order = TargetScheduling.Queue(await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
-                        await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)),
+                    Order = TargetScheduling.Queue([.. await store.ListAsync<DownloadRow>(null, ct)],
+                        [.. await store.ListAsync<DownloadTargetRow>(null, ct)],
+                        [.. await store.ListAsync<TargetRow>(null, ct)],
+                        [.. await store.ListAsync<RawIntentRow>(null, ct)]),
                 }, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
@@ -133,14 +133,14 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 await stateGate.WaitAsync(CancellationToken.None);
                 try
                 {
-                    var persisted = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(id), CancellationToken.None))
+                    var persisted = (await store.ListAsync<DownloadRow>(row => row.Id == id, CancellationToken.None))
                         .SingleOrDefault(d => d.AdmissionToken == token);
                     if (persisted is not null)
                     {
                         if (!await repository.RemoveDownloadFilesAsync(id, CancellationToken.None))
                             throw new IOException("The failed download could not be rolled back.");
-                        var affected = await catalog.ReadAsync<TargetRow>(CatalogState.Query(workId: work.Work.Id), CancellationToken.None);
-                        var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), CancellationToken.None);
+                        var affected = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, CancellationToken.None);
+                        var links = await store.ListAsync<DownloadTargetRow>(null, CancellationToken.None);
                         var failedAt = DateTimeOffset.UtcNow;
                         var reason = admissionFailure?.Code.Contains("metadata", StringComparison.OrdinalIgnoreCase) == true
                             ? WaitReason.MetadataUnavailable : WaitReason.SourceFailure;
@@ -177,13 +177,12 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var catalog = new CatalogState(store);
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
         var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-        var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-        var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToImmutableArray();
+        var links = await store.ListAsync<DownloadTargetRow>(null, ct);
+        var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToImmutableArray();
         var bindings = (await repository.BindingsAsync(ct)).Where(f => downloads.Any(d => d.Id == f.DownloadId)).ToImmutableArray();
-        var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
+        var targets = await store.ListAsync<TargetRow>(null, ct);
         foreach (var interrupted in downloads.Where(d => links.Any(l => l.DownloadId == d.Id) &&
             links.Where(l => l.DownloadId == d.Id).All(l => l.Role == AssociationRole.Replacement)))
         {
@@ -199,7 +198,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             foreach (var link in links.Where(l => l.DownloadId == orphan.Id))
                 if (targets.Any(t => t.Id == link.TargetId && t.State != TargetState.Removed))
                     await change(link.TargetId, TargetState.Wanted, null, "The interrupted download will be found again.", ct);
-            var retired = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
+            var retired = await store.ListAsync<DownloadTargetRow>(null, ct);
             await TargetPipeline.CommitAsync(store, [], [.. retired.Where(l => l.DownloadId == orphan.Id)
                 .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                 new(StoreTable.Download, orphan.Id, orphan.Version, null)], ct);
@@ -221,14 +220,13 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-            var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
-                var associations = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-            var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
+            var targets = await store.ListAsync<TargetRow>(null, ct);
+                var associations = await store.ListAsync<DownloadTargetRow>(null, ct);
+            var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
             await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(downloads,
-                associations, targets) }, ct);
+                [.. associations], [.. targets]) }, ct);
             foreach (var download in downloads)
             {
                 var members = targets.Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
@@ -267,7 +265,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         await engine.RecoverAsync([download], files, ct);
                     await change(retry.Id, TargetState.Fetching, null, null, ct);
                 }
-                members = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct))
+                members = (await store.ListAsync<TargetRow>(null, ct))
                     .Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
                 var runnable = members.Where(t => t.State is TargetState.Fetching or TargetState.Filing ||
                     t.State == TargetState.Waiting && t.ResumeState == TargetState.Filing).ToArray();

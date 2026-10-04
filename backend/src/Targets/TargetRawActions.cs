@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
@@ -13,12 +14,11 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
-            var raw = (await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var raw = (await store.ListAsync<RawIntentRow>(row => row.Id == id, ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This download no longer exists.");
             var download = raw.DownloadId is null ? null :
-                (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(raw.DownloadId), ct)).SingleOrDefault();
+                (await store.ListAsync<DownloadRow>(row => row.Id == raw.DownloadId, ct)).SingleOrDefault();
             if (raw.State is RawDownloadState.Done or RawDownloadState.Removed or RawDownloadState.Review ||
                 download?.FinishedAt is not null)
                 return new(false, 0, 0, [id], "This download is already finished.");
@@ -38,10 +38,10 @@ public sealed partial class TargetPipeline
             if (download is not null)
             {
                 await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(
-                    await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
-                    await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                    await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
-                    await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(), ct)) }, ct);
+                    [.. await store.ListAsync<DownloadRow>(null, ct)],
+                    [.. await store.ListAsync<DownloadTargetRow>(null, ct)],
+                    [.. await store.ListAsync<TargetRow>(null, ct)],
+                    [.. await store.ListAsync<RawIntentRow>(null, ct)]) }, ct);
                 await engine.SetIntentAsync(download.Id, !pause, ct);
             }
             return new(true, 0, 0, [id], pause ? "Paused" : "Resumed");

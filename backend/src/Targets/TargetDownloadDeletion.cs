@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
 using Microsoft.Extensions.DependencyInjection;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
@@ -54,10 +55,9 @@ internal sealed partial class TargetTransfers
     private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var catalog = new CatalogState(store);
-        var download = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
-            .SingleOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var normalizedHash = hash.ToLowerInvariant();
+        var download = (await store.ListAsync<DownloadRow>(row => row.Hash == normalizedHash, ct)).SingleOrDefault();
         if (download is null) return;
         var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
         var allFiles = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
@@ -68,10 +68,10 @@ internal sealed partial class TargetTransfers
         var shared = allFiles.Any(f => f.Role != FileRole.Unwanted && !files.Contains(f));
         var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
         var root = (await library.RootsAsync(ct)).Single(r => r.Id == download.RootId);
-        var links = (await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct))
-            .Where(l => l.DownloadId == download.Id).ToArray();
-        var targets = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct))
-            .Where(t => (!shared && links.Any(l => l.TargetId == t.Id)) || files.Any(f => f.TargetId == t.Id)).ToArray();
+        var links = await store.ListAsync<DownloadTargetRow>(link => link.DownloadId == download.Id, ct);
+        var targetIds = files.Select(file => file.TargetId).OfType<string>()
+            .Concat(shared ? [] : links.Select(link => link.TargetId)).ToHashSet(StringComparer.Ordinal);
+        var targets = await store.ListAsync<TargetRow>(target => targetIds.Contains(target.Id), ct);
         await TargetPipeline.CommitAsync(store,
             [new(download with { Intent = shared ? download.Intent : DownloadIntent.Stopped,
                 Version = download.Version + 1 }, download.Version, null),

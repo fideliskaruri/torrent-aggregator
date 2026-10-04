@@ -60,18 +60,15 @@ are never stored in the database or logged.
   immutable records are the column/type contract, converted explicitly at the
   boundary. EF's generated initial migration and model snapshot freeze that model;
   changes require a new migration, not silent schema mutation.
-- Scoped, keyed `IStore` capabilities: `metadata`, `find`, `targets`, `access`. Their table
-  rights are fixed at injection, not selected by `StoreCommit.Owner`. There is
-  no runtime converter, Library or Check write capability.
-  `access` uses the Targets-owned User/Setting/Attempt tables only; API code never
-  receives SQL, EF entities or a DbContext.
-- Atomic writes support numeric-version CAS, exact unversioned row-CAS and
-  payload-bound immutable Attempt receipts. Current skeletal reads implement
-  bounded primary-key pagination and direct named column predicates; traversal,
-  age/lease predicates and non-primary orders explicitly refuse unsupported
-  operations. Open Attempt mutation and joint Library/Check proposal guards
-  also **fail closed** until their implementing phases; Targets cannot forge
-  inventory, root, release-enrichment or file-path changes.
+- `TargetStore` is the scoped row access adapter for Targets, Requests and API.
+  Reads are no-tracking EF predicates with no cursor or row cap; writes are
+  transactional and use EF concurrency tokens for versioned rows. Unversioned
+  rows can be upserted, with an optional expected-row equality check. Successful
+  writes publish target, download and request changes to the notification worker.
+  API code never receives EF entities or a DbContext.
+- Store writes no longer create command-receipt Attempt rows. Real Attempt
+  history remains append-only except for explicit history operations and for
+  detaching download references when a download is deleted.
 - Episode provider identities stay globally unique, including unavailable rows.
   Only available/provisional episode mappings claim a unique season/number slot.
   Metadata renumbering commits vacate all moving slots within the transaction

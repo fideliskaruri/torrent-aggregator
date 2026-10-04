@@ -80,13 +80,6 @@ public interface ILibrary
     Task<BackfillEstimate> BackfillEstimateAsync(BackfillEstimateInput input, CancellationToken cancellationToken);
 }
 
-/// <summary>In: typed bounded row queries and owner-scoped CAS transactions. Out: immutable rows/atomic commit result. Never: network, filesystem effects, business decisions, IQueryable or EF entity leakage.</summary>
-public interface IStore
-{
-    Task<ImmutableArray<TRow>> ReadAsync<TRow>(StoreQuery query, CancellationToken cancellationToken) where TRow : StoreRow;
-    Task<CommitResult> CommitAsync(StoreCommit commit, CancellationToken cancellationToken);
-}
-
 /// <summary>In: authorized owner/request/rule actions, worker ticks and engine events. Out: accepted intent, one target state and read models. Never: duplicate search/ranking/file algorithms or persisted live progress.</summary>
 public interface ITargets
 {

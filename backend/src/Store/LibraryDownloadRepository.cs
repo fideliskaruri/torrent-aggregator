@@ -7,13 +7,13 @@ namespace TorrentFlow.Store;
 
 public interface ILibraryPlacementProposalRepository
 {
-    Task<LibraryWriteProposal?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
+    Task<ImmutableArray<RowWrite>?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
         string? reviewId, ImmutableArray<string> reviewItemIds, CancellationToken ct);
 }
 
 public sealed partial class LibraryRepository : ILibraryPlacementProposalRepository
 {
-    public async Task<LibraryWriteProposal?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
+    public async Task<ImmutableArray<RowWrite>?> ProposeExternalPlacementAsync(ImmutableArray<DownloadFileRow> files,
         string? reviewId, ImmutableArray<string> reviewItemIds, CancellationToken ct)
     {
         if (files.IsDefaultOrEmpty || files.Select(f => f.DownloadId).Distinct().Count() != 1 ||
@@ -35,7 +35,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
                 files.Any(f => f.Selected && !review.Items.Any(i => reviewItemIds.Contains(i.Id) && i.Path == f.EnginePath)))
                 throw new ArgumentException("The confirmed Import files no longer match this transfer. Review it again.");
         }
-        return new PlacementWriteProposal([.. files.Select(f => new RowWrite(f, null, null))], reviewId, reviewItemIds);
+        return [.. files.Select(f => new RowWrite(f, null, null))];
     }
 
     public async Task<bool> SavePlacementAsync(ImmutableArray<DownloadFileRow> files,
@@ -56,7 +56,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         finally { db.ChangeTracker.Clear(); }
     }
 
-    public async Task<LibraryWriteProposal?> ProposeFiledAsync(
+    public async Task<ImmutableArray<RowWrite>?> ProposeFiledAsync(
         ImmutableArray<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)> files,
         CancellationToken ct)
     {
@@ -88,7 +88,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             writes.Add(new(after, null, before));
             writes.Add(new(media, prior?.Version, null));
         }
-        return new FilingWriteProposal(writes.ToImmutable(), []);
+        return writes.ToImmutable();
     }
 
     public async Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken ct)
@@ -119,22 +119,4 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         { return false; }
         finally { db.ChangeTracker.Clear(); }
     }
-}
-
-internal abstract class LibraryTransactionProposal(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
-    : LibraryWriteProposal
-{
-    internal ImmutableArray<RowWrite> Writes { get; } = writes;
-    internal ImmutableArray<RowDelete> Deletes { get; } = deletes;
-}
-
-internal sealed class FilingWriteProposal(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
-    : LibraryTransactionProposal(writes, deletes);
-
-internal sealed class PlacementWriteProposal(ImmutableArray<RowWrite> writes, string? reviewId,
-    ImmutableArray<string> reviewItemIds)
-    : LibraryTransactionProposal(writes, [])
-{
-    internal string? ReviewId { get; } = reviewId;
-    internal ImmutableArray<string> ReviewItemIds { get; } = reviewItemIds;
 }

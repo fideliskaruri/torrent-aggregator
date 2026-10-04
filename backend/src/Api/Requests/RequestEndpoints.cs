@@ -40,9 +40,9 @@ internal static class RequestEndpoints
         });
         requester.MapGet("/library", async (RequestService service, CancellationToken ct) =>
         {
-            var files = await service.Read<MediaFileRow>(CatalogState.Query(), ct);
-            var works = await service.Read<WorkRow>(CatalogState.Query(), ct);
-            var names = await service.Read<WorkNameRow>(CatalogState.Query(), ct);
+            var files = await service.Read<MediaFileRow>(null, ct);
+            var works = await service.Read<WorkRow>(null, ct);
+            var names = await service.Read<WorkNameRow>(null, ct);
             return Reply(new { titles = works.Where(w => files.Any(f => f.WorkId == w.Id &&
                 f.Role == FileRole.Video && f.Status == FilePresence.Present && File.Exists(f.Path)))
                 .Select(w => new { key = w.WorkKey,
@@ -51,7 +51,7 @@ internal static class RequestEndpoints
         });
         requester.MapGet("/requests", async (HttpContext http, RequestService service, CancellationToken ct) =>
         {
-            var rows = await service.Read<RequestRow>(CatalogState.Query(userId: AccessIdentity.UserId(http)), ct);
+            var rows = await service.Read<RequestRow>(row => row.UserId == AccessIdentity.UserId(http), ct);
             var results = new List<object>();
             foreach (var row in rows) results.Add(await service.Project(row, false, ct));
             return Reply(new { requests = results });
@@ -75,7 +75,7 @@ internal static class RequestEndpoints
             if (status is not (null or "pending" or "approved" or "downloading" or "available" or
                 "declined" or "fulfilled" or "partial" or "failed" or "cancelled"))
                 throw new ArgumentException("Choose a valid request status.");
-            var rows = await service.Read<RequestRow>(CatalogState.Query(), ct);
+            var rows = await service.Read<RequestRow>(null, ct);
             var results = new List<object>();
             foreach (var row in rows.OrderBy(r => r.CreatedAt).DistinctBy(r =>
                 $"{r.WorkId}:{r.Scope}:{string.Join(",", r.ScopeData.Seasons.Order())}:{r.Decision}"))
@@ -126,7 +126,7 @@ internal static class RequestEndpoints
     private static async Task<IResult> Pick(string id, HttpContext http, RequestService service,
         TargetPipeline pipeline, IDataProtectionProvider protection, CancellationToken ct)
     {
-        var request = (await service.Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+        var request = (await service.Read<RequestRow>(row => row.Id == id, ct)).SingleOrDefault()
             ?? throw new KeyNotFoundException("Request not found.");
         if (!http.Request.HasJsonContentType() || http.Request.ContentLength > 16384)
             return Results.BadRequest(new { error = "Choose a release first." });
@@ -147,14 +147,15 @@ internal static class RequestEndpoints
         await RequestService.Gate.WaitAsync(ct);
         try
         {
-            request = (await service.Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
+            request = (await service.Read<RequestRow>(row => row.Id == id, ct)).SingleOrDefault()
                 ?? throw new KeyNotFoundException("Request not found.");
             if (request.Decision != RequestDecision.Approved)
                 throw new RequestConflict("not_pending", $"This request is already {request.Decision.ToString().ToLowerInvariant()}.");
             await service.Acquire(request, ct);
-            var items = await service.Read<RequestItemRow>(CatalogState.Query() with { RequestId = id }, ct);
-            var seasons = await service.Read<SeasonRow>(CatalogState.Query(workId: request.WorkId), ct);
-            var episodes = await service.Read<EpisodeRow>(CatalogState.Query(), ct);
+            var items = await service.Read<RequestItemRow>(row => row.RequestId == id, ct);
+            var seasons = await service.Read<SeasonRow>(row => row.WorkId == request.WorkId, ct);
+            var episodeIds = items.Select(item => item.EpisodeId).OfType<string>().ToArray();
+            var episodes = await service.Read<EpisodeRow>(row => episodeIds.Contains(row.Id), ct);
             var seasonId = seasons.FirstOrDefault(s => s.Number == choice.Season)?.Id;
             var selected = items.Where(i => i.Settlement == ItemSettlement.Open && i.TargetId is not null &&
                 (request.Scope == RequestScope.Film ? choice.Season is null && choice.Episode is null :
