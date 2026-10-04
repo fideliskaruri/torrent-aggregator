@@ -11,6 +11,7 @@ using TorrentFlow.Api.Requests;
 using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Api.Automation;
+using TorrentFlow.Requests;
 using TorrentFlow.Store;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -48,11 +49,9 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
-builder.Services.AddNotifications();
 builder.Services.AddSources();
 builder.Services.AddCatalog();
 builder.Services.AddRequests();
-builder.Services.AddAutomation();
 builder.Services.AddEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);

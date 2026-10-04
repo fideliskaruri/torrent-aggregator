@@ -1,6 +1,10 @@
-namespace TorrentFlow.Api.Requests;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
-internal sealed class RequestReconciler(IServiceScopeFactory scopes, ILogger<RequestReconciler> logger) : BackgroundService
+namespace TorrentFlow.Requests;
+
+public sealed class RequestReconciler(IServiceScopeFactory scopes, ILogger<RequestReconciler> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

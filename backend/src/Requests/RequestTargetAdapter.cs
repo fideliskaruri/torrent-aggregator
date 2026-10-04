@@ -2,12 +2,12 @@ using System.Collections.Immutable;
 using TorrentFlow.Domain;
 using TorrentFlow.Targets;
 
-namespace TorrentFlow.Api.Requests;
+namespace TorrentFlow.Requests;
 
 // Request linkage is request-owned; target state and origin are authored by Targets.
-internal static class RequestTargetAdapter
+public static class RequestTargetAdapter
 {
-    internal static async Task Attach(IStore store, CatalogState catalog, RequestRow request,
+    public static async Task Attach(IStore store, CatalogState catalog, RequestRow request,
         ImmutableArray<string> ids, CancellationToken ct)
     {
         foreach (var id in ids)

@@ -1,42 +1,36 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
 
-namespace TorrentFlow.Api.Notifications;
+namespace TorrentFlow.Requests;
 
 internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFactory scopes,
     ILogger<NotificationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await using var reader = events.ReadAllAsync(stoppingToken).GetAsyncEnumerator(stoppingToken);
-        var next = reader.MoveNextAsync().AsTask();
-        // Persisted pending deliveries survive restarts; one notification worker owns both paths.
-        var tick = Task.Delay(TimeSpan.Zero, stoppingToken);
-        while (!stoppingToken.IsCancellationRequested)
+        await foreach (var changes in events.ReadAllAsync(stoppingToken))
         {
-            var ready = await Task.WhenAny(next, tick);
-            System.Collections.Immutable.ImmutableArray<StoreRow> changes = [];
-            if (ready == next)
-            {
-                if (!await next) return;
-                changes = reader.Current;
-                next = reader.MoveNextAsync().AsTask();
-            }
-            else tick = Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<NotificationRepository>();
+                var requests = scope.ServiceProvider.GetRequiredService<RequestService>();
                 var works = await db.AllAsync<WorkRow>(stoppingToken);
                 foreach (var target in changes.OfType<TargetRow>())
                 {
+                    await RequestService.Gate.WaitAsync(stoppingToken);
+                    try { await requests.ApprovePendingForDownloadNow(target, stoppingToken); }
+                    finally { RequestService.Gate.Release(); }
                     var completed = target.State == TargetState.Done;
                     var failed = target.State == TargetState.Waiting && target.ReasonCode == WaitReason.OwnerPickRequired;
                     if (!completed && !failed) continue;
                     var work = works.SingleOrDefault(w => w.Id == target.WorkId);
                     var title = work is null ? "Your download" :
                         NotificationReadModels.Title(work, await db.AllAsync<WorkNameRow>(stoppingToken));
-                    var n = new NotificationRow { Id = Guid.NewGuid().ToString("N"), UserId = target.CreatedBy, Kind = completed ? "download.completed" : "download.failed", Title = completed ? $"{title} is ready" : $"Pick a release for {title}", Body = completed ? title : target.ReasonText ?? "No working release was found. Pick a release yourself.", Link = work is null ? "/downloads" : "/title/" + Uri.EscapeDataString(work.WorkKey), DedupeKey = $"{target.Id}:{(completed ? "done" : "help")}:{target.ClickedAt:O}", CreatedAt = DateTimeOffset.UtcNow, ReadAt = null, PushPending = true, PushAttemptAt = null, PushAttempts = 0 };
+                    var n = new NotificationRow { Id = Guid.NewGuid().ToString("N"), UserId = target.CreatedBy, Kind = completed ? "download.completed" : "download.failed", Title = completed ? $"{title} is ready" : $"Pick a release for {title}", Body = completed ? title : target.ReasonText ?? "No working release was found. Pick a release yourself.", Link = work is null ? "/downloads" : "/title/" + Uri.EscapeDataString(work.WorkKey), DedupeKey = $"{target.Id}:{(completed ? "done" : "help")}:{target.ClickedAt:O}", CreatedAt = DateTimeOffset.UtcNow, ReadAt = null, PushPending = false, PushAttemptAt = null, PushAttempts = 0 };
                     await db.PublishAsync(n with { Title = Clip(n.Title, 200)!, Body = Clip(n.Body, 500) }, stoppingToken);
                 }
                 foreach (var download in changes.OfType<DownloadRow>().Where(d => d.FinishedAt is not null))
@@ -55,7 +49,7 @@ internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFact
                         DedupeKey = "download:" + download.Id,
                         CreatedAt = DateTimeOffset.UtcNow,
                         ReadAt = null,
-                        PushPending = true,
+                        PushPending = false,
                         PushAttemptAt = null,
                         PushAttempts = 0,
                     }, stoppingToken);

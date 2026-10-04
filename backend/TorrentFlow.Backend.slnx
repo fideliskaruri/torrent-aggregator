@@ -9,5 +9,6 @@
   <Project Path="src/Library/Library.csproj" />
   <Project Path="src/Store/Store.csproj" />
   <Project Path="src/Targets/Targets.csproj" />
+  <Project Path="src/Requests/Requests.csproj" />
   <Project Path="src/Api/Api.csproj" />
 </Solution>

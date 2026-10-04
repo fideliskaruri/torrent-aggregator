@@ -191,20 +191,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     LeaseToken = state is TargetState.Fetching or TargetState.Filing ? old.LeaseToken : null };
             var links = await new CatalogState(store).ReadAsync<DownloadTargetRow>(
                 CatalogState.Query() with { TargetId = id }, ct);
-            var approvals = ImmutableArray.CreateBuilder<RowWrite>();
-            if (action == TargetAction.DownloadNow)
-            {
-                var items = await new CatalogState(store).ReadAsync<RequestItemRow>(CatalogState.Query() with { TargetId = id }, ct);
-                foreach (var requestId in items.Select(i => i.RequestId).Distinct())
-                {
-                    var request = (await store.ReadAsync<RequestRow>(CatalogState.Query(requestId), ct)).Single();
-                    if (request.Decision == RequestDecision.Pending)
-                        approvals.Add(new(request with { Decision = RequestDecision.Approved, DecidedBy = "local",
-                            DecidedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
-                            Version = request.Version + 1 }, request.Version, null));
-                }
-            }
-            await CommitAsync(store, [new(next, old.Version, null), .. approvals,
+            await CommitAsync(store, [new(next, old.Version, null),
                 .. links.Where(l => l.Role != (state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired)).Select(l =>
                     new RowWrite(l with { Role = state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired }, null, l))], [], ct);
             if (!(action == TargetAction.DownloadNow && state is TargetState.Fetching or TargetState.Filing) &&

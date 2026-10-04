@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Requests;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Automation;
@@ -10,14 +11,6 @@ internal static class AutomationEndpoints
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static IResult Reply(object body) => Results.Json(body, Json);
-    internal static IServiceCollection AddAutomation(this IServiceCollection services)
-    {
-        services.AddSingleton<AutomationRepository>();
-        services.AddSingleton<Hunter>();
-        services.AddHostedService<HunterScheduler>();
-        return services;
-    }
-
     internal static void MapAutomation(this WebApplication app)
     {
         app.MapGet("/api/rules", async (AutomationRepository db, CancellationToken ct) =>

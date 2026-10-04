@@ -14,6 +14,7 @@
     <ProjectReference Include="..\Targets\Targets.csproj" />
     <ProjectReference Include="..\Metadata\Metadata.csproj" />
     <ProjectReference Include="..\Store\Store.csproj" />
+    <ProjectReference Include="..\Requests\Requests.csproj" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>

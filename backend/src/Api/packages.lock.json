@@ -169,13 +169,6 @@
           "SQLitePCLRaw.core": "2.1.12"
         }
       },
-      "TorrentFlow.Check": {
-        "type": "Project",
-        "dependencies": {
-          "TorrentFlow.Domain": "[1.0.0, )",
-          "TorrentFlow.Engine": "[1.0.0, )"
-        }
-      },
       "TorrentFlow.Domain": {
         "type": "Project"
       },
@@ -221,6 +214,14 @@
           "TorrentFlow.Domain": "[1.0.0, )"
         }
       },
+      "TorrentFlow.Requests": {
+        "type": "Project",
+        "dependencies": {
+          "TorrentFlow.Domain": "[1.0.0, )",
+          "TorrentFlow.Store": "[1.0.0, )",
+          "TorrentFlow.Targets": "[1.0.0, )"
+        }
+      },
       "TorrentFlow.Sources": {
         "type": "Project",
         "dependencies": {
@@ -239,7 +240,6 @@
       "TorrentFlow.Targets": {
         "type": "Project",
         "dependencies": {
-          "TorrentFlow.Check": "[1.0.0, )",
           "TorrentFlow.Domain": "[1.0.0, )",
           "TorrentFlow.Engine": "[1.0.0, )",
           "TorrentFlow.Find": "[1.0.0, )",

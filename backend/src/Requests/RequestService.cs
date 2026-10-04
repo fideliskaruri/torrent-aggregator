@@ -4,17 +4,17 @@ using System.Text.Json.Serialization;
 using TorrentFlow.Domain;
 using TorrentFlow.Targets;
 
-namespace TorrentFlow.Api.Requests;
+namespace TorrentFlow.Requests;
 
-internal sealed class RequestService(IStore store, IMetadata metadata, TargetPipeline pipeline)
+public sealed class RequestService(IStore store, IMetadata metadata, TargetPipeline pipeline)
 {
     private readonly CatalogState catalog = new(store);
-    internal static readonly SemaphoreSlim Gate = new(1, 1);
+    public static readonly SemaphoreSlim Gate = new(1, 1);
 
-    internal Task<ImmutableArray<T>> Read<T>(StoreQuery query, CancellationToken ct) where T : StoreRow =>
+    public Task<ImmutableArray<T>> Read<T>(StoreQuery query, CancellationToken ct) where T : StoreRow =>
         catalog.ReadAsync<T>(query, ct);
 
-    internal async Task Commit(string actor, IEnumerable<RowWrite> writes, CancellationToken ct,
+    public async Task Commit(string actor, IEnumerable<RowWrite> writes, CancellationToken ct,
         IEnumerable<RowDelete>? deletes = null)
     {
         var key = Guid.NewGuid().ToString("N");
@@ -25,7 +25,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         if (!result.Applied) throw new InvalidOperationException("The request changed. Reload and try again.");
     }
 
-    internal async Task<RequestRow> Create(string user, CreateRequest input, CancellationToken ct)
+    public async Task<RequestRow> Create(string user, CreateRequest input, CancellationToken ct)
     {
         if (input.Provider is not ("tmdb" or "anilist" or "tvmaze" or "cinemeta" or "itunes") ||
             string.IsNullOrWhiteSpace(input.ProviderId) || input.ProviderId.Length > 200 ||
@@ -81,7 +81,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
 
     }
 
-    internal async Task<RequestRow> Decide(string id, string actor, string action, string? reason, CancellationToken ct)
+    public async Task<RequestRow> Decide(string id, string actor, string action, string? reason, CancellationToken ct)
     {
         var request = (await Read<RequestRow>(CatalogState.Query(id), ct)).SingleOrDefault()
             ?? throw new KeyNotFoundException("Request not found.");
@@ -114,11 +114,32 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         return changes.Single(r => r.Id == id);
     }
 
-    internal static bool SameAsk(RequestRow left, RequestRow right) =>
+    public static bool SameAsk(RequestRow left, RequestRow right) =>
         left.WorkId == right.WorkId && left.Scope == right.Scope &&
         left.ScopeData.Seasons.Order().SequenceEqual(right.ScopeData.Seasons.Order());
 
-    internal async Task Acquire(RequestRow request, CancellationToken ct)
+    public async Task ApprovePendingForDownloadNow(TargetRow target, CancellationToken ct)
+    {
+        if (target.NowAt is null) return;
+        var items = await Read<RequestItemRow>(CatalogState.Query() with { TargetId = target.Id }, ct);
+        var requests = await Read<RequestRow>(CatalogState.Query(), ct);
+        var changes = items.Select(i => i.RequestId).Distinct()
+            .Select(id => requests.FirstOrDefault(r => r.Id == id))
+            .Where(r => r is { Decision: RequestDecision.Pending })
+            .Select(r => r! with
+            {
+                Decision = RequestDecision.Approved,
+                DecidedBy = "local",
+                DecidedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                Version = r.Version + 1,
+            }).ToArray();
+        if (changes.Length > 0)
+            await Commit("local", changes.Select((r, index) =>
+                new RowWrite(r, requests.Single(old => old.Id == r.Id).Version, null)), ct);
+    }
+
+    public async Task Acquire(RequestRow request, CancellationToken ct)
     {
         var work = (await Read<WorkRow>(CatalogState.Query(request.WorkId), ct)).Single();
         var priorItems = await Read<RequestItemRow>(CatalogState.Query() with { RequestId = request.Id }, ct);
@@ -151,7 +172,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         }
     }
 
-    internal async Task Reconcile(CancellationToken ct)
+    public async Task Reconcile(CancellationToken ct)
     {
         var requests = await Read<RequestRow>(CatalogState.Query(), ct);
         foreach (var request in requests.Where(r => r.Decision == RequestDecision.Approved))
@@ -176,7 +197,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         }
     }
 
-    internal async Task<object> Project(RequestRow request, bool owner, CancellationToken ct)
+    public async Task<object> Project(RequestRow request, bool owner, CancellationToken ct)
     {
         var work = (await Read<WorkRow>(CatalogState.Query(request.WorkId), ct)).Single();
         var names = await Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct);
@@ -249,9 +270,9 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed record CreateRequest(string Provider, string ProviderId, string MediaType, string Title,
+public sealed record CreateRequest(string Provider, string ProviderId, string MediaType, string Title,
     int? Year, string? PosterUrl, string Scope, ImmutableArray<int> Seasons, string? Note);
-internal sealed class RequestConflict(string code, string message) : Exception(message)
+public sealed class RequestConflict(string code, string message) : Exception(message)
 {
-    internal string Code { get; } = code;
+    public string Code { get; } = code;
 }

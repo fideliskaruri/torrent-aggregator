@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
+using TorrentFlow.Requests;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Requests;
@@ -11,13 +12,6 @@ internal static class RequestEndpoints
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static IResult Reply(object body) => Results.Json(body, Json);
-    internal static void AddRequests(this IServiceCollection services)
-    {
-        services.AddScoped(sp => new RequestService(sp.GetRequiredService<IStore>(),
-            sp.GetRequiredService<IMetadata>(), sp.GetRequiredService<TargetPipeline>()));
-        services.AddHostedService<RequestReconciler>();
-    }
-
     internal static void MapRequests(this WebApplication app)
     {
         var requester = app.MapGroup("/api/requester");
