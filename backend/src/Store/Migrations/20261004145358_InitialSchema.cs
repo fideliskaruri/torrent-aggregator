@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -415,6 +415,7 @@ namespace TorrentFlow.Store.Migrations
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     actorUserId = table.Column<string>(type: "TEXT", nullable: false),
                     workId = table.Column<string>(type: "TEXT", nullable: false),
+                    episode = table.Column<int>(type: "INTEGER", nullable: true),
                     scope = table.Column<string>(type: "TEXT", nullable: false),
                     scopeJson = table.Column<string>(type: "TEXT", nullable: false),
                     policyJson = table.Column<string>(type: "TEXT", nullable: false),
@@ -555,7 +556,6 @@ namespace TorrentFlow.Store.Migrations
                     workId = table.Column<string>(type: "TEXT", nullable: false),
                     resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
                     preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
-                    audioLanguage = table.Column<string>(type: "TEXT", nullable: true),
                     maxBytesPerItem = table.Column<long>(type: "INTEGER", nullable: true),
                     storageRootOverrideId = table.Column<string>(type: "TEXT", nullable: true),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
@@ -972,11 +972,8 @@ namespace TorrentFlow.Store.Migrations
                     expectedAt = table.Column<string>(type: "TEXT", nullable: true),
                     resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
                     preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
-                    audioLanguage = table.Column<string>(type: "TEXT", nullable: true),
                     maxBytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    ownerRanked = table.Column<bool>(type: "INTEGER", nullable: false),
-                    rank = table.Column<long>(type: "INTEGER", nullable: false),
-                    nowAt = table.Column<string>(type: "TEXT", nullable: true),
+                    downloadNow = table.Column<bool>(type: "INTEGER", nullable: false),
                     createdBy = table.Column<string>(type: "TEXT", nullable: false),
                     origin = table.Column<string>(type: "TEXT", nullable: false),
                     autoRuleId = table.Column<string>(type: "TEXT", nullable: true),
@@ -987,32 +984,28 @@ namespace TorrentFlow.Store.Migrations
                     clickedAt = table.Column<string>(type: "TEXT", nullable: true),
                     substantiveMisses = table.Column<int>(type: "INTEGER", nullable: false),
                     helpNotifiedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    policyRevision = table.Column<long>(type: "INTEGER", nullable: false),
                     leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
                     leaseToken = table.Column<string>(type: "TEXT", nullable: true),
                     createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false),
-                    priority = table.Column<string>(type: "TEXT", nullable: false),
                     minListedSeeders = table.Column<int>(type: "INTEGER", nullable: true),
                     pickedReleaseHash = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Target", x => x.id);
+                    table.CheckConstraint("CK_Target_downloadNow", "\"downloadNow\" IN (0,1)");
                     table.CheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
                     table.CheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
                     table.CheckConstraint("CK_Target_minListedSeeders", "\"minListedSeeders\" >= 0");
                     table.CheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade','hunter')");
-                    table.CheckConstraint("CK_Target_ownerRanked", "\"ownerRanked\" IN (0,1)");
-                    table.CheckConstraint("CK_Target_policyRevision", "\"policyRevision\" >= 0");
                     table.CheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
-                    table.CheckConstraint("CK_Target_priority", "\"priority\" IN ('now','ownerrank','freshrelease','request','backcatalogue','upgradewatch')");
-                    table.CheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
+                    table.CheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused')");
                     table.CheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
                     table.CheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
-                    table.CheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
-                    table.CheckConstraint("CK_Target_state", "\"state\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
+                    table.CheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
+                    table.CheckConstraint("CK_Target_state", "\"state\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
                     table.CheckConstraint("CK_Target_substantiveMisses", "\"substantiveMisses\" >= 0");
                     table.CheckConstraint("CK_Target_version", "\"version\" >= 0");
                     table.ForeignKey(
@@ -1666,9 +1659,9 @@ namespace TorrentFlow.Store.Migrations
                 column: "replaceMediaFileId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Target_state_nextTryAt_rank_all",
+                name: "IX_Target_state_nextTryAt_createdAt_all",
                 table: "Target",
-                columns: new[] { "state", "nextTryAt", "rank" });
+                columns: new[] { "state", "nextTryAt", "createdAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Target_workId_episodeIdISNULL",
@@ -1827,6 +1820,7 @@ namespace TorrentFlow.Store.Migrations
                 CREATE UNIQUE INDEX UX_RequestItem_Identity ON RequestItem(requestId,coalesce(episodeId,''));
                 CREATE UNIQUE INDEX UX_Block_Identity ON Block(hash,coalesce(workKey,''));
                 """);
+
         }
 
         /// <inheritdoc />
