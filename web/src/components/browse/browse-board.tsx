@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { send } from "@/lib/api";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -54,7 +55,7 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
       const label = cleanDisplayTitle(item.title);
       setStatuses((prev) => ({ ...prev, [item.id]: "pending" }));
       try {
-        const res = await fetch("/api/library/ondemand", {
+        const res = await send("/api/library/ondemand", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...action.request, retention: "keep" }),

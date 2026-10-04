@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { get } from "@/lib/api";
 import { useSearchParams } from "react-router";
 import { Radar } from "lucide-react";
 import { formatWhen } from "@/lib/format";
@@ -214,7 +215,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
     setLoadingOlder(true);
     setOlderError(null);
     try {
-      const res = await fetch(
+      const res = await get(
         activityPageUrl({ sentOnly, cursor, limit: ACTIVITY_PAGE_SIZE }),
         { cache: "no-store", signal: controller.signal },
       );
@@ -422,4 +423,3 @@ function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
     </PageSkeletonFrame>
   );
 }
-

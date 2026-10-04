@@ -22,6 +22,7 @@
  *    when the request had actually failed.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { get, send } from "@/lib/api";
 import type { ReactNode } from "react";
 import { CheckCircle2, Download, FolderOpen, Loader2, Search, Trash2 } from "lucide-react";
 import { Link, useNavigate, type NavigateFunction } from "react-router";
@@ -602,7 +603,7 @@ export function TitleDetail(props: TitleDetailProps) {
             ? extras.episodes.every((ep) => !isUnaired(ep.airDate))
             : true;
         const outcome = await cap.run(async ({ overrideStorageCap }) => {
-          const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
+          const res = await send(`/api/title/${encodeURIComponent(props.workKey)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -817,7 +818,7 @@ export function TitleDetail(props: TitleDetailProps) {
           onConfirm={() => void (async () => {
             setFindingAnother(true);
             try {
-              const response = await fetch(`/api/downloads/${encodeURIComponent(findAnother.hash)}/find-another`, {
+              const response = await send(`/api/downloads/${encodeURIComponent(findAnother.hash)}/find-another`, {
                 method: "POST",
               });
               const result = await response.json().catch(() => null) as { ok?: boolean; message?: string } | null;

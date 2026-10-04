@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { get, send } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +22,7 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/settings/tmdb", { cache: "no-store" });
+      const response = await get("/api/settings/tmdb", { cache: "no-store" });
       if (!response.ok) throw new Error("Could not load TMDB settings.");
       setStatus(await response.json());
     } catch {
@@ -34,7 +35,7 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
     if (action === "remove" && !window.confirm("Remove the saved TMDB key? Any environment key will be used instead.")) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/settings/tmdb${action === "test" ? "/test" : ""}`, {
+      const response = await send(`/api/settings/tmdb${action === "test" ? "/test" : ""}`, {
         method: action === "save" ? "PUT" : action === "test" ? "POST" : "DELETE",
         headers: { "Content-Type": "application/json" },
         body: action === "remove" ? undefined : JSON.stringify(key.trim() ? { apiKey: key } : {}),

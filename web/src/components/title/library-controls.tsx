@@ -11,6 +11,7 @@
  * because an id it made up is an id automation will later fail to match.
  */
 import { useLayoutEffect, useRef, useState } from "react";
+import { send as apiSend } from "@/lib/api";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
@@ -138,7 +139,7 @@ export function LibraryControls({
   const add = (chosen: AddAnswers) =>
     send(
       () =>
-        fetch("/api/watchlist", {
+        apiSend("/api/watchlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -154,7 +155,7 @@ export function LibraryControls({
     if (!itemId) return;
     void send(
       () =>
-        fetch(`/api/watchlist?id=${encodeURIComponent(itemId)}&confirm=true`, {
+        apiSend(`/api/watchlist?id=${encodeURIComponent(itemId)}&confirm=true`, {
           method: "DELETE",
         }),
       "Could not remove this from your library",

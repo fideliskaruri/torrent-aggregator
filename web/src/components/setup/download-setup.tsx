@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { AlertTriangle } from "lucide-react";
+import { get, send } from "@/lib/api";
 import {
   detectUnsafeDownloadPath,
   unsafeDownloadPathMessage,
@@ -100,7 +101,7 @@ export function DownloadSetupProvider({ children }: { children: ReactNode }) {
       const run = (async () => {
         let data: SettingsPayload;
         try {
-          const res = await fetch("/api/settings/client");
+          const res = await get("/api/settings/client");
           if (!res.ok) return true;
           data = (await res.json()) as SettingsPayload;
         } catch {
@@ -154,7 +155,7 @@ export function DownloadSetupProvider({ children }: { children: ReactNode }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/settings/client", {
+      const res = await send("/api/settings/client", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ baseDownloadPath: path, maxStorageGb: gb }),

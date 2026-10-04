@@ -1,4 +1,5 @@
 import type { TitleAction } from "./title-actions";
+import { send } from "@/lib/api";
 import type { TitleGrabResponse } from "./types";
 import {
   parseStorageOverrideFacts,
@@ -111,7 +112,7 @@ export async function postTitleAction({
   resolution,
   overrideStorageCap,
 }: PostTitleActionInput): Promise<TitleGrabResponse> {
-  const res = await fetch(`/api/title/${encodeURIComponent(workKey)}`, {
+  const res = await send(`/api/title/${encodeURIComponent(workKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

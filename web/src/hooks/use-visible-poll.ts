@@ -1,16 +1,5 @@
 import { useEffect, useRef } from "react";
-import { startVisiblePoller } from "@/lib/visible-poller";
 
-/**
- * The one way a page polls. Polls only while the page is visible, schedules
- * the next tick only after the previous one settles (a slow server never
- * stacks requests), and polls at once when the page becomes visible again.
- * `useApiQuery`'s `refreshMs` runs on this too.
- *
- * `poll`, `intervalMs` and `paused` are read on every tick, so they can change
- * without restarting the poller. The first load is the caller's: this only
- * schedules what comes after it.
- */
 export function useVisiblePoll(
   poll: () => Promise<void> | void,
   {
@@ -24,23 +13,59 @@ export function useVisiblePoll(
   },
 ) {
   const pollRef = useRef(poll);
-  const intervalRef = useRef(intervalMs);
-  const pausedRef = useRef(paused);
   useEffect(() => {
     pollRef.current = poll;
-    intervalRef.current = intervalMs;
-    pausedRef.current = paused;
-  });
+  }, [poll]);
 
-  const active = enabled && intervalMs > 0;
   useEffect(() => {
-    if (!active) return;
-    return startVisiblePoller({
-      poll: () => pollRef.current(),
-      intervalMs: () => intervalRef.current,
-      isPaused: () => pausedRef.current,
-    });
-    // A new interval restarts the wait so the change applies now, not after
-    // the old (perhaps 20s) timer fires.
-  }, [active, intervalMs, paused]);
+    if (!enabled || intervalMs <= 0 || typeof document === "undefined") return;
+    let stopped = false;
+    let running = false;
+    let refreshWhenVisible = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const visible = () => document.visibilityState === "visible";
+    const clear = () => {
+      clearTimeout(timer);
+      timer = undefined;
+    };
+    const schedule = () => {
+      clear();
+      if (!stopped && !paused && visible()) {
+        timer = setTimeout(() => void tick(), intervalMs);
+      }
+    };
+    const tick = async () => {
+      if (stopped || running || paused || !visible()) return;
+      running = true;
+      clear();
+      try {
+        await pollRef.current();
+      } finally {
+        running = false;
+        if (refreshWhenVisible && visible() && !paused) {
+          refreshWhenVisible = false;
+          void tick();
+          return;
+        }
+        refreshWhenVisible = false;
+        schedule();
+      }
+    };
+    const onVisibility = () => {
+      if (!visible()) {
+        clear();
+      } else if (running) {
+        refreshWhenVisible = true;
+      } else {
+        void tick();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
+    return () => {
+      stopped = true;
+      clear();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enabled, intervalMs, paused]);
 }

@@ -1,4 +1,5 @@
 import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
+import { get, send } from "@/lib/api";
 import {
   useEffect,
   useId,
@@ -380,7 +381,7 @@ export default function WatchlistPage() {
   }, []);
 
   async function updateStatus(id: string, newStatus: string) {
-    const res = await fetch("/api/watchlist", {
+    const res = await send("/api/watchlist", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status: newStatus }),
@@ -398,7 +399,7 @@ export default function WatchlistPage() {
     fromSeason: number,
     fromEpisode = 1,
   ) {
-    const res = await fetch("/api/watchlist", {
+    const res = await send("/api/watchlist", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, fromSeason, fromEpisode }),
@@ -430,7 +431,7 @@ export default function WatchlistPage() {
     if (!(await ensureDownloadSetup())) return;
     setSendingId(item.id);
     try {
-      const res = await fetch("/api/library/ondemand", {
+      const res = await send("/api/library/ondemand", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -497,7 +498,7 @@ export default function WatchlistPage() {
 
   async function toggleMonitored(item: WatchItem) {
     const next = item.monitored === false;
-    const res = await fetch("/api/watchlist", {
+    const res = await send("/api/watchlist", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: item.id, monitored: next }),
@@ -516,7 +517,7 @@ export default function WatchlistPage() {
   async function runAutomation() {
     setRunningAuto(true);
     try {
-      const res = await fetch("/api/automation/run", { method: "POST" });
+      const res = await send("/api/automation/run", { method: "POST" });
       const data = await res.json().catch(() => ({
         ok: false,
         message: "Empty response from server",
@@ -560,7 +561,7 @@ export default function WatchlistPage() {
     if (!pendingRemove) return;
     setRemoving(true);
     try {
-      const res = await fetch(
+      const res = await send(
         `/api/watchlist?id=${encodeURIComponent(pendingRemove.id)}&confirm=true`,
         { method: "DELETE" },
       );
@@ -590,7 +591,7 @@ export default function WatchlistPage() {
     setDeletePlan(null);
     setDeletePlanError(null);
     try {
-      const res = await fetch(
+      const res = await get(
         `/api/library/delete?${deleteScopeQuery(item.id, scope)}`,
       );
       const data = await res.json();
@@ -630,7 +631,7 @@ export default function WatchlistPage() {
     }
     setDeleting(true);
     try {
-      const res = await fetch("/api/library/delete", {
+      const res = await send("/api/library/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -682,7 +683,7 @@ export default function WatchlistPage() {
     setSendingId(item.id);
     try {
       const outcome = await capOverride.run(async ({ overrideStorageCap }) => {
-        const res = await fetch("/api/torrent/send", {
+        const res = await send("/api/torrent/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

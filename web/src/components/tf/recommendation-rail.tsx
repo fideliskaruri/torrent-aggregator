@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { get, send } from "@/lib/api";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import { Plus } from "lucide-react";
@@ -46,7 +47,7 @@ export function RecommendationRailSection({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/recommendations");
+        const res = await get("/api/recommendations");
         if (!res.ok) return;
         const data = (await res.json()) as { rail: RecommendationRail | null };
         if (!cancelled) setRail(data.rail);
@@ -64,7 +65,7 @@ export function RecommendationRailSection({
       const key = `${item.provider}:${item.externalId}`;
       setBusy(key);
       try {
-        const res = await fetch("/api/watchlist", {
+        const res = await send("/api/watchlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

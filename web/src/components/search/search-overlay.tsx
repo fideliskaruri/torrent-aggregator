@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { get } from "@/lib/api";
 import { useLocation, useNavigate } from "react-router";
 import { AlertTriangle, Search, SearchX, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -239,7 +240,7 @@ export function SearchOverlay() {
     setError(null);
     setNotice(null);
 
-    fetch(request.url, { signal: ac.signal })
+    get(request.url, { signal: ac.signal })
       .then(async (res) => {
         const json = (await res.json().catch(() => null)) as {
           results?: unknown;

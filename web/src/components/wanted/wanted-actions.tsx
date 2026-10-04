@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { get, send } from "@/lib/api";
 import { RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
@@ -44,13 +45,13 @@ function targetQuery(t: WantedTarget): string {
 
 /** Try now: search for the target at once instead of after its wait. False when the server refused. */
 export async function tryWantedNow(target: WantedTarget): Promise<boolean> {
-  const res = await fetch(`/api/wanted/try?${targetQuery(target)}`, { method: "POST" });
+  const res = await send(`/api/wanted/try?${targetQuery(target)}`, { method: "POST" });
   return res.ok;
 }
 
 /** Remove: stop looking for the target, also after a restart. False when the server refused. */
 export async function stopWanted(target: WantedTarget): Promise<boolean> {
-  const res = await fetch(`/api/wanted?${targetQuery(target)}`, { method: "DELETE" });
+  const res = await send(`/api/wanted?${targetQuery(target)}`, { method: "DELETE" });
   return res.ok;
 }
 
@@ -68,7 +69,7 @@ export function useWantedRows(enabled = true) {
   const load = useCallback(async () => {
     if (!enabled) return;
     try {
-      const res = await fetch("/api/wanted");
+      const res = await get("/api/wanted");
       if (!res.ok) return;
       const data = (await res.json()) as { wanted?: WantedRow[] };
       setRows(data.wanted ?? []);

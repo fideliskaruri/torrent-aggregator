@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
+import { get, send } from "@/lib/api";
 import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
     setTestResult(null);
     let response: Response;
     try {
-      response = await fetch(`/api/settings/sources/${encodeURIComponent(source.id)}/test`, { method: "POST" });
+      response = await send(`/api/settings/sources/${encodeURIComponent(source.id)}/test`, { method: "POST" });
     } catch (err) {
       const message = err instanceof Error && err.message && !/failed to fetch/i.test(err.message)
         ? err.message : "Couldn't reach TorrentFlow to run the test. Try again.";
@@ -160,7 +161,7 @@ export function SourcesSettings() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const response = await fetch("/api/settings/sources", { cache: "no-store" });
+      const response = await get("/api/settings/sources", { cache: "no-store" });
       if (!response.ok) throw new Error();
       const body = await response.json();
       setSources(body.sources); setError(body.error ?? "");
@@ -168,14 +169,14 @@ export function SourcesSettings() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   const update: Update = async (id, values) => {
-    const response = await fetch(`/api/settings/sources/${encodeURIComponent(id)}`, {
+    const response = await send(`/api/settings/sources/${encodeURIComponent(id)}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values),
     });
     if (!response.ok) throw new Error();
     setSources((await response.json()).sources);
   };
   async function remove(id: string) {
-    const response = await fetch(`/api/settings/sources/${id}`, { method: "DELETE" });
+    const response = await send(`/api/settings/sources/${id}`, { method: "DELETE" });
     if (!response.ok) throw new Error();
     setSources((await response.json()).sources);
     toast.success("Source removed.");

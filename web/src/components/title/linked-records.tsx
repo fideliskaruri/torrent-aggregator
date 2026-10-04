@@ -8,6 +8,7 @@
  * it and nothing under the hero moves.
  */
 import { useCallback, useState } from "react";
+import { get, send } from "@/lib/api";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export function LinkedRecords({ workKey }: { workKey: string }) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(base, { headers: { accept: "application/json" } });
+      const res = await get(base, { headers: { accept: "application/json" } });
       if (res.status === 404) {
         setLinks([]);
         return;
@@ -82,7 +83,7 @@ export function LinkedRecords({ workKey }: { workKey: string }) {
   const unlink = async (link: WorkLink) => {
     setBusy(true);
     try {
-      const res = await fetch(`${base}/${encodeURIComponent(link.provider)}/${encodeURIComponent(link.externalId)}`, {
+      const res = await send(`${base}/${encodeURIComponent(link.provider)}/${encodeURIComponent(link.externalId)}`, {
         method: "DELETE",
       });
       const body = (await res.json().catch(() => ({}))) as { links?: WorkLink[]; message?: string };

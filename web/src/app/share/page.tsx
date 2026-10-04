@@ -1,4 +1,5 @@
 import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
+import { send } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { TfPageHeader } from "@/components/tf/page-header";
@@ -55,7 +56,7 @@ export default function SharePage() {
         return;
       }
       try {
-        const res = await fetch("/api/torrent/send", {
+        const res = await send("/api/torrent/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
