@@ -3,18 +3,16 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { TitleResultsList } from "./title-results-list";
-import { placeholderFor, searchDisplayFor } from "./search-overlay-state";
+import { placeholderFor, type SearchDisplay } from "./search-overlay-state";
 import type { TitleSearchState } from "./use-title-search";
 
-export function SearchOverlayResults({ search }: { search: TitleSearchState }) {
-  const display = searchDisplayFor({
-    scopeId: search.scopeId,
-    query: search.query,
-    loading: search.loading,
-    error: search.error,
-    resultCount: search.titles.length,
-  });
-
+export function SearchOverlayResults({
+  search,
+  display,
+}: {
+  search: TitleSearchState;
+  display: SearchDisplay;
+}) {
   return (
     <>
       {search.notice && display.state === "results" ? (

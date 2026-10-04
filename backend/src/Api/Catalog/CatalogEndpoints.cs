@@ -96,7 +96,7 @@ internal static class CatalogEndpoints
             title = CatalogProjection.Title(w), w.Work.Year, mediaType = CatalogProjection.Type(w),
             w.Work.PosterUrl, w.Work.WorkKey, provider = CatalogProjection.Provider(w),
             providerId = CatalogProjection.Primary(w)?.ExternalId, href = CatalogProjection.Href(w),
-            action = actions[w.Work.Id], searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
+            action = actions[w.Work.Id],
             aliases = CatalogProjection.Aliases(w), source = CatalogProjection.Provider(w),
             externalId = CatalogProjection.Primary(w)?.ExternalId,
         }), query = q, canonicalQuery = q.ToLowerInvariant(), result.Partial, result.FailedProviders });
@@ -130,13 +130,14 @@ internal static class CatalogEndpoints
     private static async Task<IResult> Recommend(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var actor = ActorId(h);
-        var watches = await db.WatchItems.AsNoTracking().Where(w => w.UserId == actor)
-            .OrderBy(w => w.Id).ToListAsync(ct);
-        var seeds = watches.Where(w => w.Status == WatchStatus.Watching).OrderByDescending(w => w.UpdatedAt)
-            .Select(w => w.WorkId).Take(1).ToImmutableArray();
+        var seedWatch = await db.WatchItems.AsNoTracking()
+            .Where(w => w.UserId == actor && w.Status == WatchStatus.Watching)
+            .OrderByDescending(w => w.UpdatedAt).ThenBy(w => w.Id)
+            .FirstOrDefaultAsync(ct);
+        var seeds = seedWatch is null ? ImmutableArray<string>.Empty : ImmutableArray.Create(seedWatch.WorkId);
         var rail = await metadata.RecommendAsync(seeds, ct);
-        var seed = seeds.IsEmpty ? null : (await metadata.GetWorkAsync(seeds[0], false, ct)).Work;
-        var actions = await CardAction.ResolveAsync(db, rail?.Works ?? [], actor, CanDownload(h), ct, watches);
+        var seed = seedWatch is null ? null : (await metadata.GetWorkAsync(seedWatch.WorkId, false, ct)).Work;
+        var actions = await CardAction.ResolveAsync(db, rail?.Works ?? [], actor, CanDownload(h), ct);
         return Json(new { rail = rail is null ? null : new
         {
             seedTitle = seed is null ? rail.Title : CatalogProjection.Title(seed),
@@ -148,7 +149,7 @@ internal static class CatalogEndpoints
                 externalId = CatalogProjection.Primary(w)?.ExternalId, title = CatalogProjection.Title(w),
                 w.Work.PosterUrl, w.Work.BackdropUrl, w.Work.Year, w.Work.Rating, format = CatalogProjection.Format(w),
                 isSeries = CatalogProjection.Series(w), href = CatalogProjection.Href(w),
-                action = actions[w.Work.Id], searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
+                action = actions[w.Work.Id],
             }),
         } });
     }
@@ -326,7 +327,7 @@ internal static class CatalogEndpoints
     {
         w.Work.WorkKey, href = CatalogProjection.Href(w), title = CatalogProjection.Title(w),
         w.Work.Year, mediaType = CatalogProjection.TitleType(w), w.Work.PosterUrl, w.Work.Rating,
-        action, searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
+        action,
     };
 
     private static bool CanDownload(HttpContext http) => AccessIdentity.Role(http) != "requester";

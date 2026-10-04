@@ -1,17 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
-const FOLD_PREVIEW_LABEL = 1;
-const FOLD_WORDMARK = 2;
-const FOLD_SEARCH_LABEL = 3;
-const FOLD_TIGHT_LINKS = 4;
-const FOLD_OVERFLOW = 5;
-
 export const HEADER_FOLD = {
-  wordmark: FOLD_WORDMARK,
-  searchLabel: FOLD_SEARCH_LABEL,
-  previewLabel: FOLD_PREVIEW_LABEL,
-  tightLinks: FOLD_TIGHT_LINKS,
-  overflow: FOLD_OVERFLOW,
+  wordmark: 2,
+  searchLabel: 3,
+  previewLabel: 1,
+  tightLinks: 4,
+  overflow: 5,
 };
 
 export function useHeaderFold(contentKey: string, maxFold: number) {

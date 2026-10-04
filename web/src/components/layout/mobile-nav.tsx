@@ -17,28 +17,24 @@ import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
   MOBILE_MORE_NAV,
   MOBILE_PRIMARY_NAV,
-  NOTIFICATIONS_HREF,
   navActiveHref,
   navFor,
 } from "@/lib/navigation";
-import { pendingBadge } from "@/lib/requests";
 import { NavPendingBadge } from "./nav-pending-badge";
-import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 import { signOut } from "@/lib/sign-out";
+import { useHeaderStatus } from "./use-header-status";
 
 export function MobileNav() {
   const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
   const caps = useCapabilities();
-  const { pendingRequests: pending, via, email } = useSessionInfo();
-  const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
+  const { email, showAccount, requestsBadge } = useHeaderStatus(caps.canReviewRequests);
   const PRIMARY_TABS = navFor(MOBILE_PRIMARY_NAV, caps);
   const MORE_ITEMS = navFor(MOBILE_MORE_NAV, caps);
   // The owner's preview switch lives in More, so More shows whenever it has either.
   const showPreviewToggle = caps.canPreview;
   // Only a Cloudflare Access session can be signed out of; on this computer nobody signs in.
-  const showAccount = via === "tunnel" && !!email;
   const showMore = MORE_ITEMS.length > 0 || showPreviewToggle || showAccount;
   const [moreOpen, setMoreOpen] = useState(false);
   const moreNavRef = useRef<HTMLElement>(null);
@@ -211,7 +207,7 @@ export function MobileNav() {
                   strokeWidth={active ? 2.25 : 1.75}
                 />
                 {/* Badge rides the icon so the label keeps its full width. */}
-                {href === NOTIFICATIONS_HREF && itemBadge ? (
+                {itemBadge ? (
                   <Badge
                     variant="solid"
                     data-nav-unread

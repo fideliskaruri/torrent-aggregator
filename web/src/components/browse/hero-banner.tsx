@@ -2,7 +2,6 @@ import { Link } from "react-router";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
 import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
-import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { Button } from "@/components/ui/button";
 import { cn, factsLine } from "@/lib/utils";
 import { heroFacts, type HeroPick } from "./hero";
@@ -12,6 +11,7 @@ import { LoadingGlyph } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 import { ReleaseGateChip } from "./release-gate-chip";
+import { cardActionLabel } from "./card-action-label";
 
 export interface HeroBannerProps {
   pick: HeroPick;
@@ -35,18 +35,10 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   const titleHref = item.href;
   const action = item.action;
   const releaseGate = browseReleaseGate(item);
-  const title = cleanDisplayTitle(item.title);
+  const title = item.title;
   const facts = heroFacts(item);
   const factsText = factsLine(facts);
-  const label = releaseGate.gated
-    ? (releaseGate.label ?? "Coming soon")
-    : action.kind === "get" && status === "pending"
-      ? "Starting…"
-      : action.kind === "get" && status === "error"
-        ? "Try again"
-        : action.kind === "get" && status === "done"
-          ? "Downloading"
-          : action.label;
+  const label = cardActionLabel(action, status, releaseGate);
   const pageOnly = !releaseGate.gated && action.kind === "local";
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();

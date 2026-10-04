@@ -82,7 +82,7 @@ export const HEADER_SEARCH_HREF = SEARCH_HREF;
 /**
  * Kept for old bookmarks and presentation maps. It is not a navigation entry.
  */
-export const EVERYTHING_HREF = "/everything";
+const EVERYTHING_HREF = "/everything";
 
 /** Where live and finished transfers are shown. Formerly `/client`. */
 export const DOWNLOADS_HREF = "/downloads";
@@ -91,11 +91,11 @@ export const DOWNLOADS_HREF = "/downloads";
 export const NOTIFICATIONS_HREF = "/notifications";
 
 /** The owner's inbox of friends' requests. Its entry carries the pending count. */
-export const REQUESTS_HREF = "/requests";
-export const SETTINGS_HREF = "/settings";
+const REQUESTS_HREF = "/requests";
+const SETTINGS_HREF = "/settings";
 
 /** One route list supplies the desktop header and the mobile tabs and sheet. */
-export const NAV_CONFIG: readonly NavItem[] = [
+const NAV_CONFIG: readonly NavItem[] = [
   { href: "/", label: "Browse", icon: Clapperboard, desktop: "primary", mobile: "primary" },
   { href: "/watchlist", label: "Library", icon: Library, desktop: "primary", mobile: "primary" },
   {
@@ -144,13 +144,13 @@ export const NAV_CONFIG: readonly NavItem[] = [
   },
 ] as const;
 
-export const PRIMARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+const PRIMARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
   (item) => item.desktop === "primary",
 );
-export const SECONDARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+const SECONDARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
   (item) => item.desktop === "secondary",
 );
-export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
+const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
 export const MOBILE_PRIMARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
   (item) => item.mobile === "primary",
 ).map((item) => ({ ...item, label: item.mobileLabel ?? item.label }));
@@ -207,11 +207,6 @@ export function routeRequirement(pathname: string): Capability | null {
 }
 
 /** Routes that light the mobile More tab when the sheet is closed. */
-export const MORE_ACTIVE_PREFIXES: readonly string[] = [
-  ...MOBILE_MORE_NAV.map((item) => item.href),
-  "/about",
-];
-
 /**
  * History is deliberately absent from both lists: it is a filtered view of the
  * download log, linked from Notifications.
@@ -282,9 +277,4 @@ export function titleForRoute(pathname: string): string | null {
   if (navActive(pathname, REQUESTS_HREF)) return "Requests";
   if (navActive(pathname, SETTINGS_HREF)) return "Settings";
   return null;
-}
-
-/** @deprecated Prefer {@link titleForRoute} — kept as the prior public name. */
-export function activeNavLabel(pathname: string): string | null {
-  return titleForRoute(pathname);
 }
