@@ -46,7 +46,7 @@ export function DataList<T>({
   return (
     <ul className={cn("space-y-2", className)}>
       {selection && (
-        <li className="flex items-center gap-2 px-1">
+        <li className="col-span-full flex items-center gap-2 px-1">
           <input type="checkbox" aria-label="Select all items" checked={selection.allSelected} ref={(node) => { if (node) node.indeterminate = selection.someSelected; }} onChange={selection.toggleAll} />
           <span className="text-xs text-muted-foreground">Select all</span>
         </li>
