@@ -95,10 +95,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     if (claimedTargets.Any(t => t.State != TargetState.Searching || targets.All(p => p.Id != t.Id ||
                         p.LeaseToken != t.LeaseToken))) return;
                     await TargetPipeline.CommitAsync(store, [new(download, null, null),
-                        .. claimedTargets.Select(t => new RowWrite(t with { State = TargetState.Fetching,
-                            ChosenReleaseHash = assignment.Hash, LeaseUntil = null,
-                            UpdatedAt = now, Version = t.Version + 1 }, t.Version, null)),
-                        .. claimedTargets.Select(t => new RowWrite(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = t.Id, WorkId = t.WorkId, ReleaseHash = assignment.Hash, ActorUserId = t.CreatedBy, Kind = AttemptKind.Fetch, StartedAt = now, EndedAt = now, Outcome = "Fetching", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = t.BatchId, DownloadId = id, DeadlineAt = null, Swap = null }, null, null)),
+                        .. FetchingWrites(claimedTargets, assignment.Hash, id, now),
                         .. claimedTargets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null))], [], ct);
                 }
                 finally { stateGate.Release(); }

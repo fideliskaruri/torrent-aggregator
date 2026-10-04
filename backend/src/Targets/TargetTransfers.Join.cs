@@ -7,6 +7,18 @@ namespace TorrentFlow.Targets;
 
 internal sealed partial class TargetTransfers
 {
+    private static IEnumerable<RowWrite> FetchingWrites(IEnumerable<TargetRow> targets, string hash,
+        string downloadId, DateTimeOffset now) => targets.SelectMany(t => new RowWrite[]
+    {
+        new(t with { State = TargetState.Fetching, ChosenReleaseHash = hash, LeaseUntil = null,
+            UpdatedAt = now, Version = t.Version + 1 }, t.Version, null),
+        new(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = t.Id, WorkId = t.WorkId,
+            ReleaseHash = hash, ActorUserId = t.CreatedBy, Kind = AttemptKind.Fetch, StartedAt = now,
+            EndedAt = now, Outcome = "Fetching", ReasonCode = null, ReasonText = null, Decision = null,
+            LegacyContext = null, BatchId = t.BatchId, DownloadId = downloadId, DeadlineAt = null,
+            Swap = null }, null, null),
+    });
+
     private async Task JoinExistingAsync(TargetStore store, ILibraryPlacement library,
         ILibraryDownloadRepository repository, WorkSnapshot work, ImmutableArray<TargetRow> targets,
         Assignment assignment, ImmutableArray<TorrentFile> metadata, ImmutableArray<OwnedItem> owned,
@@ -90,34 +102,7 @@ internal sealed partial class TargetTransfers
             var links = await store.ListAsync<DownloadTargetRow>(row => row.DownloadId == download.Id, ct);
             var now = DateTimeOffset.UtcNow;
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
-            writes.AddRange(claimed.Select(target => new RowWrite(target with
-            {
-                State = TargetState.Fetching,
-                ChosenReleaseHash = assignment.Hash,
-                LeaseUntil = null,
-                UpdatedAt = now,
-                Version = target.Version + 1,
-            }, target.Version, null)));
-            writes.AddRange(claimed.Select(target => new RowWrite(new AttemptRow
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                TargetId = target.Id,
-                WorkId = target.WorkId,
-                ReleaseHash = assignment.Hash,
-                ActorUserId = target.CreatedBy,
-                Kind = AttemptKind.Fetch,
-                StartedAt = now,
-                EndedAt = now,
-                Outcome = "Fetching",
-                ReasonCode = null,
-                ReasonText = null,
-                Decision = null,
-                LegacyContext = null,
-                BatchId = target.BatchId,
-                DownloadId = download.Id,
-                DeadlineAt = null,
-                Swap = null,
-            }, null, null)));
+            writes.AddRange(FetchingWrites(claimed, assignment.Hash, download.Id, now));
             foreach (var target in claimed)
             {
                 var link = links.SingleOrDefault(row => row.TargetId == target.Id);
