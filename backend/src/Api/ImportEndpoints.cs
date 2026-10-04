@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Api;
 
@@ -30,7 +31,7 @@ internal static class ImportEndpoints
             var scan = jobs.Start(path);
             return Results.Json(new { scanId = scan.Id, state = scan.State }, Json, statusCode: 202);
         });
-        group.MapGet("/imports", async (ImportReviews reviews, CancellationToken ct) =>
+        group.MapGet("/imports", async (ImportReviewRepository reviews, CancellationToken ct) =>
             Results.Json(new { scans = (await reviews.ListAsync(ct)).Where(s => !s.Items.IsEmpty ||
                 s.State is "queued" or "scanning" or "failed").Select(s => new { s.Id, s.Path, s.State,
                     s.Error, pending = s.Items.Length }) }, Json));
@@ -52,13 +53,13 @@ internal static class ImportEndpoints
             if (scan is null) return Results.NotFound(new { message = "This scan does not exist. Scan the folder again." });
             var result = await importer.ConfirmAsync(scan, input, ct);
             await using var scope = jobs.CreateScope();
-            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
+            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviewRepository>();
             foreach (var item in result.Items.Where(i => i.Error is null && (i.Imported || i.AlreadyInLibrary)))
                 await reviews.DecideAsync(id, item.ItemId, "confirmed", ct);
             return Results.Json(result, Json);
         });
         group.MapPost("/imports/{id}/dismiss", async (string id, ImportDismissInput input, ImportJobs jobs,
-            ImportReviews reviews, CancellationToken ct) =>
+            ImportReviewRepository reviews, CancellationToken ct) =>
         {
             using var held = await jobs.LockAsync(id, ct);
             var scan = await jobs.GetAsync(id, ct);
@@ -114,7 +115,7 @@ internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLi
     {
         if (scans.TryGetValue(id, out var running) && running.State is "queued" or "scanning") return running;
         await using var scope = scopes.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<ImportReviews>().GetAsync(id, ct) ?? running;
+        return await scope.ServiceProvider.GetRequiredService<ImportReviewRepository>().GetAsync(id, ct) ?? running;
     }
     internal ImportScanView Start(string path)
     {
@@ -128,7 +129,7 @@ internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLi
         {
             var acquired = false;
             await using var scope = scopes.CreateAsyncScope();
-            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviews>();
+            var reviews = scope.ServiceProvider.GetRequiredService<ImportReviewRepository>();
             try
             {
                 await reviews.SaveAsync(scan, lifetime.ApplicationStopping);
