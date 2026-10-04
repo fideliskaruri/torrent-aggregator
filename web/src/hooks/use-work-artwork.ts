@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { get, send } from "@/lib/api";
+import { useCallback,useEffect,useMemo,useState } from "react";
+import { send } from "@/lib/api";
 import type { Artwork } from "@/lib/metadata/artwork";
 import {
-  artworkQueryFor,
-  artworkQueryForRelease,
-  distinctArtworkQueries,
-  type ReleaseArtworkQuery,
-  type WorkArtworkSource,
+artworkQueryFor,
+artworkQueryForRelease,
+distinctArtworkQueries,
+type ReleaseArtworkQuery,
+type WorkArtworkSource,
 } from "@/lib/metadata/release-art";
 
 /**

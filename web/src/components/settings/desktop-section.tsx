@@ -1,20 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect,useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
+import { LoadingGlyph,SkeletonBlock } from "@/components/ui/loading";
 import { Switch } from "@/components/ui/switch";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { useApiQuery } from "@/hooks/use-api-query";
 import {
-  DESKTOP_URL,
-  checkForUpdatesNow,
-  isBusy,
-  saveDesktopSettings,
-  startUpdate,
-  type DesktopStatus,
+DESKTOP_URL,
+checkForUpdatesNow,
+isBusy,
+saveDesktopSettings,
+startUpdate,
+type DesktopStatus,
 } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 import { DesktopUpdateStatus } from "./desktop-update-status";

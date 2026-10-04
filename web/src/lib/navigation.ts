@@ -211,11 +211,6 @@ export function navActive(pathname: string, href: string): boolean {
  * a real entry, and only a list-wide decision can keep exactly one row
  * highlighted.
  */
-function navItemActive(pathname: string, item: NavItem): boolean {
-  if (navActive(pathname, item.href)) return true;
-  return (item.owns ?? []).some((href) => navActive(pathname, href));
-}
-
 /**
  * The single entry in `items` that represents `pathname`, or null.
  *

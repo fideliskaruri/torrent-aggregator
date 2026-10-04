@@ -1,4 +1,4 @@
-import { Download, MoreHorizontal, RotateCw, Search, X } from "lucide-react";
+import { MoreHorizontal,RotateCw,Search,X } from "lucide-react";
 import { DownloadGlyph } from "./episode-card-progress";
 import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { cn } from "@/lib/utils";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu,DropdownMenuContent,DropdownMenuItem,DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { OwnedQuality } from "./owned-quality";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import type { WantedAction } from "@/components/wanted/wanted-actions";
 import type { EpisodeRowModel } from "./merge-extras";
-import type { TitleAction, TitleActionStatus } from "./title-actions";
-import { CARD_ACTION_PILL, CARD_ACTION_SLOT } from "./episode-card-layout";
+import type { TitleAction,TitleActionStatus } from "./title-actions";
+import { CARD_ACTION_PILL,CARD_ACTION_SLOT } from "./episode-card-layout";
 
 type EpisodeCardActionModel = {
   episode: EpisodeRowModel; canDownload: boolean; canOpen: boolean; opening: boolean;

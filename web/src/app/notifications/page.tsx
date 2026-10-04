@@ -111,7 +111,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       },
     },
   );
-  const { data, refetch } = activityQuery;
+  const { data } = activityQuery;
 
   // Pages fetched after the first. Held here rather than in the query hook
   // because the hook owns one request, and "older activity" is a sequence of
