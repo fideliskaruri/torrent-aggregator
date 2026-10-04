@@ -4,9 +4,9 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed partial class MetadataService
+internal sealed partial class AnimeSeasons(AniListClient anilist, FribbMap map)
 {
-    private async Task AnimeSeasonsAsync(WorkBuilder b, JsonElement requested, bool force, CancellationToken ct)
+    internal async Task BuildAsync(WorkBuilder b, JsonElement requested, bool force, CancellationToken ct)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(12));
@@ -113,7 +113,7 @@ internal sealed partial class MetadataService
                 Year = root.Obj("startDate").Int("year") ?? b.Work.Year };
             b.Names.RemoveAll(n => n.LinkId == b.Links.FirstOrDefault(l => l.Provider == "anilist" &&
                 l.ExternalId == requested.Text("id"))?.Id);
-            MapAnime(b, root, overlay: true);
+            Catalog.MapAnime(b, root, overlay: true);
         }
         b.Seasons.Clear();
         b.Episodes.Clear();
@@ -137,7 +137,7 @@ internal sealed partial class MetadataService
             var link = b.Links.Single(l => l.Id == linkId);
             b.Links[b.Links.IndexOf(link)] = link with { SeasonId = b.SeasonId(Coordinate(item.AbsoluteStart).Season),
                 MappingVersion = map.Version };
-            ApplyMap(b, map.Find(new("anilist", id, null)));
+            Catalog.ApplyMap(b, map.Find(new("anilist", id, null)), map);
             var airings = new Dictionary<int, DateTimeOffset>();
             for (var page = 1; page <= 100; page++)
             {

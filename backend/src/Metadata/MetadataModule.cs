@@ -13,7 +13,9 @@ public static class MetadataModule
         services.AddSingleton<TmdbClient>();
         services.AddSingleton<AniListClient>();
         services.AddSingleton<CinemetaClient>();
-        services.AddSingleton<IMetadata, MetadataService>();
+        services.AddSingleton<AnimeSeasons>();
+        services.AddSingleton<Browse>();
+        services.AddSingleton<IMetadata, Catalog>();
         return services;
     }
 }
