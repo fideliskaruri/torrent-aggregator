@@ -1,8 +1,7 @@
 import { Globe } from "lucide-react";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { ToggleRow } from "./desktop-section";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { RemoteAccessForm, RemoteAccessSettings } from "./remote-access-types";
@@ -24,18 +23,16 @@ export function RemoteAccessFields({
 }) {
   return (
     <>
-      <Label htmlFor="remote-access-enabled" className={cn(
-        "flex min-h-11 items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 font-normal leading-normal",
-        readOnly ? "cursor-not-allowed opacity-70" : "cursor-pointer",
-      )}>
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-foreground">Turn on remote access</span>
-          <span className="mt-1 block text-xs text-subtle-foreground">Opens a second listener on this computer for cloudflared only.</span>
-        </span>
-        <Switch id="remote-access-enabled" aria-label="Turn on remote access" checked={form.enabled}
-          disabled={readOnly} onCheckedChange={(checked) => onChange({ enabled: checked === true })}
-          className="mt-0.5" data-remote-access-enabled />
-      </Label>
+      <ToggleRow
+        id="remote-access-enabled"
+        label="Turn on remote access"
+        description="Opens a second listener on this computer for cloudflared only."
+        checked={form.enabled}
+        disabled={readOnly}
+        busy={false}
+        onChange={(checked) => onChange({ enabled: checked })}
+        data-remote-access-enabled
+      />
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Team domain" htmlFor="remote-access-team">
           <Input id="remote-access-team" value={form.teamDomain} disabled={readOnly}
@@ -72,18 +69,16 @@ export function RemoteAccessFields({
           One per line. Everyone else Cloudflare lets in is a requester, or refused if requests are off.
         </p>
       </FormField>
-      <Label htmlFor="remote-access-requesters" className={cn(
-        "flex min-h-11 items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 font-normal leading-normal",
-        readOnly ? "cursor-not-allowed opacity-70" : "cursor-pointer",
-      )}>
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-foreground">Let friends request titles</span>
-          <span className="mt-1 block text-xs text-subtle-foreground">Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else.</span>
-        </span>
-        <Switch id="remote-access-requesters" aria-label="Let friends request titles" checked={form.allowRequesters}
-          disabled={readOnly} onCheckedChange={(checked) => onChange({ allowRequesters: checked === true })}
-          className="mt-0.5" data-remote-access-requesters />
-      </Label>
+      <ToggleRow
+        id="remote-access-requesters"
+        label="Let friends request titles"
+        description="Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else."
+        checked={form.allowRequesters}
+        disabled={readOnly}
+        busy={false}
+        onChange={(checked) => onChange({ allowRequesters: checked })}
+        data-remote-access-requesters
+      />
       <div className="space-y-2 rounded-lg border border-border p-3" data-remote-access-steps>
         <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Globe className="size-4 text-subtle-foreground" aria-hidden="true" />Set it up in Cloudflare Zero Trust

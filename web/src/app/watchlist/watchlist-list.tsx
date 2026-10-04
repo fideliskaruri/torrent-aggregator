@@ -30,15 +30,15 @@ export function WatchlistList({
   readOnly,
   onUpdate,
   onRemove,
+  onRemoveMany,
   onRefresh,
-  automationEnabled,
 }: {
   items: WatchlistItem[];
   readOnly: boolean;
   onUpdate: (body: { id: string; status?: string; monitored?: boolean; fromSeason?: number; fromEpisode?: number }) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
+  onRemoveMany: (ids: string[]) => Promise<void>;
   onRefresh: () => void;
-  automationEnabled: boolean;
 }) {
   const [tab, setTab] = useState<LibraryTab>(DEFAULT_LIBRARY_TAB);
   const [predicate, setPredicate] = useState<(item: WatchlistItem) => boolean>(() => () => true);
@@ -52,15 +52,13 @@ export function WatchlistList({
   const clearFilters = useCallback(() => setPredicate(() => () => true), []);
   const bulkRemove = async () => {
     try {
-      await Promise.all(selection.selected.map((item) => onRemove(item.id)));
+      await onRemoveMany(selection.selected.map((item) => item.id));
       selection.clear();
     } catch {
       toast.error("Some titles could not be removed. Check the list and try again.");
     }
   };
-  const empty = items.length ? (
-    <TfEmptyState icon={Search} title={`Nothing in ${LIBRARY_TAB_LABELS[activeTab]}`} description="Choose All or adjust the filters to see other titles." />
-  ) : (
+  const empty = (
     <TfEmptyState icon={Search} title={readOnly ? "Nothing in the library yet" : "Nothing in your library yet"} description={readOnly ? "Browse or search for something, then request it." : "Search for a show or film, then add it from its title page."} actionLabel={readOnly ? "Go to Browse" : "Search"} actionHref={readOnly ? "/" : SEARCH_HREF} onAction={readOnly ? undefined : (event) => {
       event.preventDefault();
       openSearchOverlay();
@@ -90,7 +88,7 @@ export function WatchlistList({
                   onClearFilters={clearFilters}
                   empty={empty}
                   className="grid gap-3 sm:grid-cols-2"
-                  renderRow={(item) => <WatchlistItemCard item={item} readOnly={readOnly} onUpdate={onUpdate} onRemove={onRemove} onRefresh={onRefresh} automationEnabled={automationEnabled} />}
+                  renderRow={(item) => <WatchlistItemCard item={item} readOnly={readOnly} onUpdate={onUpdate} onRemove={onRemove} onRefresh={onRefresh} />}
                 />
                 {!readOnly ? <BulkBar
                   count={selection.selected.length}

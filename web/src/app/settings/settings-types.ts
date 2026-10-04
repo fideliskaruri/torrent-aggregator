@@ -1,8 +1,8 @@
-export type AudioLanguage = "auto" | "english" | "any";
+export type AudioLanguage = "auto" | "en" | "english" | "any";
 
 export interface SettingsData {
   baseDownloadPath: string;
-  maxStorageGb: string;
+  maxStorageGb: string | number;
   maxActiveDownloads: number;
   preferredResolution: number;
   audioLanguage: AudioLanguage;
@@ -19,8 +19,3 @@ export type SettingsPatch = Partial<
     | "audioLanguage"
   >
 >;
-
-export type SettingsState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; settings: SettingsData; saving: boolean };

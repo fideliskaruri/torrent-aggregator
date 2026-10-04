@@ -29,12 +29,6 @@ export const RULE_RESOLUTIONS = [
 
 export type RuleCategory = (typeof RULE_CATEGORIES)[number]["value"];
 
-export function normalizedCategory(category: string | null | undefined): RuleCategory {
-  return RULE_CATEGORIES.some((option) => option.value === category)
-    ? (category as RuleCategory)
-    : "all";
-}
-
 export function isSupportedCategory(category: string | null | undefined): boolean {
   return RULE_CATEGORIES.some((option) => option.value === category);
 }

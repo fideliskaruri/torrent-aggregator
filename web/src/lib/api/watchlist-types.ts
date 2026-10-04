@@ -23,10 +23,6 @@ export interface WatchlistItem {
   rating: number | null;
   status: string;
   monitored?: boolean;
-  nextCheckAt?: string | null;
-  nextCheckReason?: string | null;
-  lastChecked?: string;
-  lastEpisode: string | null;
   fromSeason?: number | null;
   fromEpisode?: number | null;
   cursorSeason?: number | null;
@@ -34,11 +30,7 @@ export interface WatchlistItem {
   cursorMisses?: number;
   monitorMode?: string | null;
   newEpisodesSince?: string | null;
-  latestReleaseTitle: string | null;
-  latestReleaseAt: string | null;
-  latestReleaseMagnet: string | null;
   ready?: boolean;
-  nextEpisodeHint: string | null;
   createdAt?: string;
   updatedAt: string;
   seederWaitSince?: string | null;

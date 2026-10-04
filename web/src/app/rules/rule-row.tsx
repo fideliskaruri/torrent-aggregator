@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ConfirmAction } from "@/components/tf/confirm-action";
 import { StatusChip } from "@/components/tf/status-chip";
-import { RULE_CATEGORIES, isSupportedCategory, normalizedCategory, type Rule } from "./rule-types";
+import { RULE_CATEGORIES, isSupportedCategory, type Rule } from "./rule-types";
 import { bytesToMaxSizeGbInput, parseRuleSources, RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
 
 export function RuleRow({
@@ -25,7 +25,7 @@ export function RuleRow({
   onEdit: (rule: Rule) => void;
   onDelete: (rule: Rule) => Promise<void>;
 }) {
-  const [category, setCategory] = useState(normalizedCategory(rule.category));
+  const [category, setCategory] = useState<string>("all");
   const supported = isSupportedCategory(rule.category);
   const sources = parseRuleSources(rule.sources);
   const sourceLabels = RULE_SOURCE_OPTIONS
@@ -55,7 +55,7 @@ export function RuleRow({
           <div className="space-y-2 rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground">
             <p>This legacy rule is blocked until you retarget it to video or delete it.</p>
             <div className="flex flex-wrap gap-2">
-              <Select value={category} onValueChange={(value) => setCategory(normalizedCategory(value))}>
+              <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger aria-label={`Retarget ${rule.name}`} className="w-44"><SelectValue /></SelectTrigger>
                 <SelectContent>{RULE_CATEGORIES.map((option) =>
                   <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>

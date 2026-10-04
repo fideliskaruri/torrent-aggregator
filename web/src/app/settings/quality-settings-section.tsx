@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { QualityOptions } from "@/components/settings/quality-options";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ const AUDIO_CHOICES: ReadonlyArray<{
     hint: "Anime comes in Japanese with English subtitles. An English dub is used when there is none.",
   },
   {
-    value: "english",
+    value: "en",
     label: "English",
     hint: "English dubs first, anime included. English subtitles are used when there is no dub.",
   },
@@ -46,11 +46,6 @@ export function QualitySettingsSection({
   const [language, setLanguage] = useState(settings.audioLanguage);
   const [open, setOpen] = useState(true);
 
-  useEffect(() => {
-    setResolution(settings.preferredResolution);
-    setLanguage(settings.audioLanguage);
-  }, [settings.preferredResolution, settings.audioLanguage]);
-
   return (
     <SettingsDisclosure
       id="quality-language"
@@ -73,7 +68,7 @@ export function QualitySettingsSection({
           <RadioGroup
             name="audio-language"
             aria-label="Audio language"
-            value={language}
+            value={language === "english" ? "en" : language}
             onValueChange={(value) => {
               if (AUDIO_CHOICES.some((choice) => choice.value === value)) {
                 setLanguage(value as AudioLanguage);

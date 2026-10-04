@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { ArrowRight, Radar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ function readSummary(): Summary | null {
 
 export function WatchlistAutomation({ count }: { count: number }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [last, setLast] = useState<Summary | null>(null);
+  const [last, setLast] = useState<Summary | null>(readSummary);
   const { prefs, loaded } = useDownloadPrefs();
   const automation = useApiMutation<Record<string, never>, {
     ok?: boolean;
@@ -32,8 +32,6 @@ export function WatchlistAutomation({ count }: { count: number }) {
     message?: string;
     summary?: { library?: { sent?: number; skipped?: number; failed?: number } };
   }>("/api/automation/run");
-
-  useEffect(() => setLast(readSummary()), []);
 
   async function run() {
     try {
@@ -65,7 +63,6 @@ export function WatchlistAutomation({ count }: { count: number }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm leading-relaxed text-subtle-foreground">
           Checks monitored titles and may download matching releases. {automationStateCopy(interval)}
-          {interval === 0 ? <>{" "}<Link to="/settings" className="inline-flex min-h-11 items-center text-brand-foreground underline underline-offset-2 lg:min-h-0">Turn on automatic checks</Link></> : null}
         </p>
         <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={automation.pending}>
           {automation.pending ? <LoadingGlyph className="size-3.5" /> : <Radar className="size-3.5" />} Run automation
@@ -75,7 +72,7 @@ export function WatchlistAutomation({ count }: { count: number }) {
         <span className="text-muted-foreground">Last automation{last.offline ? <Badge variant="danger" className="ml-1.5 align-middle">offline</Badge> : null}
           <span className="text-subtle-foreground"> · {last.sent} sent · {last.skipped} skipped · {last.failed} failed</span>
         </span>
-        <Link to="/notifications" className="inline-flex min-h-11 items-center gap-1 font-medium text-brand-foreground hover:underline lg:min-h-0">View in Activity <ArrowRight className="size-3" /></Link>
+        <Link to="/history" className="inline-flex min-h-11 items-center gap-1 font-medium text-brand-foreground hover:underline lg:min-h-0">View in Activity <ArrowRight className="size-3" /></Link>
       </div> : null}
     </section>
     <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} contentData={{ "data-automation-review": true }} title="Run library automation?" description="TorrentFlow searches every monitored title and may send matching releases to your download client right away. Review enabled titles and rules before you continue." cancelLabel="Review library" busy={automation.pending} icon={<Radar className="size-3.5" />} confirmLabel="Search and download matches" onConfirm={() => void run()} />

@@ -6,18 +6,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getDeletePlan, deleteLibraryFiles } from "@/lib/api/watchlist";
 import type { DeletePlan, WatchlistItem } from "@/lib/api/watchlist-types";
 import { toast } from "@/lib/toast";
-import { formatEpisodeLabel } from "@/lib/library/cursor";
 
-type DeleteScope = { kind: "show" } | { kind: "season"; season: number } | { kind: "episode"; season: number; episode: number };
+type DeleteScope = { kind: "show" } | { kind: "season"; season: number };
 
 function queryFor(item: WatchlistItem, scope: DeleteScope) {
   const query = new URLSearchParams({ watchListItemId: item.id, scope: scope.kind });
-  if (scope.kind !== "show") query.set("season", String(scope.season));
-  if (scope.kind === "episode") query.set("episode", String(scope.episode));
+  if (scope.kind === "season") query.set("season", String(scope.season));
   return query.toString();
 }
 
-export function WatchlistDeleteFiles({ item, onDeleted, iconOnly = false }: { item: WatchlistItem; onDeleted: () => void; iconOnly?: boolean }) {
+export function WatchlistDeleteFiles({ item, onDeleted }: { item: WatchlistItem; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<DeleteScope>({ kind: "show" });
   const [plan, setPlan] = useState<DeletePlan | null>(null);
@@ -40,13 +38,11 @@ export function WatchlistDeleteFiles({ item, onDeleted, iconOnly = false }: { it
       if (active) setError("Could not reach the server. Check that it is running and try again.");
     });
     return () => { active = false; };
-  }, [item, open, scope]);
+  }, [item.id, open, scope]);
 
-  const held = /^S(\d{1,3})E(\d{1,4})$/i.exec(item.lastEpisode?.trim() ?? "");
-  const season = held ? Number(held[1]) : item.cursorSeason ?? item.fromSeason;
+  const season = item.cursorSeason ?? item.fromSeason;
   const scopes: Array<{ value: string; label: string; scope: DeleteScope }> = [{ value: "show", label: "Everything", scope: { kind: "show" } }];
   if (season != null) scopes.push({ value: "season", label: `Season ${season}`, scope: { kind: "season", season } });
-  if (held) scopes.push({ value: "episode", label: item.lastEpisode ?? formatEpisodeLabel(Number(held[1]), Number(held[2])), scope: { kind: "episode", season: Number(held[1]), episode: Number(held[2]) } });
 
   async function confirm() {
     if (!plan || plan.outcome !== "deletes") return;
@@ -55,8 +51,7 @@ export function WatchlistDeleteFiles({ item, onDeleted, iconOnly = false }: { it
       const response = await deleteLibraryFiles({
         watchListItemId: item.id,
         scope: scope.kind,
-        ...(scope.kind !== "show" ? { season: scope.season } : {}),
-        ...(scope.kind === "episode" ? { episode: scope.episode } : {}),
+        ...(scope.kind === "season" ? { season: scope.season } : {}),
         confirm: true,
       });
       if (!response.ok || !response.data?.ok) throw response.error;
@@ -71,8 +66,8 @@ export function WatchlistDeleteFiles({ item, onDeleted, iconOnly = false }: { it
   }
 
   return <>
-    <Button type="button" variant="ghost" size={iconOnly ? "icon-sm" : "sm"} className="text-subtle-foreground hover:text-destructive" aria-label={iconOnly ? "Delete downloaded files" : undefined} onClick={() => setOpen(true)} data-delete-files>
-      {iconOnly ? <Trash2 className="size-4" /> : "Delete files"}
+    <Button type="button" variant="ghost" size="icon-sm" className="text-subtle-foreground hover:text-destructive" aria-label="Delete downloaded files" onClick={() => setOpen(true)} data-delete-files>
+      <Trash2 className="size-4" />
     </Button>
     <ConfirmDialog open={open} onOpenChange={setOpen} contentData={{ "data-delete-files-dialog": true }} title="Delete downloaded files?" description={plan?.summary ?? "Review what is on disk before confirming."} variant="destructive" busy={busy} confirmDisabled={plan?.outcome !== "deletes"} confirmLabel={plan?.outcome === "deletes" ? `Delete ${plan.fileCount} file${plan.fileCount === 1 ? "" : "s"}` : plan?.outcome === "nothing-held" ? "Nothing to delete" : "Delete files"} onConfirm={() => void confirm()}>
       {scopes.length > 1 ? <Select value={scope.kind} onValueChange={(value) => {
