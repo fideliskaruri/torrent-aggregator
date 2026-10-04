@@ -3,7 +3,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed partial class MetadataService
+internal sealed partial class Catalog
 {
     private async Task<WorkSnapshot> WithPremiereAsync(WorkSnapshot work, CancellationToken ct)
     {

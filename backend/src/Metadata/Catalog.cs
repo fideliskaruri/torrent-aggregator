@@ -5,7 +5,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed partial class MetadataService
+internal sealed partial class Catalog
 {
     public async Task<CatalogResult> SearchAsync(CatalogQuery query, CancellationToken cancellationToken)
     {

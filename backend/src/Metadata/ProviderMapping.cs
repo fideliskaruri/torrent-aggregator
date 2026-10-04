@@ -4,9 +4,9 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed partial class MetadataService
+internal sealed partial class Catalog
 {
-    private static void MapTmdb(WorkBuilder b, JsonElement e, WorkKind kind)
+    internal static void MapTmdb(WorkBuilder b, JsonElement e, WorkKind kind)
     {
         var id = e.Text("id");
         if (id is null) return;
@@ -43,12 +43,12 @@ internal sealed partial class MetadataService
         };
     }
 
-    private static DateTimeOffset? EarliestRelease(JsonElement e, int[] types) =>
+    internal static DateTimeOffset? EarliestRelease(JsonElement e, int[] types) =>
         e.Obj("release_dates").Obj("results").Items().SelectMany(c => c.Obj("release_dates").Items())
             .Where(r => r.Int("type") is { } type && types.Contains(type)).Select(r => JsonFacts.Date(r.Text("release_date")))
             .OfType<DateTimeOffset>().Order().Cast<DateTimeOffset?>().FirstOrDefault();
 
-    private static void MapAnime(WorkBuilder b, JsonElement e, bool overlay = false)
+    internal static void MapAnime(WorkBuilder b, JsonElement e, bool overlay = false)
     {
         var link = b.Link("anilist", e.Text("id")!);
         if (e.Text("idMal") is { Length: > 0 } mal) b.Link("mal", mal);
@@ -80,7 +80,7 @@ internal sealed partial class MetadataService
         };
     }
 
-    private static void MapCinemeta(WorkBuilder b, JsonElement e, WorkKind requested)
+    internal static void MapCinemeta(WorkBuilder b, JsonElement e, WorkKind requested)
     {
         var id = e.Text("imdb_id") ?? e.Text("id");
         if (id is null) return;
@@ -120,7 +120,7 @@ internal sealed partial class MetadataService
         }
     }
 
-    private void ApplyMap(WorkBuilder b, IEnumerable<AnimeMapEntry> entries)
+    internal static void ApplyMap(WorkBuilder b, IEnumerable<AnimeMapEntry> entries, FribbMap map)
     {
         foreach (var entry in entries)
         {
