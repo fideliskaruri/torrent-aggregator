@@ -12,6 +12,7 @@ import {
 import { mergeOwnedTransferSnapshots } from "@/lib/clients/transfer-ownership";
 import type { TorrentClientType } from "@/lib/clients";
 import type { ClientTorrent } from "./types";
+import { useWantedRows } from "@/components/wanted/wanted-actions";
 
 export function useDownloads(pausePolling: boolean) {
   const [snapshot, setSnapshot] = useState<SnapshotState<ClientTorrent>>(() => emptySnapshotState<ClientTorrent>());
@@ -128,6 +129,7 @@ export function useDownloads(pausePolling: boolean) {
     enabled: clientType === "builtin",
     onSaved: () => void load({ quiet: true }),
   });
+  const wanted = useWantedRows();
 
   return {
     torrents,
@@ -142,5 +144,6 @@ export function useDownloads(pausePolling: boolean) {
     load,
     invalidateInFlight,
     maxActive,
+    wanted,
   };
 }
