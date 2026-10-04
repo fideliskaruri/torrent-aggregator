@@ -10,24 +10,26 @@ public sealed record ExternalAdoptionBatch(int Imported, int Paused, int Skipped
     ImmutableArray<string> Errors);
 public sealed record ExternalIdentityPick(int FileIndex, string WorkId, string? EpisodeId);
 
-public sealed class ExternalMediaAdoption(MediaImport importer, ImportReviews reviews, ILibraryRepository inventory)
+public sealed class ExternalMediaAdoption(MediaImport importer, ILibraryRepository inventory)
 {
     public const string ReviewPrefix = "adoption:external:";
     private static readonly SemaphoreSlim ImportGate = new(1, 1);
 
     public async Task<ImportScanView> ReviewTransferAsync(ExternalAdoptionSource source,
-        ImmutableArray<ExternalIdentityPick> picks, CancellationToken ct)
+        ImmutableArray<ExternalIdentityPick> picks,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save, CancellationToken ct)
     {
         await ImportGate.WaitAsync(ct);
         try
         {
             var id = ReviewPrefix + source.Id;
-            var scan = await reviews.GetAsync(id, ct);
+            var scan = await get(id, ct);
             if (scan is null)
             {
                 await importer.ScanFilesAsync(id, MediaImport.ValidateFolder(source.SavePath),
                     source.Files, update => scan = update, ct);
-                await reviews.SaveAsync(scan!, ct);
+                await save(scan!, ct);
             }
             if (picks.IsDefaultOrEmpty || picks.Select(p => p.FileIndex).Distinct().Count() != picks.Length ||
                 picks.Any(p => p.FileIndex < 0 || p.FileIndex >= source.Files.Length ||
@@ -47,15 +49,21 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ImportReviews re
     }
 
     public async Task<ExternalAdoptionBatch> ImportAsync(IEnumerable<string> ids,
-        ImmutableArray<ExternalAdoptionSource> sources, CancellationToken ct)
+        ImmutableArray<ExternalAdoptionSource> sources,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save,
+        Func<string, string, string, CancellationToken, Task> decide, CancellationToken ct)
     {
         await ImportGate.WaitAsync(ct);
-        try { return await ImportBatchAsync(ids, sources, ct); }
+        try { return await ImportBatchAsync(ids, sources, get, save, decide, ct); }
         finally { ImportGate.Release(); }
     }
 
     private async Task<ExternalAdoptionBatch> ImportBatchAsync(IEnumerable<string> ids,
-        ImmutableArray<ExternalAdoptionSource> sources, CancellationToken ct)
+        ImmutableArray<ExternalAdoptionSource> sources,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save,
+        Func<string, string, string, CancellationToken, Task> decide, CancellationToken ct)
     {
         var imported = 0;
         var skipped = 0;
@@ -74,7 +82,7 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ImportReviews re
             }
             try
             {
-                var result = await AdoptAsync(id, candidate.SavePath, candidate.Files, ct);
+                var result = await AdoptAsync(id, candidate.SavePath, candidate.Files, get, save, decide, ct);
                 if (result.Pending > 0)
                 { failed++; errors.Add($"{candidate.Name}: confirm the matching title in Import before downloading."); }
                 else if (result.Adopted > 0) imported++;
@@ -88,17 +96,22 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ImportReviews re
     }
 
     private async Task<ExternalAdoptionResult> AdoptAsync(string sourceId, string folder,
-        ImmutableArray<string> paths, CancellationToken ct)
+        ImmutableArray<string> paths,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save,
+        Func<string, string, string, CancellationToken, Task> decide, CancellationToken ct)
     {
         var id = ReviewPrefix + sourceId;
-        var scan = await reviews.GetAsync(id, ct);
+        var scan = await get(id, ct);
         if (scan is null)
         {
             await importer.ScanFilesAsync(id, MediaImport.ValidateFolder(folder), paths, update => scan = update, ct);
-            await reviews.SaveAsync(scan!, ct);
+            await save(scan!, ct);
         }
         var before = await inventory.MediaAsync(null, ct);
-        var remaining = await importer.AdoptAsync(scan!, reviews, ct, MediaOrigin.Adopted);
+        var completed = await importer.AdoptAsync(scan!, decide, ct, MediaOrigin.Adopted);
+        await save(completed, ct);
+        var remaining = await get(id, ct) ?? completed;
         var after = await inventory.MediaAsync(null, ct);
         var keys = paths.Select(LibraryPaths.PhysicalKey).ToHashSet();
         return new(after.Count(m => keys.Contains(m.PhysicalKey) && before.All(b => b.PhysicalKey != m.PhysicalKey)),

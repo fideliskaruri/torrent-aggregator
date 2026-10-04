@@ -71,19 +71,19 @@ internal static class DownloadEndpoints
         group.MapPost("/wanted/try", async (string workKey, int? season, int? episode,
             DownloadsApi api, CancellationToken ct) =>
             Reply(await api.WantedActionAsync(workKey, season, episode, TargetAction.TryNow, ct)));
-        group.MapGet("/settings/client", async (DownloadsApi api, ILibraryPlacement library, CancellationToken ct) =>
+        group.MapGet("/settings/client", async (DownloadsApi api, LibraryPlacement library, CancellationToken ct) =>
             Reply(await api.SettingsAsync(null, library, ct)));
-        group.MapPut("/settings/client", async (JsonElement input, DownloadsApi api, ILibraryPlacement library,
+        group.MapPut("/settings/client", async (JsonElement input, DownloadsApi api, LibraryPlacement library,
             CancellationToken ct) => Reply(await api.SettingsAsync(input, library, ct)));
         group.MapGet("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(false, ct)));
         group.MapPost("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(true, ct)));
         group.MapGet("/settings/download-recovery/sources", async (IConfiguration configuration,
-            MediaImport importer, ImportReviews reviews, ILibraryRepository inventory, CancellationToken ct) =>
+            MediaImport importer, ImportReviewRepository reviews, ILibraryRepository inventory, CancellationToken ct) =>
         {
             var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
-            var adoption = new ExternalMediaAdoption(importer, reviews, inventory);
+            var adoption = new ExternalMediaAdoption(importer, inventory);
             var candidates = new List<object>();
             foreach (var row in scan.Candidates)
                 candidates.Add(new { row.Id, row.Source, row.Hash, row.Name, row.SizeBytes, row.SavePath,
@@ -91,7 +91,7 @@ internal static class DownloadEndpoints
             return Reply(new { candidates, scan.Warnings });
         });
         group.MapPost("/settings/download-recovery/sources", async (RecoverySourcesInput input,
-            IConfiguration configuration, MediaImport importer, ImportReviews reviews,
+            IConfiguration configuration, MediaImport importer, ImportReviewRepository reviews,
             ILibraryRepository inventory, TargetPipeline targets, HttpContext http, CancellationToken ct) =>
         {
             if (!input.Acknowledged)
@@ -101,10 +101,11 @@ internal static class DownloadEndpoints
             if (input.Ids.Length == 0)
                 return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
             var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
-            var adoption = new ExternalMediaAdoption(importer, reviews, inventory);
+            var adoption = new ExternalMediaAdoption(importer, inventory);
             var unfinished = scan.Candidates.Where(c => !c.Complete && input.Ids.Contains(c.Id)).ToArray();
             var result = await adoption.ImportAsync(input.Ids.Where(id => unfinished.All(c => c.Id != id)),
-                [.. scan.Candidates.Select(c => new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))], ct);
+                [.. scan.Candidates.Select(c => new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))],
+                reviews.GetAsync, reviews.SaveAsync, reviews.DecideAsync, ct);
             foreach (var candidate in unfinished)
             {
                 try
@@ -117,7 +118,8 @@ internal static class DownloadEndpoints
                     var selected = input.Selections?.Where(s => s.SourceId == candidate.Id).ToArray() ?? [];
                     var review = await adoption.ReviewTransferAsync(new(candidate.Id, candidate.Name,
                         candidate.SavePath, candidate.Complete, candidate.Files),
-                        [.. selected.Select(s => new ExternalIdentityPick(s.FileIndex, s.WorkId, s.EpisodeId))], ct);
+                        [.. selected.Select(s => new ExternalIdentityPick(s.FileIndex, s.WorkId, s.EpisodeId))],
+                        reviews.GetAsync, reviews.SaveAsync, ct);
                     var admitted = await targets.AdmitExternalAsync(new(candidate.Hash, candidate.Name,
                         candidate.TorrentBytes, candidate.Files, [.. selected.Select(s =>
                             new ExternalTransferItem(s.FileIndex, s.WorkId, s.EpisodeId))], input.Paused, review.Id,
@@ -373,7 +375,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             retried = action == TargetAction.TryNow ? rows.Length + pending : 0 };
     }
 
-    internal async Task<object> SettingsAsync(JsonElement? input, ILibraryPlacement library, CancellationToken ct)
+    internal async Task<object> SettingsAsync(JsonElement? input, LibraryPlacement library, CancellationToken ct)
     {
         await settingsGate.WaitAsync(ct);
         try
@@ -483,7 +485,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes > 0;
 
     // v1 keeps one storage root: the download folder and space limit both live on it.
-    private static async Task SaveRootAsync(ILibraryPlacement library, JsonElement body, CancellationToken ct)
+    private static async Task SaveRootAsync(LibraryPlacement library, JsonElement body, CancellationToken ct)
     {
         var path = body.TryGetProperty("baseDownloadPath", out var p) && p.ValueKind == JsonValueKind.String &&
             p.GetString() is { Length: > 0 } text ? text.Trim() : null;
@@ -508,13 +510,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             return;
         }
         if (path is null) throw new ArgumentException("Choose a download folder.");
-        var added = Check(await library.AddRootAsync(new(path, [.. Enum.GetValues<LibraryKind>()], 0, 0, null,
-            cap ?? current?.MaxAllocatedBytes, true), ct));
-        if (current is null) return;
-        var removed = await library.RemoveRootAsync(current.Id, ct);
-        if (removed.Failure is null) return;
-        await library.RemoveRootAsync(added.Id, ct);
-        throw new ArgumentException(removed.Failure.Message);
+        Check(await library.SetDownloadRootAsync(path, cap ?? current?.MaxAllocatedBytes, ct));
 
         static StorageRootRow Check(LibraryRootResult result) =>
             result.Root ?? throw new ArgumentException(result.Failure?.Message ?? "Could not save the download folder.");
