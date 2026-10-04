@@ -278,9 +278,17 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         Torrent? torrent = await LoadCachedTorrentAsync(hash);
         if (torrent is null && candidate.Release.TorrentUri is { } uri)
         {
-            var metadata = await TorrentMetadata.LoadAsync(uri, hash, ct);
-            torrent = metadata.Torrent;
-            link = metadata.Magnet ?? link;
+            try
+            {
+                var metadata = await TorrentMetadata.LoadAsync(uri, hash, ct);
+                torrent = metadata.Torrent;
+                link = metadata.Magnet ?? link;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException ||
+                ex is OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                // The source's .torrent host failed; the swarm can still supply metadata via the magnet.
+            }
         }
         if (torrent is null)
         {
@@ -478,20 +486,16 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             }
             else if (admission.Candidate.Release.TorrentUri is { } uri)
             {
-                TorrentMetadata.Result resolved;
+                TorrentMetadata.Result? resolved = null;
                 try { resolved = await TorrentMetadata.LoadAsync(uri, hash, ct); }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException ||
+                    ex is OperationCanceledException && !ct.IsCancellationRequested)
                 {
-                    return Rejected("metadata_timeout", "The torrent information did not arrive within six seconds. Check the connection or choose another release.");
+                    log($"Torrent file download failed for {hash}, using the magnet instead: {ex.Message}");
                 }
-                catch (Exception ex) when (ex is HttpRequestException or IOException)
-                {
-                    log($"Torrent metadata admission failed for {hash}: {ex.Message}");
-                    return Rejected("metadata_unavailable", "The torrent information could not be downloaded. Check the connection or choose another release.");
-                }
-                manager = resolved.Torrent is { } torrent
+                manager = resolved?.Torrent is { } torrent
                     ? await client.AddAsync(torrent, Path.Combine(directory, "bindings", hash), TorrentSettings(false))
-                    : await client.AddAsync(resolved.Magnet ?? magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
+                    : await client.AddAsync(resolved?.Magnet ?? magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
             }
             else
                 manager = await client.AddAsync(magnet, Path.Combine(directory, "bindings", hash), TorrentSettings(false));
