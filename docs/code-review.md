@@ -209,6 +209,13 @@ The core job is small: an owner asks for a film or episodes, then find, check, p
 | 6 Safety + ship | OPS-656, 655, 657, 651, 681; push to GitHub | full journey walk, critic pass |
 
 Rehearsal/switchover is dropped (no legacy data).
+
+### Phase 2 breakdown (4 Oct)
+
+- **2.1 Foundation (one agent, serial).** Named-property rows in Domain (S4), cut tables and fields dropped; public typed `TorrentFlowDbContext` with fluent config keeping today's column names; one `InitialSchema`; `Schema.cs` and the dictionary entities deleted; Store repositories on LINQ; `IStore` kept as a thin adapter over the typed context so callers still build. Capability write lists and Library proposal validation go.
+- **2.2 Modules off `IStore` (parallel, one agent each):** Metadata (`CatalogStore`), Find + Sources, Api (requests, notifications, automation, access, catalog endpoints), Library. Each module talks to `TorrentFlowDbContext` with LINQ; commit receipts dropped for that module. Module graph change: Metadata, Find, Library, Targets and Api may reference Store. Parser, Plan, Engine and Sources stay free of it (Sources gets its one read passed in).
+- **Targets** stays on the adapter until Phase 3 rewrites it; Phase 3 then deletes `IStore`, `StoreQuery`, `StoreCommit` and receipts.
+- **Gate:** fresh DB, settings save, Sintel download filed, every page loads with no errors, contract check passes.
 ## Web decomposition approach (Phase 5)
 
 1. **Inventory first, across all six god pages at once** (Downloads, Title, Settings, Watchlist, Episode list, Rules). List repeated patterns: filtered selectable list + bulk bar, media row, loading/empty/error, confirm-then-mutate, polled fetch, settings section. Seen twice = shared; seen once = stays in the feature.
