@@ -12,11 +12,6 @@ public sealed record NotificationView(string Id, string Kind, string Title, stri
 
 public static class NotificationEndpoints
 {
-    public static void AddNotifications(this IServiceCollection services)
-    {
-        services.AddHostedService<NotificationWorker>();
-    }
-
     public static void MapNotifications(this WebApplication app)
     {
         var group = app.MapGroup("/api/notifications");

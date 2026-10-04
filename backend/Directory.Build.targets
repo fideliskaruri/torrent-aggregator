@@ -5,7 +5,8 @@
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Metadata'">Domain;Store</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Find'">Domain;Parser;Sources;Metadata;Store</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Targets'">Domain;Find;Plan;Engine;Library;Metadata;Store</AllowedModules>
-    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Api'">Domain;Targets;Metadata;Store</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Requests'">Domain;Targets;Store</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Api'">Domain;Targets;Metadata;Store;Requests</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Convert'">Domain;Store;Library</AllowedModules>
   </PropertyGroup>
   <Target Name="EnforceModuleReferences" BeforeTargets="CollectPackageReferences;ResolveProjectReferences">
