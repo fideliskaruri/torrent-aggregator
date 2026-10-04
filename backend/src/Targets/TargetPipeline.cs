@@ -71,7 +71,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         try
         {
             await using var serviceScope = scopes.CreateAsyncScope();
-            var store = serviceScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = serviceScope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var automatic = origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter;
             var refreshScope = !automatic && input.Season is not null && input.Episode is null;
@@ -103,10 +103,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 var prior = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(id), ct)).SingleOrDefault();
                 if (prior is null || prior.State == ScopeIntentState.Cancelled)
                 {
-                    var intent = new ScopeIntentRow(id, actor, work.Id, input.Episode is null ? RequestScope.Seasons : RequestScope.Episodes,
-                        new([input.Season ?? 1], false), new(input.Quality, input.Quality ?? 1080, audioLanguage, null, null, 0),
-                        false, id, ScopeIntentState.Pending,
-                        now, prior?.CreatedAt ?? now, now, (prior?.Version ?? 0) + 1);
+                    var intent = new ScopeIntentRow { Id = id, ActorUserId = actor, WorkId = work.Id, Scope = input.Episode is null ? RequestScope.Seasons : RequestScope.Episodes, ScopeData = new([input.Season ?? 1], false), Policy = new(input.Quality, input.Quality ?? 1080, audioLanguage, null, null, 0), Now = false, BatchId = id, State = ScopeIntentState.Pending, NextTryAt = now, CreatedAt = prior?.CreatedAt ?? now, UpdatedAt = now, Version = (prior?.Version ?? 0) + 1 };
                     await CommitAsync(store, [new(intent, prior?.Version, null)], [], ct);
                 }
                 var added = prior is null || prior.State == ScopeIntentState.Cancelled;
@@ -135,12 +132,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     continue;
                 }
                 var row = old is null
-                    ? new TargetRow(id, work.Id, episodeId, TargetKind.Acquire, TargetState.Wanted,
-                        null, null, null, null, episodeId is null ? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt :
-                            selected.FirstOrDefault(e => e.Id == episodeId)?.AirAt,
-                        input.Quality, input.Quality ?? 1080, null, maxBytes, false, 0,
-                        null, actor, origin, ruleId, null, null, null, batch, now, 0, null, 0,
-                        null, null, now, now, 1)
+                    ? new TargetRow { Id = id, WorkId = work.Id, EpisodeId = episodeId, Kind = TargetKind.Acquire, State = TargetState.Wanted, ResumeState = null, ReasonCode = null, ReasonText = null, NextTryAt = null, ExpectedAt = episodeId is null ? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt :
+                            selected.FirstOrDefault(e => e.Id == episodeId)?.AirAt, ResolutionFloor = input.Quality, PreferredResolution = input.Quality ?? 1080, AudioLanguage = null, MaxBytes = maxBytes, OwnerRanked = false, Rank = 0, NowAt = null, CreatedBy = actor, Origin = origin, AutoRuleId = ruleId, ChosenReleaseHash = null, ReplaceMediaFileId = null, ReplacementMode = null, BatchId = batch, ClickedAt = now, SubstantiveMisses = 0, HelpNotifiedAt = null, PolicyRevision = 0, LeaseUntil = null, LeaseToken = null, CreatedAt = now, UpdatedAt = now, Version = 1 }
                     : old with { Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
                         PickedReleaseHash = old.PickedReleaseHash,
                         Origin = origin, CreatedBy = actor,
@@ -167,7 +160,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var old = (await store.ReadAsync<TargetRow>(CatalogState.Query(id), ct)).SingleOrDefault();
             if (old is null || old.State == TargetState.Removed && action == TargetAction.Remove)
                 return new(true, 0, 0, [], "Removed");
@@ -245,7 +238,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     public async Task<TargetSnapshot> ReadAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var catalog = new CatalogState(scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"));
+        var catalog = new CatalogState(scope.ServiceProvider.GetRequiredService<IStore>());
         var result = new TargetSnapshot(await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct),
             await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct), await engine.SnapshotAsync(ct),
             [.. (await catalog.ReadAsync<AttemptRow>(CatalogState.Query(), ct)).Where(a => a.TargetId is not null)],
@@ -275,7 +268,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         var snapshot = await ReadAsync(ct);
         await RecoverStallsAsync(snapshot, ct);
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var catalog = new CatalogState(store);
         var now = DateTimeOffset.UtcNow;
         snapshot = await ReadAsync(ct);
@@ -313,7 +306,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             await stateGate.WaitAsync(ct);
             try
             {
-                var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+                var store = scope.ServiceProvider.GetRequiredService<IStore>();
                 var current = (await store.ReadAsync<ScopeIntentRow>(CatalogState.Query(intent.Id), ct)).SingleOrDefault();
                 if (current is null || current.State != ScopeIntentState.Pending || current.Version != intent.Version) continue;
                 if (work is not null && result.Failure is null && !result.Stale)
@@ -378,7 +371,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                 await ChangeAsync(row.Id, token, TargetState.Done, lifetime.Token);
             rows = [.. rows.Where(r => !owned.Any(o => o.EpisodeId == r.EpisodeId))];
             if (rows.IsEmpty) return;
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var audioLanguage = await AudioLanguageAsync(store, lifetime.Token);
             var policy = new Policy(rows[0].ResolutionFloor, rows[0].PreferredResolution, audioLanguage,
                 rows[0].MaxBytes, null, rows[0].PolicyRevision);
@@ -393,11 +386,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     foreach (var row in rows) await ChangeAsync(row.Id, token, state, lifetime.Token);
                 }, excludedHashes: blocked);
             var plannedAt = DateTimeOffset.UtcNow;
-            await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow(
-                $"plan:{row.Id}:{Guid.NewGuid():N}", row.Id, row.WorkId, null, row.CreatedBy,
-                AttemptKind.Plan, plannedAt, plannedAt, "planned", null, null, null,
-                JsonSerializer.SerializeToElement(new { lane, result.Plan.Assignments, result.Plan.Rejections,
-                    result.Plan.UncoveredTargetIds }), row.BatchId, null, null, null), null, null))],
+            await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow { Id = $"plan:{row.Id}:{Guid.NewGuid():N}", TargetId = row.Id, WorkId = row.WorkId, ReleaseHash = null, ActorUserId = row.CreatedBy, Kind = AttemptKind.Plan, StartedAt = plannedAt, EndedAt = plannedAt, Outcome = "planned", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = JsonSerializer.SerializeToElement(new { lane, result.Plan.Assignments, result.Plan.Rejections,
+                    result.Plan.UncoveredTargetIds }), BatchId = row.BatchId, DownloadId = null, DeadlineAt = null, Swap = null }, null, null))],
                 [], lifetime.Token);
             foreach (var assignment in result.Plan.Assignments)
             {
@@ -435,7 +425,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         finally
         {
             await using var cleanup = scopes.CreateAsyncScope();
-            var current = await new CatalogState(cleanup.ServiceProvider.GetRequiredKeyedService<IStore>("targets"))
+            var current = await new CatalogState(cleanup.ServiceProvider.GetRequiredService<IStore>())
                 .ReadAsync<TargetRow>(CatalogState.Query(), CancellationToken.None);
             foreach (var row in rows)
             {
@@ -454,7 +444,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     private async Task ChangeTransferAsync(string id, TargetState state, WaitReason? reason, string? text, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var row = (await scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets")
+        var row = (await scope.ServiceProvider.GetRequiredService<IStore>()
             .ReadAsync<TargetRow>(CatalogState.Query(id), ct)).SingleOrDefault();
         if (row is not null) await ChangeAsync(id, row.LeaseToken, state, ct, reason, text);
     }
@@ -467,7 +457,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var old = (await store.ReadAsync<TargetRow>(CatalogState.Query(id), ct)).SingleOrDefault();
             if (old is null || old.State is TargetState.Removed or TargetState.Paused ||
                 expectedVersion is not null && old.Version != expectedVersion ||
@@ -484,8 +474,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     reason is WaitReason.NoResults or WaitReason.RejectedCandidates or WaitReason.NoHealthyRelease ? 1 : 0),
                 LeaseToken = state == TargetState.Wanted ? null : newLease ?? token, LeaseUntil = state is TargetState.Finding or TargetState.Checking or TargetState.Planning
                     ? now.AddSeconds(90) : null, UpdatedAt = now, Version = old.Version + 1 };
-            var history = new AttemptRow(Guid.NewGuid().ToString("N"), id, null, chosen ?? old.ChosenReleaseHash,
-                old.CreatedBy, AttemptKind.LegacyEvent, now, now, state.ToString(), reason?.ToString(), text, null, null, null, null, null, null);
+            var history = new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = id, WorkId = null, ReleaseHash = chosen ?? old.ChosenReleaseHash, ActorUserId = old.CreatedBy, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = state.ToString(), ReasonCode = reason?.ToString(), ReasonText = text, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
             var links = await new CatalogState(store).ReadAsync<DownloadTargetRow>(
                 CatalogState.Query() with { TargetId = id }, ct);
             var retire = state is TargetState.Filing or TargetState.Done or TargetState.Waiting or TargetState.Wanted;
@@ -528,8 +517,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     {
         var key = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow("commit:targets:" + key, null, null, null, null, AttemptKind.LegacyEvent,
-            now, now, "applied", null, null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = "commit:targets:" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         var result = await store.CommitAsync(new(key, StoreOwner.Targets, writes.Add(new(receipt, null, null)), deletes)
             { LibraryProposal = proposal }, ct);
         if (!result.Applied) throw new InvalidOperationException("The target changed concurrently.");
@@ -539,7 +527,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     {
         if (schedulerDisabled) return false;
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("scheduler"), ct)).SingleOrDefault();
         var settings = row is null ? null : TorrentFlow.Store.SettingsCatalog.Read<SchedulerSettings>(row);
         return settings is { Enabled: true };

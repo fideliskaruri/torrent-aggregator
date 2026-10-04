@@ -352,7 +352,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
     private async Task<ImmutableArray<SourceSettings>> SettingsAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var rows = await store.ReadAsync<SettingRow>(new("sources", null, null, null, null, null, null,
             null, null, null, null, null, null, null, 1, StoreOrder.PrimaryKey), ct);
         if (rows.IsEmpty) return [];

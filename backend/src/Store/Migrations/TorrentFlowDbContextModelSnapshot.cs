@@ -16,76 +16,92 @@ namespace TorrentFlow.Store.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
-            modelBuilder.Entity("Attempt", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.AttemptRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("actorUserId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ActorUserId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actorUserId");
 
-                    b.Property<string>("batchId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("BatchId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("batchId");
 
-                    b.Property<string>("deadlineAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DeadlineAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("deadlineAt");
 
-                    b.Property<string>("decisionJson")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Decision")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decisionJson");
 
-                    b.Property<string>("downloadId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DownloadId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
 
-                    b.Property<string>("endedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("EndedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("endedAt");
 
-                    b.Property<string>("kind")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
 
-                    b.Property<string>("legacyContextJson")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LegacyContext")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("legacyContextJson");
 
-                    b.Property<string>("outcome")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Outcome")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
 
-                    b.Property<string>("reasonCode")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReasonCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonCode");
 
-                    b.Property<string>("reasonText")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReasonText")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonText");
 
-                    b.Property<string>("releaseHash")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReleaseHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("releaseHash");
 
-                    b.Property<string>("startedAt")
+                    b.Property<string>("StartedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("startedAt");
 
-                    b.Property<string>("swapJson")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Swap")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("swapJson");
 
-                    b.Property<string>("targetId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
 
-                    b.Property<string>("workId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("WorkId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "actorUserId", "startedAt" }, "IX_Attempt_actorUserId_startedAt_all");
+                    b.HasIndex(new[] { "ActorUserId", "StartedAt" }, "IX_Attempt_actorUserId_startedAt_all");
 
-                    b.HasIndex(new[] { "downloadId" }, "IX_Attempt_downloadId_kindswapANDendedAtISNULL")
+                    b.HasIndex(new[] { "DownloadId" }, "IX_Attempt_downloadId_kindswapANDendedAtISNULL")
                         .IsUnique()
                         .HasFilter("kind='swap' AND endedAt IS NULL");
 
-                    b.HasIndex(new[] { "kind", "endedAt", "deadlineAt" }, "IX_Attempt_kind_endedAt_deadlineAt_all");
+                    b.HasIndex(new[] { "Kind", "EndedAt", "DeadlineAt" }, "IX_Attempt_kind_endedAt_deadlineAt_all");
 
-                    b.HasIndex(new[] { "releaseHash" }, "IX_Attempt_releaseHash_all");
+                    b.HasIndex(new[] { "ReleaseHash" }, "IX_Attempt_releaseHash_all");
 
-                    b.HasIndex(new[] { "targetId", "startedAt" }, "IX_Attempt_targetId_startedAt_all");
+                    b.HasIndex(new[] { "TargetId", "StartedAt" }, "IX_Attempt_targetId_startedAt_all");
 
-                    b.HasIndex(new[] { "workId", "startedAt" }, "IX_Attempt_workId_startedAt_all");
+                    b.HasIndex(new[] { "WorkId", "StartedAt" }, "IX_Attempt_workId_startedAt_all");
 
                     b.ToTable("Attempt", null, t =>
                         {
@@ -96,112 +112,90 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Attempt_legacyContextJson", "json_valid(\"legacyContextJson\")");
 
                             t.HasCheckConstraint("CK_Attempt_swapJson", "json_valid(\"swapJson\")");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("AutoApproveRule", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.AutoRuleRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("Category")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("category");
 
-                    b.Property<string>("mode")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("normalizedEmail")
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("LastMatchHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastMatchHash");
+
+                    b.Property<string>("LastRunAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastRunAt");
+
+                    b.Property<int>("MatchCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("matchCount");
+
+                    b.Property<long?>("MaxBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("maxBytes");
+
+                    b.Property<int>("MinListedSeeders")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("minListedSeeders");
+
+                    b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("Query")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("query");
 
-                    b.Property<long>("version")
+                    b.Property<int?>("ResolutionFloor")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("resolutionFloor");
+
+                    b.Property<string>("SourceIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourceIdsJson");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("userId");
+
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "normalizedEmail" }, "IX_AutoApproveRule_normalizedEmail_all")
-                        .IsUnique();
+                    b.HasIndex("LastMatchHash");
 
-                    b.ToTable("AutoApproveRule", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_AutoApproveRule_email", "length(normalizedEmail) BETWEEN 1 AND 320");
-
-                            t.HasCheckConstraint("CK_AutoApproveRule_mode", "\"mode\" IN ('none','moviesonly','everything')");
-
-                            t.HasCheckConstraint("CK_AutoApproveRule_version", "\"version\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("AutoRule", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("category")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("createdAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("enabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("lastMatchHash")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("lastRunAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("matchCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long?>("maxBytes")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("minListedSeeders")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("query")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("resolutionFloor")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("sourceIdsJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("userId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("lastMatchHash");
-
-                    b.HasIndex(new[] { "userId", "enabled", "lastRunAt" }, "IX_AutoRule_userId_enabled_lastRunAt_all");
+                    b.HasIndex(new[] { "UserId", "Enabled", "LastRunAt" }, "IX_AutoRule_userId_enabled_lastRunAt_all");
 
                     b.ToTable("AutoRule", null, t =>
                         {
@@ -218,165 +212,131 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_AutoRule_sourceIdsJson", "json_valid(\"sourceIdsJson\")");
 
                             t.HasCheckConstraint("CK_AutoRule_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Block", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.BlockRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("hash")
+                    b.Property<string>("Hash")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("hash");
 
-                    b.Property<string>("origin")
+                    b.Property<string>("Origin")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("origin");
 
-                    b.Property<string>("reason")
+                    b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
 
-                    b.Property<string>("replacedByHash")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReplacedByHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("replacedByHash");
 
-                    b.Property<string>("until")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Until")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("until");
 
-                    b.Property<string>("workKey")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("WorkKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workKey");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "until" }, "IX_Block_until_all");
+                    b.HasIndex(new[] { "Until" }, "IX_Block_until_all");
 
-                    b.HasIndex(new[] { "workKey" }, "IX_Block_workKey_all");
+                    b.HasIndex(new[] { "WorkKey" }, "IX_Block_workKey_all");
 
                     b.ToTable("Block", null, t =>
                         {
                             t.HasCheckConstraint("CK_Block_origin", "\"origin\" IN ('owner','unsafe','foreign','stalled','swap')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Download", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadFileRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("addedAt")
+                    b.Property<string>("DownloadId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
 
-                    b.Property<string>("admissionToken")
+                    b.Property<string>("EnginePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("enginePath");
+
+                    b.Property<long>("ExpectedBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("expectedBytes");
+
+                    b.Property<int>("FileIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fileIndex");
+
+                    b.Property<bool>("Filed")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("filed");
+
+                    b.Property<string>("FinalPath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("finalPath");
+
+                    b.Property<string>("MediaFileId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mediaFileId");
+
+                    b.Property<string>("PartialPath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("partialPath");
+
+                    b.Property<string>("PhysicalKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("physicalKey");
+
+                    b.Property<string>("Role")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
 
-                    b.Property<string>("finishedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<bool>("Selected")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("selected");
 
-                    b.Property<string>("hash")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
 
-                    b.Property<string>("intent")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.HasKey("Id");
 
-                    b.Property<string>("rawIntentId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("resumeArtifact")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("rootId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("rawIntentId");
-
-                    b.HasIndex("rootId");
-
-                    b.HasIndex(new[] { "admissionToken" }, "IX_Download_admissionToken_all")
+                    b.HasIndex(new[] { "DownloadId", "FileIndex" }, "IX_DownloadFile_downloadId_fileIndex_all")
                         .IsUnique();
 
-                    b.HasIndex(new[] { "hash" }, "IX_Download_hash_all")
-                        .IsUnique();
+                    b.HasIndex(new[] { "MediaFileId" }, "IX_DownloadFile_mediaFileId_all");
 
-                    b.HasIndex(new[] { "intent", "addedAt" }, "IX_Download_intent_addedAt_all");
-
-                    b.ToTable("Download", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Download_intent", "\"intent\" IN ('run','queued','paused','stopped')");
-
-                            t.HasCheckConstraint("CK_Download_version", "\"version\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("DownloadFile", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("downloadId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("enginePath")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("expectedBytes")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("fileIndex")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("filed")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("finalPath")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("mediaFileId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("partialPath")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("physicalKey")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("role")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("selected")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("targetId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex(new[] { "downloadId", "fileIndex" }, "IX_DownloadFile_downloadId_fileIndex_all")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "mediaFileId" }, "IX_DownloadFile_mediaFileId_all");
-
-                    b.HasIndex(new[] { "physicalKey" }, "IX_DownloadFile_physicalKey_physicalKeyISNOTNULL")
+                    b.HasIndex(new[] { "PhysicalKey" }, "IX_DownloadFile_physicalKey_physicalKeyISNOTNULL")
                         .IsUnique()
                         .HasFilter("physicalKey IS NOT NULL");
 
-                    b.HasIndex(new[] { "targetId" }, "IX_DownloadFile_targetId_all");
+                    b.HasIndex(new[] { "TargetId" }, "IX_DownloadFile_targetId_all");
 
                     b.ToTable("DownloadFile", null, t =>
                         {
@@ -389,118 +349,214 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_DownloadFile_role", "\"role\" IN ('video','subtitle','audio','unwanted')");
 
                             t.HasCheckConstraint("CK_DownloadFile_selected", "\"selected\" IN (0,1)");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("DownloadTarget", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("AddedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("addedAt");
 
-                    b.Property<string>("downloadId")
+                    b.Property<string>("AdmissionToken")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("admissionToken");
 
-                    b.Property<string>("role")
+                    b.Property<string>("FinishedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("finishedAt");
+
+                    b.Property<string>("Hash")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("hash");
 
-                    b.Property<string>("targetId")
+                    b.Property<string>("Intent")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("intent");
 
-                    b.HasKey("id");
+                    b.Property<string>("RawIntentId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rawIntentId");
 
-                    b.HasIndex(new[] { "downloadId", "role" }, "IX_DownloadTarget_downloadId_role_all");
+                    b.Property<string>("ResumeArtifact")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resumeArtifact");
 
-                    b.HasIndex(new[] { "downloadId", "targetId" }, "IX_DownloadTarget_downloadId_targetId_all")
+                    b.Property<string>("RootId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rootId");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RawIntentId");
+
+                    b.HasIndex("RootId");
+
+                    b.HasIndex(new[] { "AdmissionToken" }, "IX_Download_admissionToken_all")
                         .IsUnique();
 
-                    b.HasIndex(new[] { "targetId" }, "IX_DownloadTarget_targetId_rolecurrent")
+                    b.HasIndex(new[] { "Hash" }, "IX_Download_hash_all")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "Intent", "AddedAt" }, "IX_Download_intent_addedAt_all");
+
+                    b.ToTable("Download", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Download_intent", "\"intent\" IN ('run','queued','paused','stopped')");
+
+                            t.HasCheckConstraint("CK_Download_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadTargetRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
+
+                    b.Property<string>("DownloadId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "DownloadId", "Role" }, "IX_DownloadTarget_downloadId_role_all");
+
+                    b.HasIndex(new[] { "DownloadId", "TargetId" }, "IX_DownloadTarget_downloadId_targetId_all")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "TargetId" }, "IX_DownloadTarget_targetId_rolecurrent")
                         .IsUnique()
                         .HasFilter("role='current'");
 
-                    b.HasIndex(new[] { "targetId" }, "IX_DownloadTarget_targetId_rolereplacement")
+                    b.HasIndex(new[] { "TargetId" }, "IX_DownloadTarget_targetId_rolereplacement")
                         .IsUnique()
                         .HasFilter("role='replacement'");
 
                     b.ToTable("DownloadTarget", null, t =>
                         {
                             t.HasCheckConstraint("CK_DownloadTarget_role", "\"role\" IN ('current','replacement','retired')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Episode", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.EpisodeRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("absoluteNumber")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("AbsoluteNumber")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("absoluteNumber");
 
-                    b.Property<string>("airAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("AirAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("airAt");
 
-                    b.Property<string>("airPrecision")
+                    b.Property<string>("AirPrecision")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("airPrecision");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("mappingStatus")
+                    b.Property<string>("MappingStatus")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mappingStatus");
 
-                    b.Property<int>("number")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("Number")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("number");
 
-                    b.Property<string>("provider")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Provider")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
 
-                    b.Property<string>("providerEpisodeId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ProviderEpisodeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("providerEpisodeId");
 
-                    b.Property<int?>("runtimeMinutes")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("RuntimeMinutes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("runtimeMinutes");
 
-                    b.Property<string>("seasonId")
+                    b.Property<string>("SeasonId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("seasonId");
 
-                    b.Property<string>("stillUrl")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("StillUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stillUrl");
 
-                    b.Property<string>("synopsis")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Synopsis")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("synopsis");
 
-                    b.Property<string>("title")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "airAt" }, "IX_Episode_airAt_all");
+                    b.HasIndex(new[] { "AirAt" }, "IX_Episode_airAt_all");
 
-                    b.HasIndex(new[] { "provider", "providerEpisodeId" }, "IX_Episode_provider_providerEpisodeId_providerEpisodeIdISNOTNULL")
+                    b.HasIndex(new[] { "Provider", "ProviderEpisodeId" }, "IX_Episode_provider_providerEpisodeId_providerEpisodeIdISNOTNULL")
                         .IsUnique()
                         .HasFilter("providerEpisodeId IS NOT NULL");
 
-                    b.HasIndex(new[] { "seasonId", "absoluteNumber" }, "IX_Episode_seasonId_absoluteNumber_all");
+                    b.HasIndex(new[] { "SeasonId", "AbsoluteNumber" }, "IX_Episode_seasonId_absoluteNumber_all");
 
-                    b.HasIndex(new[] { "seasonId", "number" }, "IX_Episode_seasonId_number_mappingStatusunavailable")
+                    b.HasIndex(new[] { "SeasonId", "Number" }, "IX_Episode_seasonId_number_mappingStatusunavailable")
                         .IsUnique()
                         .HasFilter("mappingStatus <> 'unavailable'");
 
@@ -517,84 +573,106 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Episode_runtimeMinutes", "\"runtimeMinutes\" >= 0");
 
                             t.HasCheckConstraint("CK_Episode_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("FileOperation", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FileOperationRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("attempts")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempts");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<bool>("deleteSource")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("DeleteSource")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("deleteSource");
 
-                    b.Property<string>("destinationPath")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DestinationPath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("destinationPath");
 
-                    b.Property<string>("downloadId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DownloadId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
 
-                    b.Property<string>("enginePermitToken")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("EnginePermitToken")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("enginePermitToken");
 
-                    b.Property<long?>("expectedBytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<long?>("ExpectedBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("expectedBytes");
 
-                    b.Property<string>("expectedDigest")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ExpectedDigest")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expectedDigest");
 
-                    b.Property<string>("kind")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
 
-                    b.Property<string>("lastError")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastError");
 
-                    b.Property<string>("leaseToken")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LeaseToken")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseToken");
 
-                    b.Property<string>("leaseUntil")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LeaseUntil")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseUntil");
 
-                    b.Property<string>("mediaFileId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("MediaFileId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mediaFileId");
 
-                    b.Property<string>("nextTryAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("NextTryAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nextTryAt");
 
-                    b.Property<string>("resumeStage")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ResumeStage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resumeStage");
 
-                    b.Property<string>("sourcePath")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("SourcePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourcePath");
 
-                    b.Property<string>("state")
+                    b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
 
-                    b.Property<string>("targetId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("targetId");
+                    b.HasIndex("TargetId");
 
-                    b.HasIndex(new[] { "downloadId" }, "IX_FileOperation_downloadId_all");
+                    b.HasIndex(new[] { "DownloadId" }, "IX_FileOperation_downloadId_all");
 
-                    b.HasIndex(new[] { "mediaFileId" }, "IX_FileOperation_mediaFileId_all");
+                    b.HasIndex(new[] { "MediaFileId" }, "IX_FileOperation_mediaFileId_all");
 
-                    b.HasIndex(new[] { "state", "nextTryAt" }, "IX_FileOperation_state_nextTryAt_all");
+                    b.HasIndex(new[] { "State", "NextTryAt" }, "IX_FileOperation_state_nextTryAt_all");
 
                     b.ToTable("FileOperation", null, t =>
                         {
@@ -609,77 +687,95 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_FileOperation_resumeStage", "\"resumeStage\" IN ('pending','copied','verified','inventorycommitted','sourcedeleted','done','retry','needsowner','superseded')");
 
                             t.HasCheckConstraint("CK_FileOperation_state", "\"state\" IN ('pending','copied','verified','inventorycommitted','sourcedeleted','done','retry','needsowner','superseded')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("FilePathClaim", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FilePathClaimRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("operationId")
+                    b.Property<string>("OperationId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("operationId");
 
-                    b.Property<string>("physicalKey")
+                    b.Property<string>("PhysicalKey")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("physicalKey");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "operationId" }, "IX_FilePathClaim_operationId_all");
+                    b.HasIndex(new[] { "OperationId" }, "IX_FilePathClaim_operationId_all");
 
-                    b.HasIndex(new[] { "physicalKey" }, "IX_FilePathClaim_physicalKey_all")
+                    b.HasIndex(new[] { "PhysicalKey" }, "IX_FilePathClaim_physicalKey_all")
                         .IsUnique();
 
-                    b.ToTable("FilePathClaim", (string)null);
+                    b.ToTable("FilePathClaim", null, t =>
+                        {
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
                 });
 
-            modelBuilder.Entity("Follow", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FollowRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<bool>("enabled")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("enabled");
 
-                    b.Property<string>("fromEpisodeId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("FromEpisodeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fromEpisodeId");
 
-                    b.Property<string>("lastMaterializedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastMaterializedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastMaterializedAt");
 
-                    b.Property<string>("newEpisodesSince")
+                    b.Property<string>("NewEpisodesSince")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("newEpisodesSince");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("fromEpisodeId");
+                    b.HasIndex("FromEpisodeId");
 
-                    b.HasIndex(new[] { "enabled", "lastMaterializedAt" }, "IX_Follow_enabled_lastMaterializedAt_all");
+                    b.HasIndex(new[] { "Enabled", "LastMaterializedAt" }, "IX_Follow_enabled_lastMaterializedAt_all");
 
-                    b.HasIndex(new[] { "workId" }, "IX_Follow_workId_all")
+                    b.HasIndex(new[] { "WorkId" }, "IX_Follow_workId_all")
                         .IsUnique();
 
                     b.ToTable("Follow", null, t =>
@@ -687,135 +783,169 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Follow_enabled", "\"enabled\" IN (0,1)");
 
                             t.HasCheckConstraint("CK_Follow_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("MediaFile", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.MediaFileRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("addedAt")
+                    b.Property<string>("AddedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("addedAt");
 
-                    b.Property<long?>("bitrateBps")
-                        .HasColumnType("INTEGER");
+                    b.Property<long?>("BitrateBps")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("bitrateBps");
 
-                    b.Property<long>("bytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("Bytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("bytes");
 
-                    b.Property<string>("container")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Container")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("container");
 
-                    b.Property<string>("contentDigest")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ContentDigest")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("contentDigest");
 
-                    b.Property<string>("downloadId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DownloadId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
 
-                    b.Property<string>("episodeId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("EpisodeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("episodeId");
 
-                    b.Property<int?>("fileIndex")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("FileIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fileIndex");
 
-                    b.Property<string>("hdr")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Hdr")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("hdr");
 
-                    b.Property<int?>("height")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("Height")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("height");
 
-                    b.Property<string>("lastSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastSeenAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastSeenAt");
 
-                    b.Property<string>("missingConfirmedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("MissingConfirmedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("missingConfirmedAt");
 
-                    b.Property<string>("missingSince")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("MissingSince")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("missingSince");
 
-                    b.Property<string>("mtimeUtc")
+                    b.Property<string>("MtimeUtc")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mtimeUtc");
 
-                    b.Property<string>("origin")
+                    b.Property<string>("Origin")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("origin");
 
-                    b.Property<string>("parentMediaFileId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ParentMediaFileId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("parentMediaFileId");
 
-                    b.Property<string>("path")
+                    b.Property<string>("Path")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("path");
 
-                    b.Property<string>("physicalKey")
+                    b.Property<string>("PhysicalKey")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("physicalKey");
 
-                    b.Property<int?>("resolution")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("Resolution")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("resolution");
 
-                    b.Property<string>("role")
+                    b.Property<string>("Role")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
 
-                    b.Property<string>("rootId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("RootId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rootId");
 
-                    b.Property<double?>("runtimeSeconds")
-                        .HasColumnType("REAL");
+                    b.Property<double?>("RuntimeSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("runtimeSeconds");
 
-                    b.Property<string>("source")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source");
 
-                    b.Property<string>("status")
+                    b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
 
-                    b.Property<string>("tracksJson")
+                    b.Property<string>("Tracks")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tracksJson");
 
-                    b.Property<string>("verifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("VerifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("verifiedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("videoCodec")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("VideoCodec")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("videoCodec");
 
-                    b.Property<string>("videoProfile")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("VideoProfile")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("videoProfile");
 
-                    b.Property<int?>("width")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("Width")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("width");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("episodeId");
+                    b.HasIndex("EpisodeId");
 
-                    b.HasIndex(new[] { "downloadId", "fileIndex" }, "IX_MediaFile_downloadId_fileIndex_downloadIdISNOTNULL")
+                    b.HasIndex(new[] { "DownloadId", "FileIndex" }, "IX_MediaFile_downloadId_fileIndex_downloadIdISNOTNULL")
                         .IsUnique()
                         .HasFilter("downloadId IS NOT NULL");
 
-                    b.HasIndex(new[] { "missingSince" }, "IX_MediaFile_missingSince_all");
+                    b.HasIndex(new[] { "MissingSince" }, "IX_MediaFile_missingSince_all");
 
-                    b.HasIndex(new[] { "parentMediaFileId" }, "IX_MediaFile_parentMediaFileId_all");
+                    b.HasIndex(new[] { "ParentMediaFileId" }, "IX_MediaFile_parentMediaFileId_all");
 
-                    b.HasIndex(new[] { "physicalKey" }, "IX_MediaFile_physicalKey_all")
+                    b.HasIndex(new[] { "PhysicalKey" }, "IX_MediaFile_physicalKey_all")
                         .IsUnique();
 
-                    b.HasIndex(new[] { "rootId", "status" }, "IX_MediaFile_rootId_status_all");
+                    b.HasIndex(new[] { "RootId", "Status" }, "IX_MediaFile_rootId_status_all");
 
-                    b.HasIndex(new[] { "workId", "episodeId", "status" }, "IX_MediaFile_workId_episodeId_status_all");
+                    b.HasIndex(new[] { "WorkId", "EpisodeId", "Status" }, "IX_MediaFile_workId_episodeId_status_all");
 
                     b.ToTable("MediaFile", null, t =>
                         {
@@ -842,51 +972,63 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_MediaFile_version", "\"version\" >= 0");
 
                             t.HasCheckConstraint("CK_MediaFile_width", "\"width\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("MetadataCache", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.MetadataCacheRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("cacheKey")
+                    b.Property<string>("CacheKey")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cacheKey");
 
-                    b.Property<bool>("complete")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("Complete")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("complete");
 
-                    b.Property<string>("etag")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Etag")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("etag");
 
-                    b.Property<string>("expiresAt")
+                    b.Property<string>("ExpiresAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expiresAt");
 
-                    b.Property<string>("fetchedAt")
+                    b.Property<string>("FetchedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fetchedAt");
 
-                    b.Property<string>("kind")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
 
-                    b.Property<string>("lastModified")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastModified")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastModified");
 
-                    b.Property<string>("payloadJson")
+                    b.Property<string>("Payload")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("payloadJson");
 
-                    b.Property<string>("provider")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Provider")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "expiresAt" }, "IX_MetadataCache_expiresAt_all");
+                    b.HasIndex(new[] { "ExpiresAt" }, "IX_MetadataCache_expiresAt_all");
 
-                    b.HasIndex(new[] { "kind", "cacheKey" }, "IX_MetadataCache_kind_cacheKey_all")
+                    b.HasIndex(new[] { "Kind", "CacheKey" }, "IX_MetadataCache_kind_cacheKey_all")
                         .IsUnique();
 
                     b.ToTable("MetadataCache", null, t =>
@@ -896,58 +1038,72 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_MetadataCache_kind", "\"kind\" IN ('providerdetail','titlesearch','browserail','fribbmap','jellyfinstate')");
 
                             t.HasCheckConstraint("CK_MetadataCache_payloadJson", "json_valid(\"payloadJson\")");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Notification", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.NotificationRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("body")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Body")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("body");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("dedupeKey")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DedupeKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("dedupeKey");
 
-                    b.Property<string>("kind")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
 
-                    b.Property<string>("link")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Link")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("link");
 
-                    b.Property<string>("pushAttemptAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("PushAttemptAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("pushAttemptAt");
 
-                    b.Property<int>("pushAttempts")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("PushAttempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("pushAttempts");
 
-                    b.Property<bool>("pushPending")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("PushPending")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("pushPending");
 
-                    b.Property<string>("readAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReadAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("readAt");
 
-                    b.Property<string>("title")
+                    b.Property<string>("Title")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
 
-                    b.Property<string>("userId")
+                    b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("userId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "pushPending", "pushAttemptAt" }, "IX_Notification_pushPending_pushAttemptAt_all");
+                    b.HasIndex(new[] { "PushPending", "PushAttemptAt" }, "IX_Notification_pushPending_pushAttemptAt_all");
 
-                    b.HasIndex(new[] { "userId", "createdAt" }, "IX_Notification_userId_createdAt_all");
+                    b.HasIndex(new[] { "UserId", "CreatedAt" }, "IX_Notification_userId_createdAt_all");
 
-                    b.HasIndex(new[] { "userId", "dedupeKey" }, "IX_Notification_userId_dedupeKey_dedupeKeyISNOTNULL")
+                    b.HasIndex(new[] { "UserId", "DedupeKey" }, "IX_Notification_userId_dedupeKey_dedupeKeyISNOTNULL")
                         .IsUnique()
                         .HasFilter("dedupeKey IS NOT NULL");
 
@@ -958,133 +1114,122 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Notification_pushAttempts", "\"pushAttempts\" >= 0");
 
                             t.HasCheckConstraint("CK_Notification_pushPending", "\"pushPending\" IN (0,1)");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("PushSubscription", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RawIntentRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("auth")
+                    b.Property<string>("ActorUserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actorUserId");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("BatchId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("batchId");
 
-                    b.Property<string>("endpoint")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("p256dh")
+                    b.Property<string>("DownloadId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("downloadId");
+
+                    b.Property<string>("ExplicitDirectory")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("explicitDirectory");
+
+                    b.Property<string>("ExplicitKind")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("explicitKind");
+
+                    b.Property<string>("LeaseToken")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseToken");
+
+                    b.Property<string>("LeaseUntil")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseUntil");
+
+                    b.Property<string>("NextTryAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nextTryAt");
+
+                    b.Property<string>("NowAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nowAt");
+
+                    b.Property<bool>("OwnerRanked")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("ownerRanked");
+
+                    b.Property<long>("Rank")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("rank");
+
+                    b.Property<string>("ReasonCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonCode");
+
+                    b.Property<string>("ReasonText")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonText");
+
+                    b.Property<string>("ReleaseHash")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("releaseHash");
 
-                    b.Property<string>("userId")
+                    b.Property<string>("ResumeState")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resumeState");
+
+                    b.Property<string>("RootId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rootId");
+
+                    b.Property<string>("SelectedFiles")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("selectedFilesJson");
 
-                    b.HasKey("id");
-
-                    b.HasIndex(new[] { "endpoint" }, "IX_PushSubscription_endpoint_all")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "userId" }, "IX_PushSubscription_userId_all");
-
-                    b.ToTable("PushSubscription", (string)null);
-                });
-
-            modelBuilder.Entity("RawIntent", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("actorUserId")
+                    b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
 
-                    b.Property<string>("batchId")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("createdAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("downloadId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("explicitDirectory")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("explicitKind")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("leaseToken")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("leaseUntil")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("nextTryAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("nowAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("ownerRanked")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<long>("rank")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("reasonCode")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("reasonText")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("releaseHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("resumeState")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("rootId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("selectedFilesJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("state")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("actorUserId");
+                    b.HasIndex("ActorUserId");
 
-                    b.HasIndex("rootId");
+                    b.HasIndex("RootId");
 
-                    b.HasIndex(new[] { "downloadId" }, "IX_RawIntent_downloadId_downloadIdISNOTNULL")
+                    b.HasIndex(new[] { "DownloadId" }, "IX_RawIntent_downloadId_downloadIdISNOTNULL")
                         .IsUnique()
                         .HasFilter("downloadId IS NOT NULL");
 
-                    b.HasIndex(new[] { "releaseHash" }, "IX_RawIntent_releaseHash_all");
+                    b.HasIndex(new[] { "ReleaseHash" }, "IX_RawIntent_releaseHash_all");
 
-                    b.HasIndex(new[] { "state", "nextTryAt" }, "IX_RawIntent_state_nextTryAt_all");
+                    b.HasIndex(new[] { "State", "NextTryAt" }, "IX_RawIntent_state_nextTryAt_all");
 
                     b.ToTable("RawIntent", null, t =>
                         {
@@ -1101,51 +1246,134 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
 
                             t.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Release", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.ReleaseObservationRow", b =>
                 {
-                    b.Property<string>("hash")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("filesJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("firstSeenAt")
+                    b.Property<string>("Hash")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("hash");
 
-                    b.Property<string>("lastSeenAt")
+                    b.Property<int?>("ListedLeechers")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("listedLeechers");
+
+                    b.Property<int?>("ListedSeeders")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("listedSeeders");
+
+                    b.Property<string>("ObservedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("observedAt");
 
-                    b.Property<string>("magnet")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("metadataDigest")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("name")
+                    b.Property<string>("Query")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("query");
 
-                    b.Property<string>("parsedJson")
+                    b.Property<string>("SourceId")
                         .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourceId");
+
+                    b.Property<string>("SourceItemId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourceItemId");
+
+                    b.Property<string>("TorrentUri")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("torrentUri");
+
+                    b.Property<string>("UploadedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("uploadedAt");
+
+                    b.Property<string>("WebSeeds")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("webSeedsJson");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "Hash", "SourceId", "Query" }, "IX_ReleaseObservation_hash_sourceId_query_all")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "SourceId", "ObservedAt" }, "IX_ReleaseObservation_sourceId_observedAt_all");
+
+                    b.ToTable("ReleaseObservation", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReleaseObservation_listedLeechers", "\"listedLeechers\" >= 0");
+
+                            t.HasCheckConstraint("CK_ReleaseObservation_listedSeeders", "\"listedSeeders\" >= 0");
+
+                            t.HasCheckConstraint("CK_ReleaseObservation_webSeedsJson", "json_valid(\"webSeedsJson\")");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.ReleaseRow", b =>
+                {
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool?>("private")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Files")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("filesJson");
 
-                    b.Property<string>("torrentUri")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("FirstSeenAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("firstSeenAt");
 
-                    b.Property<long?>("totalBytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("LastSeenAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastSeenAt");
 
-                    b.HasKey("hash");
+                    b.Property<string>("Magnet")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("magnet");
 
-                    b.HasIndex(new[] { "lastSeenAt" }, "IX_Release_lastSeenAt_all");
+                    b.Property<string>("MetadataDigest")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metadataDigest");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Parsed")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("parsedJson");
+
+                    b.Property<bool?>("Private")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("private");
+
+                    b.Property<string>("TorrentUri")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("torrentUri");
+
+                    b.Property<long?>("TotalBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("totalBytes");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "LastSeenAt" }, "IX_Release_lastSeenAt_all");
 
                     b.ToTable("Release", null, t =>
                         {
@@ -1158,122 +1386,134 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Release_private", "\"private\" IN (0,1)");
 
                             t.HasCheckConstraint("CK_Release_totalBytes", "\"totalBytes\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("hash");
                         });
                 });
 
-            modelBuilder.Entity("ReleaseObservation", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RequestItemRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("hash")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<int?>("listedLeechers")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("EpisodeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("episodeId");
 
-                    b.Property<int?>("listedSeeders")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("observedAt")
+                    b.Property<string>("RequestId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("requestId");
 
-                    b.Property<string>("query")
+                    b.Property<string>("SettledAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("settledAt");
+
+                    b.Property<string>("Settlement")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("settlement");
 
-                    b.Property<string>("sourceId")
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
+
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("sourceItemId")
-                        .HasColumnType("TEXT");
+                    b.HasKey("Id");
 
-                    b.Property<string>("torrentUri")
-                        .HasColumnType("TEXT");
+                    b.HasIndex("EpisodeId");
 
-                    b.Property<string>("uploadedAt")
-                        .HasColumnType("TEXT");
+                    b.HasIndex(new[] { "RequestId", "Settlement" }, "IX_RequestItem_requestId_settlement_all");
 
-                    b.Property<string>("webSeedsJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.HasIndex(new[] { "TargetId" }, "IX_RequestItem_targetId_all");
 
-                    b.HasKey("id");
-
-                    b.HasIndex(new[] { "hash", "sourceId", "query" }, "IX_ReleaseObservation_hash_sourceId_query_all")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "sourceId", "observedAt" }, "IX_ReleaseObservation_sourceId_observedAt_all");
-
-                    b.ToTable("ReleaseObservation", null, t =>
+                    b.ToTable("RequestItem", null, t =>
                         {
-                            t.HasCheckConstraint("CK_ReleaseObservation_listedLeechers", "\"listedLeechers\" >= 0");
+                            t.HasCheckConstraint("CK_RequestItem_settlement", "\"settlement\" IN ('open','fulfilled','stoppedbyowner')");
 
-                            t.HasCheckConstraint("CK_ReleaseObservation_listedSeeders", "\"listedSeeders\" >= 0");
-
-                            t.HasCheckConstraint("CK_ReleaseObservation_webSeedsJson", "json_valid(\"webSeedsJson\")");
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Request", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RequestRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("decidedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DecidedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decidedAt");
 
-                    b.Property<string>("decidedBy")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DecidedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decidedBy");
 
-                    b.Property<string>("decision")
+                    b.Property<string>("Decision")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decision");
 
-                    b.Property<string>("decisionReason")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("DecisionReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decisionReason");
 
-                    b.Property<string>("note")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("note");
 
-                    b.Property<string>("scope")
+                    b.Property<string>("Scope")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scope");
 
-                    b.Property<string>("scopeJson")
+                    b.Property<string>("ScopeData")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scopeJson");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("userId")
+                    b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("userId");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("decidedBy");
+                    b.HasIndex("DecidedBy");
 
-                    b.HasIndex(new[] { "userId", "decision", "createdAt" }, "IX_Request_userId_decision_createdAt_all");
+                    b.HasIndex(new[] { "UserId", "Decision", "CreatedAt" }, "IX_Request_userId_decision_createdAt_all");
 
-                    b.HasIndex(new[] { "workId", "decision" }, "IX_Request_workId_decision_all");
+                    b.HasIndex(new[] { "WorkId", "Decision" }, "IX_Request_workId_decision_all");
 
                     b.ToTable("Request", null, t =>
                         {
@@ -1284,113 +1524,84 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Request_scopeJson", "json_valid(\"scopeJson\")");
 
                             t.HasCheckConstraint("CK_Request_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("RequestItem", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.ScopeIntentRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("ActorUserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actorUserId");
 
-                    b.Property<string>("episodeId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("requestId")
+                    b.Property<string>("BatchId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("batchId");
 
-                    b.Property<string>("settledAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("settlement")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("targetId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("NextTryAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nextTryAt");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<bool>("Now")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("now");
+
+                    b.Property<string>("Policy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("policyJson");
 
-                    b.HasKey("id");
-
-                    b.HasIndex("episodeId");
-
-                    b.HasIndex(new[] { "requestId", "settlement" }, "IX_RequestItem_requestId_settlement_all");
-
-                    b.HasIndex(new[] { "targetId" }, "IX_RequestItem_targetId_all");
-
-                    b.ToTable("RequestItem", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_RequestItem_settlement", "\"settlement\" IN ('open','fulfilled','stoppedbyowner')");
-                        });
-                });
-
-            modelBuilder.Entity("ScopeIntent", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("actorUserId")
+                    b.Property<string>("Scope")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scope");
 
-                    b.Property<string>("batchId")
+                    b.Property<string>("ScopeData")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scopeJson");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
 
-                    b.Property<string>("nextTryAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("now")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("policyJson")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("scope")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("scopeJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("state")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("actorUserId");
+                    b.HasIndex("ActorUserId");
 
-                    b.HasIndex(new[] { "batchId" }, "IX_ScopeIntent_batchId_all");
+                    b.HasIndex(new[] { "BatchId" }, "IX_ScopeIntent_batchId_all");
 
-                    b.HasIndex(new[] { "state", "nextTryAt" }, "IX_ScopeIntent_state_nextTryAt_all");
+                    b.HasIndex(new[] { "State", "NextTryAt" }, "IX_ScopeIntent_state_nextTryAt_all");
 
-                    b.HasIndex(new[] { "workId" }, "IX_ScopeIntent_workId_all");
+                    b.HasIndex(new[] { "WorkId" }, "IX_ScopeIntent_workId_all");
 
                     b.ToTable("ScopeIntent", null, t =>
                         {
@@ -1405,57 +1616,70 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_ScopeIntent_state", "\"state\" IN ('pending','materialized','cancelled')");
 
                             t.HasCheckConstraint("CK_ScopeIntent_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("SearchCache", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.SearchCacheRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("complete")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("Complete")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("complete");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<long>("credentialRevision")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("CredentialRevision")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("credentialRevision");
 
-                    b.Property<string>("expiresAt")
+                    b.Property<string>("ExpiresAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expiresAt");
 
-                    b.Property<string>("normalizedQuery")
+                    b.Property<string>("NormalizedQuery")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalizedQuery");
 
-                    b.Property<int>("parserVersion")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("ParserVersion")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("parserVersion");
 
-                    b.Property<string>("payloadJson")
+                    b.Property<string>("Payload")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("payloadJson");
 
-                    b.Property<string>("scopeKey")
+                    b.Property<string>("ScopeKey")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scopeKey");
 
-                    b.Property<string>("sourceId")
+                    b.Property<string>("SourceId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourceId");
 
-                    b.Property<long>("sourceRevision")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("SourceRevision")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sourceRevision");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "expiresAt" }, "IX_SearchCache_expiresAt_all");
+                    b.HasIndex(new[] { "ExpiresAt" }, "IX_SearchCache_expiresAt_all");
 
-                    b.HasIndex(new[] { "normalizedQuery", "expiresAt" }, "IX_SearchCache_normalizedQuery_expiresAt_all");
+                    b.HasIndex(new[] { "NormalizedQuery", "ExpiresAt" }, "IX_SearchCache_normalizedQuery_expiresAt_all");
 
-                    b.HasIndex(new[] { "normalizedQuery", "scopeKey", "sourceId", "sourceRevision", "credentialRevision", "parserVersion" }, "IX_SearchCache_normalizedQuery_scopeKey_sourceId_sourceRevision_credentialRevision_parserVersion_all")
+                    b.HasIndex(new[] { "NormalizedQuery", "ScopeKey", "SourceId", "SourceRevision", "CredentialRevision", "ParserVersion" }, "IX_SearchCache_normalizedQuery_scopeKey_sourceId_sourceRevision_credentialRevision_parserVersion_all")
                         .IsUnique();
 
                     b.ToTable("SearchCache", null, t =>
@@ -1469,60 +1693,75 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_SearchCache_payloadJson", "json_valid(\"payloadJson\")");
 
                             t.HasCheckConstraint("CK_SearchCache_sourceRevision", "\"sourceRevision\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Season", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.SeasonRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<int?>("expectedEpisodeCount")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("ExpectedEpisodeCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("expectedEpisodeCount");
 
-                    b.Property<string>("mappingStatus")
+                    b.Property<string>("MappingStatus")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mappingStatus");
 
-                    b.Property<int>("number")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("Number")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("number");
 
-                    b.Property<string>("overview")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Overview")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("overview");
 
-                    b.Property<string>("posterUrl")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("PosterUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("posterUrl");
 
-                    b.Property<string>("providerEntryId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ProviderEntryId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("providerEntryId");
 
-                    b.Property<string>("refreshedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("RefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("refreshedAt");
 
-                    b.Property<string>("title")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "mappingStatus", "refreshedAt" }, "IX_Season_mappingStatus_refreshedAt_all");
+                    b.HasIndex(new[] { "MappingStatus", "RefreshedAt" }, "IX_Season_mappingStatus_refreshedAt_all");
 
-                    b.HasIndex(new[] { "workId", "number" }, "IX_Season_workId_number_all")
+                    b.HasIndex(new[] { "WorkId", "Number" }, "IX_Season_workId_number_all")
                         .IsUnique();
 
                     b.ToTable("Season", null, t =>
@@ -1534,30 +1773,37 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Season_number", "\"number\" >= 0");
 
                             t.HasCheckConstraint("CK_Season_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Setting", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.SettingRow", b =>
                 {
-                    b.Property<string>("section")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("revision")
+                    b.Property<long>("Revision")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("revision");
 
-                    b.Property<int>("schemaVersion")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("schemaVersion");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("valueJson")
+                    b.Property<string>("Value")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("valueJson");
 
-                    b.HasKey("section");
+                    b.HasKey("Id");
 
                     b.ToTable("Setting", null, t =>
                         {
@@ -1565,78 +1811,97 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Setting_schemaVersion", "\"schemaVersion\" >= 0");
 
-                            t.HasCheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration','recovery') AND schemaVersion=1");
+                            t.HasCheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','recovery') AND schemaVersion=1");
 
                             t.HasCheckConstraint("CK_Setting_valueJson", "json_valid(\"valueJson\")");
+
+                            t.Property("Id")
+                                .HasColumnName("section");
                         });
                 });
 
-            modelBuilder.Entity("StorageRoot", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.StorageRootRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<bool>("enabled")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("enabled");
 
-                    b.Property<string>("kindsJson")
+                    b.Property<string>("Kinds")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kindsJson");
 
-                    b.Property<string>("lastCheckedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastCheckedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastCheckedAt");
 
-                    b.Property<string>("lastError")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastError");
 
-                    b.Property<string>("libraryFoldersJson")
+                    b.Property<string>("LibraryFolders")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("libraryFoldersJson");
 
-                    b.Property<long?>("maxAllocatedBytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<long?>("MaxAllocatedBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("maxAllocatedBytes");
 
-                    b.Property<bool>("online")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("Online")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("online");
 
-                    b.Property<string>("path")
+                    b.Property<string>("Path")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("path");
 
-                    b.Property<string>("physicalKey")
+                    b.Property<string>("PhysicalKey")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("physicalKey");
 
-                    b.Property<int>("priority")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("Priority")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("priority");
 
-                    b.Property<long>("reserveBytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("ReserveBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reserveBytes");
 
-                    b.Property<bool>("reviewRequired")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("ReviewRequired")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reviewRequired");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("volumeSerial")
+                    b.Property<string>("VolumeSerial")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("volumeSerial");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "enabled", "priority" }, "IX_StorageRoot_enabled_priority_all");
+                    b.HasIndex(new[] { "Enabled", "Priority" }, "IX_StorageRoot_enabled_priority_all");
 
-                    b.HasIndex(new[] { "physicalKey" }, "IX_StorageRoot_physicalKey_all")
+                    b.HasIndex(new[] { "PhysicalKey" }, "IX_StorageRoot_physicalKey_all")
                         .IsUnique();
 
                     b.ToTable("StorageRoot", null, t =>
@@ -1656,147 +1921,185 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_StorageRoot_reviewRequired", "\"reviewRequired\" IN (0,1)");
 
                             t.HasCheckConstraint("CK_StorageRoot_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Target", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.TargetRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("audioLanguage")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("AudioLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audioLanguage");
 
-                    b.Property<string>("autoRuleId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("AutoRuleId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("autoRuleId");
 
-                    b.Property<string>("batchId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("BatchId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("batchId");
 
-                    b.Property<string>("chosenReleaseHash")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ChosenReleaseHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("chosenReleaseHash");
 
-                    b.Property<string>("clickedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ClickedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("clickedAt");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("createdBy")
+                    b.Property<string>("CreatedBy")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdBy");
 
-                    b.Property<string>("episodeId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("EpisodeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("episodeId");
 
-                    b.Property<string>("expectedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ExpectedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expectedAt");
 
-                    b.Property<string>("helpNotifiedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("HelpNotifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("helpNotifiedAt");
 
-                    b.Property<string>("kind")
+                    b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
 
-                    b.Property<string>("leaseToken")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LeaseToken")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseToken");
 
-                    b.Property<string>("leaseUntil")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("LeaseUntil")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("leaseUntil");
 
-                    b.Property<long?>("maxBytes")
-                        .HasColumnType("INTEGER");
+                    b.Property<long?>("MaxBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("maxBytes");
 
-                    b.Property<int?>("minListedSeeders")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("MinListedSeeders")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("minListedSeeders");
 
-                    b.Property<string>("nextTryAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("NextTryAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nextTryAt");
 
-                    b.Property<string>("nowAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("NowAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nowAt");
 
-                    b.Property<string>("origin")
+                    b.Property<string>("Origin")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("origin");
 
-                    b.Property<bool>("ownerRanked")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("OwnerRanked")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("ownerRanked");
 
-                    b.Property<string>("pickedReleaseHash")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("PickedReleaseHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("pickedReleaseHash");
 
-                    b.Property<long>("policyRevision")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("PolicyRevision")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("policyRevision");
 
-                    b.Property<int?>("preferredResolution")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("PreferredResolution")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("preferredResolution");
 
-                    b.Property<string>("priority")
+                    b.Property<string>("Priority")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("priority");
 
-                    b.Property<long>("rank")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("Rank")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("rank");
 
-                    b.Property<string>("reasonCode")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReasonCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonCode");
 
-                    b.Property<string>("reasonText")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReasonText")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reasonText");
 
-                    b.Property<string>("replaceMediaFileId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReplaceMediaFileId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("replaceMediaFileId");
 
-                    b.Property<string>("replacementMode")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ReplacementMode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("replacementMode");
 
-                    b.Property<int?>("resolutionFloor")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("ResolutionFloor")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("resolutionFloor");
 
-                    b.Property<string>("resumeState")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ResumeState")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resumeState");
 
-                    b.Property<string>("state")
+                    b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
 
-                    b.Property<int>("substantiveMisses")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("SubstantiveMisses")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("substantiveMisses");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("autoRuleId");
+                    b.HasIndex("AutoRuleId");
 
-                    b.HasIndex("createdBy");
+                    b.HasIndex("CreatedBy");
 
-                    b.HasIndex("replaceMediaFileId");
+                    b.HasIndex("ReplaceMediaFileId");
 
-                    b.HasIndex(new[] { "batchId" }, "IX_Target_batchId_all");
+                    b.HasIndex(new[] { "BatchId" }, "IX_Target_batchId_all");
 
-                    b.HasIndex(new[] { "chosenReleaseHash" }, "IX_Target_chosenReleaseHash_all");
+                    b.HasIndex(new[] { "ChosenReleaseHash" }, "IX_Target_chosenReleaseHash_all");
 
-                    b.HasIndex(new[] { "episodeId" }, "IX_Target_episodeId_episodeIdISNOTNULL")
+                    b.HasIndex(new[] { "EpisodeId" }, "IX_Target_episodeId_episodeIdISNOTNULL")
                         .IsUnique()
                         .HasFilter("episodeId IS NOT NULL");
 
-                    b.HasIndex(new[] { "state", "nextTryAt", "rank" }, "IX_Target_state_nextTryAt_rank_all");
+                    b.HasIndex(new[] { "State", "NextTryAt", "Rank" }, "IX_Target_state_nextTryAt_rank_all");
 
-                    b.HasIndex(new[] { "workId" }, "IX_Target_workId_episodeIdISNULL")
+                    b.HasIndex(new[] { "WorkId" }, "IX_Target_workId_episodeIdISNULL")
                         .IsUnique()
                         .HasFilter("episodeId IS NULL");
 
@@ -1831,143 +2134,125 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Target_substantiveMisses", "\"substantiveMisses\" >= 0");
 
                             t.HasCheckConstraint("CK_Target_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("UpgradeEvidence", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.UserRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("candidateHash")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("checkedAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("episodeId")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("Image")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("image");
 
-                    b.Property<string>("expiresAt")
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalizedEmail");
+
+                    b.Property<string>("Role")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
 
-                    b.Property<int?>("resolution")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("workId")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("candidateHash");
-
-                    b.HasIndex("episodeId");
-
-                    b.HasIndex("workId");
-
-                    b.HasIndex(new[] { "expiresAt" }, "IX_UpgradeEvidence_expiresAt_all");
-
-                    b.ToTable("UpgradeEvidence", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_UpgradeEvidence_resolution", "\"resolution\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("User", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("createdAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("image")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("name")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("normalizedEmail")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("role")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex(new[] { "normalizedEmail" }, "IX_User_normalizedEmail_normalizedEmailISNOTNULL")
+                    b.HasIndex(new[] { "NormalizedEmail" }, "IX_User_normalizedEmail_normalizedEmailISNOTNULL")
                         .IsUnique()
                         .HasFilter("normalizedEmail IS NOT NULL");
 
-                    b.HasIndex(new[] { "role" }, "IX_User_role_roleowner")
+                    b.HasIndex(new[] { "Role" }, "IX_User_role_roleowner")
                         .IsUnique()
                         .HasFilter("role='owner'");
 
                     b.ToTable("User", null, t =>
                         {
                             t.HasCheckConstraint("CK_User_role", "\"role\" IN ('owner','requester')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Verdict", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.VerdictRow", b =>
                 {
-                    b.Property<string>("hash")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("band")
+                    b.Property<string>("Band")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("band");
 
-                    b.Property<int>("byteSendingPeers")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("ByteSendingPeers")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("byteSendingPeers");
 
-                    b.Property<long>("bytesDelivered")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("BytesDelivered")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("bytesDelivered");
 
-                    b.Property<string>("checkedAt")
+                    b.Property<string>("CheckedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("checkedAt");
 
-                    b.Property<int>("connectedPeers")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("ConnectedPeers")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("connectedPeers");
 
-                    b.Property<int>("connectedSeeders")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("ConnectedSeeders")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("connectedSeeders");
 
-                    b.Property<string>("expiresAt")
+                    b.Property<string>("ExpiresAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expiresAt");
 
-                    b.Property<string>("probeMetricsJson")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ProbeMetrics")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("probeMetricsJson");
 
-                    b.Property<int>("probeVersion")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("ProbeVersion")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("probeVersion");
 
-                    b.Property<string>("reason")
+                    b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
 
-                    b.Property<int>("sampleMilliseconds")
-                        .HasColumnType("INTEGER");
+                    b.Property<int>("SampleMilliseconds")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sampleMilliseconds");
 
-                    b.Property<int?>("scrapedSeeders")
-                        .HasColumnType("INTEGER");
+                    b.Property<int?>("ScrapedSeeders")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("scrapedSeeders");
 
-                    b.HasKey("hash");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "checkedAt" }, "IX_Verdict_checkedAt_all");
+                    b.HasIndex(new[] { "CheckedAt" }, "IX_Verdict_checkedAt_all");
 
-                    b.HasIndex(new[] { "expiresAt" }, "IX_Verdict_expiresAt_all");
+                    b.HasIndex(new[] { "ExpiresAt" }, "IX_Verdict_expiresAt_all");
 
                     b.ToTable("Verdict", null, t =>
                         {
@@ -1988,48 +2273,58 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Verdict_sampleMilliseconds", "\"sampleMilliseconds\" >= 0");
 
                             t.HasCheckConstraint("CK_Verdict_scrapedSeeders", "\"scrapedSeeders\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("hash");
                         });
                 });
 
-            modelBuilder.Entity("WatchItem", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WatchItemRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("status")
+                    b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
 
-                    b.Property<string>("updatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<bool>("upgradeWatch")
-                        .HasColumnType("INTEGER");
+                    b.Property<bool>("UpgradeWatch")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("upgradeWatch");
 
-                    b.Property<string>("userId")
+                    b.Property<string>("UserId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("userId");
 
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workId")
+                    b.Property<string>("WorkId")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
 
-                    b.HasKey("id");
+                    b.HasKey("Id");
 
-                    b.HasIndex("workId");
+                    b.HasIndex("WorkId");
 
-                    b.HasIndex(new[] { "upgradeWatch" }, "IX_WatchItem_upgradeWatch_all");
+                    b.HasIndex(new[] { "UpgradeWatch" }, "IX_WatchItem_upgradeWatch_all");
 
-                    b.HasIndex(new[] { "userId", "workId" }, "IX_WatchItem_userId_workId_all")
+                    b.HasIndex(new[] { "UserId", "WorkId" }, "IX_WatchItem_userId_workId_all")
                         .IsUnique();
 
                     b.ToTable("WatchItem", null, t =>
@@ -2039,100 +2334,394 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_WatchItem_upgradeWatch", "\"upgradeWatch\" IN (0,1)");
 
                             t.HasCheckConstraint("CK_WatchItem_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("Work", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WorkFolderRow", b =>
                 {
-                    b.Property<string>("id")
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool?>("anime")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("backdropUrl")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("createdAt")
+                    b.Property<string>("CreatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.Property<string>("digitalAt")
-                        .HasColumnType("TEXT");
+                    b.Property<string>("ExternalItemFolder")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("externalItemFolder");
 
-                    b.Property<string>("format")
+                    b.Property<string>("RelativeItemFolder")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("relativeItemFolder");
+
+                    b.Property<string>("RootId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rootId");
+
+                    b.Property<string>("UpdatedAt")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
 
-                    b.Property<string>("genresJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("kind")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("numberingVersion")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("originalLanguage")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("physicalAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("posterUrl")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("providerStatus")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double?>("rating")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("ratingSource")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("refreshedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("releasePrecision")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("runtimeMinutes")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("synopsis")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("theatricalAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
+                    b.Property<long>("Version")
                         .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
 
-                    b.Property<string>("workKey")
+                    b.Property<string>("WorkId")
                         .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "ExternalItemFolder" }, "IX_WorkFolder_externalItemFolder_externalItemFolderISNOTNULL")
+                        .IsUnique()
+                        .HasFilter("externalItemFolder IS NOT NULL");
+
+                    b.HasIndex(new[] { "RootId", "RelativeItemFolder" }, "IX_WorkFolder_rootId_relativeItemFolder_rootIdISNOTNULL")
+                        .IsUnique()
+                        .HasFilter("rootId IS NOT NULL");
+
+                    b.HasIndex(new[] { "WorkId" }, "IX_WorkFolder_workId_all")
+                        .IsUnique();
+
+                    b.ToTable("WorkFolder", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkFolder_shape", "(rootId IS NOT NULL AND relativeItemFolder IS NOT NULL AND externalItemFolder IS NULL) OR (rootId IS NULL AND relativeItemFolder IS NULL AND externalItemFolder IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_WorkFolder_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.WorkLinkRow", b =>
+                {
+                    b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("year")
-                        .HasColumnType("INTEGER");
+                    b.Property<double>("Confidence")
+                        .HasColumnType("REAL")
+                        .HasColumnName("confidence");
 
-                    b.HasKey("id");
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
 
-                    b.HasIndex(new[] { "digitalAt" }, "IX_Work_digitalAt_all");
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("externalId");
 
-                    b.HasIndex(new[] { "kind", "anime" }, "IX_Work_kind_anime_all");
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("isPrimary");
 
-                    b.HasIndex(new[] { "refreshedAt" }, "IX_Work_refreshedAt_all");
+                    b.Property<string>("MappingVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mappingVersion");
 
-                    b.HasIndex(new[] { "workKey" }, "IX_Work_workKey_all")
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderKind")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("providerKind");
+
+                    b.Property<string>("SeasonId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("seasonId");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
+
+                    b.Property<string>("WorkId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SeasonId");
+
+                    b.HasIndex(new[] { "WorkId" }, "IX_WorkLink_workId_isPrimary1")
+                        .IsUnique()
+                        .HasFilter("isPrimary=1");
+
+                    b.HasIndex(new[] { "WorkId", "Status" }, "IX_WorkLink_workId_status_all");
+
+                    b.ToTable("WorkLink", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkLink_confidence", "confidence <= 1");
+
+                            t.HasCheckConstraint("CK_WorkLink_isPrimary", "\"isPrimary\" IN (0,1)");
+
+                            t.HasCheckConstraint("CK_WorkLink_status", "\"status\" IN ('verified','suggested','rejected')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.WorkNameRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Authoritative")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("authoritative");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("label");
+
+                    b.Property<string>("LinkId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("linkId");
+
+                    b.Property<string>("NormalizedValue")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalizedValue");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("ordinal");
+
+                    b.Property<string>("RefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("refreshedAt");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("value");
+
+                    b.Property<string>("WorkId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LinkId");
+
+                    b.HasIndex(new[] { "WorkId", "Ordinal" }, "IX_WorkName_workId_ordinal_all");
+
+                    b.ToTable("WorkName", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkName_authoritative", "\"authoritative\" IN (0,1)");
+
+                            t.HasCheckConstraint("CK_WorkName_label", "\"label\" IN ('english','romaji','synonym','native','original')");
+
+                            t.HasCheckConstraint("CK_WorkName_nonblank", "length(trim(value)) > 0 AND length(trim(normalizedValue)) > 0");
+
+                            t.HasCheckConstraint("CK_WorkName_ordinal", "\"ordinal\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.WorkPreferenceRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AudioLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audioLanguage");
+
+                    b.Property<long?>("MaxBytesPerItem")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("maxBytesPerItem");
+
+                    b.Property<int?>("PreferredResolution")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("preferredResolution");
+
+                    b.Property<int?>("ResolutionFloor")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("resolutionFloor");
+
+                    b.Property<string>("StorageRootOverrideId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("storageRootOverrideId");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
+
+                    b.Property<string>("WorkId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StorageRootOverrideId");
+
+                    b.HasIndex(new[] { "WorkId" }, "IX_WorkPreference_workId_all")
+                        .IsUnique();
+
+                    b.ToTable("WorkPreference", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkPreference_maxBytesPerItem", "\"maxBytesPerItem\" >= 0");
+
+                            t.HasCheckConstraint("CK_WorkPreference_preferredResolution", "\"preferredResolution\" >= 0");
+
+                            t.HasCheckConstraint("CK_WorkPreference_resolutionFloor", "\"resolutionFloor\" >= 0");
+
+                            t.HasCheckConstraint("CK_WorkPreference_version", "\"version\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.WorkRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("Anime")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("anime");
+
+                    b.Property<string>("BackdropUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("backdropUrl");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
+
+                    b.Property<string>("DigitalAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("digitalAt");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("format");
+
+                    b.Property<string>("Genres")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("genresJson");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("NumberingVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("numberingVersion");
+
+                    b.Property<string>("OriginalLanguage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("originalLanguage");
+
+                    b.Property<string>("PhysicalAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("physicalAt");
+
+                    b.Property<string>("PosterUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("posterUrl");
+
+                    b.Property<string>("ProviderStatus")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("providerStatus");
+
+                    b.Property<double?>("Rating")
+                        .HasColumnType("REAL")
+                        .HasColumnName("rating");
+
+                    b.Property<string>("RatingSource")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ratingSource");
+
+                    b.Property<string>("RefreshedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("refreshedAt");
+
+                    b.Property<string>("ReleasePrecision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("releasePrecision");
+
+                    b.Property<int?>("RuntimeMinutes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("runtimeMinutes");
+
+                    b.Property<string>("Synopsis")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("synopsis");
+
+                    b.Property<string>("TheatricalAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("theatricalAt");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updatedAt");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
+
+                    b.Property<string>("WorkKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workKey");
+
+                    b.Property<int?>("Year")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("year");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "DigitalAt" }, "IX_Work_digitalAt_all");
+
+                    b.HasIndex(new[] { "Kind", "Anime" }, "IX_Work_kind_anime_all");
+
+                    b.HasIndex(new[] { "RefreshedAt" }, "IX_Work_refreshedAt_all");
+
+                    b.HasIndex(new[] { "WorkKey" }, "IX_Work_workKey_all")
                         .IsUnique();
 
                     b.ToTable("Work", null, t =>
@@ -2154,651 +2743,464 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_Work_version", "\"version\" >= 0");
 
                             t.HasCheckConstraint("CK_Work_year", "\"year\" >= 0");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
                         });
                 });
 
-            modelBuilder.Entity("WorkFolder", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.AttemptRow", b =>
                 {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("createdAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("externalItemFolder")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("relativeItemFolder")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("rootId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("workId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex(new[] { "externalItemFolder" }, "IX_WorkFolder_externalItemFolder_externalItemFolderISNOTNULL")
-                        .IsUnique()
-                        .HasFilter("externalItemFolder IS NOT NULL");
-
-                    b.HasIndex(new[] { "rootId", "relativeItemFolder" }, "IX_WorkFolder_rootId_relativeItemFolder_rootIdISNOTNULL")
-                        .IsUnique()
-                        .HasFilter("rootId IS NOT NULL");
-
-                    b.HasIndex(new[] { "workId" }, "IX_WorkFolder_workId_all")
-                        .IsUnique();
-
-                    b.ToTable("WorkFolder", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_WorkFolder_shape", "(rootId IS NOT NULL AND relativeItemFolder IS NOT NULL AND externalItemFolder IS NULL) OR (rootId IS NULL AND relativeItemFolder IS NULL AND externalItemFolder IS NOT NULL)");
-
-                            t.HasCheckConstraint("CK_WorkFolder_version", "\"version\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("WorkLink", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("confidence")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("createdAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("externalId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("isPrimary")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("mappingVersion")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("provider")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("providerKind")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("seasonId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("source")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("workId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("seasonId");
-
-                    b.HasIndex(new[] { "workId" }, "IX_WorkLink_workId_isPrimary1")
-                        .IsUnique()
-                        .HasFilter("isPrimary=1");
-
-                    b.HasIndex(new[] { "workId", "status" }, "IX_WorkLink_workId_status_all");
-
-                    b.ToTable("WorkLink", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_WorkLink_confidence", "confidence <= 1");
-
-                            t.HasCheckConstraint("CK_WorkLink_isPrimary", "\"isPrimary\" IN (0,1)");
-
-                            t.HasCheckConstraint("CK_WorkLink_status", "\"status\" IN ('verified','suggested','rejected')");
-                        });
-                });
-
-            modelBuilder.Entity("WorkName", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("authoritative")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("label")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("linkId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("normalizedValue")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ordinal")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("refreshedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("value")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("workId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("linkId");
-
-                    b.HasIndex(new[] { "workId", "ordinal" }, "IX_WorkName_workId_ordinal_all");
-
-                    b.ToTable("WorkName", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_WorkName_authoritative", "\"authoritative\" IN (0,1)");
-
-                            t.HasCheckConstraint("CK_WorkName_label", "\"label\" IN ('english','romaji','synonym','native','original')");
-
-                            t.HasCheckConstraint("CK_WorkName_nonblank", "length(trim(value)) > 0 AND length(trim(normalizedValue)) > 0");
-
-                            t.HasCheckConstraint("CK_WorkName_ordinal", "\"ordinal\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("WorkPreference", b =>
-                {
-                    b.Property<string>("id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("audioLanguage")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long?>("maxBytesPerItem")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("preferredResolution")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("resolutionFloor")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("storageRootOverrideId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("updatedAt")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("workId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("id");
-
-                    b.HasIndex("storageRootOverrideId");
-
-                    b.HasIndex(new[] { "workId" }, "IX_WorkPreference_workId_all")
-                        .IsUnique();
-
-                    b.ToTable("WorkPreference", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_WorkPreference_maxBytesPerItem", "\"maxBytesPerItem\" >= 0");
-
-                            t.HasCheckConstraint("CK_WorkPreference_preferredResolution", "\"preferredResolution\" >= 0");
-
-                            t.HasCheckConstraint("CK_WorkPreference_resolutionFloor", "\"resolutionFloor\" >= 0");
-
-                            t.HasCheckConstraint("CK_WorkPreference_version", "\"version\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("Attempt", b =>
-                {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("actorUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Download", null)
-                        .WithMany()
-                        .HasForeignKey("downloadId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Release", null)
-                        .WithMany()
-                        .HasForeignKey("releaseHash")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Target", null)
-                        .WithMany()
-                        .HasForeignKey("targetId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
-                        .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("AutoRule", b =>
-                {
-                    b.HasOne("Release", null)
-                        .WithMany()
-                        .HasForeignKey("lastMatchHash")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("User", null)
-                        .WithMany()
-                        .HasForeignKey("userId")
+                        .HasForeignKey("ActorUserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_Attempt_User_actorUserId");
+
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
+                        .WithMany()
+                        .HasForeignKey("DownloadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Attempt_Download_downloadId");
+
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
+                        .WithMany()
+                        .HasForeignKey("ReleaseHash")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Attempt_Release_releaseHash");
+
+                    b.HasOne("TorrentFlow.Domain.TargetRow", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Attempt_Target_targetId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Attempt_Work_workId");
                 });
 
-            modelBuilder.Entity("Download", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.AutoRuleRow", b =>
                 {
-                    b.HasOne("Release", null)
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
                         .WithMany()
-                        .HasForeignKey("hash")
+                        .HasForeignKey("LastMatchHash")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_AutoRule_Release_lastMatchHash");
 
-                    b.HasOne("RawIntent", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("rawIntentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("StorageRoot", null)
-                        .WithMany()
-                        .HasForeignKey("rootId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_AutoRule_User_userId");
                 });
 
-            modelBuilder.Entity("DownloadFile", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadFileRow", b =>
                 {
-                    b.HasOne("Download", null)
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
                         .WithMany()
-                        .HasForeignKey("downloadId")
+                        .HasForeignKey("DownloadId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_DownloadFile_Download_downloadId");
 
-                    b.HasOne("MediaFile", null)
+                    b.HasOne("TorrentFlow.Domain.MediaFileRow", null)
                         .WithMany()
-                        .HasForeignKey("mediaFileId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("MediaFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_DownloadFile_MediaFile_mediaFileId");
 
-                    b.HasOne("Target", null)
+                    b.HasOne("TorrentFlow.Domain.TargetRow", null)
                         .WithMany()
-                        .HasForeignKey("targetId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_DownloadFile_Target_targetId");
                 });
 
-            modelBuilder.Entity("DownloadTarget", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadRow", b =>
                 {
-                    b.HasOne("Download", null)
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
                         .WithMany()
-                        .HasForeignKey("downloadId")
+                        .HasForeignKey("Hash")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_Download_Release_hash");
 
-                    b.HasOne("Target", null)
+                    b.HasOne("TorrentFlow.Domain.RawIntentRow", null)
                         .WithMany()
-                        .HasForeignKey("targetId")
+                        .HasForeignKey("RawIntentId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_Download_RawIntent_rawIntentId");
+
+                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
+                        .WithMany()
+                        .HasForeignKey("RootId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Download_StorageRoot_rootId");
                 });
 
-            modelBuilder.Entity("Episode", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.DownloadTargetRow", b =>
                 {
-                    b.HasOne("Season", null)
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
                         .WithMany()
-                        .HasForeignKey("seasonId")
+                        .HasForeignKey("DownloadId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_DownloadTarget_Download_downloadId");
+
+                    b.HasOne("TorrentFlow.Domain.TargetRow", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_DownloadTarget_Target_targetId");
                 });
 
-            modelBuilder.Entity("FileOperation", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.EpisodeRow", b =>
                 {
-                    b.HasOne("Download", null)
+                    b.HasOne("TorrentFlow.Domain.SeasonRow", null)
                         .WithMany()
-                        .HasForeignKey("downloadId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("MediaFile", null)
-                        .WithMany()
-                        .HasForeignKey("mediaFileId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Target", null)
-                        .WithMany()
-                        .HasForeignKey("targetId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("SeasonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Episode_Season_seasonId");
                 });
 
-            modelBuilder.Entity("FilePathClaim", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FileOperationRow", b =>
                 {
-                    b.HasOne("FileOperation", null)
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
                         .WithMany()
-                        .HasForeignKey("operationId")
+                        .HasForeignKey("DownloadId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_FileOperation_Download_downloadId");
+
+                    b.HasOne("TorrentFlow.Domain.MediaFileRow", null)
+                        .WithMany()
+                        .HasForeignKey("MediaFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_FileOperation_MediaFile_mediaFileId");
+
+                    b.HasOne("TorrentFlow.Domain.TargetRow", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_FileOperation_Target_targetId");
                 });
 
-            modelBuilder.Entity("Follow", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FilePathClaimRow", b =>
                 {
-                    b.HasOne("Episode", null)
+                    b.HasOne("TorrentFlow.Domain.FileOperationRow", null)
                         .WithMany()
-                        .HasForeignKey("fromEpisodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("OperationId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_FilePathClaim_FileOperation_operationId");
                 });
 
-            modelBuilder.Entity("MediaFile", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.FollowRow", b =>
                 {
-                    b.HasOne("Download", null)
+                    b.HasOne("TorrentFlow.Domain.EpisodeRow", null)
                         .WithMany()
-                        .HasForeignKey("downloadId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Episode", null)
-                        .WithMany()
-                        .HasForeignKey("episodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("MediaFile", null)
-                        .WithMany()
-                        .HasForeignKey("parentMediaFileId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("StorageRoot", null)
-                        .WithMany()
-                        .HasForeignKey("rootId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("FromEpisodeId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_Follow_Episode_fromEpisodeId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Follow_Work_workId");
                 });
 
-            modelBuilder.Entity("Notification", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.MediaFileRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
                         .WithMany()
-                        .HasForeignKey("userId")
+                        .HasForeignKey("DownloadId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_MediaFile_Download_downloadId");
+
+                    b.HasOne("TorrentFlow.Domain.EpisodeRow", null)
+                        .WithMany()
+                        .HasForeignKey("EpisodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_MediaFile_Episode_episodeId");
+
+                    b.HasOne("TorrentFlow.Domain.MediaFileRow", null)
+                        .WithMany()
+                        .HasForeignKey("ParentMediaFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_MediaFile_MediaFile_parentMediaFileId");
+
+                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
+                        .WithMany()
+                        .HasForeignKey("RootId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_MediaFile_StorageRoot_rootId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_MediaFile_Work_workId");
                 });
 
-            modelBuilder.Entity("PushSubscription", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.NotificationRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("userId")
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_Notification_User_userId");
                 });
 
-            modelBuilder.Entity("RawIntent", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RawIntentRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("actorUserId")
+                        .HasForeignKey("ActorUserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_RawIntent_User_actorUserId");
 
-                    b.HasOne("Download", null)
+                    b.HasOne("TorrentFlow.Domain.DownloadRow", null)
                         .WithMany()
-                        .HasForeignKey("downloadId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Release", null)
-                        .WithMany()
-                        .HasForeignKey("releaseHash")
+                        .HasForeignKey("DownloadId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_RawIntent_Download_downloadId");
 
-                    b.HasOne("StorageRoot", null)
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
                         .WithMany()
-                        .HasForeignKey("rootId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("ReleaseHash")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_RawIntent_Release_releaseHash");
+
+                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
+                        .WithMany()
+                        .HasForeignKey("RootId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_RawIntent_StorageRoot_rootId");
                 });
 
-            modelBuilder.Entity("ReleaseObservation", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.ReleaseObservationRow", b =>
                 {
-                    b.HasOne("Release", null)
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
                         .WithMany()
-                        .HasForeignKey("hash")
+                        .HasForeignKey("Hash")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_ReleaseObservation_Release_hash");
                 });
 
-            modelBuilder.Entity("Request", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RequestItemRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.EpisodeRow", null)
                         .WithMany()
-                        .HasForeignKey("decidedBy")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("User", null)
-                        .WithMany()
-                        .HasForeignKey("userId")
+                        .HasForeignKey("EpisodeId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_RequestItem_Episode_episodeId");
 
-                    b.HasOne("Work", null)
+                    b.HasOne("TorrentFlow.Domain.RequestRow", null)
                         .WithMany()
-                        .HasForeignKey("workId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("RequestItem", b =>
-                {
-                    b.HasOne("Episode", null)
-                        .WithMany()
-                        .HasForeignKey("episodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Request", null)
-                        .WithMany()
-                        .HasForeignKey("requestId")
+                        .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_RequestItem_Request_requestId");
 
-                    b.HasOne("Target", null)
+                    b.HasOne("TorrentFlow.Domain.TargetRow", null)
                         .WithMany()
-                        .HasForeignKey("targetId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_RequestItem_Target_targetId");
                 });
 
-            modelBuilder.Entity("ScopeIntent", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.RequestRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("actorUserId")
+                        .HasForeignKey("DecidedBy")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_Request_User_decidedBy");
 
-                    b.HasOne("Work", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_Request_User_userId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Request_Work_workId");
                 });
 
-            modelBuilder.Entity("Season", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.ScopeIntentRow", b =>
                 {
-                    b.HasOne("Work", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("ActorUserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_ScopeIntent_User_actorUserId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ScopeIntent_Work_workId");
                 });
 
-            modelBuilder.Entity("Target", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.SeasonRow", b =>
                 {
-                    b.HasOne("AutoRule", null)
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
                         .WithMany()
-                        .HasForeignKey("autoRuleId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Release", null)
-                        .WithMany()
-                        .HasForeignKey("chosenReleaseHash")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("User", null)
-                        .WithMany()
-                        .HasForeignKey("createdBy")
+                        .HasForeignKey("WorkId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Episode", null)
-                        .WithMany()
-                        .HasForeignKey("episodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("MediaFile", null)
-                        .WithMany()
-                        .HasForeignKey("replaceMediaFileId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_Season_Work_workId");
                 });
 
-            modelBuilder.Entity("UpgradeEvidence", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.TargetRow", b =>
                 {
-                    b.HasOne("Release", null)
+                    b.HasOne("TorrentFlow.Domain.AutoRuleRow", null)
                         .WithMany()
-                        .HasForeignKey("candidateHash")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Episode", null)
-                        .WithMany()
-                        .HasForeignKey("episodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("AutoRuleId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_Target_AutoRule_autoRuleId");
+
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
+                        .WithMany()
+                        .HasForeignKey("ChosenReleaseHash")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Target_Release_chosenReleaseHash");
+
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Target_User_createdBy");
+
+                    b.HasOne("TorrentFlow.Domain.EpisodeRow", null)
+                        .WithMany()
+                        .HasForeignKey("EpisodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Target_Episode_episodeId");
+
+                    b.HasOne("TorrentFlow.Domain.MediaFileRow", null)
+                        .WithMany()
+                        .HasForeignKey("ReplaceMediaFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Target_MediaFile_replaceMediaFileId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_Target_Work_workId");
                 });
 
-            modelBuilder.Entity("Verdict", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.VerdictRow", b =>
                 {
-                    b.HasOne("Release", null)
+                    b.HasOne("TorrentFlow.Domain.ReleaseRow", null)
                         .WithMany()
-                        .HasForeignKey("hash")
+                        .HasForeignKey("Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_Verdict_Release_hash");
                 });
 
-            modelBuilder.Entity("WatchItem", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WatchItemRow", b =>
                 {
-                    b.HasOne("User", null)
+                    b.HasOne("TorrentFlow.Domain.UserRow", null)
                         .WithMany()
-                        .HasForeignKey("userId")
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_WatchItem_User_userId");
 
-                    b.HasOne("Work", null)
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
                         .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("WorkId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_WatchItem_Work_workId");
                 });
 
-            modelBuilder.Entity("WorkFolder", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WorkFolderRow", b =>
                 {
-                    b.HasOne("StorageRoot", null)
+                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
                         .WithMany()
-                        .HasForeignKey("rootId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("RootId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_WorkFolder_StorageRoot_rootId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkFolder_Work_workId");
                 });
 
-            modelBuilder.Entity("WorkLink", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WorkLinkRow", b =>
                 {
-                    b.HasOne("Season", null)
+                    b.HasOne("TorrentFlow.Domain.SeasonRow", null)
                         .WithMany()
-                        .HasForeignKey("seasonId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("SeasonId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_WorkLink_Season_seasonId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkLink_Work_workId");
                 });
 
-            modelBuilder.Entity("WorkName", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WorkNameRow", b =>
                 {
-                    b.HasOne("WorkLink", null)
+                    b.HasOne("TorrentFlow.Domain.WorkLinkRow", null)
                         .WithMany()
-                        .HasForeignKey("linkId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .HasForeignKey("LinkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("FK_WorkName_WorkLink_linkId");
 
-                    b.HasOne("Work", null)
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
                         .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("WorkId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkName_Work_workId");
                 });
 
-            modelBuilder.Entity("WorkPreference", b =>
+            modelBuilder.Entity("TorrentFlow.Domain.WorkPreferenceRow", b =>
                 {
-                    b.HasOne("StorageRoot", null)
+                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
                         .WithMany()
-                        .HasForeignKey("storageRootOverrideId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Work", null)
-                        .WithMany()
-                        .HasForeignKey("workId")
+                        .HasForeignKey("StorageRootOverrideId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("FK_WorkPreference_StorageRoot_storageRootOverrideId");
+
+                    b.HasOne("TorrentFlow.Domain.WorkRow", null)
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkPreference_Work_workId");
                 });
 #pragma warning restore 612, 618
         }

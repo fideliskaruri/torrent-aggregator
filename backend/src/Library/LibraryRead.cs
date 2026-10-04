@@ -23,8 +23,17 @@ public static class LibraryRead
     public static WatchItemRow OwnedItem(string userId, string workId, IEnumerable<MediaFileRow> files)
     {
         var videos = files.ToArray();
-        return new(ItemId(workId), userId, workId, WatchStatus.Planned, false,
-            videos.Min(f => f.AddedAt), videos.Max(f => f.LastSeenAt ?? f.AddedAt), 0);
+        return new WatchItemRow
+        {
+            Id = ItemId(workId),
+            UserId = userId,
+            WorkId = workId,
+            Status = WatchStatus.Planned,
+            UpgradeWatch = false,
+            CreatedAt = videos.Min(f => f.AddedAt),
+            UpdatedAt = videos.Max(f => f.LastSeenAt ?? f.AddedAt),
+            Version = 0,
+        };
     }
 
     public static async Task<ImmutableArray<WatchItemRow>> ItemsAsync(string userId,

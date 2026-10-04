@@ -47,7 +47,7 @@ internal static class DevEngine
         public override async Task StartAsync(CancellationToken ct)
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var row = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), ct)).Single();
             await engine.InitializeAsync(SettingsCatalog.Read<EngineSettings>(row), async (port, token) =>
             {

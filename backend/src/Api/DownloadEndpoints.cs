@@ -155,7 +155,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     private async Task<ImmutableArray<T>> Rows<T>(CancellationToken ct) where T : StoreRow
     {
         await using var scope = scopes.CreateAsyncScope();
-        return await AccessState.AllAsync<T>(scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"), ct);
+        return await AccessState.AllAsync<T>(scope.ServiceProvider.GetRequiredService<IStore>(), ct);
     }
 
     internal async Task<object> ListAsync(CancellationToken ct)
@@ -381,7 +381,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var row = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), ct)).Single();
             var value = SettingsCatalog.Read<EngineSettings>(row);
             var qualityRow = (await store.ReadAsync<SettingRow>(AccessState.Query("quality"), ct)).Single();
@@ -417,8 +417,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 var nextQuality = qualityRow with { Value = JsonSerializer.SerializeToElement(quality, Json),
                     Revision = qualityRow.Revision + 1, UpdatedAt = next.UpdatedAt };
                 var key = Guid.NewGuid().ToString("N");
-                var receipt = new AttemptRow($"commit:settings:{key}", null, null, null, null, AttemptKind.LegacyEvent,
-                    next.UpdatedAt, next.UpdatedAt, "applied", "settings", null, null, null, null, null, null, null);
+                var receipt = new AttemptRow { Id = $"commit:settings:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = next.UpdatedAt, EndedAt = next.UpdatedAt, Outcome = "applied", ReasonCode = "settings", ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
                 if (!(await store.CommitAsync(new StoreCommit(key, StoreOwner.Targets,
                     [new RowWrite(next, row.Revision, null), new RowWrite(nextQuality, qualityRow.Revision, null),
                         new RowWrite(receipt, null, null)], []), ct)).Applied)

@@ -22,9 +22,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
             {
                 if (!observationsByHash.TryGetValue(hash, out var seen))
                     observationsByHash[hash] = seen = new(StringComparer.Ordinal);
-                var observation = new ReleaseObservationRow(hash + ":" + result.SourceId + ":" + query,
-                    hash, result.SourceId, raw.SourceItemId, query, raw.ListedSeeders, raw.ListedLeechers,
-                    raw.UploadedAt, now, raw.TorrentUri, raw.WebSeeds);
+                var observation = new ReleaseObservationRow { Id = hash + ":" + result.SourceId + ":" + query, Hash = hash, SourceId = result.SourceId, SourceItemId = raw.SourceItemId, Query = query, ListedSeeders = raw.ListedSeeders, ListedLeechers = raw.ListedLeechers, UploadedAt = raw.UploadedAt, ObservedAt = now, TorrentUri = raw.TorrentUri, WebSeeds = raw.WebSeeds };
                 seen[observation.Id] = observation;
                 if (candidates.TryGetValue(hash, out var known))
                     candidates[hash] = WithObservations(known, seen.Values);
@@ -47,8 +45,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
             }
             if (!candidates.TryGetValue(hash!, out var existing))
             {
-                var release = new ReleaseRow(hash!, raw.Name, parse!, raw.Bytes, raw.TorrentUri,
-                    raw.Magnet, null, null, null, now, now);
+                var release = new ReleaseRow { Id = hash!, Name = raw.Name, Parsed = parse!, TotalBytes = raw.Bytes, TorrentUri = raw.TorrentUri, Magnet = raw.Magnet, Files = null, MetadataDigest = null, Private = null, FirstSeenAt = now, LastSeenAt = now };
                 existing = new(release, [], null) { CoveredEpisodeIds = coverage, CoversFilm = scope?.Film == true };
             }
             // Conflicting names for one hash must not erase explicit safety/language evidence.

@@ -17,7 +17,7 @@ public sealed partial class TargetPipeline
         if (canonical is null) return 0;
         if (canonical.Id != workKey && canonical.WorkKey != workKey)
         {
-            var aliasCatalog = new CatalogState(resolutionScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"));
+            var aliasCatalog = new CatalogState(resolutionScope.ServiceProvider.GetRequiredService<IStore>());
             var seasons = await aliasCatalog.ReadAsync<SeasonRow>(CatalogState.Query(workId: canonical.Id), ct);
             var episodes = await aliasCatalog.ReadAsync<EpisodeRow>(CatalogState.Query(), ct);
             var links = await aliasCatalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
@@ -38,7 +38,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var pending = (await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(workId: canonical.Id), ct))
                 .Where(s => s.State == ScopeIntentState.Pending &&

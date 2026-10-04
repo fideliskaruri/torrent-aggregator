@@ -93,7 +93,7 @@ internal static class JellyfinEndpoints
         return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
     }
-    private static IStore Store(HttpContext h) => h.RequestServices.GetRequiredKeyedService<IStore>("targets");
+    private static IStore Store(HttpContext h) => h.RequestServices.GetRequiredService<IStore>();
     private static async Task<JellyfinSettings> Settings(HttpContext h, CancellationToken ct) =>
         SettingsCatalog.Read<JellyfinSettings>((await Store(h).ReadAsync<SettingRow>(AccessState.Query("jellyfin"), ct)).Single());
     private static object Public(JellyfinSettings settings) => new

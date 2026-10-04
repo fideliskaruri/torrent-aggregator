@@ -84,8 +84,7 @@ internal static class AutomationEndpoints
             var old = patch ? (await db.ReadAsync<AutoRuleRow>(ct)).FirstOrDefault(r => r.Id == id) : null;
             if (patch && old is null) return Results.NotFound(new { error = "Not found" });
             var now = DateTimeOffset.UtcNow;
-            var row = old ?? new AutoRuleRow(Guid.NewGuid().ToString("N"), "local", "", "", "all",
-                10, null, null, [], true, null, null, 0, now, now, 0);
+            var row = old ?? new AutoRuleRow { Id = Guid.NewGuid().ToString("N"), UserId = "local", Name = "", Query = "", Category = "all", MinListedSeeders = 10, MaxBytes = null, ResolutionFloor = null, SourceIds = [], Enabled = true, LastRunAt = null, LastMatchHash = null, MatchCount = 0, CreatedAt = now, UpdatedAt = now, Version = 0 };
             var name = body.TryGetProperty("name", out _) ? Text(body, "name") : row.Name;
             var query = body.TryGetProperty("query", out _) ? Text(body, "query") : row.Query;
             if (string.IsNullOrWhiteSpace(name) || name.Length > 200 ||
@@ -163,8 +162,7 @@ internal static class AutomationEndpoints
         var configured = FollowPolicy.Configure(old, start, changeStart, mode, now);
         start = configured.Start;
         var since = configured.Since;
-        var row = old is null ? new FollowRow("follow:" + work.Work.Id, work.Work.Id, value.GetBoolean(),
-            start, since, null, now, now, 1)
+        var row = old is null ? new FollowRow { Id = "follow:" + work.Work.Id, WorkId = work.Work.Id, Enabled = value.GetBoolean(), FromEpisodeId = start, NewEpisodesSince = since, LastMaterializedAt = null, CreatedAt = now, UpdatedAt = now, Version = 1 }
             : old with { Enabled = value.GetBoolean(), FromEpisodeId = start, NewEpisodesSince = since,
                 UpdatedAt = now, Version = old.Version + 1 };
         await db.SaveAsync(row, old?.Version, ct);

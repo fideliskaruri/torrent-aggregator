@@ -37,7 +37,7 @@ public sealed class CatalogState(IStore store)
             var now = DateTimeOffset.UtcNow;
             var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(actor + ":" + workId)));
             var row = prior is null
-                ? new WatchItemRow(id, actor, workId, status ?? WatchStatus.Planned, false, now, now, 0)
+                ? new WatchItemRow { Id = id, UserId = actor, WorkId = workId, Status = status ?? WatchStatus.Planned, UpgradeWatch = false, CreatedAt = now, UpdatedAt = now, Version = 0 }
                 : prior with { Status = status ?? prior.Status,
                     UpdatedAt = now, Version = prior.Version + 1 };
             var writes = new List<RowWrite> { new(row, prior?.Version, null) };
@@ -46,8 +46,7 @@ public sealed class CatalogState(IStore store)
                 var follow = (await ReadAsync<FollowRow>(Query(workId: workId), ct)).FirstOrDefault();
                 var (start, since) = FollowPolicy.Configure(follow, fromEpisodeId, changeStart, monitorMode, now);
                 var next = follow is null
-                    ? new FollowRow(Guid.CreateVersion7().ToString(), workId, monitored ?? false, start,
-                        since, null, now, now, 0)
+                    ? new FollowRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, Enabled = monitored ?? false, FromEpisodeId = start, NewEpisodesSince = since, LastMaterializedAt = null, CreatedAt = now, UpdatedAt = now, Version = 0 }
                     : follow with { Enabled = monitored ?? follow.Enabled,
                         FromEpisodeId = start,
                         NewEpisodesSince = since, UpdatedAt = now, Version = follow.Version + 1 };
@@ -57,7 +56,7 @@ public sealed class CatalogState(IStore store)
             {
                 var preference = (await ReadAsync<WorkPreferenceRow>(Query(workId: workId), ct)).FirstOrDefault();
                 var next = preference is null
-                    ? new WorkPreferenceRow(Guid.CreateVersion7().ToString(), workId, resolution, resolution, null, null, null, now, 0)
+                    ? new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 }
                     : preference with { ResolutionFloor = resolution, PreferredResolution = resolution,
                         UpdatedAt = now, Version = preference.Version + 1 };
                 writes.Add(new(next, preference?.Version, null));
@@ -88,8 +87,7 @@ public sealed class CatalogState(IStore store)
     {
         var key = Guid.CreateVersion7().ToString();
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow("commit:" + actor + ":" + key, null, null, null, actor,
-            AttemptKind.LegacyEvent, now, now, "watchlist", null, null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = "commit:" + actor + ":" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = actor, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "watchlist", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         return store.CommitAsync(new(key, StoreOwner.Targets, [.. writes, new(receipt, null, null)], deletes), ct);
     }
 }

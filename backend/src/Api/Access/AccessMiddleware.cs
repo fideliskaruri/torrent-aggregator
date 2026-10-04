@@ -64,7 +64,7 @@ public sealed class AccessMiddleware(RequestDelegate next, AccessState state, Ac
                 await Error(http, 403, "requester_forbidden", "This part of TorrentFlow is only available to its owner.");
                 return;
             }
-            var store = http.RequestServices.GetRequiredKeyedService<IStore>("access");
+            var store = http.RequestServices.GetRequiredService<IStore>();
             // Hash-derived IDs make concurrent first sign-ins converge without an unbounded email scan.
             var id = owner ? "local" : "remote-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(result.Email))).ToLowerInvariant();
             if (!owner)

@@ -287,8 +287,7 @@ internal sealed partial class MetadataService
             !(await store.AllAsync<ScopeIntentRow>(query, ct)).IsEmpty ||
             !(await store.AllAsync<RequestRow>(query, ct)).IsEmpty ||
             !(await store.AllAsync<AttemptRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<WorkFolderRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<UpgradeEvidenceRow>(query, ct)).IsEmpty;
+            !(await store.AllAsync<WorkFolderRow>(query, ct)).IsEmpty;
     }
 
     public async Task<MetadataResult> ChangeLinkAsync(LinkCommand command, CancellationToken cancellationToken)

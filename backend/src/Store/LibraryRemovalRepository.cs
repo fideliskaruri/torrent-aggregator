@@ -17,17 +17,16 @@ public sealed partial class LibraryRepository
             if (proposal is null) return false;
             foreach (var write in proposal.Writes)
             {
-                var table = Schema.Table(write.Row.GetType());
-                var row = await db.Set<Dictionary<string, object>>(table.Name)
-                    .SingleAsync(r => EF.Property<string>(r, table.Key) == write.Row.Id, ct);
-                db.Entry(row).CurrentValues.SetValues(table.ToEntity(write.Row));
+                var row = await db.FindAsync(write.Row.GetType(), [write.Row.Id], ct) as StoreRow
+                    ?? throw new InvalidOperationException($"Missing {write.Row.GetType().Name} {write.Row.Id}.");
+                db.Entry(row).CurrentValues.SetValues(write.Row);
             }
             foreach (var delete in proposal.Deletes)
             {
-                var table = Schema.Table(delete.Table.ToString());
-                var row = await db.Set<Dictionary<string, object>>(table.Name)
-                    .SingleAsync(r => EF.Property<string>(r, table.Key) == delete.Id, ct);
-                db.Set<Dictionary<string, object>>(table.Name).Remove(row);
+                var type = db.Model.GetEntityTypes().Single(entity => entity.GetTableName() == delete.Table.ToString()).ClrType;
+                var row = await db.FindAsync(type, [delete.Id], ct) as StoreRow
+                    ?? throw new InvalidOperationException($"Missing {delete.Table} {delete.Id}.");
+                db.Remove(row);
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -50,32 +49,35 @@ public sealed partial class LibraryRepository
         var deletes = ImmutableArray.CreateBuilder<RowDelete>();
         foreach (var file in files.Cast<StoreRow>().Concat(media))
         {
-            var table = Schema.Table(file.GetType());
-            var row = await db.Set<Dictionary<string, object>>(table.Name).AsNoTracking()
-                .SingleOrDefaultAsync(r => EF.Property<string>(r, table.Key) == file.Id, ct);
-            if (row is null || !Matches(table.Name, row, file)) return null;
+            StoreRow? row = file switch
+            {
+                DownloadFileRow binding => await db.DownloadFiles.AsNoTracking()
+                    .SingleOrDefaultAsync(value => value.Id == binding.Id, ct),
+                MediaFileRow mediaFile => await db.MediaFiles.AsNoTracking()
+                    .SingleOrDefaultAsync(value => value.Id == mediaFile.Id, ct),
+                _ => null,
+            };
+            if (row is null || !Matches(row, file)) return null;
             var replacement = file is DownloadFileRow ? replacements.SingleOrDefault(f => f.Id == file.Id) : null;
             if (replacement is not null) writes.Add(new(replacement, null, file));
-            else deletes.Add(new(Enum.Parse<StoreTable>(table.Name), file.Id, null, file));
+            else deletes.Add(new(Enum.Parse<StoreTable>(file.GetType().Name[..^3]), file.Id, null, file));
         }
-        var operations = await db.Set<Dictionary<string, object>>("FileOperation").AsNoTracking().ToListAsync(ct);
-        foreach (var row in operations.Where(o => files.Any(f => (string)o["id"] == $"file:{f.Id}") ||
-            media.Any(m => Equals(o.GetValueOrDefault("mediaFileId"), m.Id))))
+        var operations = await db.FileOperations.AsNoTracking().ToListAsync(ct);
+        foreach (var operation in operations.Where(o => files.Any(f => o.Id == $"file:{f.Id}") ||
+            media.Any(m => o.MediaFileId == m.Id)))
         {
-            var operation = (FileOperationRow)Schema.Table("FileOperation").ToRow(row);
             if (operation.State != FileOperationState.Done) return null;
-            var claims = await db.Set<Dictionary<string, object>>("FilePathClaim").AsNoTracking()
-                .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
-            deletes.AddRange(claims.Select(c => (FilePathClaimRow)Schema.Table("FilePathClaim").ToRow(c))
-                .Select(c => new RowDelete(StoreTable.FilePathClaim, c.Id, null, c)));
+            var claims = await db.FilePathClaims.AsNoTracking()
+                .Where(row => row.OperationId == operation.Id).ToListAsync(ct);
+            deletes.AddRange(claims.Select(claim => new RowDelete(StoreTable.FilePathClaim, claim.Id, null, claim)));
             deletes.Add(new(StoreTable.FileOperation, operation.Id, null, operation));
         }
         return new(writes.ToImmutable(), deletes.ToImmutable());
     }
 
-    private static bool Matches(string table, Dictionary<string, object> row, StoreRow expected) =>
-        JsonSerializer.Serialize(Schema.Table(table).ToRow(row), expected.GetType(), Schema.Json) ==
-        JsonSerializer.Serialize(expected, expected.GetType(), Schema.Json);
+    private static bool Matches(StoreRow row, StoreRow expected) =>
+        JsonSerializer.Serialize(row, row.GetType(), StoreJson.Options) ==
+        JsonSerializer.Serialize(expected, expected.GetType(), StoreJson.Options);
 }
 
 internal sealed class RemovalWriteProposal(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)

@@ -21,7 +21,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var changes = new List<RowWrite>();
             var observedAt = result.Diagnostics?.StartedAt ?? DateTimeOffset.UtcNow;
             foreach (var (raw, hash) in rows)
@@ -29,8 +29,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
                 var previous = (await store.ReadAsync<ReleaseRow>(ById(hash!), ct)).FirstOrDefault();
                 var parsed = parser.Parse(raw.Name);
                 var release = previous is null
-                    ? new ReleaseRow(hash!, raw.Name, parsed, raw.Bytes, raw.TorrentUri, raw.Magnet,
-                        null, null, null, observedAt, observedAt)
+                    ? new ReleaseRow { Id = hash!, Name = raw.Name, Parsed = parsed, TotalBytes = raw.Bytes, TorrentUri = raw.TorrentUri, Magnet = raw.Magnet, Files = null, MetadataDigest = null, Private = null, FirstSeenAt = observedAt, LastSeenAt = observedAt }
                     : previous with
                     {
                         Parsed = CandidatePool.MergeFlags(previous.Parsed, parsed),
@@ -45,10 +44,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
                 var prior = await ObservationAsync(store, observationId, hash!, sourceId, query.Query, ct);
                 if (prior is null || observedAt > prior.ObservedAt)
                 {
-                    var observation = new ReleaseObservationRow(prior?.Id ?? observationId, hash!, sourceId, raw.SourceItemId,
-                        query.Query, raw.ListedSeeders is >= 0 ? raw.ListedSeeders : null,
-                        raw.ListedLeechers is >= 0 ? raw.ListedLeechers : null, raw.UploadedAt, observedAt,
-                        raw.TorrentUri, raw.WebSeeds);
+                    var observation = new ReleaseObservationRow { Id = prior?.Id ?? observationId, Hash = hash!, SourceId = sourceId, SourceItemId = raw.SourceItemId, Query = query.Query, ListedSeeders = raw.ListedSeeders is >= 0 ? raw.ListedSeeders : null, ListedLeechers = raw.ListedLeechers is >= 0 ? raw.ListedLeechers : null, UploadedAt = raw.UploadedAt, ObservedAt = observedAt, TorrentUri = raw.TorrentUri, WebSeeds = raw.WebSeeds };
                     changes.Add(new(observation, null, prior));
                 }
             }
@@ -56,8 +52,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
             {
                 var receiptKey = Guid.NewGuid().ToString("N");
                 var now = DateTimeOffset.UtcNow;
-                changes.Add(new(new AttemptRow("commit:find-facts:" + receiptKey, null, null, null, null,
-                    AttemptKind.LegacyEvent, now, now, "source_facts", null, null, null, null, null, null, null, null), null, null));
+                changes.Add(new(new AttemptRow { Id = "commit:find-facts:" + receiptKey, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "source_facts", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null }, null, null));
                 var committed = await store.CommitAsync(new(receiptKey, StoreOwner.Find, [.. changes], []), ct);
                 if (!committed.Applied) throw new InvalidOperationException("Find source facts conflicted.");
             }
@@ -90,7 +85,7 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var rows = await store.ReadAsync<SearchCacheRow>(new(null, null, null, null, null, null,
                 SearchQueries.Fold(query.Query), null, null, null, sourceId, null, null, null, 200,
                 StoreOrder.PrimaryKey), ct);
@@ -112,19 +107,14 @@ internal sealed class SearchCache(IServiceScopeFactory scopes, ILogger<SearchCac
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var now = DateTimeOffset.UtcNow;
             var id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
-            var row = new SearchCacheRow(id, SearchQueries.Fold(query.Query), key, sourceId,
-                query.SourceRevision, query.CredentialRevision, 1,
-                new([.. result.Results.Select(r => parser.NormalizeInfoHash(r.Hash) ??
+            var row = new SearchCacheRow { Id = id, NormalizedQuery = SearchQueries.Fold(query.Query), ScopeKey = key, SourceId = sourceId, SourceRevision = query.SourceRevision, CredentialRevision = query.CredentialRevision, ParserVersion = 1, Payload = new([.. result.Results.Select(r => parser.NormalizeInfoHash(r.Hash) ??
                     parser.NormalizeInfoHash(r.Magnet ?? "")).OfType<string>().Distinct()], result)
-                    { FailureRetryAttempted = retryAttempted },
-                result.Complete, expiresAt is not null && previous is not null ? previous.CreatedAt : now,
-                expiresAt ?? now.AddMinutes(30));
+                    { FailureRetryAttempted = retryAttempted }, Complete = result.Complete, CreatedAt = expiresAt is not null && previous is not null ? previous.CreatedAt : now, ExpiresAt = expiresAt ?? now.AddMinutes(30) };
             var receiptKey = Guid.NewGuid().ToString("N");
-            var receipt = new AttemptRow("commit:find:" + receiptKey, null, null, null, null,
-                AttemptKind.LegacyEvent, now, now, "cache", null, null, null, null, null, null, null, null);
+            var receipt = new AttemptRow { Id = "commit:find:" + receiptKey, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "cache", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
             var committed = await store.CommitAsync(new(receiptKey, StoreOwner.Find,
                 [new(row, null, previous), new(receipt, null, null)], []), ct);
             if (!committed.Applied) log.LogWarning("Find cache write conflicted for {SourceId}.", sourceId);

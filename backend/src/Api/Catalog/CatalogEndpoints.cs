@@ -13,7 +13,7 @@ internal static class CatalogEndpoints
 {
     internal static void AddCatalog(this IServiceCollection services)
     {
-        services.AddScoped(sp => new CatalogState(sp.GetRequiredKeyedService<IStore>("targets")));
+        services.AddScoped(sp => new CatalogState(sp.GetRequiredService<IStore>()));
         services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
     }
     private static IResult Json(object body, int status = 200) =>

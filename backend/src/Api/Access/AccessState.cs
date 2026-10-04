@@ -25,7 +25,7 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
     public async Task InitializeAsync(WebApplication app, CancellationToken ct = default)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("access");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var row = (await store.ReadAsync<SettingRow>(Query("remoteAccess"), ct)).Single();
         current = SettingsCatalog.Read<RemoteAccessSettings>(row);
         var section = configuration.GetSection("TorrentFlow:RemoteAccess");
@@ -73,7 +73,7 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("access");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var old = (await store.ReadAsync<SettingRow>(Query("remoteAccess"), ct)).Single();
             var row = old with { Value = JsonSerializer.SerializeToElement(next, Json),
                 Revision = old.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
@@ -106,7 +106,7 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
         var existing = (await store.ReadAsync<UserRow>(Query(id), ct)).SingleOrDefault();
         if (existing is not null && existing.Role == role && existing.NormalizedEmail == email) return existing.Id;
         var now = DateTimeOffset.UtcNow;
-        var row = existing is null ? new UserRow(id, email, email is null ? "Local" : null, null, role, now, now)
+        var row = existing is null ? new UserRow { Id = id, NormalizedEmail = email, Name = email is null ? "Local" : null, Image = null, Role = role, CreatedAt = now, UpdatedAt = now }
             : existing with { Role = role, NormalizedEmail = email, UpdatedAt = now };
         var result = await CommitAsync(store, row, null, existing, ct);
         if (!result.Applied)
@@ -122,8 +122,7 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
     {
         var key = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow($"commit:access:{key}", null, null, null, null, AttemptKind.LegacyEvent,
-            now, now, "applied", "access", null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = $"commit:access:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = "access", ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         return store.CommitAsync(new StoreCommit(key, StoreOwner.Targets,
             [new RowWrite(row, version, expected), new RowWrite(receipt, null, null)], []), ct);
     }

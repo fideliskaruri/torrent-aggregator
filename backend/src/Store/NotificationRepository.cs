@@ -10,25 +10,21 @@ public sealed class NotificationRepository
 
     public async Task<T[]> AllAsync<T>(CancellationToken ct) where T : StoreRow
     {
-        var table = Schema.Table(typeof(T));
-        return (await db.Set<Dictionary<string, object>>(table.Name).AsNoTracking().ToListAsync(ct))
-            .Select(x => (T)table.ToRow(x)).ToArray();
+        return await db.Set<T>().AsNoTracking().ToArrayAsync(ct);
     }
 
     public async Task<bool> PublishAsync(NotificationRow row, CancellationToken ct)
     {
-        var set = db.Set<Dictionary<string, object>>("Notification");
-        var existing = await set.SingleOrDefaultAsync(x => EF.Property<string>(x, "userId") == row.UserId &&
-            EF.Property<string>(x, "dedupeKey") == row.DedupeKey, ct);
+        var existing = await db.Notifications.SingleOrDefaultAsync(x =>
+            x.UserId == row.UserId && x.DedupeKey == row.DedupeKey, ct);
         if (existing is not null)
         {
-            existing["title"] = row.Title;
-            existing["body"] = row.Body!;
+            db.Entry(existing).CurrentValues.SetValues(existing with { Title = row.Title, Body = row.Body });
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
             return false;
         }
-        set.Add(Schema.Table("Notification").ToEntity(row));
+        db.Notifications.Add(row);
         await db.SaveChangesAsync(ct);
         db.ChangeTracker.Clear();
         return true;
@@ -36,24 +32,22 @@ public sealed class NotificationRepository
 
     public async Task DeleteAsync(StoreRow row, CancellationToken ct)
     {
-        var table = Schema.Table(row.GetType());
-        await db.Set<Dictionary<string, object>>(table.Name)
-            .Where(x => EF.Property<string>(x, table.Key) == row.Id).ExecuteDeleteAsync(ct);
+        if (row is not NotificationRow notification)
+            throw new ArgumentException("NotificationRepository only deletes notifications.", nameof(row));
+        await db.Notifications.Where(value => value.Id == notification.Id).ExecuteDeleteAsync(ct);
     }
 
     public async Task<int> ReadAsync(string user, string? id, CancellationToken ct)
     {
-        var now = DateTimeOffset.UtcNow.ToString("O");
-        return await db.Set<Dictionary<string, object>>("Notification")
-            .Where(x => EF.Property<string>(x, "userId") == user &&
-                (id == null || EF.Property<string>(x, "id") == id))
-            .ExecuteUpdateAsync(s => s.SetProperty(x => EF.Property<string>(x, "readAt"),
-                x => EF.Property<string>(x, "readAt") ?? now), ct);
+        var now = DateTimeOffset.UtcNow;
+        return await db.Notifications
+            .Where(x => x.UserId == user && (id == null || x.Id == id))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ReadAt, x => x.ReadAt ?? now), ct);
     }
 
     public async Task<int> UnreadAsync(string user, string id, CancellationToken ct) =>
-        await db.Set<Dictionary<string, object>>("Notification")
-            .Where(x => EF.Property<string>(x, "userId") == user && EF.Property<string>(x, "id") == id)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => EF.Property<string>(x, "readAt"), (string)null!), ct);
+        await db.Notifications
+            .Where(x => x.UserId == user && x.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ReadAt, (DateTimeOffset?)null), ct);
 
 }

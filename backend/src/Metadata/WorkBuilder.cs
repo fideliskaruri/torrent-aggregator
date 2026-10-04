@@ -19,8 +19,33 @@ internal sealed class WorkBuilder
     {
         var id = Guid.CreateVersion7().ToString();
         var key = identity.Provider + ":" + (identity.ProviderKind is { Length: > 0 } kind ? kind + ":" : "") + identity.ExternalId;
-        Work = new(id, key, WorkKind.Unknown, WorkFormat.Unknown, null, null, null, null, null, null,
-            null, null, null, [], null, null, null, DatePrecision.Unknown, null, null, Now, Now, Now, 0);
+        Work = new WorkRow
+        {
+            Id = id,
+            WorkKey = key,
+            Kind = WorkKind.Unknown,
+            Format = WorkFormat.Unknown,
+            Anime = null,
+            Year = null,
+            OriginalLanguage = null,
+            RuntimeMinutes = null,
+            PosterUrl = null,
+            BackdropUrl = null,
+            Synopsis = null,
+            Rating = null,
+            RatingSource = null,
+            Genres = [],
+            TheatricalAt = null,
+            DigitalAt = null,
+            PhysicalAt = null,
+            ReleasePrecision = DatePrecision.Unknown,
+            ProviderStatus = null,
+            NumberingVersion = null,
+            RefreshedAt = null,
+            CreatedAt = Now,
+            UpdatedAt = Now,
+            Version = 0,
+        };
     }
 
     internal string Link(string provider, string id, string? kind = null, string source = "provider",
@@ -29,9 +54,22 @@ internal sealed class WorkBuilder
         var existing = Links.FirstOrDefault(l => l.Provider == provider && l.ExternalId == id && l.ProviderKind == kind);
         if (existing is not null) return existing.Id;
         var linkId = ProviderHttp.Id(Work.Id + ":" + provider + ":" + kind + ":" + id);
-        Links.Add(new(linkId, Work.Id, provider, id, kind,
-            season is { } n ? SeasonId(n) : null, source, version, 1, LinkStatus.Verified,
-            Links.Count == 0, Now, Now));
+        Links.Add(new WorkLinkRow
+        {
+            Id = linkId,
+            WorkId = Work.Id,
+            Provider = provider,
+            ExternalId = id,
+            ProviderKind = kind,
+            SeasonId = season is { } n ? SeasonId(n) : null,
+            Source = source,
+            MappingVersion = version,
+            Confidence = 1,
+            Status = LinkStatus.Verified,
+            IsPrimary = Links.Count == 0,
+            CreatedAt = Now,
+            UpdatedAt = Now,
+        });
         return linkId;
     }
 
@@ -41,8 +79,18 @@ internal sealed class WorkBuilder
         value = value.Trim();
         var fold = JsonFacts.Fold(value);
         if (fold.Length == 0 || Names.Any(n => n.NormalizedValue == fold && n.Label == label && n.LinkId == linkId)) return;
-        Names.Add(new(ProviderHttp.Id(Work.Id + ":" + fold + ":" + label + ":" + linkId),
-            Work.Id, value, fold, label, linkId, Names.Count, true, Now));
+        Names.Add(new WorkNameRow
+        {
+            Id = ProviderHttp.Id(Work.Id + ":" + fold + ":" + label + ":" + linkId),
+            WorkId = Work.Id,
+            Value = value,
+            NormalizedValue = fold,
+            Label = label,
+            LinkId = linkId,
+            Ordinal = Names.Count,
+            Authoritative = true,
+            RefreshedAt = Now,
+        });
     }
 
     internal string SeasonId(int number) => ProviderHttp.Id(Work.Id + ":season:" + number);
@@ -50,8 +98,7 @@ internal sealed class WorkBuilder
     internal SeasonRow Season(int number, string? title, int? count, string? providerId,
         MappingStatus status = MappingStatus.Confirmed, string? overview = null, string? poster = null)
     {
-        var row = new SeasonRow(SeasonId(number), Work.Id, number, title, overview, poster, status,
-            providerId, count, Now, Now, Now, 0);
+        var row = new SeasonRow { Id = SeasonId(number), WorkId = Work.Id, Number = number, Title = title, Overview = overview, PosterUrl = poster, MappingStatus = status, ProviderEntryId = providerId, ExpectedEpisodeCount = count, RefreshedAt = Now, CreatedAt = Now, UpdatedAt = Now, Version = 0 };
         Seasons.RemoveAll(s => s.Number == number);
         Seasons.Add(row);
         return row;
@@ -61,9 +108,25 @@ internal sealed class WorkBuilder
         string? title, DateTimeOffset? air, DatePrecision precision, int? runtime, MappingStatus status,
         string? synopsis = null, string? still = null)
     {
-        Episodes.Add(new(ProviderHttp.Id(Work.Id + ":episode:" + provider + ":" +
-            (providerId ?? season + ":" + number)), SeasonId(season), number, absolute, provider, providerId,
-            title, synopsis, still, air, air is null ? DatePrecision.Unknown : precision, runtime, status, Now, Now, 0));
+        Episodes.Add(new EpisodeRow
+        {
+            Id = ProviderHttp.Id(Work.Id + ":episode:" + provider + ":" + (providerId ?? season + ":" + number)),
+            SeasonId = SeasonId(season),
+            Number = number,
+            AbsoluteNumber = absolute,
+            Provider = provider,
+            ProviderEpisodeId = providerId,
+            Title = title,
+            Synopsis = synopsis,
+            StillUrl = still,
+            AirAt = air,
+            AirPrecision = air is null ? DatePrecision.Unknown : precision,
+            RuntimeMinutes = runtime,
+            MappingStatus = status,
+            CreatedAt = Now,
+            UpdatedAt = Now,
+            Version = 0,
+        });
     }
 
     internal WorkSnapshot Build()

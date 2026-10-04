@@ -64,7 +64,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
     internal async Task InitializeAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var row = await Row(store, "metadata", ct);
         var metadata = SettingsCatalog.Read<MetadataSettings>(row);
         var sources = metadata.Sources;
@@ -88,7 +88,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var row = await Row(store, "metadata", ct);
             var settings = SettingsCatalog.Read<MetadataSettings>(row);
             if (key is not null || remove)
@@ -115,7 +115,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         if (key is null)
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var settings = SettingsCatalog.Read<MetadataSettings>(await Row(store, "metadata", ct));
             key = SecretFiles.Read(dataDirectory, settings.TmdbCredential) ?? Environment.GetEnvironmentVariable("TMDB_API_KEY");
             if (settings.Sources.FirstOrDefault(s => s.Id == "tmdb") is { Enabled: false }) key = null;
@@ -144,7 +144,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var row = await Row(store, "sources", ct);
             var settings = SettingsCatalog.Read<ImmutableArray<SourceSettings>>(row);
             var metadataRow = await Row(store, "metadata", ct);
@@ -207,7 +207,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
     internal async Task<IResult> TestSourceAsync(string id, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var settings = SettingsCatalog.Read<ImmutableArray<SourceSettings>>(await Row(store, "sources", ct));
         var metadata = SettingsCatalog.Read<MetadataSettings>(await Row(store, "metadata", ct));
         settings = settings.AddRange(metadata.Sources);

@@ -36,13 +36,7 @@ internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFact
                     var work = works.SingleOrDefault(w => w.Id == target.WorkId);
                     var title = work is null ? "Your download" :
                         NotificationReadModels.Title(work, await db.AllAsync<WorkNameRow>(stoppingToken));
-                    var n = new NotificationRow(Guid.NewGuid().ToString("N"), target.CreatedBy,
-                        completed ? "download.completed" : "download.failed",
-                        completed ? $"{title} is ready" : $"Pick a release for {title}",
-                        completed ? title : target.ReasonText ?? "No working release was found. Pick a release yourself.",
-                        work is null ? "/downloads" : "/title/" + Uri.EscapeDataString(work.WorkKey),
-                        $"{target.Id}:{(completed ? "done" : "help")}:{target.ClickedAt:O}",
-                        DateTimeOffset.UtcNow, null, true, null, 0);
+                    var n = new NotificationRow { Id = Guid.NewGuid().ToString("N"), UserId = target.CreatedBy, Kind = completed ? "download.completed" : "download.failed", Title = completed ? $"{title} is ready" : $"Pick a release for {title}", Body = completed ? title : target.ReasonText ?? "No working release was found. Pick a release yourself.", Link = work is null ? "/downloads" : "/title/" + Uri.EscapeDataString(work.WorkKey), DedupeKey = $"{target.Id}:{(completed ? "done" : "help")}:{target.ClickedAt:O}", CreatedAt = DateTimeOffset.UtcNow, ReadAt = null, PushPending = true, PushAttemptAt = null, PushAttempts = 0 };
                     await db.PublishAsync(n with { Title = Clip(n.Title, 200)!, Body = Clip(n.Body, 500) }, stoppingToken);
                 }
                 foreach (var download in changes.OfType<DownloadRow>().Where(d => d.FinishedAt is not null))
@@ -50,10 +44,21 @@ internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFact
                     var links = await db.AllAsync<DownloadTargetRow>(stoppingToken);
                     if (links.Any(l => l.DownloadId == download.Id)) continue;
                     var release = (await db.AllAsync<ReleaseRow>(stoppingToken)).SingleOrDefault(r => r.Id == download.Hash);
-                    await db.PublishAsync(new(Guid.NewGuid().ToString("N"), "local", "download.completed",
-                        "Download ready", Clip(NotificationReadModels.ReleaseTitle(release), 500),
-                        "/downloads?hash=" + download.Hash, "download:" + download.Id, DateTimeOffset.UtcNow,
-                        null, true, null, 0), stoppingToken);
+                    await db.PublishAsync(new NotificationRow
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        UserId = "local",
+                        Kind = "download.completed",
+                        Title = "Download ready",
+                        Body = Clip(NotificationReadModels.ReleaseTitle(release), 500),
+                        Link = "/downloads?hash=" + download.Hash,
+                        DedupeKey = "download:" + download.Id,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        ReadAt = null,
+                        PushPending = true,
+                        PushAttemptAt = null,
+                        PushAttempts = 0,
+                    }, stoppingToken);
                 }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

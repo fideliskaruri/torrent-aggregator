@@ -188,7 +188,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
     private async Task<SourceSettings?> SettingsAsync(string id, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var rows = await store.ReadAsync<SettingRow>(new("sources", null, null, null, null, null, null,
             null, null, null, null, null, null, null, 1, StoreOrder.PrimaryKey), ct).ConfigureAwait(false);
         SourceSettings? defaults = null;

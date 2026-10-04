@@ -9,7 +9,7 @@ internal sealed class AutomationRepository(IServiceScopeFactory scopes)
     internal async Task<ImmutableArray<T>> ReadAsync<T>(CancellationToken ct) where T : StoreRow
     {
         await using var scope = scopes.CreateAsyncScope();
-        return await new CatalogState(scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets"))
+        return await new CatalogState(scope.ServiceProvider.GetRequiredService<IStore>())
             .ReadAsync<T>(CatalogState.Query(userId: typeof(T) == typeof(AutoRuleRow) ? "local" : null), ct);
     }
 
@@ -25,11 +25,10 @@ internal sealed class AutomationRepository(IServiceScopeFactory scopes)
     private async Task CommitAsync(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var key = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow("commit:automation:" + key, null, null, null, "local",
-            AttemptKind.LegacyEvent, now, now, "Saved automation", null, null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = "commit:automation:" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = "local", Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "Saved automation", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         var result = await store.CommitAsync(new(key, StoreOwner.Targets,
             [.. writes, new(receipt, null, null)], deletes), ct);
         if (!result.Applied) throw new InvalidOperationException("This changed while you were saving. Refresh and try again.");

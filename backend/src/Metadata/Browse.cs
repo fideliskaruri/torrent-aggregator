@@ -267,8 +267,7 @@ internal sealed partial class MetadataService
                     Array.FindIndex(w.Links.ToArray(), l => l.Id == n.LinkId))).ToArray(),
                 w.Links.ToArray(), w.Seasons, w.Episodes, w.PremiereAt, w.ProviderFormat)).ToArray() }, ListingJson);
         var expires = new DateTimeOffset(DateTime.Now.Date.AddDays(1)).ToUniversalTime();
-        var cache = new MetadataCacheRow(cacheId, CacheKind.BrowseRail, "rail:" + spec.Id, payload,
-            now, expires, null, null, true, provider);
+        var cache = new MetadataCacheRow { Id = cacheId, Kind = CacheKind.BrowseRail, CacheKey = "rail:" + spec.Id, Payload = payload, FetchedAt = now, ExpiresAt = expires, Etag = null, LastModified = null, Complete = true, Provider = provider };
         await store.CommitAsync([new(cache, null, previous)], null, ct);
         return (new(spec.Id, spec.Title, [.. stored]), false);
     }
@@ -279,11 +278,8 @@ internal sealed partial class MetadataService
         {
             var entries = row.Payload.Obj("entries").Deserialize<ListingEntry[]>(ListingJson)!;
             return new(row.Payload.Text("id")!, title, [.. entries.Select(e =>
-                new WorkSnapshot(e.Work, [.. e.Names.Select((n, i) => new WorkNameRow(
-                    ProviderHttp.Id(e.Work.Id + ":" + n.NormalizedValue + ":" + n.Label + ":" +
-                        (n.Link is { } index && index >= 0 ? e.Links[index].Id : "")),
-                    e.Work.Id, n.Value, n.NormalizedValue, n.Label,
-                    n.Link is { } link && link >= 0 ? e.Links[link].Id : null, i, true, e.Work.CreatedAt))],
+                new WorkSnapshot(e.Work, [.. e.Names.Select((n, i) => new WorkNameRow { Id = ProviderHttp.Id(e.Work.Id + ":" + n.NormalizedValue + ":" + n.Label + ":" +
+                        (n.Link is { } index && index >= 0 ? e.Links[index].Id : "")), WorkId = e.Work.Id, Value = n.Value, NormalizedValue = n.NormalizedValue, Label = n.Label, LinkId = n.Link is { } link && link >= 0 ? e.Links[link].Id : null, Ordinal = i, Authoritative = true, RefreshedAt = e.Work.CreatedAt })],
                     [.. e.Links], e.Seasons, e.Episodes)
                     { PremiereAt = e.PremiereAt, ProviderFormat = e.ProviderFormat })
                 .Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))]);

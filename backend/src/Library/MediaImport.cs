@@ -367,12 +367,7 @@ public sealed class MediaImport(IParser parser, IMetadata metadata, ILibraryPlac
             item.Parents.Select(p => get(p.Quality)).FirstOrDefault(v => v is not null);
         var physical = LibraryPaths.PhysicalKey(item.Path);
         var now = DateTimeOffset.UtcNow;
-        var media = new MediaFileRow("media:" + physical, workId, episodeId, root?.Id,
-            item.Path, physical, FileRole.Video, null, item.Bytes, item.MtimeUtc,
-            VideoDimensions.Resolution(details.Width, details.Height) ?? Inherit(q => q.Resolution),
-            Inherit(q => q.Source), Path.GetExtension(item.Path).TrimStart('.'), Inherit(q => q.Codec), null,
-            details.Width, details.Height, Inherit(q => q.Hdr), details.RuntimeSeconds, null, [],
-            origin, null, null, now, now, null, FilePresence.Present, null, now, null, 1);
+        var media = new MediaFileRow { Id = "media:" + physical, WorkId = workId, EpisodeId = episodeId, RootId = root?.Id, Path = item.Path, PhysicalKey = physical, Role = FileRole.Video, ParentMediaFileId = null, Bytes = item.Bytes, MtimeUtc = item.MtimeUtc, Resolution = VideoDimensions.Resolution(details.Width, details.Height) ?? Inherit(q => q.Resolution), Source = Inherit(q => q.Source), Container = Path.GetExtension(item.Path).TrimStart('.'), VideoCodec = Inherit(q => q.Codec), VideoProfile = null, Width = details.Width, Height = details.Height, Hdr = Inherit(q => q.Hdr), RuntimeSeconds = details.RuntimeSeconds, BitrateBps = null, Tracks = [], Origin = origin, DownloadId = null, FileIndex = null, AddedAt = now, LastSeenAt = now, MissingSince = null, Status = FilePresence.Present, MissingConfirmedAt = null, VerifiedAt = now, ContentDigest = null, Version = 1 };
         return await placement.RecordAsync(media, null, ct);
     }
 

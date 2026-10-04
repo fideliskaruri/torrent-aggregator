@@ -12,7 +12,7 @@ public sealed class ImportReviewRepository
 
     public async Task SaveAsync(ImportScanView scan, CancellationToken ct)
     {
-        var json = JsonSerializer.Serialize(scan, Schema.Json);
+        var json = JsonSerializer.Serialize(scan, StoreJson.Options);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO ImportReview(id, snapshot) VALUES ({scan.Id}, {json})
             ON CONFLICT(id) DO UPDATE SET snapshot=CASE
@@ -32,7 +32,7 @@ public sealed class ImportReviewRepository
         var rows = await db.Database.SqlQueryRaw<string>(
             "SELECT snapshot AS Value FROM ImportReview WHERE id={0}", id).ToListAsync(ct);
         if (rows.Count == 0) return null;
-        var scan = JsonSerializer.Deserialize<ImportScanView>(rows[0], Schema.Json)!;
+        var scan = JsonSerializer.Deserialize<ImportScanView>(rows[0], StoreJson.Options)!;
         var decided = await db.Database.SqlQueryRaw<string>(
             "SELECT itemId AS Value FROM ImportDecision WHERE reviewId={0}", id).ToListAsync(ct);
         return scan with { Items = [.. scan.Items.Where(i => !decided.Contains(i.Id))] };
