@@ -56,6 +56,35 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         finally { db.ChangeTracker.Clear(); }
     }
 
+    public async Task<bool> UpdateBindingsAsync(
+        ImmutableArray<(DownloadFileRow Before, DownloadFileRow After)> files,
+        ImmutableArray<WorkFolderRow> folders, CancellationToken ct)
+    {
+        if (files.IsDefaultOrEmpty || files.Select(f => f.Before.Id).Distinct().Count() != files.Length ||
+            files.Any(f => f.Before.Id != f.After.Id || f.Before.DownloadId != f.After.DownloadId ||
+                f.Before.FileIndex != f.After.FileIndex))
+            throw new ArgumentException("A binding update must preserve each download file identity.");
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            foreach (var (before, after) in files)
+            {
+                var current = await db.DownloadFiles.SingleOrDefaultAsync(row => row.Id == before.Id, ct);
+                if (current != before) return false;
+                db.Entry(current).CurrentValues.SetValues(after);
+            }
+            foreach (var folder in folders)
+                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId, ct))
+                    db.WorkFolders.Add(folder);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return true;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 or 5 or 6 })
+        { return false; }
+        finally { db.ChangeTracker.Clear(); }
+    }
+
     public async Task<ImmutableArray<RowWrite>?> ProposeFiledAsync(
         ImmutableArray<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)> files,
         CancellationToken ct)
