@@ -1,8 +1,0 @@
-{
-  "request": "/api/title/family-guy/releases?season=1&episode=1",
-  "status": 200,
-  "seconds": 5.474,
-  "releases": 33,
-  "languageObjects": true,
-  "audioTrackClaims": false
-}

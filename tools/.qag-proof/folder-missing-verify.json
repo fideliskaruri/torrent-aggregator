@@ -1,9 +1,0 @@
-{
-  "exists": false,
-  "http": {
-    "ok": true,
-    "path": "D:\\code\\memtest\\qag-data\\media\\contract-no-such-folder",
-    "message": "Verified folder D:\\code\\memtest\\qag-data\\media\\contract-no-such-folder",
-    "revealed": false
-  }
-}

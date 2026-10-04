@@ -1,9 +1,0 @@
-{
-  "seconds": 0.37466159999894444,
-  "files": 76,
-  "videos": 25,
-  "logicalBytes": 27476062480,
-  "sourceSnapshotSha256": "29a0280c105793cf0fdae745c070c123e42f3464ae759184a9968f8007e9f5ac",
-  "mediaMode": "Actual byte-for-byte file copies via shutil.copy2, original roots read only",
-  "sourceMode": "Read-only SQLite backup API plus copies of all side files and subdirectories"
-}

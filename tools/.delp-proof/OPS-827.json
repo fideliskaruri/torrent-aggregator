@@ -1,6 +1,0 @@
-{
-  "key": "OPS-827",
-  "title": "Film delete dialog says \"Deletes 0 files, 0 bytes\" while listing a file and \"Delete 1 release\"",
-  "status": "needs_verification",
-  "description": "after-library-film-delete-dialog-390.png: counts contradict the list and the button. Show the real file count and size from the delete plan, or say the file is not on disk."
-}

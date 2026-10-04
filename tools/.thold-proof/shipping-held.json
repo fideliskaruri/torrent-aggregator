@@ -1,8 +1,0 @@
-{
-  "accepted": false,
-  "queued": 0,
-  "owned": 0,
-  "targetIds": [],
-  "message": "A file on disk may already be this. Review it in Import first.",
-  "held": 1
-}
