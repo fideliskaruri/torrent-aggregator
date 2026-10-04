@@ -130,7 +130,6 @@ public sealed record WorkPreferenceRow : StoreRow
     public required string WorkId { get; init; }
     public int? ResolutionFloor { get; init; }
     public int? PreferredResolution { get; init; }
-    public string? AudioLanguage { get; init; }
     public long? MaxBytesPerItem { get; init; }
     public string? StorageRootOverrideId { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
@@ -149,11 +148,8 @@ public sealed record TargetRow : StoreRow
     public DateTimeOffset? ExpectedAt { get; init; }
     public int? ResolutionFloor { get; init; }
     public int? PreferredResolution { get; init; }
-    public string? AudioLanguage { get; init; }
     public long? MaxBytes { get; init; }
-    public required bool OwnerRanked { get; init; }
-    public required long Rank { get; init; }
-    public DateTimeOffset? NowAt { get; init; }
+    public required bool DownloadNow { get; init; }
     public required string CreatedBy { get; init; }
     public required IntentOrigin Origin { get; init; }
     public string? AutoRuleId { get; init; }
@@ -164,22 +160,26 @@ public sealed record TargetRow : StoreRow
     public DateTimeOffset? ClickedAt { get; init; }
     public required int SubstantiveMisses { get; init; }
     public DateTimeOffset? HelpNotifiedAt { get; init; }
-    public required long PolicyRevision { get; init; }
     public DateTimeOffset? LeaseUntil { get; init; }
     public string? LeaseToken { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
     public required long Version { get; init; }
-    public TargetPriority Priority { get; init; } = TargetPriority.BackCatalogue;
     public int? MinListedSeeders { get; init; }
     public string? PickedReleaseHash { get; init; }
 
+}
+public static class TargetRowExtensions
+{
+    public static bool IsPaused(this TargetRow row) =>
+        row.State == TargetState.Waiting && row.ReasonCode == WaitReason.Paused;
 }
 public sealed record RequestScopeData(ImmutableArray<int> Seasons, bool FutureEpisodes);
 public sealed record ScopeIntentRow : StoreRow
 {
     public required string ActorUserId { get; init; }
     public required string WorkId { get; init; }
+    public int? Episode { get; init; }
     public required RequestScope Scope { get; init; }
     public required RequestScopeData ScopeData { get; init; }
     public required Policy Policy { get; init; }
@@ -323,7 +323,7 @@ public sealed record VerdictRow : StoreRow
 }
 public sealed record ProbePayloadMetrics(int? PieceLength, long VerifiedPieceBytes, int VerifiedPieces,
     int HashFailures, ImmutableDictionary<string, long> PeerBytesReceived);
-public sealed record DecisionEvidence(long PolicyRevision, ImmutableArray<Rejection> Rejections,
+public sealed record DecisionEvidence(ImmutableArray<Rejection> Rejections,
     ImmutableArray<int> SelectedFiles, ImmutableArray<SourceResult> SourceErrors);
 public sealed record SwapTargetBaseline(string TargetId, long CompletedBytes);
 public sealed record SwapDecision(string OldDownloadId, ImmutableArray<string> ReplacementDownloadIds,
@@ -544,7 +544,7 @@ public sealed record WorkSnapshot(WorkRow Work, ImmutableArray<WorkNameRow> Name
 public sealed record Actor(string UserId, UserRole Role, bool TrustedLocal, bool Container);
 public sealed record Failure(string Code, string Message, DateTimeOffset? RetryAt, bool NeedsOwner);
 public sealed record Policy(int? ResolutionFloor, int? PreferredResolution, string? AudioLanguage,
-    long? MaxBytes, string? RootOverrideId, long Revision);
+    long? MaxBytes, string? RootOverrideId);
 public sealed record TargetScope(string WorkId, ImmutableArray<string> EpisodeIds, bool Film);
 public sealed record OwnedItem(string WorkId, string? EpisodeId, ImmutableArray<MediaFileRow> Videos);
 public sealed record MetadataQuery(ProviderId? Identity, string? Title, int? Year, WorkKind Kind);
@@ -645,6 +645,7 @@ public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, Immutab
 {
     public WorkPreferenceRow? Preference { get; init; }
     public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];
+    public string? AudioLanguage { get; init; }
 }
 public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, ImmutableArray<Rejection> Rejections);
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,

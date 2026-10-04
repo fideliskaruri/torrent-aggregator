@@ -9,13 +9,13 @@ public enum MappingStatus { Confirmed, Provisional, Unavailable }
 public enum LinkStatus { Verified, Suggested, Rejected }
 public enum DatePrecision { Unknown, Day, Instant }
 public enum TargetKind { Acquire, Replace }
-public enum TargetState { Wanted, Finding, Checking, Planning, Fetching, Filing, Done, Waiting, Paused, Removed }
+public enum TargetState { Wanted, Searching, Fetching, Filing, Done, Waiting, Removed }
 public enum WaitReason
 {
     NotReleased, MetadataUnavailable, NoResults, RejectedCandidates, NoHealthyRelease,
     SourceCooldown, SourceFailure, WaitingForSeeders, DownloadCap, DownloadWindow,
     NoDriveSpace, DriveOffline, FileBusy, MappingUncertain,
-    OwnerPickRequired, RecoveryMissing
+    OwnerPickRequired, RecoveryMissing, Paused
 }
 public enum TargetPriority { Now, OwnerRank, FreshRelease, Request, BackCatalogue, UpgradeWatch }
 public enum ReplacementMode { Upgrade, Replace }

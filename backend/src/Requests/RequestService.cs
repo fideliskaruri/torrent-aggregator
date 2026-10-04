@@ -116,27 +116,6 @@ public sealed class RequestService(TargetStore store, IMetadata metadata, Target
         left.WorkId == right.WorkId && left.Scope == right.Scope &&
         left.ScopeData.Seasons.Order().SequenceEqual(right.ScopeData.Seasons.Order());
 
-    public async Task ApprovePendingForDownloadNow(TargetRow target, CancellationToken ct)
-    {
-        if (target.NowAt is null) return;
-        var items = await Read<RequestItemRow>(row => row.TargetId == target.Id, ct);
-        var requests = await Read<RequestRow>(null, ct);
-        var changes = items.Select(i => i.RequestId).Distinct()
-            .Select(id => requests.FirstOrDefault(r => r.Id == id))
-            .Where(r => r is { Decision: RequestDecision.Pending })
-            .Select(r => r! with
-            {
-                Decision = RequestDecision.Approved,
-                DecidedBy = "local",
-                DecidedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-                Version = r.Version + 1,
-            }).ToArray();
-        if (changes.Length > 0)
-            await Commit("local", changes.Select((r, index) =>
-                new RowWrite(r, requests.Single(old => old.Id == r.Id).Version, null)), ct);
-    }
-
     public async Task Acquire(RequestRow request, CancellationToken ct)
     {
         var work = (await Read<WorkRow>(row => row.Id == request.WorkId, ct)).Single();
@@ -214,7 +193,7 @@ public sealed class RequestService(TargetStore store, IMetadata metadata, Target
             phase = items.Length > 0 && done == items.Length ? "fulfilled" :
                 targets.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
                 items.Any(i => i.Settlement == ItemSettlement.StoppedByOwner) ||
-                    targets.Any(t => t.State == TargetState.Waiting && t.SubstantiveMisses > 0)
+                    targets.Any(t => t.State == TargetState.Waiting && !t.IsPaused() && t.SubstantiveMisses > 0)
                         ? done > 0 ? "partial" : "failed" : "approved";
         var associations = await Read<DownloadTargetRow>(null, ct);
         var downloads = snapshot.Downloads.Where(d => associations.Any(a => a.DownloadId == d.Id &&

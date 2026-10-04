@@ -13,7 +13,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
         PriorityLane lane, bool exhaust, CancellationToken cancellationToken,
         Func<CandidateBatch, Task>? onBatch = null,
         ImmutableArray<TargetRow>? actualTargets = null, ImmutableArray<OwnedItem> owned = default,
-        Func<TargetState, Task>? onStage = null, ImmutableHashSet<string>? excludedHashes = null,
+        ImmutableHashSet<string>? excludedHashes = null,
         ImmutableArray<string> sourceIds = default)
     {
         var now = DateTimeOffset.UtcNow;
@@ -21,13 +21,10 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             .Select(id => new TargetRow
             {
                 Id = "dry:" + (id ?? work.Work.Id), WorkId = work.Work.Id, EpisodeId = id,
-                Kind = TargetKind.Acquire, State = TargetState.Planning, ResolutionFloor = policy.ResolutionFloor,
-                PreferredResolution = policy.PreferredResolution, AudioLanguage = policy.AudioLanguage,
+                Kind = TargetKind.Acquire, State = TargetState.Searching, ResolutionFloor = policy.ResolutionFloor,
+                PreferredResolution = policy.PreferredResolution,
                 MaxBytes = policy.MaxBytes, CreatedBy = "dev", Origin = IntentOrigin.Owner, ClickedAt = now,
-                CreatedAt = now, UpdatedAt = now, Version = 0, SubstantiveMisses = 0,
-                Rank = 0,
-                PolicyRevision = 0,
-                OwnerRanked = false,
+                CreatedAt = now, UpdatedAt = now, Version = 0, SubstantiveMisses = 0, DownloadNow = false,
             }).ToImmutableArray();
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope, policy, lane,
             SearchNamePhase.English, sourceIds.IsDefault ? [] : sourceIds, 0, 0) { Exhaust = exhaust };
@@ -56,7 +53,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             return new(found, new([], [], [.. targets.Select(t => t.Id)]), [], false);
 
         var input = new PlanInput(work, AcquisitionMode.Catalog, [], targets, pool,
-            owned.IsDefault ? [] : owned, [], now);
+            owned.IsDefault ? [] : owned, [], now) { AudioLanguage = policy.AudioLanguage };
         var shortlist = planner.Shortlist(input);
         if (shortlist.Candidates.IsEmpty)
         {
@@ -65,7 +62,6 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             return new(found, new([], shortlist.Rejections, [.. targets.Select(t => t.Id)]), [], onlyUnseeded);
         }
 
-        if (onStage is not null) await onStage(TargetState.Checking);
         var candidateFiles = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
         var attachments = new Dictionary<string, ProbeHandle>(StringComparer.OrdinalIgnoreCase);
         var timedOut = false;
@@ -93,11 +89,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
                 var readyPool = pool.Select(c => candidateFiles.GetValueOrDefault(c.Release.Id) ?? c)
                     .Where(c => candidateFiles.ContainsKey(c.Release.Id)).ToImmutableArray();
                 if (readyPool.IsEmpty) continue;
-                if (onStage is not null) await onStage(TargetState.Planning);
                 plan = planner.Choose(input with { Pool = readyPool });
                 if (targets.All(t => !plan.UncoveredTargetIds.Contains(t.Id))) break;
-                if (start + MetadataBatchSize < eligible.Length && onStage is not null)
-                    await onStage(TargetState.Checking);
             }
             var selected = plan.Assignments.Select(a => a.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var unused in attachments.Where(p => !selected.Contains(p.Key)).ToArray())

@@ -467,7 +467,7 @@ internal static class CatalogEndpoints
             {
                 var preference = await db.WorkPreferences.SingleOrDefaultAsync(p => p.WorkId == workId, ct);
                 if (preference is null)
-                    db.WorkPreferences.Add(new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 });
+                    db.WorkPreferences.Add(new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 });
                 else
                     db.Entry(preference).CurrentValues.SetValues(preference with { ResolutionFloor = resolution,
                         PreferredResolution = resolution, UpdatedAt = now, Version = preference.Version + 1 });

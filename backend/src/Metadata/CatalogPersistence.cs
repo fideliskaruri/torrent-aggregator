@@ -154,8 +154,7 @@ internal sealed partial class Catalog
             if (changedCoordinates)
             {
                 var states = await db.Targets.Where(t => t.WorkId == work.Id).Select(t => t.State).ToListAsync(ct);
-                if (states.Any(s => s is TargetState.Finding or TargetState.Checking or TargetState.Planning
-                    or TargetState.Fetching or TargetState.Filing))
+                if (states.Any(s => s is TargetState.Searching or TargetState.Fetching or TargetState.Filing))
                 {
                     seasons = [.. previous.Seasons];
                     episodes = [.. previous.Episodes];
