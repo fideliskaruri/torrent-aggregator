@@ -25,6 +25,12 @@ export function useKeyboardShortcuts() {
         tag === "select" ||
         target?.isContentEditable;
 
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        openSearchOverlay();
+        return;
+      }
+
       if (e.key === "/" && !editable) {
         e.preventDefault();
         // Open the command palette in place — no route change. `/search`

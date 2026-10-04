@@ -1,22 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
-import {
-  Activity,
-  Boxes,
-  Circle,
-  CircleUser,
-  Clapperboard,
-  Eye,
-  HardDriveDownload,
-  Inbox,
-  Info,
-  Library,
-  LogOut,
-  MoreHorizontal,
-  Search,
-  Settings,
-  Zap,
-} from "lucide-react";
+import { CircleUser, Eye, LogOut, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,15 +15,11 @@ import {
 } from "@/components/ui/sheet";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
-  EVERYTHING_HREF,
   MOBILE_MORE_NAV,
   MOBILE_PRIMARY_NAV,
   NOTIFICATIONS_HREF,
-  REQUESTS_HREF,
-  SEARCH_HREF,
   navActiveHref,
   navFor,
-  type NavItem,
 } from "@/lib/navigation";
 import { pendingBadge } from "@/lib/requests";
 import { NavPendingBadge } from "./nav-pending-badge";
@@ -47,38 +27,14 @@ import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 import { signOut } from "@/lib/sign-out";
 
-/** Icons live here because they are presentation, not part of the nav model. */
-const NAV_ICONS: Record<string, typeof Search> = {
-  "/": Clapperboard,
-  [SEARCH_HREF]: Search,
-  [EVERYTHING_HREF]: Boxes,
-  "/watchlist": Library,
-  "/downloads": HardDriveDownload,
-  "/notifications": Activity,
-  "/settings": Settings,
-  "/rules": Zap,
-  "/about": Info,
-  [REQUESTS_HREF]: Inbox,
-};
-
-/**
- * A nav entry with no icon must still render. The model is the source of truth
- * for *what* the nav contains, so a new entry there cannot be allowed to crash
- * the tab bar just because this presentation map has not caught up.
- */
-const NAV_ICON_FALLBACK = Circle;
-
-const withIcons = (items: readonly NavItem[]) =>
-  items.map((item) => ({ ...item, icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK }));
-
 export function MobileNav() {
   const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
   const caps = useCapabilities();
   const { pendingRequests: pending, via, email } = useSessionInfo();
   const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
-  const PRIMARY_TABS = withIcons(navFor(MOBILE_PRIMARY_NAV, caps));
-  const MORE_ITEMS = withIcons(navFor(MOBILE_MORE_NAV, caps));
+  const PRIMARY_TABS = navFor(MOBILE_PRIMARY_NAV, caps);
+  const MORE_ITEMS = navFor(MOBILE_MORE_NAV, caps);
   // The owner's preview switch lives in More, so More shows whenever it has either.
   const showPreviewToggle = caps.canPreview;
   // Only a Cloudflare Access session can be signed out of; on this computer nobody signs in.
@@ -131,8 +87,9 @@ export function MobileNav() {
 
         <nav ref={moreNavRef} className="px-2 pb-1" aria-label="Secondary">
           <ul className="flex flex-col gap-0.5">
-            {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
+            {MORE_ITEMS.map(({ href, label, icon: Icon, badge: badgeKind }) => {
               const active = href === activeMoreHref;
+              const itemBadge = badgeKind === "pending-requests" ? requestsBadge : null;
               return (
                 <li key={href}>
                   <Link
@@ -151,8 +108,8 @@ export function MobileNav() {
                       strokeWidth={active ? 2.25 : 1.75}
                     />
                     {label}
-                    {href === REQUESTS_HREF && requestsBadge ? (
-                      <NavPendingBadge count={requestsBadge} data-nav-requests-pending className="ml-auto" />
+                    {itemBadge ? (
+                      <NavPendingBadge count={itemBadge} data-nav-requests-pending className="ml-auto" />
                     ) : null}
                   </Link>
                 </li>
@@ -229,8 +186,9 @@ export function MobileNav() {
             }, minmax(0, 1fr))`,
           }}
         >
-          {PRIMARY_TABS.map(({ href, label, icon: Icon }) => {
+          {PRIMARY_TABS.map(({ href, label, icon: Icon, badge: badgeKind }) => {
             const active = href === activePrimaryHref;
+            const itemBadge = badgeKind === "unread-notifications" ? badge : null;
             return (
               <Link
                 key={href}
@@ -253,14 +211,14 @@ export function MobileNav() {
                   strokeWidth={active ? 2.25 : 1.75}
                 />
                 {/* Badge rides the icon so the label keeps its full width. */}
-                {href === NOTIFICATIONS_HREF && badge ? (
+                {href === NOTIFICATIONS_HREF && itemBadge ? (
                   <Badge
                     variant="solid"
                     data-nav-unread
-                    aria-label={`${badge} unread`}
+                    aria-label={`${itemBadge} unread`}
                     className="absolute top-0.5 translate-x-3.5 ring-2 ring-background min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
                   >
-                    {badge}
+                    {itemBadge}
                   </Badge>
                 ) : null}
                 {/* No truncate: five slots leave room for full short labels. */}

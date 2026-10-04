@@ -37,13 +37,27 @@
  * relying on it. It is simply no longer advertised.
  */
 
+import {
+  Activity,
+  Clapperboard,
+  HardDriveDownload,
+  Inbox,
+  Library,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
 import { capabilitiesFor, type Capabilities, type Capability } from "@/lib/capabilities";
 
 export type NavItem = {
   href: string;
   label: string;
+  icon: LucideIcon;
   /** Shown only to people with this capability; absent = everyone. */
-  requires?: Capability;
+  role?: Capability;
+  badge?: "pending-requests" | "unread-notifications";
+  desktop?: "primary" | "secondary";
+  mobile?: "primary" | "more";
+  mobileLabel?: string;
   /**
    * Other routes this entry represents. `/history` is reached from
    * Notifications, and the old `/activity` and `/client` paths still resolve
@@ -76,67 +90,73 @@ export const DOWNLOADS_HREF = "/downloads";
 /** The quiet inbox. Formerly `/activity`. */
 export const NOTIFICATIONS_HREF = "/notifications";
 
-/**
- * Desktop primary destinations (and the product spine).
- *
- * Exactly five. Adding a sixth is a product decision, not a layout tweak.
- * Mobile does **not** mirror this list 1:1 — see {@link MOBILE_PRIMARY_NAV}.
- */
-export const PRIMARY_NAV: readonly NavItem[] = [
-  { href: "/", label: "Browse" },
-  { href: "/watchlist", label: "Library" },
-  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"], requires: "canDownload" },
-  { href: NOTIFICATIONS_HREF, label: "Notifications", owns: ["/activity", "/history"] },
-  { href: "/settings", label: "Settings", owns: ["/about"], requires: "canManage" },
-] as const;
-
-/**
- * Mobile bottom-tab destinations (More is rendered separately).
- *
- * Four tabs + More = five slots. "Alerts" is the short label for Notifications
- * so the word never ellipsizes at 390px. Settings is not a tab — it lives in
- * {@link MOBILE_MORE_NAV}. History still lights the Alerts tab via `owns`.
- */
-export const MOBILE_PRIMARY_NAV: readonly NavItem[] = [
-  { href: "/", label: "Browse" },
-  { href: "/watchlist", label: "Library" },
-  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"], requires: "canDownload" },
-  // Requesters have no Downloads tab; their own requests take the slot.
-  { href: "/requests", label: "Requests", requires: "canRequest" },
-  { href: NOTIFICATIONS_HREF, label: "Alerts", owns: ["/activity", "/history"] },
-] as const;
-
 /** The owner's inbox of friends' requests. Its entry carries the pending count. */
 export const REQUESTS_HREF = "/requests";
 export const SETTINGS_HREF = "/settings";
 
-/**
- * Desktop: after the divider. Mobile More base.
- *
- * Settings is appended for mobile only via {@link MOBILE_MORE_NAV} so desktop
- * keeps Settings in the primary row.
- */
-export const SECONDARY_NAV: readonly NavItem[] = [
-  { href: REQUESTS_HREF, label: "Requests" },
+/** One route list supplies the desktop header and the mobile tabs and sheet. */
+export const NAV_CONFIG: readonly NavItem[] = [
+  { href: "/", label: "Browse", icon: Clapperboard, desktop: "primary", mobile: "primary" },
+  { href: "/watchlist", label: "Library", icon: Library, desktop: "primary", mobile: "primary" },
+  {
+    href: DOWNLOADS_HREF,
+    label: "Downloads",
+    icon: HardDriveDownload,
+    role: "canDownload",
+    desktop: "primary",
+    mobile: "primary",
+    owns: ["/client"],
+  },
+  {
+    href: NOTIFICATIONS_HREF,
+    label: "Notifications",
+    mobileLabel: "Alerts",
+    icon: Activity,
+    badge: "unread-notifications",
+    desktop: "primary",
+    mobile: "primary",
+    owns: ["/activity", "/history"],
+  },
+  {
+    href: REQUESTS_HREF,
+    label: "Requests",
+    icon: Inbox,
+    role: "canReviewRequests",
+    badge: "pending-requests",
+    desktop: "secondary",
+    mobile: "more",
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    role: "canManage",
+    desktop: "primary",
+    mobile: "more",
+    owns: ["/about"],
+  },
+  {
+    href: REQUESTS_HREF,
+    label: "Requests",
+    icon: Inbox,
+    role: "canRequest",
+    mobile: "primary",
+  },
 ] as const;
 
-/**
- * Mobile More sheet: secondary destinations plus Settings (and About is
- * reached from Settings; More lights for `/about` via {@link MORE_ACTIVE_PREFIXES}).
- */
-export const MOBILE_MORE_NAV: readonly NavItem[] = [
-  ...SECONDARY_NAV.map((item): NavItem =>
-    // On mobile a requester's Requests is a bottom tab, so More keeps only the owner's inbox.
-    item.href === REQUESTS_HREF ? { ...item, requires: "canReviewRequests" } : item,
-  ),
-  { href: SETTINGS_HREF, label: "Settings", owns: ["/about"], requires: "canManage" },
-] as const;
-
-/** Desktop header: the primary path. */
-export const DESKTOP_NAV: readonly NavItem[] = [
-  ...PRIMARY_NAV,
-  ...SECONDARY_NAV,
-];
+export const PRIMARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+  (item) => item.desktop === "primary",
+);
+export const SECONDARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+  (item) => item.desktop === "secondary",
+);
+export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
+export const MOBILE_PRIMARY_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+  (item) => item.mobile === "primary",
+).map((item) => ({ ...item, label: item.mobileLabel ?? item.label }));
+export const MOBILE_MORE_NAV: readonly NavItem[] = NAV_CONFIG.filter(
+  (item) => item.mobile === "more",
+);
 
 /**
  * The desktop header's text links, and where the divider sits among them.
@@ -164,7 +184,7 @@ export function desktopNavRow(caps?: Capabilities): {
  * The entries of `items` this person may see (the owner's view by default).
  */
 export function navFor(items: readonly NavItem[], caps: Capabilities = capabilitiesFor("owner")): NavItem[] {
-  return items.filter((item) => !item.requires || caps[item.requires]);
+  return items.filter((item) => !item.role || caps[item.role]);
 }
 
 /**
