@@ -1,7 +1,7 @@
 import { send } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
-import { transferLabel, transfersLabel } from "./release-display";
+import { copyDownloadPath,openDownload,type OpenDownloadMode } from "@/lib/open-download";
+import { transfersLabel } from "./release-display";
 import type { ClientTorrent } from "./types";
 import type { useDownloads } from "./use-downloads";
 import type { useDownloadsPageState } from "./use-downloads-page-state";

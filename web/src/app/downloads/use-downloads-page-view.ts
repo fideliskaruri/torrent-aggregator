@@ -63,16 +63,11 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
   );
   const allGroups = useMemo(() => groupDownloads(downloadable), [downloadable]);
   const wantedGroups = useMemo(() => groupWantedRows(data.wanted.rows), [data.wanted.rows]);
-  const wantedByWorkKey = useMemo(() => {
-    const byWork = new Map<string, WantedGroup[]>();
-    for (const group of wantedGroups) {
-      const items = byWork.get(group.workKey);
-      if (items) items.push(group);
-      else byWork.set(group.workKey, [group]);
-    }
-    return byWork;
-  }, [wantedGroups]);
   const wantedTitles = useMemo(() => groupWantedTitles(wantedGroups), [wantedGroups]);
+  const wantedByWorkKey = useMemo(
+    () => new Map<string, WantedGroup[]>(wantedTitles.map((title) => [title.workKey, title.groups])),
+    [wantedTitles],
+  );
   const downloadedWorkKeys = useMemo(() => new Set(allGroups.map((group) =>
     group.kind === "series"
       ? group.key

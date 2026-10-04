@@ -1,5 +1,4 @@
 import { HardDriveDownload } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { TfEmptyState } from "@/components/tf/empty-state";

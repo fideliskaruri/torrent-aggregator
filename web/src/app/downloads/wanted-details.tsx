@@ -1,16 +1,13 @@
 import { WantedActions } from "@/components/wanted/wanted-actions";
 import { wantedRowMatches } from "@/components/wanted/wanted-actions";
-import { wantedGroupName, type WantedGroup } from "./wanted-groups";
+import { wantedGroupName, wantedRowLabel, type WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
 
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
 
 function requestedLabels(groups: readonly WantedGroup[]): string {
-  return groups.flatMap((group) => group.rows.map((row) => {
-    if (row.season == null) return group.title;
-    if (row.episode == null) return `Season ${row.season}`;
-    return `S${String(row.season).padStart(2, "0")}E${String(row.episode).padStart(2, "0")}`;
-  })).join(", ");
+  return groups.flatMap((group) => group.rows.map((row) => row.season == null ? group.title : wantedRowLabel(row)))
+    .join(", ");
 }
 
 export function WantedDetails({ groups, wanted }: { groups: readonly WantedGroup[]; wanted: WantedState }) {

@@ -2,32 +2,32 @@
  * The one download row (a film on the page, an episode in the series dialog)
  * and the one series summary (the page's group row and the dialog's header).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect,useRef,useState } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
-import { useDisplayPath, useFeatures } from "@/lib/features";
+import { formatBytes,formatEta,formatSpeed } from "@/lib/format";
+import { useDisplayPath,useFeatures } from "@/lib/features";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible,CollapsibleTrigger } from "@/components/ui/collapsible";
 import { progressPercent } from "@/components/tf/active-row-state";
-import { isDownloaded, isDownloading, isError, isPaused } from "./grouping";
+import { isDownloaded,isDownloading,isError } from "./grouping";
 import {
-  canOpenFinishedFile,
-  packLabel,
-  releaseDisplayFacts,
-  rowStateBadge,
-  showsProgressBar,
-  transferErrorMessage,
+canOpenFinishedFile,
+packLabel,
+releaseDisplayFacts,
+rowStateBadge,
+showsProgressBar,
+transferErrorMessage,
 } from "./release-display";
 import {
-  IconMenuButton,
-  rowAttr,
-  torrentRowMenuItems,
-  type TorrentRowMenuHandlers,
-  type TransferRowKind,
+IconMenuButton,
+rowAttr,
+torrentRowMenuItems,
+type TorrentRowMenuHandlers,
+type TransferRowKind,
 } from "./row-menu";
-import { TransferProgress, transferBarTone } from "./transfer-progress";
+import { TransferProgress,transferBarTone } from "./transfer-progress";
 import type { ClientTorrent } from "./types";
 import { transferTitleParts } from "./download-transfer-title";
 import { DownloadRowActions } from "./download-row-actions";

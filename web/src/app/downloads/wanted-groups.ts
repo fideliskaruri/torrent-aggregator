@@ -1,5 +1,6 @@
 import { WAITING_FOR_ENGLISH_LABEL, WAITING_FOR_SEASON_LIST_LABEL } from "@/components/title/title-actions";
 import type { WantedRow, WantedTarget } from "@/components/wanted/wanted-actions";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
 import { titleWithYear } from "./release-display";
 import type { DownloadMediaKind } from "./types";
@@ -17,7 +18,7 @@ export interface WantedGroup extends WantedTarget {
   why: string | null;
   nextAttemptAt: string | null;
   name: string;
-  rows: (WantedRow & { statusLabel?: string | null })[];
+  rows: WantedRow[];
 }
 
 export interface WantedTitle {
@@ -53,7 +54,7 @@ export function groupWantedRows(rows: readonly WantedRow[]): WantedGroup[] {
     const label = first.season == null
       ? null
       : singleEpisode != null
-        ? `S${String(first.season).padStart(2, "0")}E${String(singleEpisode).padStart(2, "0")}`
+        ? formatEpisodeLabel(first.season, singleEpisode)
         : episodes.length === 0
           ? `Season ${first.season}`
           : `Season ${first.season} · ${episodes.length} episodes`;
@@ -104,12 +105,8 @@ export function groupWantedTitles(groups: readonly WantedGroup[]): WantedTitle[]
 }
 
 export function wantedGroupStateLabel(group: WantedGroup): string {
-  if (group.waitingForSeasonList) {
-    return group.rows.find((row) => row.statusLabel)?.statusLabel ?? "Waiting for season list";
-  }
-  if (group.waitingForEnglish) {
-    return group.rows.find((row) => row.statusLabel)?.statusLabel ?? "Waiting for English";
-  }
+  if (group.waitingForSeasonList) return "Waiting for season list";
+  if (group.waitingForEnglish) return "Waiting for English";
   return group.looking ? "Searching" : "Not found yet";
 }
 
@@ -121,14 +118,14 @@ function nextTry(iso: string | null): string {
   return `trying again at ${new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function rowLabel(row: WantedRow): string {
+export function wantedRowLabel(row: WantedRow): string {
   if (row.season == null) return row.title || row.workKey;
   if (row.episode == null) return `Season ${row.season}`;
-  return `S${String(row.season).padStart(2, "0")}E${String(row.episode).padStart(2, "0")}`;
+  return formatEpisodeLabel(row.season, row.episode);
 }
 
 export function wantedTooltip(groups: readonly WantedGroup[]): string {
-  return groups.flatMap((group) => group.rows.map((row) => `${rowLabel(row)}, ${nextTry(row.nextAttemptAt ?? null)}`))
+  return groups.flatMap((group) => group.rows.map((row) => `${wantedRowLabel(row)}, ${nextTry(row.nextAttemptAt ?? null)}`))
     .join("\n");
 }
 
