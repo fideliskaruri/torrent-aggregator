@@ -1,10 +1,12 @@
-using System.Globalization;
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TorrentFlow.Domain;
@@ -46,9 +48,16 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
     public DbSet<NotificationRow> Notifications => Set<NotificationRow>();
     public DbSet<SettingRow> Settings => Set<SettingRow>();
 
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<IsoDateTimeOffsetConverter>();
+        configurationBuilder.Properties<DateTimeOffset?>().HaveConversion<NullableIsoDateTimeOffsetConverter>();
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Ignore<StoreRow>();
+        var jsonProperties = new HashSet<(Type EntityType, string Property)>();
         modelBuilder.Entity<WorkRow>().ToTable("Work", table =>
         {
             table.HasCheckConstraint("CK_Work_kind", "\"kind\" IN ('unknown','film','series')");
@@ -62,32 +71,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Work_rating", "rating IS NULL OR rating <= 10");
         });
         var work = modelBuilder.Entity<WorkRow>();
-        work.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Work", null));
-        work.Property(row => row.Id).IsRequired();
-        work.Property(row => row.WorkKey).HasColumnName("workKey").IsRequired(true);
-        work.Property(row => row.Kind).HasColumnName("kind").IsRequired(true).HasConversion(EnumStringConverter<WorkKind>());
-        work.Property(row => row.Format).HasColumnName("format").IsRequired(true).HasConversion(EnumStringConverter<WorkFormat>());
-        work.Property(row => row.Anime).HasColumnName("anime").IsRequired(false);
-        work.Property(row => row.Year).HasColumnName("year").IsRequired(false);
-        work.Property(row => row.OriginalLanguage).HasColumnName("originalLanguage").IsRequired(false);
-        work.Property(row => row.RuntimeMinutes).HasColumnName("runtimeMinutes").IsRequired(false);
-        work.Property(row => row.PosterUrl).HasColumnName("posterUrl").IsRequired(false);
-        work.Property(row => row.BackdropUrl).HasColumnName("backdropUrl").IsRequired(false);
-        work.Property(row => row.Synopsis).HasColumnName("synopsis").IsRequired(false);
-        work.Property(row => row.Rating).HasColumnName("rating").IsRequired(false);
-        work.Property(row => row.RatingSource).HasColumnName("ratingSource").IsRequired(false);
-        work.Property(row => row.Genres).HasColumnName("genresJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<string>>());
-        work.Property(row => row.Genres).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<string>>());
-        work.Property(row => row.TheatricalAt).HasColumnName("theatricalAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        work.Property(row => row.DigitalAt).HasColumnName("digitalAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        work.Property(row => row.PhysicalAt).HasColumnName("physicalAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        work.Property(row => row.ReleasePrecision).HasColumnName("releasePrecision").IsRequired(true).HasConversion(EnumStringConverter<DatePrecision>());
-        work.Property(row => row.ProviderStatus).HasColumnName("providerStatus").IsRequired(false);
-        work.Property(row => row.NumberingVersion).HasColumnName("numberingVersion").IsRequired(false);
-        work.Property(row => row.RefreshedAt).HasColumnName("refreshedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        work.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        work.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        work.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(work.Property(row => row.Genres));
         work.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<WorkNameRow>().ToTable("WorkName", table =>
         {
@@ -96,38 +80,12 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_WorkName_authoritative", "\"authoritative\" IN (0,1)");
             table.HasCheckConstraint("CK_WorkName_nonblank", "length(trim(value)) > 0 AND length(trim(normalizedValue)) > 0");
         });
-        var workName = modelBuilder.Entity<WorkNameRow>();
-        workName.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("WorkName", null));
-        workName.Property(row => row.Id).IsRequired();
-        workName.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        workName.Property(row => row.Value).HasColumnName("value").IsRequired(true);
-        workName.Property(row => row.NormalizedValue).HasColumnName("normalizedValue").IsRequired(true);
-        workName.Property(row => row.Label).HasColumnName("label").IsRequired(true).HasConversion(EnumStringConverter<NameLabel>());
-        workName.Property(row => row.LinkId).HasColumnName("linkId").IsRequired(false);
-        workName.Property(row => row.Ordinal).HasColumnName("ordinal").IsRequired(true);
-        workName.Property(row => row.Authoritative).HasColumnName("authoritative").IsRequired(true);
-        workName.Property(row => row.RefreshedAt).HasColumnName("refreshedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
         modelBuilder.Entity<WorkLinkRow>().ToTable("WorkLink", table =>
         {
             table.HasCheckConstraint("CK_WorkLink_status", "\"status\" IN ('verified','suggested','rejected')");
             table.HasCheckConstraint("CK_WorkLink_isPrimary", "\"isPrimary\" IN (0,1)");
             table.HasCheckConstraint("CK_WorkLink_confidence", "confidence <= 1");
         });
-        var workLink = modelBuilder.Entity<WorkLinkRow>();
-        workLink.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("WorkLink", null));
-        workLink.Property(row => row.Id).IsRequired();
-        workLink.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        workLink.Property(row => row.Provider).HasColumnName("provider").IsRequired(true);
-        workLink.Property(row => row.ExternalId).HasColumnName("externalId").IsRequired(true);
-        workLink.Property(row => row.ProviderKind).HasColumnName("providerKind").IsRequired(false);
-        workLink.Property(row => row.SeasonId).HasColumnName("seasonId").IsRequired(false);
-        workLink.Property(row => row.Source).HasColumnName("source").IsRequired(true);
-        workLink.Property(row => row.MappingVersion).HasColumnName("mappingVersion").IsRequired(false);
-        workLink.Property(row => row.Confidence).HasColumnName("confidence").IsRequired(true);
-        workLink.Property(row => row.Status).HasColumnName("status").IsRequired(true).HasConversion(EnumStringConverter<LinkStatus>());
-        workLink.Property(row => row.IsPrimary).HasColumnName("isPrimary").IsRequired(true);
-        workLink.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        workLink.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<SeasonRow>().ToTable("Season", table =>
         {
             table.HasCheckConstraint("CK_Season_number", "\"number\" >= 0");
@@ -136,20 +94,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Season_version", "\"version\" >= 0");
         });
         var season = modelBuilder.Entity<SeasonRow>();
-        season.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Season", null));
-        season.Property(row => row.Id).IsRequired();
-        season.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        season.Property(row => row.Number).HasColumnName("number").IsRequired(true);
-        season.Property(row => row.Title).HasColumnName("title").IsRequired(false);
-        season.Property(row => row.Overview).HasColumnName("overview").IsRequired(false);
-        season.Property(row => row.PosterUrl).HasColumnName("posterUrl").IsRequired(false);
-        season.Property(row => row.MappingStatus).HasColumnName("mappingStatus").IsRequired(true).HasConversion(EnumStringConverter<MappingStatus>());
-        season.Property(row => row.ProviderEntryId).HasColumnName("providerEntryId").IsRequired(false);
-        season.Property(row => row.ExpectedEpisodeCount).HasColumnName("expectedEpisodeCount").IsRequired(false);
-        season.Property(row => row.RefreshedAt).HasColumnName("refreshedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        season.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        season.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        season.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         season.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<EpisodeRow>().ToTable("Episode", table =>
         {
@@ -161,23 +105,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Episode_version", "\"version\" >= 0");
         });
         var episode = modelBuilder.Entity<EpisodeRow>();
-        episode.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Episode", null));
-        episode.Property(row => row.Id).IsRequired();
-        episode.Property(row => row.SeasonId).HasColumnName("seasonId").IsRequired(true);
-        episode.Property(row => row.Number).HasColumnName("number").IsRequired(true);
-        episode.Property(row => row.AbsoluteNumber).HasColumnName("absoluteNumber").IsRequired(false);
-        episode.Property(row => row.Provider).HasColumnName("provider").IsRequired(false);
-        episode.Property(row => row.ProviderEpisodeId).HasColumnName("providerEpisodeId").IsRequired(false);
-        episode.Property(row => row.Title).HasColumnName("title").IsRequired(false);
-        episode.Property(row => row.Synopsis).HasColumnName("synopsis").IsRequired(false);
-        episode.Property(row => row.StillUrl).HasColumnName("stillUrl").IsRequired(false);
-        episode.Property(row => row.AirAt).HasColumnName("airAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        episode.Property(row => row.AirPrecision).HasColumnName("airPrecision").IsRequired(true).HasConversion(EnumStringConverter<DatePrecision>());
-        episode.Property(row => row.RuntimeMinutes).HasColumnName("runtimeMinutes").IsRequired(false);
-        episode.Property(row => row.MappingStatus).HasColumnName("mappingStatus").IsRequired(true).HasConversion(EnumStringConverter<MappingStatus>());
-        episode.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        episode.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        episode.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         episode.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<MetadataCacheRow>().ToTable("MetadataCache", table =>
         {
@@ -186,18 +113,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_MetadataCache_complete", "\"complete\" IN (0,1)");
         });
         var metadataCache = modelBuilder.Entity<MetadataCacheRow>();
-        metadataCache.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("MetadataCache", null));
-        metadataCache.Property(row => row.Id).IsRequired();
-        metadataCache.Property(row => row.Kind).HasColumnName("kind").IsRequired(true).HasConversion(EnumStringConverter<CacheKind>());
-        metadataCache.Property(row => row.CacheKey).HasColumnName("cacheKey").IsRequired(true);
-        metadataCache.Property(row => row.Payload).HasColumnName("payloadJson").IsRequired(true).HasConversion(JsonValueConverter<JsonElement>());
-        metadataCache.Property(row => row.Payload).Metadata.SetValueComparer(JsonValueComparer<JsonElement>());
-        metadataCache.Property(row => row.FetchedAt).HasColumnName("fetchedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        metadataCache.Property(row => row.ExpiresAt).HasColumnName("expiresAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        metadataCache.Property(row => row.Etag).HasColumnName("etag").IsRequired(false);
-        metadataCache.Property(row => row.LastModified).HasColumnName("lastModified").IsRequired(false);
-        metadataCache.Property(row => row.Complete).HasColumnName("complete").IsRequired(true);
-        metadataCache.Property(row => row.Provider).HasColumnName("provider").IsRequired(false);
+        Json(metadataCache.Property(row => row.Payload));
         modelBuilder.Entity<WorkPreferenceRow>().ToTable("WorkPreference", table =>
         {
             table.HasCheckConstraint("CK_WorkPreference_resolutionFloor", "\"resolutionFloor\" >= 0");
@@ -206,16 +122,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_WorkPreference_version", "\"version\" >= 0");
         });
         var workPreference = modelBuilder.Entity<WorkPreferenceRow>();
-        workPreference.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("WorkPreference", null));
-        workPreference.Property(row => row.Id).IsRequired();
-        workPreference.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        workPreference.Property(row => row.ResolutionFloor).HasColumnName("resolutionFloor").IsRequired(false);
-        workPreference.Property(row => row.PreferredResolution).HasColumnName("preferredResolution").IsRequired(false);
-        workPreference.Property(row => row.AudioLanguage).HasColumnName("audioLanguage").IsRequired(false);
-        workPreference.Property(row => row.MaxBytesPerItem).HasColumnName("maxBytesPerItem").IsRequired(false);
-        workPreference.Property(row => row.StorageRootOverrideId).HasColumnName("storageRootOverrideId").IsRequired(false);
-        workPreference.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        workPreference.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         workPreference.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<TargetRow>().ToTable("Target", table =>
         {
@@ -236,44 +142,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
         });
         var target = modelBuilder.Entity<TargetRow>();
-        target.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Target", null));
-        target.Property(row => row.Id).IsRequired();
-        target.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        target.Property(row => row.EpisodeId).HasColumnName("episodeId").IsRequired(false);
-        target.Property(row => row.Kind).HasColumnName("kind").IsRequired(true).HasConversion(EnumStringConverter<TargetKind>());
-        target.Property(row => row.State).HasColumnName("state").IsRequired(true).HasConversion(EnumStringConverter<TargetState>());
-        target.Property(row => row.ResumeState).HasColumnName("resumeState").IsRequired(false).HasConversion(NullableEnumStringConverter<TargetState>());
-        target.Property(row => row.ReasonCode).HasColumnName("reasonCode").IsRequired(false).HasConversion(NullableEnumStringConverter<WaitReason>());
-        target.Property(row => row.ReasonText).HasColumnName("reasonText").IsRequired(false);
-        target.Property(row => row.NextTryAt).HasColumnName("nextTryAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.ExpectedAt).HasColumnName("expectedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.ResolutionFloor).HasColumnName("resolutionFloor").IsRequired(false);
-        target.Property(row => row.PreferredResolution).HasColumnName("preferredResolution").IsRequired(false);
-        target.Property(row => row.AudioLanguage).HasColumnName("audioLanguage").IsRequired(false);
-        target.Property(row => row.MaxBytes).HasColumnName("maxBytes").IsRequired(false);
-        target.Property(row => row.OwnerRanked).HasColumnName("ownerRanked").IsRequired(true);
-        target.Property(row => row.Rank).HasColumnName("rank").IsRequired(true);
-        target.Property(row => row.NowAt).HasColumnName("nowAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.CreatedBy).HasColumnName("createdBy").IsRequired(true);
-        target.Property(row => row.Origin).HasColumnName("origin").IsRequired(true).HasConversion(EnumStringConverter<IntentOrigin>());
-        target.Property(row => row.AutoRuleId).HasColumnName("autoRuleId").IsRequired(false);
-        target.Property(row => row.ChosenReleaseHash).HasColumnName("chosenReleaseHash").IsRequired(false);
-        target.Property(row => row.ReplaceMediaFileId).HasColumnName("replaceMediaFileId").IsRequired(false);
-        target.Property(row => row.ReplacementMode).HasColumnName("replacementMode").IsRequired(false).HasConversion(NullableEnumStringConverter<ReplacementMode>());
-        target.Property(row => row.BatchId).HasColumnName("batchId").IsRequired(false);
-        target.Property(row => row.ClickedAt).HasColumnName("clickedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.SubstantiveMisses).HasColumnName("substantiveMisses").IsRequired(true);
-        target.Property(row => row.HelpNotifiedAt).HasColumnName("helpNotifiedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.PolicyRevision).HasColumnName("policyRevision").IsRequired(true);
-        target.Property(row => row.LeaseUntil).HasColumnName("leaseUntil").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        target.Property(row => row.LeaseToken).HasColumnName("leaseToken").IsRequired(false);
-        target.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        target.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        target.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         target.Property(row => row.Version).IsConcurrencyToken();
-        target.Property(row => row.Priority).HasColumnName("priority").IsRequired(true).HasConversion(EnumStringConverter<TargetPriority>());
-        target.Property(row => row.MinListedSeeders).HasColumnName("minListedSeeders").IsRequired(false);
-        target.Property(row => row.PickedReleaseHash).HasColumnName("pickedReleaseHash").IsRequired(false);
         modelBuilder.Entity<ScopeIntentRow>().ToTable("ScopeIntent", table =>
         {
             table.HasCheckConstraint("CK_ScopeIntent_scope", "\"scope\" IN ('film','episodes','seasons','series')");
@@ -284,22 +153,8 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_ScopeIntent_version", "\"version\" >= 0");
         });
         var scopeIntent = modelBuilder.Entity<ScopeIntentRow>();
-        scopeIntent.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("ScopeIntent", null));
-        scopeIntent.Property(row => row.Id).IsRequired();
-        scopeIntent.Property(row => row.ActorUserId).HasColumnName("actorUserId").IsRequired(true);
-        scopeIntent.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        scopeIntent.Property(row => row.Scope).HasColumnName("scope").IsRequired(true).HasConversion(EnumStringConverter<RequestScope>());
-        scopeIntent.Property(row => row.ScopeData).HasColumnName("scopeJson").IsRequired(true).HasConversion(JsonValueConverter<RequestScopeData>());
-        scopeIntent.Property(row => row.ScopeData).Metadata.SetValueComparer(JsonValueComparer<RequestScopeData>());
-        scopeIntent.Property(row => row.Policy).HasColumnName("policyJson").IsRequired(true).HasConversion(JsonValueConverter<Policy>());
-        scopeIntent.Property(row => row.Policy).Metadata.SetValueComparer(JsonValueComparer<Policy>());
-        scopeIntent.Property(row => row.Now).HasColumnName("now").IsRequired(true);
-        scopeIntent.Property(row => row.BatchId).HasColumnName("batchId").IsRequired(true);
-        scopeIntent.Property(row => row.State).HasColumnName("state").IsRequired(true).HasConversion(EnumStringConverter<ScopeIntentState>());
-        scopeIntent.Property(row => row.NextTryAt).HasColumnName("nextTryAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        scopeIntent.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        scopeIntent.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        scopeIntent.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(scopeIntent.Property(row => row.ScopeData));
+        Json(scopeIntent.Property(row => row.Policy));
         scopeIntent.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<RawIntentRow>().ToTable("RawIntent", table =>
         {
@@ -312,30 +167,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
         });
         var rawIntent = modelBuilder.Entity<RawIntentRow>();
-        rawIntent.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("RawIntent", null));
-        rawIntent.Property(row => row.Id).IsRequired();
-        rawIntent.Property(row => row.ActorUserId).HasColumnName("actorUserId").IsRequired(true);
-        rawIntent.Property(row => row.ReleaseHash).HasColumnName("releaseHash").IsRequired(true);
-        rawIntent.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(false);
-        rawIntent.Property(row => row.SelectedFiles).HasColumnName("selectedFilesJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<int>>());
-        rawIntent.Property(row => row.SelectedFiles).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<int>>());
-        rawIntent.Property(row => row.RootId).HasColumnName("rootId").IsRequired(false);
-        rawIntent.Property(row => row.ExplicitDirectory).HasColumnName("explicitDirectory").IsRequired(false);
-        rawIntent.Property(row => row.ExplicitKind).HasColumnName("explicitKind").IsRequired(false).HasConversion(NullableEnumStringConverter<LibraryKind>());
-        rawIntent.Property(row => row.State).HasColumnName("state").IsRequired(true).HasConversion(EnumStringConverter<RawDownloadState>());
-        rawIntent.Property(row => row.ResumeState).HasColumnName("resumeState").IsRequired(false).HasConversion(NullableEnumStringConverter<RawDownloadState>());
-        rawIntent.Property(row => row.ReasonCode).HasColumnName("reasonCode").IsRequired(false).HasConversion(NullableEnumStringConverter<WaitReason>());
-        rawIntent.Property(row => row.ReasonText).HasColumnName("reasonText").IsRequired(false);
-        rawIntent.Property(row => row.NextTryAt).HasColumnName("nextTryAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        rawIntent.Property(row => row.NowAt).HasColumnName("nowAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        rawIntent.Property(row => row.OwnerRanked).HasColumnName("ownerRanked").IsRequired(true);
-        rawIntent.Property(row => row.Rank).HasColumnName("rank").IsRequired(true);
-        rawIntent.Property(row => row.LeaseUntil).HasColumnName("leaseUntil").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        rawIntent.Property(row => row.LeaseToken).HasColumnName("leaseToken").IsRequired(false);
-        rawIntent.Property(row => row.BatchId).HasColumnName("batchId").IsRequired(true);
-        rawIntent.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        rawIntent.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        rawIntent.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(rawIntent.Property(row => row.SelectedFiles));
         rawIntent.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<RequestRow>().ToTable("Request", table =>
         {
@@ -345,52 +177,18 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Request_version", "\"version\" >= 0");
         });
         var request = modelBuilder.Entity<RequestRow>();
-        request.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Request", null));
-        request.Property(row => row.Id).IsRequired();
-        request.Property(row => row.UserId).HasColumnName("userId").IsRequired(true);
-        request.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        request.Property(row => row.Scope).HasColumnName("scope").IsRequired(true).HasConversion(EnumStringConverter<RequestScope>());
-        request.Property(row => row.ScopeData).HasColumnName("scopeJson").IsRequired(true).HasConversion(JsonValueConverter<RequestScopeData>());
-        request.Property(row => row.ScopeData).Metadata.SetValueComparer(JsonValueComparer<RequestScopeData>());
-        request.Property(row => row.Note).HasColumnName("note").IsRequired(false);
-        request.Property(row => row.Decision).HasColumnName("decision").IsRequired(true).HasConversion(EnumStringConverter<RequestDecision>());
-        request.Property(row => row.DecisionReason).HasColumnName("decisionReason").IsRequired(false);
-        request.Property(row => row.DecidedAt).HasColumnName("decidedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        request.Property(row => row.DecidedBy).HasColumnName("decidedBy").IsRequired(false);
-        request.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        request.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        request.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(request.Property(row => row.ScopeData));
         request.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<RequestItemRow>().ToTable("RequestItem", table =>
         {
             table.HasCheckConstraint("CK_RequestItem_settlement", "\"settlement\" IN ('open','fulfilled','stoppedbyowner')");
         });
-        var requestItem = modelBuilder.Entity<RequestItemRow>();
-        requestItem.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("RequestItem", null));
-        requestItem.Property(row => row.Id).IsRequired();
-        requestItem.Property(row => row.RequestId).HasColumnName("requestId").IsRequired(true);
-        requestItem.Property(row => row.EpisodeId).HasColumnName("episodeId").IsRequired(false);
-        requestItem.Property(row => row.TargetId).HasColumnName("targetId").IsRequired(false);
-        requestItem.Property(row => row.Settlement).HasColumnName("settlement").IsRequired(true).HasConversion(EnumStringConverter<ItemSettlement>());
-        requestItem.Property(row => row.SettledAt).HasColumnName("settledAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        requestItem.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        requestItem.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<FollowRow>().ToTable("Follow", table =>
         {
             table.HasCheckConstraint("CK_Follow_enabled", "\"enabled\" IN (0,1)");
             table.HasCheckConstraint("CK_Follow_version", "\"version\" >= 0");
         });
         var follow = modelBuilder.Entity<FollowRow>();
-        follow.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Follow", null));
-        follow.Property(row => row.Id).IsRequired();
-        follow.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        follow.Property(row => row.Enabled).HasColumnName("enabled").IsRequired(true);
-        follow.Property(row => row.FromEpisodeId).HasColumnName("fromEpisodeId").IsRequired(false);
-        follow.Property(row => row.NewEpisodesSince).HasColumnName("newEpisodesSince").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        follow.Property(row => row.LastMaterializedAt).HasColumnName("lastMaterializedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        follow.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        follow.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        follow.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         follow.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<WatchItemRow>().ToTable("WatchItem", table =>
         {
@@ -399,15 +197,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_WatchItem_version", "\"version\" >= 0");
         });
         var watchItem = modelBuilder.Entity<WatchItemRow>();
-        watchItem.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("WatchItem", null));
-        watchItem.Property(row => row.Id).IsRequired();
-        watchItem.Property(row => row.UserId).HasColumnName("userId").IsRequired(true);
-        watchItem.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        watchItem.Property(row => row.Status).HasColumnName("status").IsRequired(true).HasConversion(EnumStringConverter<WatchStatus>());
-        watchItem.Property(row => row.UpgradeWatch).HasColumnName("upgradeWatch").IsRequired(true);
-        watchItem.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        watchItem.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        watchItem.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         watchItem.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<AutoRuleRow>().ToTable("AutoRule", table =>
         {
@@ -420,24 +209,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_AutoRule_version", "\"version\" >= 0");
         });
         var autoRule = modelBuilder.Entity<AutoRuleRow>();
-        autoRule.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("AutoRule", null));
-        autoRule.Property(row => row.Id).IsRequired();
-        autoRule.Property(row => row.UserId).HasColumnName("userId").IsRequired(true);
-        autoRule.Property(row => row.Name).HasColumnName("name").IsRequired(true);
-        autoRule.Property(row => row.Query).HasColumnName("query").IsRequired(true);
-        autoRule.Property(row => row.Category).HasColumnName("category").IsRequired(true);
-        autoRule.Property(row => row.MinListedSeeders).HasColumnName("minListedSeeders").IsRequired(true);
-        autoRule.Property(row => row.MaxBytes).HasColumnName("maxBytes").IsRequired(false);
-        autoRule.Property(row => row.ResolutionFloor).HasColumnName("resolutionFloor").IsRequired(false);
-        autoRule.Property(row => row.SourceIds).HasColumnName("sourceIdsJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<string>>());
-        autoRule.Property(row => row.SourceIds).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<string>>());
-        autoRule.Property(row => row.Enabled).HasColumnName("enabled").IsRequired(true);
-        autoRule.Property(row => row.LastRunAt).HasColumnName("lastRunAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        autoRule.Property(row => row.LastMatchHash).HasColumnName("lastMatchHash").IsRequired(false);
-        autoRule.Property(row => row.MatchCount).HasColumnName("matchCount").IsRequired(true);
-        autoRule.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        autoRule.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        autoRule.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(autoRule.Property(row => row.SourceIds));
         autoRule.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<ReleaseRow>().ToTable("Release", table =>
         {
@@ -448,20 +220,8 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Release_hash", "length(hash) IN (40,64) AND hash NOT GLOB '*[^0-9a-f]*'");
         });
         var release = modelBuilder.Entity<ReleaseRow>();
-        release.Property(row => row.Id).Metadata.SetColumnName("hash", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Release", null));
-        release.Property(row => row.Id).IsRequired();
-        release.Property(row => row.Name).HasColumnName("name").IsRequired(true);
-        release.Property(row => row.Parsed).HasColumnName("parsedJson").IsRequired(true).HasConversion(JsonValueConverter<ParsedRelease>());
-        release.Property(row => row.Parsed).Metadata.SetValueComparer(JsonValueComparer<ParsedRelease>());
-        release.Property(row => row.TotalBytes).HasColumnName("totalBytes").IsRequired(false);
-        release.Property(row => row.TorrentUri).HasColumnName("torrentUri").IsRequired(false);
-        release.Property(row => row.Magnet).HasColumnName("magnet").IsRequired(false);
-        release.Property(row => row.Files).HasColumnName("filesJson").IsRequired(false).HasConversion(JsonValueConverter<ImmutableArray<TorrentFile>?>());
-        release.Property(row => row.Files).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<TorrentFile>?>());
-        release.Property(row => row.MetadataDigest).HasColumnName("metadataDigest").IsRequired(false);
-        release.Property(row => row.Private).HasColumnName("private").IsRequired(false);
-        release.Property(row => row.FirstSeenAt).HasColumnName("firstSeenAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        release.Property(row => row.LastSeenAt).HasColumnName("lastSeenAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
+        Json(release.Property(row => row.Parsed));
+        Json(release.Property(row => row.Files));
         modelBuilder.Entity<ReleaseObservationRow>().ToTable("ReleaseObservation", table =>
         {
             table.HasCheckConstraint("CK_ReleaseObservation_listedSeeders", "\"listedSeeders\" >= 0");
@@ -469,19 +229,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_ReleaseObservation_webSeedsJson", "json_valid(\"webSeedsJson\")");
         });
         var releaseObservation = modelBuilder.Entity<ReleaseObservationRow>();
-        releaseObservation.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("ReleaseObservation", null));
-        releaseObservation.Property(row => row.Id).IsRequired();
-        releaseObservation.Property(row => row.Hash).HasColumnName("hash").IsRequired(true);
-        releaseObservation.Property(row => row.SourceId).HasColumnName("sourceId").IsRequired(true);
-        releaseObservation.Property(row => row.SourceItemId).HasColumnName("sourceItemId").IsRequired(false);
-        releaseObservation.Property(row => row.Query).HasColumnName("query").IsRequired(true);
-        releaseObservation.Property(row => row.ListedSeeders).HasColumnName("listedSeeders").IsRequired(false);
-        releaseObservation.Property(row => row.ListedLeechers).HasColumnName("listedLeechers").IsRequired(false);
-        releaseObservation.Property(row => row.UploadedAt).HasColumnName("uploadedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        releaseObservation.Property(row => row.ObservedAt).HasColumnName("observedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        releaseObservation.Property(row => row.TorrentUri).HasColumnName("torrentUri").IsRequired(false);
-        releaseObservation.Property(row => row.WebSeeds).HasColumnName("webSeedsJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<string>>());
-        releaseObservation.Property(row => row.WebSeeds).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<string>>());
+        Json(releaseObservation.Property(row => row.WebSeeds));
         modelBuilder.Entity<VerdictRow>().ToTable("Verdict", table =>
         {
             table.HasCheckConstraint("CK_Verdict_band", "\"band\" IN ('good','weak','dead','unknown')");
@@ -495,21 +243,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Verdict_probeMetricsJson", "json_valid(\"probeMetricsJson\")");
         });
         var verdict = modelBuilder.Entity<VerdictRow>();
-        verdict.Property(row => row.Id).Metadata.SetColumnName("hash", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Verdict", null));
-        verdict.Property(row => row.Id).IsRequired();
-        verdict.Property(row => row.Band).HasColumnName("band").IsRequired(true).HasConversion(EnumStringConverter<HealthBand>());
-        verdict.Property(row => row.ConnectedPeers).HasColumnName("connectedPeers").IsRequired(true);
-        verdict.Property(row => row.ConnectedSeeders).HasColumnName("connectedSeeders").IsRequired(true);
-        verdict.Property(row => row.BytesDelivered).HasColumnName("bytesDelivered").IsRequired(true);
-        verdict.Property(row => row.SampleMilliseconds).HasColumnName("sampleMilliseconds").IsRequired(true);
-        verdict.Property(row => row.ScrapedSeeders).HasColumnName("scrapedSeeders").IsRequired(false);
-        verdict.Property(row => row.Reason).HasColumnName("reason").IsRequired(true);
-        verdict.Property(row => row.CheckedAt).HasColumnName("checkedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        verdict.Property(row => row.ExpiresAt).HasColumnName("expiresAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        verdict.Property(row => row.ProbeVersion).HasColumnName("probeVersion").IsRequired(true);
-        verdict.Property(row => row.ByteSendingPeers).HasColumnName("byteSendingPeers").IsRequired(true);
-        verdict.Property(row => row.ProbeMetrics).HasColumnName("probeMetricsJson").IsRequired(false).HasConversion(JsonValueConverter<ProbePayloadMetrics?>());
-        verdict.Property(row => row.ProbeMetrics).Metadata.SetValueComparer(JsonValueComparer<ProbePayloadMetrics?>());
+        Json(verdict.Property(row => row.ProbeMetrics));
         modelBuilder.Entity<AttemptRow>().ToTable("Attempt", table =>
         {
             table.HasCheckConstraint("CK_Attempt_kind", "\"kind\" IN ('search','check','plan','fetch','file','swap','legacyevent')");
@@ -518,41 +252,13 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Attempt_swapJson", "json_valid(\"swapJson\")");
         });
         var attempt = modelBuilder.Entity<AttemptRow>();
-        attempt.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Attempt", null));
-        attempt.Property(row => row.Id).IsRequired();
-        attempt.Property(row => row.TargetId).HasColumnName("targetId").IsRequired(false);
-        attempt.Property(row => row.WorkId).HasColumnName("workId").IsRequired(false);
-        attempt.Property(row => row.ReleaseHash).HasColumnName("releaseHash").IsRequired(false);
-        attempt.Property(row => row.ActorUserId).HasColumnName("actorUserId").IsRequired(false);
-        attempt.Property(row => row.Kind).HasColumnName("kind").IsRequired(true).HasConversion(EnumStringConverter<AttemptKind>());
-        attempt.Property(row => row.StartedAt).HasColumnName("startedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        attempt.Property(row => row.EndedAt).HasColumnName("endedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        attempt.Property(row => row.Outcome).HasColumnName("outcome").IsRequired(false);
-        attempt.Property(row => row.ReasonCode).HasColumnName("reasonCode").IsRequired(false);
-        attempt.Property(row => row.ReasonText).HasColumnName("reasonText").IsRequired(false);
-        attempt.Property(row => row.Decision).HasColumnName("decisionJson").IsRequired(false).HasConversion(JsonValueConverter<DecisionEvidence?>());
-        attempt.Property(row => row.Decision).Metadata.SetValueComparer(JsonValueComparer<DecisionEvidence?>());
-        attempt.Property(row => row.LegacyContext).HasColumnName("legacyContextJson").IsRequired(false).HasConversion(JsonValueConverter<JsonElement?>());
-        attempt.Property(row => row.LegacyContext).Metadata.SetValueComparer(JsonValueComparer<JsonElement?>());
-        attempt.Property(row => row.BatchId).HasColumnName("batchId").IsRequired(false);
-        attempt.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(false);
-        attempt.Property(row => row.DeadlineAt).HasColumnName("deadlineAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        attempt.Property(row => row.Swap).HasColumnName("swapJson").IsRequired(false).HasConversion(JsonValueConverter<SwapDecision?>());
-        attempt.Property(row => row.Swap).Metadata.SetValueComparer(JsonValueComparer<SwapDecision?>());
+        Json(attempt.Property(row => row.Decision));
+        Json(attempt.Property(row => row.LegacyContext));
+        Json(attempt.Property(row => row.Swap));
         modelBuilder.Entity<BlockRow>().ToTable("Block", table =>
         {
             table.HasCheckConstraint("CK_Block_origin", "\"origin\" IN ('owner','unsafe','foreign','stalled','swap')");
         });
-        var block = modelBuilder.Entity<BlockRow>();
-        block.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Block", null));
-        block.Property(row => row.Id).IsRequired();
-        block.Property(row => row.Hash).HasColumnName("hash").IsRequired(true);
-        block.Property(row => row.WorkKey).HasColumnName("workKey").IsRequired(false);
-        block.Property(row => row.Reason).HasColumnName("reason").IsRequired(true);
-        block.Property(row => row.Origin).HasColumnName("origin").IsRequired(true).HasConversion(EnumStringConverter<BlockOrigin>());
-        block.Property(row => row.ReplacedByHash).HasColumnName("replacedByHash").IsRequired(false);
-        block.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        block.Property(row => row.Until).HasColumnName("until").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
         modelBuilder.Entity<SearchCacheRow>().ToTable("SearchCache", table =>
         {
             table.HasCheckConstraint("CK_SearchCache_sourceRevision", "\"sourceRevision\" >= 0");
@@ -562,48 +268,18 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_SearchCache_complete", "\"complete\" IN (0,1)");
         });
         var searchCache = modelBuilder.Entity<SearchCacheRow>();
-        searchCache.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("SearchCache", null));
-        searchCache.Property(row => row.Id).IsRequired();
-        searchCache.Property(row => row.NormalizedQuery).HasColumnName("normalizedQuery").IsRequired(true);
-        searchCache.Property(row => row.ScopeKey).HasColumnName("scopeKey").IsRequired(true);
-        searchCache.Property(row => row.SourceId).HasColumnName("sourceId").IsRequired(true);
-        searchCache.Property(row => row.SourceRevision).HasColumnName("sourceRevision").IsRequired(true);
-        searchCache.Property(row => row.CredentialRevision).HasColumnName("credentialRevision").IsRequired(true);
-        searchCache.Property(row => row.ParserVersion).HasColumnName("parserVersion").IsRequired(true);
-        searchCache.Property(row => row.Payload).HasColumnName("payloadJson").IsRequired(true).HasConversion(JsonValueConverter<SearchCachePayload>());
-        searchCache.Property(row => row.Payload).Metadata.SetValueComparer(JsonValueComparer<SearchCachePayload>());
-        searchCache.Property(row => row.Complete).HasColumnName("complete").IsRequired(true);
-        searchCache.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        searchCache.Property(row => row.ExpiresAt).HasColumnName("expiresAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
+        Json(searchCache.Property(row => row.Payload));
         modelBuilder.Entity<DownloadRow>().ToTable("Download", table =>
         {
             table.HasCheckConstraint("CK_Download_intent", "\"intent\" IN ('run','queued','paused','stopped')");
             table.HasCheckConstraint("CK_Download_version", "\"version\" >= 0");
         });
         var download = modelBuilder.Entity<DownloadRow>();
-        download.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Download", null));
-        download.Property(row => row.Id).IsRequired();
-        download.Property(row => row.Hash).HasColumnName("hash").IsRequired(true);
-        download.Property(row => row.Intent).HasColumnName("intent").IsRequired(true).HasConversion(EnumStringConverter<DownloadIntent>());
-        download.Property(row => row.RootId).HasColumnName("rootId").IsRequired(false);
-        download.Property(row => row.AddedAt).HasColumnName("addedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        download.Property(row => row.FinishedAt).HasColumnName("finishedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        download.Property(row => row.AdmissionToken).HasColumnName("admissionToken").IsRequired(true);
-        download.Property(row => row.ResumeArtifact).HasColumnName("resumeArtifact").IsRequired(false);
-        download.Property(row => row.RawIntentId).HasColumnName("rawIntentId").IsRequired(false);
-        download.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         download.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<DownloadTargetRow>().ToTable("DownloadTarget", table =>
         {
             table.HasCheckConstraint("CK_DownloadTarget_role", "\"role\" IN ('current','replacement','retired')");
         });
-        var downloadTarget = modelBuilder.Entity<DownloadTargetRow>();
-        downloadTarget.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("DownloadTarget", null));
-        downloadTarget.Property(row => row.Id).IsRequired();
-        downloadTarget.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(true);
-        downloadTarget.Property(row => row.TargetId).HasColumnName("targetId").IsRequired(true);
-        downloadTarget.Property(row => row.Role).HasColumnName("role").IsRequired(true).HasConversion(EnumStringConverter<AssociationRole>());
-        downloadTarget.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<DownloadFileRow>().ToTable("DownloadFile", table =>
         {
             table.HasCheckConstraint("CK_DownloadFile_fileIndex", "\"fileIndex\" >= 0");
@@ -612,21 +288,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_DownloadFile_expectedBytes", "\"expectedBytes\" >= 0");
             table.HasCheckConstraint("CK_DownloadFile_filed", "\"filed\" IN (0,1)");
         });
-        var downloadFile = modelBuilder.Entity<DownloadFileRow>();
-        downloadFile.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("DownloadFile", null));
-        downloadFile.Property(row => row.Id).IsRequired();
-        downloadFile.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(true);
-        downloadFile.Property(row => row.FileIndex).HasColumnName("fileIndex").IsRequired(true);
-        downloadFile.Property(row => row.Selected).HasColumnName("selected").IsRequired(true);
-        downloadFile.Property(row => row.TargetId).HasColumnName("targetId").IsRequired(false);
-        downloadFile.Property(row => row.PartialPath).HasColumnName("partialPath").IsRequired(false);
-        downloadFile.Property(row => row.FinalPath).HasColumnName("finalPath").IsRequired(false);
-        downloadFile.Property(row => row.PhysicalKey).HasColumnName("physicalKey").IsRequired(false);
-        downloadFile.Property(row => row.MediaFileId).HasColumnName("mediaFileId").IsRequired(false);
-        downloadFile.Property(row => row.Role).HasColumnName("role").IsRequired(true).HasConversion(EnumStringConverter<FileRole>());
-        downloadFile.Property(row => row.ExpectedBytes).HasColumnName("expectedBytes").IsRequired(true);
-        downloadFile.Property(row => row.EnginePath).HasColumnName("enginePath").IsRequired(false);
-        downloadFile.Property(row => row.Filed).HasColumnName("filed").IsRequired(true);
         modelBuilder.Entity<StorageRootRow>().ToTable("StorageRoot", table =>
         {
             table.HasCheckConstraint("CK_StorageRoot_kindsJson", "json_valid(\"kindsJson\")");
@@ -639,26 +300,8 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_StorageRoot_version", "\"version\" >= 0");
         });
         var storageRoot = modelBuilder.Entity<StorageRootRow>();
-        storageRoot.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("StorageRoot", null));
-        storageRoot.Property(row => row.Id).IsRequired();
-        storageRoot.Property(row => row.Path).HasColumnName("path").IsRequired(true);
-        storageRoot.Property(row => row.PhysicalKey).HasColumnName("physicalKey").IsRequired(true);
-        storageRoot.Property(row => row.Kinds).HasColumnName("kindsJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<LibraryKind>>());
-        storageRoot.Property(row => row.Kinds).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<LibraryKind>>());
-        storageRoot.Property(row => row.LibraryFolders).HasColumnName("libraryFoldersJson").IsRequired(true).HasConversion(JsonValueConverter<LibraryFolders>());
-        storageRoot.Property(row => row.LibraryFolders).Metadata.SetValueComparer(JsonValueComparer<LibraryFolders>());
-        storageRoot.Property(row => row.VolumeSerial).HasColumnName("volumeSerial").IsRequired(true);
-        storageRoot.Property(row => row.Priority).HasColumnName("priority").IsRequired(true);
-        storageRoot.Property(row => row.ReserveBytes).HasColumnName("reserveBytes").IsRequired(true);
-        storageRoot.Property(row => row.MaxAllocatedBytes).HasColumnName("maxAllocatedBytes").IsRequired(false);
-        storageRoot.Property(row => row.Enabled).HasColumnName("enabled").IsRequired(true);
-        storageRoot.Property(row => row.Online).HasColumnName("online").IsRequired(true);
-        storageRoot.Property(row => row.ReviewRequired).HasColumnName("reviewRequired").IsRequired(true);
-        storageRoot.Property(row => row.LastCheckedAt).HasColumnName("lastCheckedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        storageRoot.Property(row => row.LastError).HasColumnName("lastError").IsRequired(false);
-        storageRoot.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        storageRoot.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        storageRoot.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(storageRoot.Property(row => row.Kinds));
+        Json(storageRoot.Property(row => row.LibraryFolders));
         storageRoot.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<WorkFolderRow>().ToTable("WorkFolder", table =>
         {
@@ -666,15 +309,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_WorkFolder_shape", "(rootId IS NOT NULL AND relativeItemFolder IS NOT NULL AND externalItemFolder IS NULL) OR (rootId IS NULL AND relativeItemFolder IS NULL AND externalItemFolder IS NOT NULL)");
         });
         var workFolder = modelBuilder.Entity<WorkFolderRow>();
-        workFolder.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("WorkFolder", null));
-        workFolder.Property(row => row.Id).IsRequired();
-        workFolder.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        workFolder.Property(row => row.RootId).HasColumnName("rootId").IsRequired(false);
-        workFolder.Property(row => row.RelativeItemFolder).HasColumnName("relativeItemFolder").IsRequired(false);
-        workFolder.Property(row => row.ExternalItemFolder).HasColumnName("externalItemFolder").IsRequired(false);
-        workFolder.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        workFolder.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        workFolder.Property(row => row.Version).HasColumnName("version").IsRequired(true);
         workFolder.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<MediaFileRow>().ToTable("MediaFile", table =>
         {
@@ -692,40 +326,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_MediaFile_role", "role IN ('video','subtitle','audio')");
         });
         var mediaFile = modelBuilder.Entity<MediaFileRow>();
-        mediaFile.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("MediaFile", null));
-        mediaFile.Property(row => row.Id).IsRequired();
-        mediaFile.Property(row => row.WorkId).HasColumnName("workId").IsRequired(true);
-        mediaFile.Property(row => row.EpisodeId).HasColumnName("episodeId").IsRequired(false);
-        mediaFile.Property(row => row.RootId).HasColumnName("rootId").IsRequired(false);
-        mediaFile.Property(row => row.Path).HasColumnName("path").IsRequired(true);
-        mediaFile.Property(row => row.PhysicalKey).HasColumnName("physicalKey").IsRequired(true);
-        mediaFile.Property(row => row.Role).HasColumnName("role").IsRequired(true).HasConversion(EnumStringConverter<FileRole>());
-        mediaFile.Property(row => row.ParentMediaFileId).HasColumnName("parentMediaFileId").IsRequired(false);
-        mediaFile.Property(row => row.Bytes).HasColumnName("bytes").IsRequired(true);
-        mediaFile.Property(row => row.MtimeUtc).HasColumnName("mtimeUtc").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        mediaFile.Property(row => row.Resolution).HasColumnName("resolution").IsRequired(false);
-        mediaFile.Property(row => row.Source).HasColumnName("source").IsRequired(false);
-        mediaFile.Property(row => row.Container).HasColumnName("container").IsRequired(false);
-        mediaFile.Property(row => row.VideoCodec).HasColumnName("videoCodec").IsRequired(false);
-        mediaFile.Property(row => row.VideoProfile).HasColumnName("videoProfile").IsRequired(false);
-        mediaFile.Property(row => row.Width).HasColumnName("width").IsRequired(false);
-        mediaFile.Property(row => row.Height).HasColumnName("height").IsRequired(false);
-        mediaFile.Property(row => row.Hdr).HasColumnName("hdr").IsRequired(false);
-        mediaFile.Property(row => row.RuntimeSeconds).HasColumnName("runtimeSeconds").IsRequired(false);
-        mediaFile.Property(row => row.BitrateBps).HasColumnName("bitrateBps").IsRequired(false);
-        mediaFile.Property(row => row.Tracks).HasColumnName("tracksJson").IsRequired(true).HasConversion(JsonValueConverter<ImmutableArray<MediaTrack>>());
-        mediaFile.Property(row => row.Tracks).Metadata.SetValueComparer(JsonValueComparer<ImmutableArray<MediaTrack>>());
-        mediaFile.Property(row => row.Origin).HasColumnName("origin").IsRequired(true).HasConversion(EnumStringConverter<MediaOrigin>());
-        mediaFile.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(false);
-        mediaFile.Property(row => row.FileIndex).HasColumnName("fileIndex").IsRequired(false);
-        mediaFile.Property(row => row.AddedAt).HasColumnName("addedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        mediaFile.Property(row => row.LastSeenAt).HasColumnName("lastSeenAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        mediaFile.Property(row => row.MissingSince).HasColumnName("missingSince").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        mediaFile.Property(row => row.Status).HasColumnName("status").IsRequired(true).HasConversion(EnumStringConverter<FilePresence>());
-        mediaFile.Property(row => row.MissingConfirmedAt).HasColumnName("missingConfirmedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        mediaFile.Property(row => row.VerifiedAt).HasColumnName("verifiedAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        mediaFile.Property(row => row.ContentDigest).HasColumnName("contentDigest").IsRequired(false);
-        mediaFile.Property(row => row.Version).HasColumnName("version").IsRequired(true);
+        Json(mediaFile.Property(row => row.Tracks));
         mediaFile.Property(row => row.Version).IsConcurrencyToken();
         modelBuilder.Entity<FileOperationRow>().ToTable("FileOperation", table =>
         {
@@ -736,68 +337,17 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_FileOperation_attempts", "\"attempts\" >= 0");
             table.HasCheckConstraint("CK_FileOperation_resumeStage", "\"resumeStage\" IN ('pending','copied','verified','inventorycommitted','sourcedeleted','done','retry','needsowner','superseded')");
         });
-        var fileOperation = modelBuilder.Entity<FileOperationRow>();
-        fileOperation.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("FileOperation", null));
-        fileOperation.Property(row => row.Id).IsRequired();
-        fileOperation.Property(row => row.Kind).HasColumnName("kind").IsRequired(true).HasConversion(EnumStringConverter<FileOperationKind>());
-        fileOperation.Property(row => row.TargetId).HasColumnName("targetId").IsRequired(false);
-        fileOperation.Property(row => row.DownloadId).HasColumnName("downloadId").IsRequired(false);
-        fileOperation.Property(row => row.MediaFileId).HasColumnName("mediaFileId").IsRequired(false);
-        fileOperation.Property(row => row.SourcePath).HasColumnName("sourcePath").IsRequired(false);
-        fileOperation.Property(row => row.DestinationPath).HasColumnName("destinationPath").IsRequired(false);
-        fileOperation.Property(row => row.ExpectedBytes).HasColumnName("expectedBytes").IsRequired(false);
-        fileOperation.Property(row => row.ExpectedDigest).HasColumnName("expectedDigest").IsRequired(false);
-        fileOperation.Property(row => row.State).HasColumnName("state").IsRequired(true).HasConversion(EnumStringConverter<FileOperationState>());
-        fileOperation.Property(row => row.DeleteSource).HasColumnName("deleteSource").IsRequired(true);
-        fileOperation.Property(row => row.Attempts).HasColumnName("attempts").IsRequired(true);
-        fileOperation.Property(row => row.NextTryAt).HasColumnName("nextTryAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        fileOperation.Property(row => row.LastError).HasColumnName("lastError").IsRequired(false);
-        fileOperation.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        fileOperation.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        fileOperation.Property(row => row.LeaseToken).HasColumnName("leaseToken").IsRequired(false);
-        fileOperation.Property(row => row.LeaseUntil).HasColumnName("leaseUntil").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        fileOperation.Property(row => row.ResumeStage).HasColumnName("resumeStage").IsRequired(false).HasConversion(NullableEnumStringConverter<FileOperationState>());
-        fileOperation.Property(row => row.EnginePermitToken).HasColumnName("enginePermitToken").IsRequired(false);
         modelBuilder.Entity<FilePathClaimRow>().ToTable("FilePathClaim");
-        var filePathClaim = modelBuilder.Entity<FilePathClaimRow>();
-        filePathClaim.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("FilePathClaim", null));
-        filePathClaim.Property(row => row.Id).IsRequired();
-        filePathClaim.Property(row => row.OperationId).HasColumnName("operationId").IsRequired(true);
-        filePathClaim.Property(row => row.PhysicalKey).HasColumnName("physicalKey").IsRequired(true);
-        filePathClaim.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<UserRow>().ToTable("User", table =>
         {
             table.HasCheckConstraint("CK_User_role", "\"role\" IN ('owner','requester')");
         });
-        var user = modelBuilder.Entity<UserRow>();
-        user.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("User", null));
-        user.Property(row => row.Id).IsRequired();
-        user.Property(row => row.NormalizedEmail).HasColumnName("normalizedEmail").IsRequired(false);
-        user.Property(row => row.Name).HasColumnName("name").IsRequired(false);
-        user.Property(row => row.Image).HasColumnName("image").IsRequired(false);
-        user.Property(row => row.Role).HasColumnName("role").IsRequired(true).HasConversion(EnumStringConverter<UserRole>());
-        user.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        user.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<NotificationRow>().ToTable("Notification", table =>
         {
             table.HasCheckConstraint("CK_Notification_pushPending", "\"pushPending\" IN (0,1)");
             table.HasCheckConstraint("CK_Notification_pushAttempts", "\"pushAttempts\" >= 0");
             table.HasCheckConstraint("CK_Notification_length", "length(title) <= 200 AND (body IS NULL OR length(body) <= 500)");
         });
-        var notification = modelBuilder.Entity<NotificationRow>();
-        notification.Property(row => row.Id).Metadata.SetColumnName("id", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Notification", null));
-        notification.Property(row => row.Id).IsRequired();
-        notification.Property(row => row.UserId).HasColumnName("userId").IsRequired(true);
-        notification.Property(row => row.Kind).HasColumnName("kind").IsRequired(true);
-        notification.Property(row => row.Title).HasColumnName("title").IsRequired(true);
-        notification.Property(row => row.Body).HasColumnName("body").IsRequired(false);
-        notification.Property(row => row.Link).HasColumnName("link").IsRequired(false);
-        notification.Property(row => row.DedupeKey).HasColumnName("dedupeKey").IsRequired(false);
-        notification.Property(row => row.CreatedAt).HasColumnName("createdAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
-        notification.Property(row => row.ReadAt).HasColumnName("readAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        notification.Property(row => row.PushPending).HasColumnName("pushPending").IsRequired(true);
-        notification.Property(row => row.PushAttemptAt).HasColumnName("pushAttemptAt").IsRequired(false).HasConversion(NullableDateTimeOffsetConverter());
-        notification.Property(row => row.PushAttempts).HasColumnName("pushAttempts").IsRequired(true);
         modelBuilder.Entity<SettingRow>().ToTable("Setting", table =>
         {
             table.HasCheckConstraint("CK_Setting_schemaVersion", "\"schemaVersion\" >= 0");
@@ -806,14 +356,8 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','recovery') AND schemaVersion=1");
         });
         var setting = modelBuilder.Entity<SettingRow>();
-        setting.Property(row => row.Id).Metadata.SetColumnName("section", Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table("Setting", null));
-        setting.Property(row => row.Id).IsRequired();
-        setting.Property(row => row.SchemaVersion).HasColumnName("schemaVersion").IsRequired(true);
-        setting.Property(row => row.Value).HasColumnName("valueJson").IsRequired(true).HasConversion(JsonValueConverter<JsonElement>());
-        setting.Property(row => row.Value).Metadata.SetValueComparer(JsonValueComparer<JsonElement>());
-        setting.Property(row => row.Revision).HasColumnName("revision").IsRequired(true);
+        Json(setting.Property(row => row.Value));
         setting.Property(row => row.Revision).IsConcurrencyToken();
-        setting.Property(row => row.UpdatedAt).HasColumnName("updatedAt").IsRequired(true).HasConversion(DateTimeOffsetStringConverter());
         modelBuilder.Entity<WorkRow>().HasIndex(new[] { "WorkKey" }, "IX_Work_workKey_all").IsUnique(true);
         modelBuilder.Entity<WorkRow>().HasIndex(new[] { "Kind", "Anime" }, "IX_Work_kind_anime_all").IsUnique(false);
         modelBuilder.Entity<WorkRow>().HasIndex(new[] { "DigitalAt" }, "IX_Work_digitalAt_all").IsUnique(false);
@@ -1016,6 +560,54 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_FilePathClaim_FileOperation_operationId");
         modelBuilder.Entity<NotificationRow>().HasOne<UserRow>().WithMany().HasForeignKey(row => row.UserId)
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_Notification_User_userId");
+
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            var tableName = entity.GetTableName();
+            if (tableName is null) continue;
+            foreach (var property in entity.GetProperties())
+            {
+                var json = jsonProperties.Contains((entity.ClrType, property.Name));
+                var columnName = property.Name switch
+                {
+                    nameof(StoreRow.Id) => tableName switch
+                    {
+                        "Release" or "Verdict" => "hash",
+                        "Setting" => "section",
+                        _ => "id",
+                    },
+                    nameof(RequestRow.ScopeData) => "scopeJson",
+                    nameof(StorageRootRow.LibraryFolders) => "libraryFoldersJson",
+                    _ => char.ToLowerInvariant(property.Name[0]) + property.Name[1..] + (json ? "Json" : ""),
+                };
+
+                if (property.Name == nameof(StoreRow.Id))
+                    property.SetColumnName(columnName, StoreObjectIdentifier.Table(tableName, entity.GetSchema()));
+                else
+                    property.SetColumnName(columnName);
+                var enumType = Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType;
+                if (enumType.IsEnum) property.SetValueConverter(EnumConverter(property.ClrType));
+            }
+        }
+
+        void Json<TValue>(PropertyBuilder<TValue> property)
+        {
+            property.HasConversion(JsonValueConverter<TValue>());
+            property.Metadata.SetValueComparer(JsonValueComparer<TValue>());
+            jsonProperties.Add((property.Metadata.DeclaringType.ClrType, property.Metadata.Name));
+        }
+    }
+
+    private static ValueConverter EnumConverter(Type propertyType)
+    {
+        var nullableType = Nullable.GetUnderlyingType(propertyType);
+        var converterName = nullableType is null
+            ? nameof(EnumStringConverter)
+            : nameof(NullableEnumStringConverter);
+        var enumType = nullableType ?? propertyType;
+        var factory = typeof(TorrentFlowDbContext).GetMethod(converterName,
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (ValueConverter)factory.MakeGenericMethod(enumType).Invoke(null, null)!;
     }
 
     private static ValueConverter<TEnum, string> EnumStringConverter<TEnum>() where TEnum : struct, Enum =>
@@ -1025,15 +617,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         new(value => value.HasValue ? value.Value.ToString().ToLowerInvariant() : null,
             value => value == null ? (TEnum?)null : Enum.Parse<TEnum>(value, true));
 
-    private static ValueConverter<DateTimeOffset, string> DateTimeOffsetStringConverter() =>
-        new(value => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            value => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
-
-    private static ValueConverter<DateTimeOffset?, string?> NullableDateTimeOffsetConverter() =>
-        new(value => value.HasValue ? value.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) : null,
-            value => value == null ? (DateTimeOffset?)null :
-                DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
-
     private static ValueConverter<TValue, string> JsonValueConverter<TValue>() =>
         new(value => StoreJson.Serialize(value), value => StoreJson.Deserialize<TValue>(value)!);
 
@@ -1041,6 +624,21 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         new((left, right) => StoreJson.Serialize(left) == StoreJson.Serialize(right),
             value => StoreJson.Serialize(value).GetHashCode(),
             value => StoreJson.Deserialize<TValue>(StoreJson.Serialize(value))!);
+
+    private sealed class IsoDateTimeOffsetConverter : ValueConverter<DateTimeOffset, string>
+    {
+        public IsoDateTimeOffsetConverter() : base(
+            value => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            value => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)) { }
+    }
+
+    private sealed class NullableIsoDateTimeOffsetConverter : ValueConverter<DateTimeOffset?, string?>
+    {
+        public NullableIsoDateTimeOffsetConverter() : base(
+            value => value.HasValue ? value.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) : null,
+            value => value == null ? (DateTimeOffset?)null :
+                DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)) { }
+    }
 }
 
 internal sealed class StoreDesignFactory : IDesignTimeDbContextFactory<TorrentFlowDbContext>
