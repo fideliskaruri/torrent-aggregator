@@ -3,9 +3,8 @@
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Domain'"></AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Parser' or '$(MSBuildProjectName)' == 'Plan' or '$(MSBuildProjectName)' == 'Sources' or '$(MSBuildProjectName)' == 'Engine' or '$(MSBuildProjectName)' == 'Library' or '$(MSBuildProjectName)' == 'Store'">Domain</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Metadata'">Domain;Store</AllowedModules>
-    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Check'">Domain;Engine</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Find'">Domain;Parser;Sources;Metadata;Store</AllowedModules>
-    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Targets'">Domain;Find;Check;Plan;Engine;Library;Metadata;Store</AllowedModules>
+    <AllowedModules Condition="'$(MSBuildProjectName)' == 'Targets'">Domain;Find;Plan;Engine;Library;Metadata;Store</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Api'">Domain;Targets;Metadata;Store</AllowedModules>
     <AllowedModules Condition="'$(MSBuildProjectName)' == 'Convert'">Domain;Store;Library</AllowedModules>
   </PropertyGroup>

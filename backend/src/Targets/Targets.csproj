@@ -3,7 +3,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Domain\Domain.csproj" />
     <ProjectReference Include="..\Find\Find.csproj" />
-    <ProjectReference Include="..\Check\Check.csproj" />
     <ProjectReference Include="..\Plan\Plan.csproj" />
     <ProjectReference Include="..\Engine\Engine.csproj" />
     <ProjectReference Include="..\Library\Library.csproj" />

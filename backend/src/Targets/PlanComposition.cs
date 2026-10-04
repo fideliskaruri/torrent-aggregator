@@ -16,13 +16,12 @@ public static class PlanComposition
     private sealed class ParsedPlan(IParser parser) : IPlan
     {
         private readonly ReleasePlanner planner = new();
+        public PlanShortlist Shortlist(PlanInput input) => planner.Shortlist(input);
         public PlanResult Choose(PlanInput input)
         {
             var metadata = input.Pool.Select(candidate =>
             {
-                var evidence = input.Evidence.Where(e => e.Hash.Equals(candidate.Release.Id, StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(e => e.CheckedAt).FirstOrDefault();
-                var files = evidence?.Files ?? candidate.Release.Files ?? [];
+                var files = candidate.Release.Files ?? [];
                 var supplied = input.FileMetadata.FirstOrDefault(m => m.Hash.Equals(candidate.Release.Id, StringComparison.OrdinalIgnoreCase));
                 return new PlanFileMetadata(candidate.Release.Id, supplied?.PieceLength,
                     files.DistinctBy(f => f.Index).ToImmutableDictionary(f => f.Index,
