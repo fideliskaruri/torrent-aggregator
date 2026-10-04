@@ -125,6 +125,14 @@ internal static class DownloadFiling
                         FinishedAt = now, Version = latestDownload.Version + 1 }, latestDownload.Version, null));
                 writes.AddRange(filedWrites.Value);
                 await TargetPipeline.CommitAsync(store, writes.ToImmutable(), [], ct);
+                if (allFiled)
+                    try
+                    {
+                        TorrentFlow.Library.DownloadFiling.RemoveUnwanted(
+                            latestBindings.Where(f => f.DownloadId == download.Id), download.Hash);
+                    }
+                    // Leftover hidden fragments are harmless; Remove deletes them later.
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
             finally { stateGate.Release(); }
         }
