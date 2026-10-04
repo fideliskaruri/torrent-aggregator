@@ -46,7 +46,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         {
             db.DownloadFiles.AddRange(files);
             foreach (var folder in folders)
-                if (!await db.WorkFolders.AnyAsync(row => row.Id == folder.Id, ct)) db.WorkFolders.Add(folder);
+                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId, ct)) db.WorkFolders.Add(folder);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
