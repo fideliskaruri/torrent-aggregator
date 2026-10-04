@@ -1,8 +1,9 @@
 # Find
 
 `IFind` owns discovery, not swarm health or selection. Dependencies are Domain, Parser,
-Sources and Metadata only. Store is accessed solely through the Domain `IStore` Find
-capability; no Store assembly reference or EF/SQL escapes into Find.
+Sources, Metadata and Store. Find reads the sources settings and reads/writes releases,
+observations and SearchCache rows through `IDbContextFactory<TorrentFlowDbContext>`.
+Sources never touches Store: Find passes each source's settings into `ISources`.
 
 ## Queries and filtering
 
@@ -60,7 +61,7 @@ background scopes. Sources additionally bounds background adapters to eight glob
 No per-minute owner rate budget exists.
 
 Every available source answer is persisted as a thirty-minute SearchCache
-row through the typed Find capability and an immutable transaction receipt. Lookups use
+row with EF Core; a write only replaces the row its flight read. Lookups use
 normalized query/source plus matching scope/revisions. Failed, skipped, timed-out and
 truncated answers keep their incomplete status but are reused, not retried on every
 read. Empty successful answers are cached too. Failed/time-out answers schedule at most
@@ -76,8 +77,8 @@ when replayed.
 The memory LRU holds at most 200 work/season pools, not 200 individual adapter answers;
 loading a persisted answer preserves its original expiry. Maintenance owns DB TTL
 cleanup. Cache failures log a warning and cannot discard usable source results.
-Release and source-observation facts (including partial replies) are committed through
-that same typed capability before their batches are published, so downstream checked
+Release and source-observation facts (including partial replies) are saved in one EF
+Core transaction before their batches are published, so downstream checked
 knowledge and admissions can reference durable hashes. Existing hash-bound file metadata
 is preserved. Observations upsert the Store's hash/source/query identity. Cached
 observations retain their actual source start time, not the read time, and cannot

@@ -35,7 +35,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
     }
 
     internal async IAsyncEnumerable<(SourceResult Result, bool Cached, bool Shared)> ReadAsync(
-        string poolKey, string key, string sourceId, SourceQuery query,
+        string poolKey, string key, SourceSettings source, SourceQuery query,
         [EnumeratorCancellation] CancellationToken ct, bool refresh = false)
     {
         Flight? flight = null;
@@ -55,7 +55,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                 if (flights.TryGetValue(key, out flight)) shared = true;
                 else
                 {
-                    flight = new Flight(this, poolKey, key, sourceId, query, refresh);
+                    flight = new Flight(this, poolKey, key, source, query, refresh);
                     flights.Add(key, flight);
                 }
                 subscription = flight.Subscribe(query.Lane);
@@ -87,7 +87,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
         private readonly SourceFlights owner;
         private readonly string key;
         private readonly string poolKey;
-        private readonly string sourceId;
+        private readonly SourceSettings source;
         private readonly SourceQuery query;
         private readonly CancellationTokenSource cancel = new();
         private readonly List<Subscription> subscribers = [];
@@ -102,10 +102,10 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
         internal bool CacheHit { get; private set; }
         internal Lazy<Task> Work { get; }
 
-        internal Flight(SourceFlights owner, string poolKey, string key, string sourceId, SourceQuery query, bool refresh,
+        internal Flight(SourceFlights owner, string poolKey, string key, SourceSettings source, SourceQuery query, bool refresh,
             bool backgroundRetry = false, DateTimeOffset? expiresAt = null)
         {
-            this.owner = owner; this.key = key; this.sourceId = sourceId;
+            this.owner = owner; this.key = key; this.source = source;
             this.poolKey = poolKey; this.refresh = refresh;
             this.backgroundRetry = backgroundRetry; this.expiresAt = expiresAt ?? DateTimeOffset.UtcNow.AddMinutes(30);
             this.query = query with { FlightId = Guid.NewGuid().ToString("N") }; lane = query.Lane;
@@ -155,7 +155,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                 lock (owner.sync) call = query with { Lane = lane, DeadlineAt = DateTimeOffset.UtcNow.AddSeconds(6) };
                 if (backgroundRetry)
                     call = call with { RequestBudget = new(owner.backgroundRequestLimit, query.RequestBudget) };
-                stored = await owner.persistent.LoadAsync(key, sourceId, call, cancel.Token);
+                stored = await owner.persistent.LoadAsync(key, source.Id, call, cancel.Token);
                 if (backgroundRetry)
                 {
                     if (stored is null || stored.ExpiresAt <= DateTimeOffset.UtcNow ||
@@ -168,15 +168,15 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                     if (stored.ExpiresAt <= DateTimeOffset.UtcNow ||
                         query.RequestBudget is { } remaining && remaining.Used >= remaining.Limit) return;
                     retryAdmission = await owner.scopeBudget.EnterAsync(PriorityLane.Background, cancel.Token);
-                    await owner.persistent.SaveAsync(key, sourceId, call, stored.Payload.SourceResult, stored,
+                    await owner.persistent.SaveAsync(key, source.Id, call, stored.Payload.SourceResult, stored,
                         cancel.Token, stored.ExpiresAt, true);
-                    stored = await owner.persistent.LoadAsync(key, sourceId, call, cancel.Token);
+                    stored = await owner.persistent.LoadAsync(key, source.Id, call, cancel.Token);
                     if (stored?.Payload.FailureRetryAttempted != true) return;
                 }
                 if (!refresh && stored is not null &&
                     stored.ExpiresAt > DateTimeOffset.UtcNow)
                 {
-                    await owner.persistent.SaveFactsAsync(sourceId, call, stored.Payload.SourceResult, savedHashes, cancel.Token);
+                    await owner.persistent.SaveFactsAsync(source.Id, call, stored.Payload.SourceResult, savedHashes, cancel.Token);
                     lock (owner.sync)
                     {
                         CacheHit = true;
@@ -189,9 +189,9 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                 }
                 // Cache I/O is not site queue time: the source deadline begins when its call is enqueued.
                 lock (owner.sync) call = call with { Lane = lane, DeadlineAt = DateTimeOffset.UtcNow.AddSeconds(6) };
-                await foreach (var result in owner.sourceService.SearchStreamAsync(sourceId, call, cancel.Token))
+                await foreach (var result in owner.sourceService.SearchStreamAsync(source, call, cancel.Token))
                 {
-                    await owner.persistent.SaveFactsAsync(sourceId, call, result, savedHashes, cancel.Token);
+                    await owner.persistent.SaveFactsAsync(source.Id, call, result, savedHashes, cancel.Token);
                     lock (owner.sync)
                     {
                         latest = result with { CacheExpiresAt = expiresAt };
@@ -202,10 +202,10 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
             catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
             {
-                owner.logger.LogWarning(ex, "Find source flight failed for {SourceId}.", sourceId);
+                owner.logger.LogWarning(ex, "Find source flight failed for {SourceId}.", source.Id);
                 lock (owner.sync)
                 {
-                    latest = new(sourceId, SourceOutcome.Failed, [], null,
+                    latest = new(source.Id, SourceOutcome.Failed, [], null,
                         "The source search failed. Retry this source later.", TimeSpan.Zero);
                     foreach (var subscriber in subscribers) subscriber.Channel.Writer.TryWrite(latest);
                 }
@@ -243,7 +243,7 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                     save.CancelAfter(TimeSpan.FromSeconds(6));
                     try
                     {
-                        await owner.persistent.SaveAsync(key, sourceId, query, latest, stored, save.Token,
+                        await owner.persistent.SaveAsync(key, source.Id, query, latest, stored, save.Token,
                             expiry, backgroundRetry && !budgetRefused || failureRetryAttempted);
                         if (backgroundRetry && latest.Results.Length > 0)
                             lock (owner.sync)
@@ -251,12 +251,12 @@ internal sealed class SourceFlights(ISources sources, SearchCache persistentCach
                                     owner.poolRetryRevisions[poolKey] = ++owner.retryRevision;
                     }
                     catch (OperationCanceledException) when (save.IsCancellationRequested)
-                    { owner.logger.LogWarning("Find cache persistence was interrupted for {SourceId}.", sourceId); }
+                    { owner.logger.LogWarning("Find cache persistence was interrupted for {SourceId}.", source.Id); }
                 }
                 if (!backgroundRetry && latest?.Outcome is SourceOutcome.Failed or SourceOutcome.TimedOut &&
                     !failureRetryAttempted && !owner.host.ApplicationStopping.IsCancellationRequested)
                 {
-                    var retry = new Flight(owner, poolKey, key, sourceId,
+                    var retry = new Flight(owner, poolKey, key, source,
                         query with { Lane = PriorityLane.Background }, true, true, expiry);
                     _ = retry.Work.Value;
                 }

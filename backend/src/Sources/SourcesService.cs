@@ -2,36 +2,29 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Sources;
 
-internal sealed class SourcesService(SourceTransport transport, IConfiguration configuration,
-    IServiceScopeFactory scopes) : ISources
+internal sealed class SourcesService(SourceTransport transport, IConfiguration configuration) : ISources
 {
     public void PromoteSearch(string flightId) => transport.Promote(flightId);
     public void ForgetSearch(string flightId) => transport.Forget(flightId);
-    private static readonly JsonSerializerOptions SettingsJson = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() }
-    };
 
-    public async Task<SourceResult> SearchAsync(string sourceId, SourceQuery query, CancellationToken cancellationToken)
+    public async Task<SourceResult> SearchAsync(SourceSettings source, SourceQuery query, CancellationToken cancellationToken)
     {
         SourceResult? final = null;
-        await foreach (var batch in SearchStreamAsync(sourceId, query, cancellationToken)) final = batch;
+        await foreach (var batch in SearchStreamAsync(source, query, cancellationToken)) final = batch;
         return final!;
     }
 
-    public Task<SourceResult> TestAsync(string sourceId, CancellationToken cancellationToken) =>
-        SearchAsync(sourceId, new("Sintel", "all", null, PriorityLane.Owner, 50,
+    public Task<SourceResult> TestAsync(SourceSettings source, CancellationToken cancellationToken) =>
+        SearchAsync(source, new("Sintel", "all", null, PriorityLane.Owner, 50,
             DateTimeOffset.UtcNow.AddSeconds(6), 0, 0), cancellationToken);
 
-    public async IAsyncEnumerable<SourceResult> SearchStreamAsync(string sourceId, SourceQuery query,
+    public async IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var enqueued = Stopwatch.GetTimestamp();
@@ -41,7 +34,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (budget <= TimeSpan.Zero) deadline.Cancel();
         else deadline.CancelAfter(budget);
-        var producer = RunAsync(sourceId, query, enqueued, channel.Writer, deadline.Token, cancellationToken);
+        var producer = RunAsync(source, query, enqueued, channel.Writer, deadline.Token, cancellationToken);
         try
         {
             await foreach (var result in channel.Reader.ReadAllAsync(cancellationToken)) yield return result;
@@ -54,9 +47,10 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         }
     }
 
-    private async Task RunAsync(string id, SourceQuery query, long enqueued, ChannelWriter<SourceResult> writer,
+    private async Task RunAsync(SourceSettings source, SourceQuery query, long enqueued, ChannelWriter<SourceResult> writer,
         CancellationToken ct, CancellationToken caller)
     {
+        var id = source.Id;
         var trace = new CallTrace();
         var pool = ImmutableArray.CreateBuilder<RawRelease>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -72,8 +66,8 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         try
         {
             ct.ThrowIfCancellationRequested();
-            var settings = await SettingsAsync(id, ct).ConfigureAwait(false);
-            if (settings is null || !settings.Enabled)
+            var settings = source with { BaseUrl = source.BaseUrl ?? SourceDefaults.Endpoints.GetValueOrDefault(id) };
+            if (!settings.Enabled)
             {
                 writer.TryWrite(Snapshot(SourceOutcome.Unsupported, "Disabled", "This source is disabled or unknown."));
                 return;
@@ -183,26 +177,5 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
             yield return parsed with { HasMore = more };
             if (!more || !request.Paginates || hashes.Count >= limit || page == 4) yield break;
         }
-    }
-
-    private async Task<SourceSettings?> SettingsAsync(string id, CancellationToken ct)
-    {
-        await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var rows = await store.ReadAsync<SettingRow>(new("sources", null, null, null, null, null, null,
-            null, null, null, null, null, null, null, 1, StoreOrder.PrimaryKey), ct).ConfigureAwait(false);
-        SourceSettings? defaults = null;
-        if (rows.Length > 0 && rows[0].Value.ValueKind == JsonValueKind.Array)
-        {
-            var configured = rows[0].Value.Deserialize<ImmutableArray<SourceSettings>>(SettingsJson);
-            defaults = configured.FirstOrDefault(s => s.Id == id);
-        }
-        if (defaults is null) return null;
-        var section = configuration.GetSection($"TorrentFlow:Sources:{id}");
-        return defaults with
-        {
-            BaseUrl = section["BaseUrl"] ?? defaults.BaseUrl ?? SourceDefaults.Endpoints.GetValueOrDefault(id),
-            Enabled = section.GetValue<bool?>("Enabled") ?? defaults.Enabled
-        };
     }
 }

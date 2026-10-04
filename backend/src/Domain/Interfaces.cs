@@ -28,14 +28,14 @@ public interface IMetadata
     Task RefreshAsync(DateTimeOffset now, CancellationToken cancellationToken);
 }
 
-/// <summary>In: raw query/category/identity, lane and deadline. Out: source listings and explicit outcome. Never: episode parsing, health, ranking, tracker scraping or inline retries.</summary>
+/// <summary>In: source settings, raw query/category/identity, lane and deadline. Out: source listings and explicit outcome. Never: episode parsing, health, ranking, tracker scraping or inline retries.</summary>
 public interface ISources
 {
     void PromoteSearch(string flightId);
     void ForgetSearch(string flightId);
-    Task<SourceResult> SearchAsync(string sourceId, SourceQuery query, CancellationToken cancellationToken);
-    Task<SourceResult> TestAsync(string sourceId, CancellationToken cancellationToken);
-    IAsyncEnumerable<SourceResult> SearchStreamAsync(string sourceId, SourceQuery query,
+    Task<SourceResult> SearchAsync(SourceSettings source, SourceQuery query, CancellationToken cancellationToken);
+    Task<SourceResult> TestAsync(SourceSettings source, CancellationToken cancellationToken);
+    IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
         CancellationToken cancellationToken);
 }
 

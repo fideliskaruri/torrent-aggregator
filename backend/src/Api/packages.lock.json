@@ -192,7 +192,8 @@
           "TorrentFlow.Domain": "[1.0.0, )",
           "TorrentFlow.Metadata": "[1.0.0, )",
           "TorrentFlow.Parser": "[1.0.0, )",
-          "TorrentFlow.Sources": "[1.0.0, )"
+          "TorrentFlow.Sources": "[1.0.0, )",
+          "TorrentFlow.Store": "[1.0.0, )"
         }
       },
       "TorrentFlow.Library": {
