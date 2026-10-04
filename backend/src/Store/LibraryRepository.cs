@@ -10,36 +10,38 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
     private readonly TorrentFlowDbContext db;
     internal LibraryRepository(TorrentFlowDbContext db) => this.db = db;
 
-    public Task<ImmutableArray<StorageRootRow>> RootsAsync(CancellationToken ct) => ReadAsync<StorageRootRow>(null, ct);
-    public Task<ImmutableArray<MediaFileRow>> MediaAsync(string? workId, CancellationToken ct) => ReadAsync<MediaFileRow>(workId, ct);
-    public Task<ImmutableArray<WorkFolderRow>> FoldersAsync(CancellationToken ct) => ReadAsync<WorkFolderRow>(null, ct);
-    public Task<ImmutableArray<DownloadFileRow>> BindingsAsync(CancellationToken ct) => ReadAsync<DownloadFileRow>(null, ct);
+    public async Task<ImmutableArray<StorageRootRow>> RootsAsync(CancellationToken ct) =>
+        [.. await db.StorageRoots.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
 
-    private async Task<ImmutableArray<T>> ReadAsync<T>(string? workId, CancellationToken ct) where T : StoreRow
-    {
-        IQueryable<T> rows = db.Set<T>().AsNoTracking();
-        if (workId is not null) rows = rows.Where(row => EF.Property<string>(row, nameof(MediaFileRow.WorkId)) == workId);
-        return [.. await rows.OrderBy(row => row.Id).ToListAsync(ct)];
-    }
+    public async Task<ImmutableArray<MediaFileRow>> MediaAsync(string? workId, CancellationToken ct) =>
+        [.. await db.MediaFiles.AsNoTracking().Where(row => workId == null || row.WorkId == workId)
+            .OrderBy(row => row.Id).ToListAsync(ct)];
+
+    public async Task<ImmutableArray<WorkFolderRow>> FoldersAsync(CancellationToken ct) =>
+        [.. await db.WorkFolders.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
+
+    public async Task<ImmutableArray<DownloadFileRow>> BindingsAsync(CancellationToken ct) =>
+        [.. await db.DownloadFiles.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
+
+    public Task<DownloadRow?> DownloadAsync(string hash, CancellationToken ct) =>
+        db.Downloads.AsNoTracking().SingleOrDefaultAsync(row => row.Hash == hash, ct);
 
     public async Task<ImmutableDictionary<string, long>> ReservationsAsync(CancellationToken ct)
     {
-        var downloads = await ReadAsync<DownloadRow>(null, ct);
-        var files = await BindingsAsync(ct);
-        return downloads.Where(d => d.RootId is not null)
-            .GroupBy(d => d.RootId!).ToImmutableDictionary(g => g.Key,
-                g => files.Where(f => g.Any(d => d.Id == f.DownloadId) && f.Selected && !f.Filed)
-                    .Sum(f => f.ExpectedBytes));
+        var downloads = await db.Downloads.AsNoTracking().Where(row => row.RootId != null)
+            .Select(row => new { row.Id, RootId = row.RootId! }).ToListAsync(ct);
+        var files = await db.DownloadFiles.AsNoTracking().Where(row => row.Selected && !row.Filed).ToListAsync(ct);
+        return downloads.GroupBy(d => d.RootId).ToImmutableDictionary(g => g.Key,
+            g => files.Where(f => g.Any(d => d.Id == f.DownloadId)).Sum(f => f.ExpectedBytes));
     }
 
     public async Task<bool> SaveRootAsync(StorageRootRow root, long? expectedVersion, CancellationToken ct)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            if (!await StageAsync(root, expectedVersion, ct)) return false;
+            if (expectedVersion is null) db.StorageRoots.Add(root);
+            else db.StorageRoots.Update(root).Property(row => row.Version).OriginalValue = expectedVersion.Value;
             await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
             return true;
         }
         catch (DbUpdateConcurrencyException) { return false; }
@@ -59,11 +61,11 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
             var entity = await db.StorageRoots.SingleOrDefaultAsync(row => row.Id == id, ct);
             if (entity is null || entity.Version != expectedVersion) return false;
             var rootPath = entity.Path;
-            var operations = await ReadAsync<FileOperationRow>(null, ct);
+            var operations = await db.FileOperations.AsNoTracking().Where(row =>
+                row.State != FileOperationState.Done && row.State != FileOperationState.Superseded).ToListAsync(ct);
             bool Inside(string? path) => path is not null && (path.Equals(rootPath, StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith(rootPath.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-            if (operations.Any(o => o.State is not FileOperationState.Done and not FileOperationState.Superseded &&
-                (Inside(o.SourcePath) || Inside(o.DestinationPath)))) return false;
+            if (operations.Any(o => Inside(o.SourcePath) || Inside(o.DestinationPath))) return false;
             db.StorageRoots.Remove(entity);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -90,9 +92,11 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
                 if (!await db.Seasons.AnyAsync(row =>
                     row.Id == episode.SeasonId && row.WorkId == file.WorkId, ct)) return false;
             }
-            if (!await StageAsync(file, file.Version == 1 ? null : file.Version - 1, ct)) return false;
-            if (folder is not null && !await StageAsync(folder, folder.Version == 1 ? null : folder.Version - 1, ct))
-                return false;
+            if (file.Version == 1) db.MediaFiles.Add(file);
+            else db.MediaFiles.Update(file).Property(row => row.Version).OriginalValue = file.Version - 1;
+            if (folder is { Version: 1 }) db.WorkFolders.Add(folder);
+            else if (folder is not null)
+                db.WorkFolders.Update(folder).Property(row => row.Version).OriginalValue = folder.Version - 1;
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
@@ -105,14 +109,13 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
     public async Task<bool> SaveRootCheckAsync(StorageRootRow root, long expectedVersion,
         ImmutableArray<MediaFileRow> media, CancellationToken ct)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (media.Any(file => file.RootId != root.Id)) return false;
         try
         {
-            if (!await StageAsync(root, expectedVersion, ct)) return false;
+            db.StorageRoots.Update(root).Property(row => row.Version).OriginalValue = expectedVersion;
             foreach (var file in media)
-                if (file.RootId != root.Id || !await StageAsync(file, file.Version - 1, ct)) return false;
+                db.MediaFiles.Update(file).Property(row => row.Version).OriginalValue = file.Version - 1;
             await db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
             return true;
         }
         catch (DbUpdateConcurrencyException) { return false; }
@@ -120,34 +123,10 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
         finally { db.ChangeTracker.Clear(); }
     }
 
-    private async Task<bool> StageAsync(StoreRow row, long? expectedVersion, CancellationToken ct)
-    {
-        var entity = await db.FindAsync(row.GetType(), [row.Id], ct) as StoreRow;
-        if (entity is null)
-        {
-            if (expectedVersion is not null) return false;
-            db.Add(row);
-        }
-        else
-        {
-            if (expectedVersion is null || VersionOf(entity) != expectedVersion) return false;
-            db.Entry(entity).CurrentValues.SetValues(row);
-        }
-        return true;
-    }
-
-    private static long VersionOf(StoreRow row) => row switch
-    {
-        StorageRootRow value => value.Version,
-        MediaFileRow value => value.Version,
-        WorkFolderRow value => value.Version,
-        _ => throw new ArgumentException($"Unsupported versioned row {row.GetType().Name}."),
-    };
-
     public async Task<int> PruneMissingAsync(DateTimeOffset before, CancellationToken ct)
     {
         // FK restrictions protect history/operations still referring to an inventory row.
-        var rows = await ReadAsync<MediaFileRow>(null, ct);
+        var rows = await MediaAsync(null, ct);
         var roots = await RootsAsync(ct);
         var dropped = 0;
         foreach (var row in rows.Where(m => m.Status == FilePresence.Missing &&
@@ -168,5 +147,4 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
         }
         return dropped;
     }
-
 }

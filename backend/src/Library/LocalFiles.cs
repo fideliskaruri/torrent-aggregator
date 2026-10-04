@@ -1,13 +1,12 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Library;
 
-public sealed partial class LocalFiles(ILibraryRepository repository, IStore store) : ILocalFiles
+public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFiles
 {
     [GeneratedRegex("^(?:builtin:)?([0-9a-f]{40})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BuiltinId();
@@ -111,12 +110,11 @@ public sealed partial class LocalFiles(ILibraryRepository repository, IStore sto
         var match = BuiltinId().Match(id);
         if (!match.Success) return Refuse(LocalFileError.Invalid, "invalid-id", "That is not a download id.", "Reload the page and try again.");
         var hash = match.Groups[1].Value.ToLowerInvariant();
-        var downloads = await AllAsync<DownloadRow>(ct, hash: hash);
-        var download = downloads.SingleOrDefault(d => d.Hash == hash);
+        var download = await repository.DownloadAsync(hash, ct);
         if (download is null) return Refuse(LocalFileError.Missing, "not-found", "That download is no longer in TorrentFlow.", "Reload the page.");
         if (download.FinishedAt is null)
             return Refuse(LocalFileError.Conflict, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
-        var bindings = await AllAsync<DownloadFileRow>(ct, downloadId: download.Id);
+        var bindings = await repository.BindingsAsync(ct);
         var media = await repository.MediaAsync(null, ct);
         var video = bindings.Where(f => f.DownloadId == download.Id && f.Filed && f.Role == FileRole.Video)
             .Join(media.Where(m => m.Role == FileRole.Video), f => f.MediaFileId, m => m.Id, (_, m) => m)
@@ -168,20 +166,6 @@ public sealed partial class LocalFiles(ILibraryRepository repository, IStore sto
             return false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return true; }
-    }
-
-    private async Task<ImmutableArray<T>> AllAsync<T>(CancellationToken ct, string? downloadId = null, string? hash = null) where T : StoreRow
-    {
-        var rows = ImmutableArray.CreateBuilder<T>();
-        string? cursor = null;
-        while (true)
-        {
-            var page = await store.ReadAsync<T>(new(null, null, null, downloadId, null, hash, null, null,
-                null, null, null, null, null, cursor, 500, StoreOrder.PrimaryKey), ct);
-            rows.AddRange(page);
-            if (page.Length < 500) return rows.ToImmutable();
-            cursor = Convert.ToBase64String(Encoding.UTF8.GetBytes(page[^1].Id));
-        }
     }
 
     private static LocalFileResult Outside() => Refuse(LocalFileError.Forbidden, "outside-folders",

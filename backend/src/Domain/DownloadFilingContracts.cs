@@ -15,9 +15,6 @@ public interface ILibraryDownloadRepository : ILibraryRepository
     Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken cancellationToken);
     Task<bool> RemoveLibraryFilesAsync(ImmutableArray<DownloadFileRow> files, ImmutableArray<MediaFileRow> media,
         ImmutableArray<DownloadFileRow> replacements, CancellationToken cancellationToken);
-    Task<LibraryWriteProposal?> ProposeRemovalAsync(ImmutableArray<DownloadFileRow> files,
-        ImmutableArray<MediaFileRow> media, ImmutableArray<DownloadFileRow> replacements,
-        CancellationToken cancellationToken);
 }
 
 public abstract class LibraryWriteProposal

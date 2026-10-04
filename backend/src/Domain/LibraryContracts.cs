@@ -22,6 +22,7 @@ public interface ILibraryRepository
     Task<ImmutableArray<MediaFileRow>> MediaAsync(string? workId, CancellationToken cancellationToken);
     Task<ImmutableArray<WorkFolderRow>> FoldersAsync(CancellationToken cancellationToken);
     Task<ImmutableArray<DownloadFileRow>> BindingsAsync(CancellationToken cancellationToken);
+    Task<DownloadRow?> DownloadAsync(string hash, CancellationToken cancellationToken);
     Task<ImmutableDictionary<string, long>> ReservationsAsync(CancellationToken cancellationToken);
     Task<bool> SaveRootAsync(StorageRootRow root, long? expectedVersion, CancellationToken cancellationToken);
     Task<bool> SaveRootCheckAsync(StorageRootRow root, long expectedVersion,
