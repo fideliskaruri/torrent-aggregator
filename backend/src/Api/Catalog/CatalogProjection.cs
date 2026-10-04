@@ -21,7 +21,8 @@ internal static class CatalogProjection
     internal static string? Provider(WorkSnapshot w) => Primary(w)?.Provider is "imdb" ? "cinemeta" : Primary(w)?.Provider;
     internal static string? Release(WorkSnapshot w) =>
         (w.PremiereAt ?? w.Work.TheatricalAt ??
-            w.Episodes.Where(e => e.AirAt is not null).MinBy(e => e.AirAt)?.AirAt)?.ToString("yyyy-MM-dd");
+            w.Episodes.Where(e => e.AirAt is not null && w.Seasons.Any(s => s.Id == e.SeasonId && s.Number > 0))
+                .MinBy(e => e.AirAt)?.AirAt)?.ToString("yyyy-MM-dd");
     internal static IEnumerable<SeasonRow> TitleSeasons(WorkSnapshot w) =>
         w.Seasons.Where(s => s.Number > 0 && w.Episodes.Any(e => e.SeasonId == s.Id &&
             e.MappingStatus != MappingStatus.Unavailable)).OrderBy(s => s.Number);
