@@ -207,38 +207,6 @@ function workKeyAliases(key: string): string[] {
   return legacy === wanted ? [wanted] : [wanted, legacy];
 }
 
-/**
- * A display title for a key nothing in the database recognises.
- *
- * Deliberately *not* an attempt to split the year back out: `blade-runner-2049`
- * is a title and `dune-2021` is a title plus a year, and no rule can tell them
- * apart from the string alone. Guessing would print a year the user never
- * gave us, which is exactly the kind of unearned claim this codebase keeps
- * paying for. So the slug is simply spelled back out as words — it is what the
- * URL says, nothing more.
- */
-export function displayTitleFromWorkKey(key: string): string {
-  let raw = (key ?? "").trim();
-  try {
-    raw = decodeURIComponent(raw);
-  } catch {
-    // A malformed escape is not worth failing a page render over.
-  }
-  const words = raw.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!words) return "";
-  const minorWords = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"]);
-  return words
-    .split(" ")
-    .map((w, index) =>
-      index > 0 && minorWords.has(w.toLowerCase())
-        ? w.toLowerCase()
-        : /^[a-z]/.test(w)
-          ? w[0].toUpperCase() + w.slice(1)
-          : w,
-    )
-    .join(" ");
-}
-
 // ---------------------------------------------------------------------------
 // Links
 // ---------------------------------------------------------------------------

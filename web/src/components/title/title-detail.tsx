@@ -39,6 +39,7 @@ import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useDocumentTitle } from "@/hooks/use-document-title";
 import { cn } from "@/lib/utils";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
@@ -945,6 +946,8 @@ function TitleContent({
   const knownTitle = headingTitle(payload.title, routeTitle);
   const titlePending = knownTitle == null && (refreshing || extrasLoading || !extrasSettled);
   const title = knownTitle != null ? cleanDisplayTitle(knownTitle) : "Unknown title";
+  const tabTitle = titlePending ? routeTitle : title;
+  useDocumentTitle(tabTitle, tabTitle ? `Get ${tabTitle}.` : null);
   // Stable across polls like handleEpisodeListAction, so the memoised episode
   // cards don't re-render for it. Names the episode the way Downloads does.
   const handleFindEpisodeSource = useCallback(

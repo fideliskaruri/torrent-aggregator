@@ -1,7 +1,5 @@
 import { useParams, useSearchParams } from "react-router";
 import { TitleDetail } from "@/components/title/title-detail";
-import { displayTitleFromWorkKey } from "@/components/title/work-key";
-import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   readRememberedSeason,
   REMEMBERED_SEASON_COOKIE_NAME,
@@ -21,9 +19,6 @@ import {
 export default function TitlePage() {
   const { workKey = "" } = useParams<{ workKey: string }>();
   const [sp] = useSearchParams();
-  const title =
-    sp.get("t")?.trim() || displayTitleFromWorkKey(workKey) || "Title";
-  useDocumentTitle(title, `Get ${title}.`);
 
   const rememberedSeason = readRememberedSeason(
     readCookie(REMEMBERED_SEASON_COOKIE_NAME),
