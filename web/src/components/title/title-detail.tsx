@@ -4,14 +4,22 @@ import { toast } from "@/lib/toast";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
-import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
-import { TitleContent } from "./title-content";
 import { TitleDetailSkeleton } from "./title-detail-skeleton";
 import type { TitleDetailProps } from "./title-props";
-import { useTitleDetail } from "./use-title-detail";
+import { useTitleDetailQuery } from "./use-title-detail-query";
+import { useTitleDetailActions } from "./use-title-detail-actions";
+import { useSeasonGrab } from "./use-season-grab";
+import { useTitleContentState } from "./use-title-content-state";
+import { useTitleContentViewModel } from "./use-title-content-view-model";
+import { TitleHero } from "./title-hero";
+import { TitleSections } from "./title-sections";
+import { QualityPicker } from "./quality-picker";
 
 export function TitleDetail(props: TitleDetailProps) {
-  const detail = useTitleDetail(props);
+  const query = useTitleDetailQuery(props);
+  const actions = useTitleDetailActions(query);
+  const seasonActions = useSeasonGrab(query);
+  const detail = { ...query, ...actions, ...seasonActions };
   const {
     caps,
     loading,
@@ -37,7 +45,6 @@ export function TitleDetail(props: TitleDetailProps) {
     findAnother,
     findingAnother,
     setFindingAnother,
-    cap,
   } = detail;
 
   return (
@@ -67,7 +74,7 @@ export function TitleDetail(props: TitleDetailProps) {
           />
         </div>
       ) : (
-        <TitleContent
+        <TitlePage
           payload={data}
           extras={extras}
           progress={visibleProgress}
@@ -86,8 +93,6 @@ export function TitleDetail(props: TitleDetailProps) {
           onAction={runAction}
           onLibraryChanged={refetch}
           onFindAnother={setFindAnother}
-          provider={props.provider ?? null}
-          providerId={props.providerId ?? null}
           routeTitle={props.title ?? null}
         />
       )}
@@ -106,10 +111,10 @@ export function TitleDetail(props: TitleDetailProps) {
           onConfirm={() => void (async () => {
             setFindingAnother(true);
             try {
-              const response = await send(`/api/downloads/${encodeURIComponent(findAnother.hash)}/find-another`, {
+              const response = await send<{ ok?: boolean; message?: string }>(`/api/downloads/${encodeURIComponent(findAnother.hash)}/find-another`, {
                 method: "POST",
               });
-              const result = await response.json().catch(() => null) as { ok?: boolean; message?: string } | null;
+              const result = response.data;
               if (!response.ok || result?.ok !== true) {
                 toast.error(result?.message ?? "The download could not be removed. Try again.");
                 return;
@@ -127,7 +132,29 @@ export function TitleDetail(props: TitleDetailProps) {
         />
       ) : null}
 
-      <StorageCapDialog {...cap.dialogProps} />
     </div>
+  );
+}
+
+function TitlePage(props: Parameters<typeof useTitleContentState>[0]) {
+  const state = useTitleContentState(props);
+  const model = useTitleContentViewModel(state);
+  return (
+    <>
+      <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">
+        <TitleHero model={model} />
+        <TitleSections model={model} />
+      </article>
+      {model.caps.canDownload ? (
+        <QualityPicker
+          open={model.qualityPickerOpen}
+          onOpenChange={model.closeDownloadQuality}
+          preferredResolution={model.preferredResolution}
+          alwaysPreferred={model.alwaysPreferred}
+          onAlwaysPreferredChange={model.setAlwaysPreferred}
+          onConfirm={model.confirmDownloadQuality}
+        />
+      ) : null}
+    </>
   );
 }

@@ -20,6 +20,8 @@ import type {
   TitleTransferState,
 } from "./types";
 
+export const DOWNLOAD_KEY = "download";
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -88,31 +90,6 @@ export function offersDownload(transfer: TitleEpisodeTransfer | null): boolean {
   return transfer.status === "failed";
 }
 
-/**
- * The film hero's keep control, decided by the title transfer's real state.
- *
- *  - `download`: nothing asked for yet → "Download".
- *  - `retry`: only when the transfer itself failed, or the press that just
- *    ran failed → "Retry download". Never for a transfer that is queued,
- *    moving or done.
- *  - `status`: already asked for → the control reports progress
- *    ("Looking", "Queued", "Downloading 42%", "Downloaded") and opens
- *    Downloads when the viewer can see transfers and Downloads has a row,
- *    instead of offering a second grab.
- *
- * Library membership is independent of all of this.
- */
-export interface TitleTransferControl {
-  intent: "download" | "retry" | "status";
-  label: string;
-  /** May the button run a grab now? Always false for `status`. */
-  canRun: boolean;
-  /** `status` only: link to the Downloads page instead of a dead button. */
-  opensDownloads: boolean;
-  /** The failed transfer's reason, when it gave one. */
-  error: string | null;
-}
-
 /** What a row waiting for an English release says (docs/release-language.md). */
 export const WAITING_FOR_ENGLISH_LABEL = "Waiting for an English release";
 
@@ -134,38 +111,4 @@ export function transferStateLabel(
   if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
   if (state === "downloading") return "Downloading";
   return null;
-}
-
-export function resolveTitleTransferControl(
-  transfer: TitleEpisodeTransfer | null,
-  downloadStatus: TitleActionStatus,
-  options: { canSeeTransfers: boolean },
-): TitleTransferControl {
-  if (transfer && transfer.status !== "failed") {
-    const label =
-      transfer.status === "queued"
-        ? transferStateLabel(transfer.state, transfer.queuePosition) ?? "Queued"
-        : transfer.status === "downloading"
-          ? `Downloading ${Math.floor(Math.max(0, Math.min(1, transfer.progress)) * 100)}%`
-          : "Downloaded";
-    return {
-      intent: "status",
-      label,
-      canRun: false,
-      // Still looking for a release: Downloads has no row for it yet.
-      opensDownloads: options.canSeeTransfers && transfer.state !== "looking" &&
-        transfer.state !== "waiting_english" &&
-        transfer.state !== "waiting_season_list",
-
-      error: null,
-    };
-  }
-  const failed = transfer?.status === "failed" || downloadStatus === "error";
-  return {
-    intent: failed ? "retry" : "download",
-    label: failed ? "Retry download" : "Download",
-    canRun: downloadStatus !== "pending" && downloadStatus !== "done",
-    opensDownloads: false,
-    error: transfer?.status === "failed" ? transfer.error : null,
-  };
 }

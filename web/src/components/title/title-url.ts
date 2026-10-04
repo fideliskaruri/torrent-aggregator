@@ -1,5 +1,4 @@
 import type { NavigateFunction } from "react-router";
-import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { encodeKeySegment } from "./work-key";
 import type { TitleDetailPayload } from "./types";
 import type { TitleDetailProps } from "./title-props";
@@ -55,7 +54,7 @@ export function buildExtrasUrl(
   payload: TitleDetailPayload,
   season: number | null,
 ): string | null {
-  const title = cleanDisplayTitle(payload.title).trim();
+  const title = payload.title.trim();
   if (!title) return null;
 
   const params = new URLSearchParams();

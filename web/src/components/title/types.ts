@@ -1,8 +1,6 @@
 
 import type { AvailabilityState } from "@/lib/browse";
 import type { CatalogCardData } from "@/lib/api/catalog-types";
-import type { StorageOverrideFacts } from "@/lib/library/storage-override";
-import type { SeasonGrabReport } from "./season-grab-state";
 import type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 export type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 
@@ -250,42 +248,5 @@ export interface TitleGrabResponse {
   message: string;
 
   workKey?: string | null;
-  retryAfterSeconds?: number;
-  /** Set when no release could be chosen: the search we used, for "Pick a release yourself". */
-  noReleaseFound?: { reason?: string | null; manualSearchQuery?: string | null } | null;
-  /** The release that was actually sent, when one was. */
-  title?: string | null;
-  savePath?: string | null;
-
-  infoHash?: string | null;
-
-  storage?: StorageOverrideFacts | null;
-
   queued?: boolean;
-  /** 1-based place in that queue, when known. */
-  queuePosition?: number | null;
-}
-
-/** What a season-level one-click grab answers. */
-interface TitleSeasonEpisodeTransfer {
-  episode: number;
-
-  status: "downloading" | "queued" | "failed";
-  infoHash: string | null;
-  error: string | null;
-}
-
-export interface TitleSeasonGrabResponse {
-  ok: boolean;
-  message: string;
-  /** The work the season went to (see `TitleGrabResponse.workKey`). */
-  workKey?: string | null;
-  /** Download season is fire and forget: the server queued it and searches in the background. */
-  queued?: boolean;
-  retryAfterSeconds?: number;
-  report?: SeasonGrabReport | null;
-
-  episodeTransfers?: TitleSeasonEpisodeTransfer[];
-
-  storage?: StorageOverrideFacts | null;
 }

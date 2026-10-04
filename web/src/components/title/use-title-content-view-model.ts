@@ -7,18 +7,16 @@ import { ownedLabel } from "./owned-state";
 import { providerAiredFor,seasonProgressFromRows,seasonProgressFromSummary,seasonProgressLabel,showProgressFromSeasons,type SeasonProgress,} from "./season-progress";
 import { useWantedRows } from "@/components/wanted/wanted-actions";
 import { formatReleaseDate,releaseYear } from "./title-hero-meta";
-import { needsEpisodeDiscovery,resolveTitleTransferControl,type TitleAction } from "./title-actions";
+import { DOWNLOAD_KEY,needsEpisodeDiscovery,shouldRunTitleAction,type TitleAction } from "./title-actions";
 import { canFindAnotherSource } from "@/components/releases/find-another-source";
-import type { TitleEpisodeTransfer } from "./types";
+import { titleDownloadPresentation } from "./title-download-state";
 
 import { useTitleContentState } from "./use-title-content-state";
-
-const DOWNLOAD_KEY = "download";
 
 export function useTitleContentViewModel(state: ReturnType<typeof useTitleContentState>) {
   const {
     payload, extras, progress, extrasLoading, extrasRefreshing, extrasError, extrasSettled, extrasSeason, season,
-    refreshing, statusFor, seasonStatusFor, caps, openFolder, openingFile, setOpeningFile, title,
+    refreshing, statusFor, seasonStatusFor, caps, openFolder, openingFile, setOpeningFile, title, titlePending,
   } = state;
   const backdrop = payload.backdropUrl;
   const releaseGate = browseReleaseGate({
@@ -57,6 +55,7 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
         ? seasonProgressFromRows(allRows, aired)
         : seasonProgressFromSummary(s, aired);
   }
+
   const showProgress = payload.isSeries
     ? showProgressFromSeasons(seasons.map((s) => seasonProgress[s.season]))
     : null;
@@ -117,7 +116,16 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
       extras?.certification,
   );
   const showDownload = !payload.isSeries && !gated;
-  const ownedFilm = payload.isSeries ? null : ownedLabel(payload.owned);
+  const titleTransfer = progress?.transfer ?? payload.transfer;
+  const titlePresentation = titleDownloadPresentation({
+    available: payload.owned != null,
+    owned: payload.owned,
+    transfer: titleTransfer,
+    actionStatus: statusFor(DOWNLOAD_KEY),
+  });
+  const ownedFilm = payload.isSeries || !titlePresentation.onDisk
+    ? null
+    : ownedLabel(payload.owned) ?? "In your library";
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -126,16 +134,23 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     infoHash: payload.infoHash,
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
-  const ownTitleTransfer = progress?.transfer ?? payload.transfer;
-  const titleTransfer: TitleEpisodeTransfer | null =
-    (ownTitleTransfer == null || ownTitleTransfer.status === "failed") &&
-    payload.availability === "ready" &&
-    payload.infoHash
-      ? { status: "downloaded", progress: 1, infoHash: payload.infoHash, filePath: null, error: null }
-      : ownTitleTransfer;
-  const downloadControl = resolveTitleTransferControl(titleTransfer, downloadStatus, {
-    canSeeTransfers: caps.canSeeTransfers,
-  });
+  const activeTransfer = titleTransfer != null && titleTransfer.status !== "failed";
+  const downloadControl = {
+    intent: activeTransfer
+      ? "status" as const
+      : titleTransfer?.status === "failed" || downloadStatus === "error"
+        ? "retry" as const
+        : "download" as const,
+    label: titlePresentation.label,
+    canRun: !activeTransfer && shouldRunTitleAction(downloadStatus),
+    opensDownloads:
+      activeTransfer &&
+      caps.canSeeTransfers &&
+      titleTransfer.state !== "looking" &&
+      titleTransfer.state !== "waiting_english" &&
+      titleTransfer.state !== "waiting_season_list",
+    error: titleTransfer?.status === "failed" ? titleTransfer.error : null,
+  };
   const downloadLabel = downloadControl.label;
   const titleLooking =
     showDownload &&
@@ -146,7 +161,6 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     ? titleWanted.rows.find((r) => r.workKey === payload.workKey && r.season == null) ?? null
     : null;
   const downloadCanRun = downloadControl.canRun && !gated;
-  const downloadLabelTarget = title;
   const openHash = titleTransfer?.status === "downloaded" ? titleTransfer.infoHash : null;
   const canOpenFile = showDownload && caps.canSeePaths && openFolder && !!openHash;
   const findSourceHash = showDownload && caps.canDownload ? (titleTransfer?.infoHash ?? null) : null;
@@ -175,11 +189,81 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
 
 
   return {
-    ...state, backdrop, releaseGate, gated, seasons, activeSeason, onKnownSeason, extrasDescribeActiveSeason, episodeExtras,
-    rows, allRows, truncated, rowsCoverSeason, seasonProgress, showProgress, showProgressText, discoverEpisodes, discoveryPending,
-    seasonCount, similar, extrasPending, episodeListLoading, episodeListState, activeSeasonGrabStatus, metaScore, releaseDate, metaYear,
-    genres, heroExtrasPending, metaListPresent, showDownload, ownedFilm, downloadAction, downloadStatus, ownTitleTransfer, titleTransfer,
-    downloadControl, downloadLabel, titleLooking, titleWanted, titleWantedRow, downloadCanRun, downloadLabelTarget, openHash,
-    canOpenFile, findSourceHash, canFindSource, openTitleFile, hint, similarLoading, nothingBelowHero,
+    payload,
+    extras,
+    title,
+    backdrop,
+    releaseGate,
+    gated,
+    seasons,
+    season,
+    activeSeason,
+    seasonCount,
+    rows,
+    allRows,
+    truncated,
+    seasonProgress,
+    showProgress,
+    showProgressText,
+    discoverEpisodes,
+    discoveryPending,
+    activeSeasonGrabStatus,
+    metaScore,
+    releaseDate,
+    metaYear,
+    genres,
+    heroExtrasPending,
+    metaListPresent,
+    showDownload,
+    ownedFilm,
+    downloadAction,
+    downloadStatus,
+    titleTransfer,
+    downloadControl,
+    downloadLabel,
+    titleLooking,
+    titleWanted,
+    titleWantedRow,
+    downloadCanRun,
+    canOpenFile,
+    openingFile,
+    findSourceHash,
+    canFindSource,
+    openTitleFile,
+    hint,
+    similar,
+    similarLoading,
+    nothingBelowHero,
+    titlePending,
+    caps,
+    statusFor,
+    seasonStatusFor,
+    onSeasonChange: state.onSeasonChange,
+    requestSeasonGrab: state.requestSeasonGrab,
+    handleEpisodeListAction: state.handleEpisodeListAction,
+    onAction: state.handleDownloadAction,
+    handleDownloadAction: state.handleDownloadAction,
+    handleFindEpisodeSource: state.handleFindEpisodeSource,
+    handlePickEpisodeRelease: state.handlePickEpisodeRelease,
+    handleWantedAction: state.handleWantedAction,
+    removingEpisode: state.removingEpisode,
+    setRemovingEpisode: state.setRemovingEpisode,
+    episodeName: state.episodeName,
+    workKey: state.workKey,
+    removingBusy: state.removingBusy,
+    confirmRemoveEpisode: state.confirmRemoveEpisode,
+    refreshing,
+    refetchExtras: state.refetchExtras,
+    onLibraryChanged: state.onLibraryChanged,
+    onFindAnother: state.onFindAnother,
+    qualityPickerOpen: state.qualityPickerOpen,
+    closeDownloadQuality: state.closeDownloadQuality,
+    confirmDownloadQuality: state.confirmDownloadQuality,
+    preferredResolution: state.preferredResolution,
+    alwaysPreferred: state.alwaysPreferred,
+    setAlwaysPreferred: state.setAlwaysPreferred,
+    episodeListState,
   };
 }
+
+export type TitleContentViewModel = ReturnType<typeof useTitleContentViewModel>;

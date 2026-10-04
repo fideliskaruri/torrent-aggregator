@@ -1,29 +1,27 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft,ChevronRight } from "lucide-react";
-import type { RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea,ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { WantedAction } from "@/components/wanted/wanted-actions";
 import { type EpisodeRowModel } from "./merge-extras";
-import { EMPTY_EPISODES_COPY,episodeListView,type EpisodeListLoadState } from "./episode-list-state";
+import { EMPTY_EPISODES_COPY,type EpisodeListView } from "./episode-list-state";
 import { type TitleAction,type TitleActionStatus } from "./title-actions";
 
 import { EpisodeCard } from "./episode-card";
 import { episodeIntentKey } from "./episode-key";
 import { CARD_WIDTH } from "./episode-card-layout";
+import { pageScrollDelta,railEdges } from "@/components/browse/rail-scroll";
 
 export function EpisodeStrip({
-  episodes, truncated, loadState, busy, season, stripRef, edges, scrollStrip, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction,
+  episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction,
 }: {
   episodes: EpisodeRowModel[];
   truncated: boolean;
-  loadState: EpisodeListLoadState;
+  view: EpisodeListView;
   busy: boolean;
   season: number | null;
-  stripRef: RefObject<HTMLDivElement | null>;
-  edges: { start: boolean; end: boolean };
-  scrollStrip: (direction: -1 | 1) => void;
   statusFor: (key: string) => TitleActionStatus;
   gated: boolean;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
@@ -31,7 +29,53 @@ export function EpisodeStrip({
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
 }) {
-  const view = episodeListView(loadState, episodes.length);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const viewport = useCallback(
+    () =>
+      stripRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      ) ?? null,
+    [],
+  );
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const updateEdges = useCallback(() => {
+    const element = viewport();
+    if (!element) return;
+    const measured = railEdges({
+      scrollLeft: element.scrollLeft,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    });
+    setEdges({
+      start: measured.scrollable && !measured.atStart,
+      end: measured.scrollable && !measured.atEnd,
+    });
+  }, [viewport]);
+  useEffect(() => {
+    const element = viewport();
+    const list = element?.querySelector("ul");
+    if (!element || !list) return;
+    updateEdges();
+    element.addEventListener("scroll", updateEdges, { passive: true });
+    const observer = new ResizeObserver(updateEdges);
+    observer.observe(element);
+    observer.observe(list);
+    return () => {
+      element.removeEventListener("scroll", updateEdges);
+      observer.disconnect();
+    };
+  }, [episodes.length, updateEdges, viewport, view.kind, busy]);
+  const scrollStrip = useCallback(
+    (direction: -1 | 1) => {
+      const element = viewport();
+      if (!element) return;
+      element.scrollBy({
+        left: direction * pageScrollDelta(element.clientWidth),
+        behavior: "smooth",
+      });
+    },
+    [viewport],
+  );
   return (
     <>
       {busy || view.kind === "loading" ? (
