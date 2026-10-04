@@ -564,18 +564,12 @@ public sealed record RawRelease(string Name, string Hash, long? Bytes, int? List
     int? ListedLeechers, string SourceId, string? SourceItemId, string? Magnet, string? TorrentUri,
     DateTimeOffset? UploadedAt, ImmutableArray<string> WebSeeds);
 public sealed record SourceQuery(string Query, string Category, ProviderId? Identity,
-    PriorityLane Lane, int Limit, DateTimeOffset DeadlineAt, long SourceRevision, long CredentialRevision)
-{
-    public string? FlightId { get; init; }
-    [System.Text.Json.Serialization.JsonIgnore]
-    public SourceRequestBudget? RequestBudget { get; init; }
-}
+    PriorityLane Lane, int Limit, DateTimeOffset DeadlineAt, long SourceRevision, long CredentialRevision);
 public sealed record SourceResult(string SourceId, SourceOutcome Outcome, ImmutableArray<RawRelease> Results,
     DateTimeOffset? RetryAt, string? Error, TimeSpan Elapsed)
 {
     public bool Complete { get; init; } = Outcome == SourceOutcome.Success;
     public SourceDiagnostics? Diagnostics { get; init; }
-    public DateTimeOffset? CacheExpiresAt { get; init; }
 }
 public sealed record SourceDiagnostics(string Code, TimeSpan QueueWait, int Requests,
     int? HttpStatus, DateTimeOffset? StartedAt, int Returned, bool Truncated)

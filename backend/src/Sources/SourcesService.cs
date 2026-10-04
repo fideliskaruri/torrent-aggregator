@@ -10,9 +10,6 @@ namespace TorrentFlow.Sources;
 
 internal sealed class SourcesService(SourceTransport transport, IConfiguration configuration) : ISources
 {
-    public void PromoteSearch(string flightId) => transport.Promote(flightId);
-    public void ForgetSearch(string flightId) => transport.Forget(flightId);
-
     public async Task<SourceResult> SearchAsync(SourceSettings source, SourceQuery query, CancellationToken cancellationToken)
     {
         SourceResult? final = null;
@@ -24,7 +21,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         SearchAsync(source, new("Sintel", "all", null, PriorityLane.Owner, 50,
             DateTimeOffset.UtcNow.AddSeconds(6), 0, 0), cancellationToken);
 
-    public async IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
+    private async IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var enqueued = Stopwatch.GetTimestamp();
@@ -43,7 +40,6 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         {
             await deadline.CancelAsync();
             await producer.ConfigureAwait(false);
-            transport.Forget(query.FlightId);
         }
     }
 
@@ -131,7 +127,7 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
             writer.TryWrite(Snapshot(ex.Code switch
                 {
                     "CoolingDown" => SourceOutcome.CoolingDown, "Unsupported" => SourceOutcome.Unsupported,
-                    "Unconfigured" => SourceOutcome.Unconfigured, "RequestBudget" => SourceOutcome.Partial,
+                "Unconfigured" => SourceOutcome.Unconfigured,
                     _ => SourceOutcome.Failed
                 },
                 ex.Code, ex.Message, ex.RetryAt));

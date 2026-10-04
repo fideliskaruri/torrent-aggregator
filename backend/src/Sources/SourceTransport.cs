@@ -8,8 +8,6 @@ namespace TorrentFlow.Sources;
 internal sealed class SourceTransport : IDisposable
 {
     private readonly ConcurrentDictionary<string, PriorityGate> sites = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte> promoted = new(StringComparer.Ordinal);
-    private readonly object promotionSync = new();
     private readonly PriorityGate global = new(8);
     private readonly HttpClient client = new(new SocketsHttpHandler
     {
@@ -21,36 +19,7 @@ internal sealed class SourceTransport : IDisposable
     })
     { Timeout = Timeout.InfiniteTimeSpan };
 
-    internal PriorityGate Site(Uri uri)
-    {
-        lock (promotionSync)
-        {
-            var site = sites.GetOrAdd(uri.IdnHost, _ => new());
-            foreach (var flight in promoted.Keys) site.Promote(flight);
-            return site;
-        }
-    }
-
-    internal void Promote(string flightId)
-    {
-        lock (promotionSync)
-        {
-            promoted[flightId] = 0;
-            global.Promote(flightId);
-            foreach (var site in sites.Values) site.Promote(flightId);
-        }
-    }
-
-    internal void Forget(string? flightId)
-    {
-        if (flightId is null) return;
-        lock (promotionSync)
-        {
-            promoted.TryRemove(flightId, out _);
-            global.Forget(flightId);
-            foreach (var site in sites.Values) site.Forget(flightId);
-        }
-    }
+    internal PriorityGate Site(Uri uri) => sites.GetOrAdd(uri.IdnHost, _ => new());
 
     internal async Task<string> ReadAsync(Uri uri, string? body, SourceSettings settings,
         SourceQuery query, CallTrace trace, CancellationToken ct)
@@ -67,9 +36,9 @@ internal sealed class SourceTransport : IDisposable
             IDisposable? lease = null;
             try
             {
-                admission = await global.EnterAsync(query.Lane, "global", 24, 0, ct, query.FlightId).ConfigureAwait(false);
-                lease = await site.EnterAsync(query.Lane, settings.Id, settings.Concurrency, settings.StartSpacingMilliseconds,
-                    ct, query.FlightId).ConfigureAwait(false);
+                admission = await global.EnterAsync(query.Lane, 24, 0, ct).ConfigureAwait(false);
+                lease = await site.EnterAsync(query.Lane, settings.Concurrency, settings.StartSpacingMilliseconds,
+                    ct).ConfigureAwait(false);
             }
             catch
             {
@@ -82,8 +51,6 @@ internal sealed class SourceTransport : IDisposable
             ct.ThrowIfCancellationRequested();
             // A response can impose cooldown while this call is waiting for courtesy spacing.
             if (site.Cooldown is { } next) throw new SourceException("CoolingDown", "The site is cooling down.", next);
-            if (query.RequestBudget is { } budget && !budget.TryAcquire())
-                throw new SourceException("RequestBudget", "The scope's source request budget is exhausted.");
             using var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, uri);
             request.Headers.UserAgent.ParseAdd(settings.Id is "bitsearch" or "1337x"
                 ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"

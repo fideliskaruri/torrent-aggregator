@@ -11,9 +11,8 @@ public static class SourcesComposition
     {
         services.AddSources();
         services.AddSingleton<IParser>(_ => new ReleaseParser(DateTime.UtcNow.Year + 1));
-        services.AddSingleton<SourceFlights>();
-        services.AddSingleton<SearchCache>();
-        services.AddSingleton<SearchBudget>();
+        services.AddSingleton<SourceSearches>();
+        services.AddSingleton<ReleaseFacts>();
         services.AddSingleton<IFind, FindService>();
         return services;
     }
