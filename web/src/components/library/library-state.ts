@@ -94,8 +94,8 @@ export function libraryItemState(
   if (!isSeries) {
     return {
       kind: "saved",
-      label: "In your library",
-      detail: "No release has been sent yet.",
+      label: "Not downloaded yet",
+      detail: "Download it from its title page.",
       nextLabel: null,
     };
   }
