@@ -1,19 +1,18 @@
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { openSearchOverlay } from "./search-overlay-event";
+import { useSearchOverlayController } from "./use-search-overlay-controller";
+import { useTitleSearch } from "./use-title-search";
 import { SearchOverlayControls } from "./search-overlay-controls";
 import { SearchOverlayResults } from "./search-overlay-results";
 import { searchDisplayFor } from "./search-overlay-state";
-import type { SearchOverlayController } from "./use-search-overlay-controller";
-import type { TitleSearchState } from "./use-title-search";
 
-export function SearchOverlayView({
-  controller,
-  search,
-}: {
-  controller: SearchOverlayController;
-  search: TitleSearchState;
-}) {
+export { openSearchOverlay };
+
+export function SearchOverlay() {
+  const search = useTitleSearch();
+  const controller = useSearchOverlayController(search);
   const display = searchDisplayFor({
     scopeId: search.scopeId,
     query: search.query,
@@ -78,7 +77,7 @@ export function SearchOverlayView({
                 className="p-3 sm:p-4"
                 data-search-results
               >
-                <SearchOverlayResults search={search} />
+                <SearchOverlayResults search={search} display={display} />
               </div>
             </ScrollArea>
           </TabsContent>

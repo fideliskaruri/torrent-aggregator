@@ -5,6 +5,7 @@ import {
 } from "@/lib/torrents/search-scopes";
 import {
   parseWorkSearchScope,
+  type WorkSearchHit,
   type WorkSearchScope,
 } from "@/lib/search/work-search";
 import { partialResultsNotice } from "./partial-results-notice";
@@ -15,6 +16,13 @@ import {
   searchRequestFor,
   searchUrlFor,
 } from "./search-overlay-state";
+
+interface TitleSearchResponse {
+  results?: WorkSearchHit[];
+  error?: string | null;
+  partial?: boolean;
+  failedProviders?: string[];
+}
 
 export function useTitleSearch() {
   const [query, setQuery] = useState("");
@@ -51,31 +59,22 @@ export function useTitleSearch() {
     setError(null);
     setNotice(null);
 
-    get(request.url, { signal: controller.signal })
-      .then(async (res) => {
-        const json = (await res.json().catch(() => null)) as {
-          results?: unknown;
-          error?: string | null;
-          partial?: boolean;
-          failedProviders?: string[];
-        } | null;
+    get<TitleSearchResponse>(request.url, { signal: controller.signal })
+      .then((res) => {
+        const body = res.data;
         if (!canCommit(reqId)) return;
         if (!res.ok) {
           setTitles([]);
           setNotice(null);
-          setError(searchErrorMessage(res.status, json));
+          setError(searchErrorMessage(res.status, body));
           setLoading(false);
           return;
         }
-        setTitles(
-          titlesFromSearchHits(
-            (json?.results ?? []) as Parameters<typeof titlesFromSearchHits>[0],
-          ),
-        );
+        setTitles(titlesFromSearchHits(body?.results ?? []));
         setNotice(
           partialResultsNotice({
-            partial: json?.partial,
-            failedProviders: json?.failedProviders,
+            partial: body?.partial,
+            failedProviders: body?.failedProviders,
           }),
         );
         setLoading(false);

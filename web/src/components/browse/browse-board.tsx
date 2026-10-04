@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { send } from "@/lib/api";
 import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
-import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -49,7 +48,7 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
       if (statuses[item.id] === "pending") return;
       if (!(await ensureDownloadSetup())) return;
 
-      const label = cleanDisplayTitle(item.title);
+      const label = item.title;
       setStatuses((prev) => ({ ...prev, [item.id]: "pending" }));
       try {
         const res = await send("/api/library/ondemand", {

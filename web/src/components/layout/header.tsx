@@ -1,7 +1,5 @@
 import { useLocation } from "react-router";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { pendingBadge } from "@/lib/requests";
-import { useSessionInfo } from "@/lib/session";
 import { useCapabilities } from "@/lib/capabilities";
 import {
   NOTIFICATIONS_HREF,
@@ -13,6 +11,7 @@ import { HeaderActions } from "./header-actions";
 import { HeaderBrand } from "./header-brand";
 import { HeaderDesktopNav } from "./header-desktop-nav";
 import { HEADER_FOLD, useHeaderFold } from "./use-header-fold";
+import { useHeaderStatus } from "./use-header-status";
 
 export function Header() {
   const pathname = useLocation().pathname;
@@ -23,9 +22,7 @@ export function Header() {
   const dividerHref = fullRow[dividerIndex]?.href ?? null;
   const navRow = fullRow.filter((item) => item.href !== NOTIFICATIONS_HREF);
   const activeHref = navActiveHref(fullRow, pathname);
-  const { pendingRequests: pending, via, email } = useSessionInfo();
-  const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
-  const showAccount = via === "tunnel" && Boolean(email);
+  const { email, showAccount, requestsBadge } = useHeaderStatus(caps.canReviewRequests);
   const { rowRef, navRef, fold } = useHeaderFold(
     `${navRow.map((item) => item.href).join(",")}|${requestsBadge ?? ""}|${caps.canPreview}|${showAccount}`,
     HEADER_FOLD.overflow + navRow.length - 1,

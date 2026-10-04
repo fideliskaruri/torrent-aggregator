@@ -1,4 +1,4 @@
-export interface CatalogCardActionRequest {
+interface CatalogCardActionRequest {
   watchListItemId: string;
   title: string;
   mediaType: string;
@@ -16,7 +16,6 @@ export type CatalogCardAction =
 
 export interface CatalogCardData {
   href: string;
-  searchHref: string | null;
   action: CatalogCardAction;
 }
 

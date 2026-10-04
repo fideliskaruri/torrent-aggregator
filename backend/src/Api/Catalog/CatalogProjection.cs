@@ -43,7 +43,7 @@ internal static class CatalogProjection
         provider = Provider(w), providerId = Primary(w)?.ExternalId, aliases = Aliases(w),
         mediaType = Type(w), titleMediaType = TitleType(w), isSeries = Series(w), format = w.ProviderFormat,
         w.Work.PosterUrl, overview = w.Work.Synopsis, releaseDate = Release(w), href = Href(w),
-        action, searchHref = CardAction.SearchHref(Title(w), TitleType(w)),
+        action,
         externalIds = w.Links.Where(l => l.Status == LinkStatus.Verified).DistinctBy(l => l.Provider)
             .ToDictionary(l => l.Provider, l => l.ExternalId),
     };
@@ -53,7 +53,7 @@ internal static class CatalogProjection
         subtitle = w.Work.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture),
         w.Work.PosterUrl, w.Work.BackdropUrl, availability = (string?)null,
         infoHash = (string?)null, filePath = (string?)null, watchListItemId = (string?)null, mediaType = TitleType(w),
-        href = Href(w), searchHref = CardAction.SearchHref(Title(w), TitleType(w)), action,
+        href = Href(w), action,
         releaseDate = Release(w), overview = w.Work.Synopsis, season = (int?)null, episode = (int?)null,
         provider = Provider(w), providerId = Primary(w)?.ExternalId,
         inTheatricalWindow = inCinemas,

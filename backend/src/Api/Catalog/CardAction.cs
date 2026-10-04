@@ -12,7 +12,7 @@ internal static class CardAction
 {
     internal static async Task<IReadOnlyDictionary<string, CatalogCardAction>> ResolveAsync(
         TorrentFlowDbContext db, IEnumerable<WorkSnapshot> source, string actorId, bool canDownload,
-        CancellationToken ct, IReadOnlyCollection<WatchItemRow>? knownWatchItems = null)
+        CancellationToken ct)
     {
         var works = source.DistinctBy(w => w.Work.Id).ToArray();
         var ids = works.Select(w => w.Work.Id).ToArray();
@@ -22,8 +22,9 @@ internal static class CardAction
             .Where(f => ids.Contains(f.WorkId) && f.Role == FileRole.Video && f.Status == FilePresence.Present)
             .ToListAsync(ct);
         var targets = await db.Targets.AsNoTracking().Where(t => ids.Contains(t.WorkId)).ToListAsync(ct);
-        var watchItems = knownWatchItems ?? await db.WatchItems.AsNoTracking()
-            .Where(i => i.UserId == actorId && ids.Contains(i.WorkId))
+        var watchItems = await db.WatchItems.AsNoTracking()
+            .Where(i => i.UserId == actorId && ids.Contains(i.WorkId) &&
+                i.Status != WatchStatus.Completed && i.Status != WatchStatus.Dropped)
             .ToListAsync(ct);
 
         var filesByWork = files.GroupBy(f => f.WorkId).ToDictionary(g => g.Key, g => g.ToArray());
@@ -88,7 +89,7 @@ internal static class CardAction
         });
     }
 
-    internal static string? SearchHref(string title, string? mediaType)
+    private static string? SearchHref(string title, string? mediaType)
     {
         if (string.IsNullOrWhiteSpace(title)) return null;
         var category = mediaType?.Trim().ToLowerInvariant() switch

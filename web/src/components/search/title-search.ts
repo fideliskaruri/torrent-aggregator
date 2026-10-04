@@ -6,7 +6,6 @@
  */
 import type { TitleResult } from "./group-titles";
 import { releaseStatus } from "@/lib/browse/release-status";
-import { titlePath } from "@/components/title/work-key";
 import type { WorkSearchHit } from "@/lib/search/work-search";
 import { parseRequestState } from "@/lib/requests";
 
@@ -23,13 +22,7 @@ export function titlesFromSearchHits(
     const workKey = hit.workKey?.trim();
     if (!workKey || !hit.title?.trim()) continue;
 
-    const href =
-      hit.href ||
-      titlePath(workKey, {
-        title: hit.title,
-        year,
-        mediaType: hit.titleMediaType || mediaType,
-      });
+    const href = hit.href;
 
     const releaseDate = hit.releaseDate ?? null;
     const status = releaseStatus(releaseDate, now);
