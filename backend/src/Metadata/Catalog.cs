@@ -11,7 +11,7 @@ internal sealed partial class MetadataService
     {
         var term = SearchText.Canonical(query.Query);
         if (term.Length is < 1 or > 200 || JsonFacts.Fold(term).Length == 0) return new([], false, false, []);
-        var settings = await store.SettingsAsync(cancellationToken);
+        var settings = await ProviderHttp.SettingsAsync(dbs, cancellationToken);
         var signals = new ConcurrentDictionary<string, SearchCandidate>();
         var tasks = new List<Task<(string Provider, ProviderAnswer Answer, WorkSnapshot[] Works)>>();
         var kinds = query.Category switch
@@ -61,7 +61,7 @@ internal sealed partial class MetadataService
                 rows[Array.IndexOf(rows, old)] = b.Build();
             }
         }
-        var existing = await store.AllAsync<WorkLinkRow>(null, cancellationToken);
+        var existing = await LinksAsync(cancellationToken);
         var rankedCandidates = new List<SearchCandidate>();
         foreach (var row in rows)
         {
@@ -69,7 +69,7 @@ internal sealed partial class MetadataService
                 row.Links.Any(p => p.Source != "fribb" && p.Provider == l.Provider &&
                     p.ExternalId == l.ExternalId && p.ProviderKind == l.ProviderKind))
                 .OrderByDescending(l => l.IsPrimary).FirstOrDefault();
-            var stored = old is null ? null : await store.SnapshotAsync(old.WorkId, cancellationToken);
+            var stored = old is null ? null : await SnapshotAsync(old.WorkId, cancellationToken);
             var signal = signals[row.Work.Id] with { Work = row };
             if (stored?.Work.Kind == row.Work.Kind && (row.Work.Year is null || stored.Work.Year is null ||
                 Math.Abs(row.Work.Year.Value - stored.Work.Year.Value) <= 1))

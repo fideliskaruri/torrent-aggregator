@@ -1,12 +1,13 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
-    private static readonly JsonSerializerOptions ListingJson = new(CatalogStore.Json)
+    private static readonly JsonSerializerOptions ListingJson = new(JsonSerializerOptions.Web)
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
@@ -32,7 +33,7 @@ internal sealed partial class MetadataService
     public async Task<BrowseResult> BrowseAsync(BrowseQuery query, CancellationToken cancellationToken)
     {
         var type = query.Type is "films" or "series" or "anime" ? query.Type : "all";
-        var configured = await store.SettingsAsync(cancellationToken);
+        var configured = await ProviderHttp.SettingsAsync(dbs, cancellationToken);
         var hasTmdb = configured.EnabledProviders.Contains("tmdb") && await tmdb.EnabledAsync(cancellationToken);
         var specs = Featured.Where(r => type == "all" || r.Type == type).ToArray();
         var genres = CatalogViews.Genres(type);
@@ -101,9 +102,11 @@ internal sealed partial class MetadataService
         var result = new List<BrowseRail>();
         if (type == "all" && query.UserId is { } userId)
         {
-            var watches = await store.AllAsync<WatchItemRow>(CatalogStore.Query() with { UserId = userId }, cancellationToken);
-            var seed = watches.OrderByDescending(w => w.UpdatedAt).FirstOrDefault();
-            if (seed is not null && await store.SnapshotAsync(seed.WorkId, cancellationToken) is { } work &&
+            WatchItemRow? seed;
+            await using (var db = await dbs.CreateDbContextAsync(cancellationToken))
+                seed = (await db.WatchItems.AsNoTracking().Where(w => w.UserId == userId).OrderBy(w => w.Id)
+                    .ToListAsync(cancellationToken)).OrderByDescending(w => w.UpdatedAt).FirstOrDefault();
+            if (seed is not null && await SnapshotAsync(seed.WorkId, cancellationToken) is { } work &&
                 await HomeRecommendationsAsync(work, rails.Where(r => r.Rail is not null)
                     .Select(r => r.Rail!).ToArray(), cancellationToken) is { } personal)
             {
@@ -167,7 +170,9 @@ internal sealed partial class MetadataService
     {
         var cacheId = ProviderHttp.Id("rail:" + spec.Id);
         var feed = ProviderHttp.Id(spec.TmdbPath + "|" + spec.Query + "|" + spec.AnimeSort + "|" + spec.Seasonal + "|" + genre + "|legacy-listings-v6");
-        var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(cacheId), ct)).FirstOrDefault();
+        MetadataCacheRow? previous;
+        await using (var db = await dbs.CreateDbContextAsync(ct))
+            previous = await db.MetadataCaches.AsNoTracking().SingleOrDefaultAsync(c => c.Id == cacheId, ct);
         var preferred = spec.Type == "anime" ? "anilist" : hasTmdb ? "tmdb" : "cinemeta";
         if (!replenish && previous is not null && previous.ExpiresAt > DateTimeOffset.UtcNow && previous.Payload.Text("feed") == feed &&
             previous.Provider == preferred &&
@@ -268,7 +273,13 @@ internal sealed partial class MetadataService
                 w.Links.ToArray(), w.Seasons, w.Episodes, w.PremiereAt, w.ProviderFormat)).ToArray() }, ListingJson);
         var expires = new DateTimeOffset(DateTime.Now.Date.AddDays(1)).ToUniversalTime();
         var cache = new MetadataCacheRow { Id = cacheId, Kind = CacheKind.BrowseRail, CacheKey = "rail:" + spec.Id, Payload = payload, FetchedAt = now, ExpiresAt = expires, Etag = null, LastModified = null, Complete = true, Provider = provider };
-        await store.CommitAsync([new(cache, null, previous)], null, ct);
+        await using (var db = await dbs.CreateDbContextAsync(ct))
+        {
+            if (previous is null) db.Add(cache);
+            else db.Update(cache);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex)) { }
+        }
         return (new(spec.Id, spec.Title, [.. stored]), false);
     }
 
@@ -286,11 +297,11 @@ internal sealed partial class MetadataService
         }
         if (row.Payload.Obj("entries").ValueKind == JsonValueKind.Array)
             return new(row.Payload.Text("id")!, title,
-                [.. row.Payload.Obj("entries").Deserialize<WorkSnapshot[]>(CatalogStore.Json)!
+                [.. row.Payload.Obj("entries").Deserialize<WorkSnapshot[]>(JsonSerializerOptions.Web)!
                     .Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))]);
         var works = new List<WorkSnapshot>();
         foreach (var id in row.Payload.Obj("workIds").Strings())
-            if (await store.SnapshotAsync(id, ct) is { } work && !string.IsNullOrWhiteSpace(work.Work.PosterUrl)) works.Add(work);
+            if (await SnapshotAsync(id, ct) is { } work && !string.IsNullOrWhiteSpace(work.Work.PosterUrl)) works.Add(work);
         return new(row.Payload.Text("id")!, title, [.. works]);
     }
 
@@ -437,7 +448,7 @@ internal sealed partial class MetadataService
         var rows = new List<WorkSnapshot>();
         foreach (var id in seedWorkIds.Take(3))
         {
-            var seed = await store.SnapshotAsync(id, cancellationToken);
+            var seed = await SnapshotAsync(id, cancellationToken);
             if (seed is null) continue;
             var link = seed.Links.FirstOrDefault(l => l.Provider == "tmdb" && l.Status == LinkStatus.Verified);
             if (seed.Work.Anime != true && link is not null && await tmdb.EnabledAsync(cancellationToken))
@@ -468,7 +479,7 @@ internal sealed partial class MetadataService
         var stored = (await PersistListingsAsync(rows.Where(w => !string.IsNullOrWhiteSpace(w.Work.PosterUrl))
             .DistinctBy(w => w.Work.WorkKey), cancellationToken))
             .Where(w => !seedWorkIds.Contains(w.Work.Id)).Take(20).ToImmutableArray();
-        var first = seedWorkIds.IsEmpty ? null : await store.SnapshotAsync(seedWorkIds[0], cancellationToken);
+        var first = seedWorkIds.IsEmpty ? null : await SnapshotAsync(seedWorkIds[0], cancellationToken);
         var title = first?.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ?? first?.Names.FirstOrDefault()?.Value;
         return stored.IsEmpty ? null : new("because", "Because you're watching " + title, stored);
     }

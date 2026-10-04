@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 using TorrentFlow.Metadata;
 using TorrentFlow.Store;
@@ -15,19 +16,10 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(null, true);
 app.MapPost("/resolve", (MetadataQuery query, IMetadata metadata, CancellationToken ct) => metadata.ResolveAsync(query, ct));
 app.MapGet("/health", () => new { ok = true, pid = Environment.ProcessId });
-app.MapGet("/proof/tmdb/{kind}/{id}", async (string kind, string id,
-    [FromKeyedServices("metadata")] IStore store, CancellationToken ct) =>
+app.MapGet("/proof/tmdb/{kind}/{id}", async (string kind, string id, TorrentFlowDbContext db, CancellationToken ct) =>
 {
-    var rows = new List<MetadataCacheRow>();
-    var query = new StoreQuery(null, null, null, null, null, null, null, null, null,
-        null, null, null, null, null, 500, StoreOrder.PrimaryKey);
-    while (true)
-    {
-        var page = await store.ReadAsync<MetadataCacheRow>(query, ct);
-        rows.AddRange(page.Where(row => row.Provider == "tmdb"));
-        if (page.Length < query.Limit) break;
-        query = query with { Cursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(page[^1].Id)) };
-    }
+    var rows = await db.MetadataCaches.AsNoTracking().Where(row => row.Provider == "tmdb")
+        .OrderBy(row => row.Id).ToListAsync(ct);
     var prefix = "/" + kind + "/" + id;
     return rows.Select(row => new
     {

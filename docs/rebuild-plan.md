@@ -48,7 +48,7 @@ On approval, this plan is also saved to the repo as `docs/rebuild-plan.md`. Desi
 Domain   <- every module (types and interfaces only)
 Parser   -> Domain                (pure)
 Plan     -> Domain                (pure)
-Metadata -> Domain
+Metadata -> Domain, Store
 Sources  -> Domain
 Engine   -> Domain                (MonoTorrent)
 Check    -> Domain, Engine

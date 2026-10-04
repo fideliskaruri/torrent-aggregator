@@ -3,12 +3,14 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmdb, AniListClient anilist,
-    CinemetaClient cinemeta, FribbMap map) : IMetadata
+internal sealed partial class MetadataService(IDbContextFactory<TorrentFlowDbContext> dbs, TmdbClient tmdb,
+    AniListClient anilist, CinemetaClient cinemeta, FribbMap map) : IMetadata
 {
     private readonly SemaphoreSlim commits = new(1);
     private readonly ConcurrentDictionary<string, Lazy<Task<MetadataResult>>> resolutions = new();
@@ -84,7 +86,7 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
 
     public async Task<MetadataResult> GetWorkAsync(string workId, bool refresh, CancellationToken cancellationToken)
     {
-        var cached = await store.SnapshotAsync(workId, cancellationToken);
+        var cached = await SnapshotAsync(workId, cancellationToken);
         if (cached is null)
         {
             var parts = workId.Split(':');
@@ -145,9 +147,9 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
         try { return await BuildAsync(identity, refresh, CancellationToken.None); }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException or IOException)
         {
-            var link = (await store.AllAsync<WorkLinkRow>(null, CancellationToken.None))
+            var link = (await LinksAsync(CancellationToken.None))
                 .FirstOrDefault(l => l.Status == LinkStatus.Verified && SameId(l, identity));
-            var previous = link is null ? null : await store.SnapshotAsync(link.WorkId, CancellationToken.None);
+            var previous = link is null ? null : await SnapshotAsync(link.WorkId, CancellationToken.None);
             return new(previous, new("provider_unavailable", "The catalog could not be reached. Try again later.", null, false),
                 false, previous is not null);
         }
@@ -155,11 +157,11 @@ internal sealed partial class MetadataService(CatalogStore store, TmdbClient tmd
 
     private async Task<MetadataResult> BuildAsync(ProviderId identity, bool refresh, CancellationToken ct)
     {
-        var priorLinks = await store.AllAsync<WorkLinkRow>(null, ct);
+        var priorLinks = await LinksAsync(ct);
         var known = priorLinks.FirstOrDefault(l => l.Status == LinkStatus.Verified && SameId(l, identity));
         if (!refresh && known is not null)
         {
-            var knownWork = await store.SnapshotAsync(known.WorkId, ct);
+            var knownWork = await SnapshotAsync(known.WorkId, ct);
             if (knownWork is not null && (identity.ProviderKind is null ||
                 knownWork.Work.Kind == (identity.ProviderKind is "tv" or "series" ? WorkKind.Series : WorkKind.Film))
                 && !HasProviderConflict(knownWork) && CurrentPresentation(knownWork) && knownWork.Work.RefreshedAt > DateTimeOffset.UtcNow.AddHours(-1)

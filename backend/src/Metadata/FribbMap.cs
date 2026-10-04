@@ -1,13 +1,15 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Metadata;
 
 internal sealed record AnimeMapEntry(int? AniList, int? Mal, int? Tvdb, int? TmdbTv,
     ImmutableArray<int> TmdbMovies, ImmutableArray<string> Imdb, int? Season);
 
-internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
+internal sealed class FribbMap(ProviderHttp http, IDbContextFactory<TorrentFlowDbContext> dbs)
 {
     internal const string DefaultUrl = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json";
     private readonly SemaphoreSlim gate = new(1);
@@ -24,9 +26,10 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
         try
         {
             if (loaded) return;
-            var url = (await store.SettingsAsync(ct)).FribbUrl ?? DefaultUrl;
+            var url = (await ProviderHttp.SettingsAsync(dbs, ct)).FribbUrl ?? DefaultUrl;
             var id = ProviderHttp.Id("fribb:" + url);
-            var cached = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(id), ct)).FirstOrDefault();
+            await using var db = await dbs.CreateDbContextAsync(ct);
+            var cached = await db.MetadataCaches.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
             if (cached is not null && Valid(cached.Payload))
             {
                 Index(Parse(cached.Payload));
@@ -55,7 +58,7 @@ internal sealed class FribbMap(ProviderHttp http, CatalogStore store)
         {
             if (now - checkedAt < TimeSpan.FromHours(6)) return;
             checkedAt = now;
-            var settings = await store.SettingsAsync(ct);
+            var settings = await ProviderHttp.SettingsAsync(dbs, ct);
             var url = settings.FribbUrl ?? DefaultUrl;
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https") return;
             var answer = await http.FetchAsync("fribb", url, () => new(HttpMethod.Get, uri),

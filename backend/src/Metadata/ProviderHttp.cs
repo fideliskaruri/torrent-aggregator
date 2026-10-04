@@ -4,13 +4,16 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Metadata;
 
 internal sealed record ProviderAnswer(JsonElement? Json, bool Stale, bool Complete, Failure? Failure);
 
-internal sealed class ProviderHttp(CatalogStore store) : IDisposable
+internal sealed class ProviderHttp(IDbContextFactory<TorrentFlowDbContext> dbs) : IDisposable
 {
     internal static readonly AsyncLocal<bool> Background = new();
     private readonly long startedAt = Stopwatch.GetTimestamp();
@@ -43,7 +46,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         TimeSpan ttl, CancellationToken ct, int timeoutSeconds = 10, int maxBytes = 8 * 1024 * 1024,
         bool force = false, CacheKind kind = CacheKind.ProviderDetail, Func<JsonElement, bool>? validate = null)
     {
-        var configured = (await store.SourceSettingsAsync(ct)).FirstOrDefault(s => s.Id == provider);
+        var configured = (await SettingsAsync(dbs, ct)).Sources.FirstOrDefault(s => s.Id == provider);
         if (configured is { Enabled: false })
             return new(null, false, false, new("provider_disabled", "This catalog is disabled in Settings.", null, true));
         if (configured is not null)
@@ -67,7 +70,9 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         var id = Id(provider + ":" + key);
         if (!force && misses.TryGetValue(id, out var missing) && missing.Until > DateTimeOffset.UtcNow)
             return missing.Answer;
-        var previous = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(id), ct)).FirstOrDefault();
+        MetadataCacheRow? previous;
+        await using (var db = await dbs.CreateDbContextAsync(ct))
+            previous = await db.MetadataCaches.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
         if (!force && previous is { Complete: true } && previous.ExpiresAt > DateTimeOffset.UtcNow)
             return new(previous.Payload, false, true, null);
         var flight = flights.GetOrAdd(id, _ => new Lazy<Task<ProviderAnswer>>(
@@ -87,18 +92,33 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
     internal async Task<Dictionary<string, JsonElement>> ReadCachedAsync(string provider,
         Dictionary<string, string> keys, CancellationToken ct)
     {
-        var configured = (await store.SourceSettingsAsync(ct)).FirstOrDefault(s => s.Id == provider);
-        if (configured is { Enabled: false } || !(await store.SettingsAsync(ct)).EnabledProviders.Contains(provider))
+        var settings = await SettingsAsync(dbs, ct);
+        var configured = settings.Sources.FirstOrDefault(s => s.Id == provider);
+        if (configured is { Enabled: false } || !settings.EnabledProviders.Contains(provider))
             return [];
         var suffix = configured is null ? "" : "|" + JsonSerializer.Serialize(configured);
-        var rows = await Task.WhenAll(keys.Select(async pair =>
-        {
-            var row = (await store.ReadAsync<MetadataCacheRow>(CatalogStore.Query(Id(provider + ":" + pair.Value + suffix)), ct))
-                .FirstOrDefault();
-            return (pair.Key, Row: row);
-        }));
-        return rows.Where(r => r.Row is { Complete: true }).ToDictionary(r => r.Key, r => r.Row!.Payload);
+        var ids = keys.ToDictionary(pair => pair.Key, pair => Id(provider + ":" + pair.Value + suffix));
+        var wanted = ids.Values.Distinct().ToArray();
+        await using var db = await dbs.CreateDbContextAsync(ct);
+        var rows = await db.MetadataCaches.AsNoTracking().Where(c => wanted.Contains(c.Id) && c.Complete)
+            .ToDictionaryAsync(c => c.Id, c => c.Payload, ct);
+        return ids.Where(p => rows.ContainsKey(p.Value)).ToDictionary(p => p.Key, p => rows[p.Value]);
     }
+
+    internal static async Task<MetadataSettings> SettingsAsync(IDbContextFactory<TorrentFlowDbContext> dbs,
+        CancellationToken ct)
+    {
+        await using var db = await dbs.CreateDbContextAsync(ct);
+        var row = await db.Settings.AsNoTracking().SingleOrDefaultAsync(s => s.Id == "metadata", ct);
+        var settings = row is null ? new(null, FribbMap.DefaultUrl, ["tmdb", "anilist", "cinemeta", "tvmaze", "itunes"])
+            : SettingsCatalog.Read<MetadataSettings>(row);
+        var metadata = settings.Sources.Where(s => s.Kind == "metadata").ToArray();
+        return metadata.Length == 0 ? settings : settings with
+            { EnabledProviders = [.. metadata.Where(s => s.Enabled).Select(s => s.Type)] };
+    }
+
+    internal static bool Conflict(DbUpdateException ex) =>
+        ex is DbUpdateConcurrencyException || ex.InnerException is SqliteException { SqliteErrorCode: 19 };
 
     private async Task<ProviderAnswer> SendAsync(string provider, string key, string id,
         Func<HttpRequestMessage> create, TimeSpan ttl, MetadataCacheRow? previous,
@@ -114,7 +134,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
         {
             if (Volatile.Read(ref gate.Pending) > 64)
                 return Failed("provider_busy", "The catalog is busy. Try again shortly.", DateTimeOffset.UtcNow.AddSeconds(10));
-            var enabled = (await store.SettingsAsync(ct)).EnabledProviders;
+            var enabled = (await SettingsAsync(dbs, ct)).EnabledProviders;
             if (provider != "fribb" && !enabled.Contains(provider == "imdb" ? "cinemeta" : provider))
                 return Failed("provider_disabled", "This catalog is disabled in Settings.", null);
             if (gate.Cooldown is { } due && due > DateTimeOffset.UtcNow)
@@ -180,7 +200,13 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
             }
             gate.Strikes = 0;
             var row = new MetadataCacheRow { Id = id, Kind = kind, CacheKey = provider + ":" + key, Payload = payload, FetchedAt = now, ExpiresAt = now + ttl, Etag = response.Headers.ETag?.ToString() ?? previous?.Etag, LastModified = response.Content.Headers.LastModified?.ToString("R") ?? previous?.LastModified, Complete = true, Provider = provider };
-            await store.CommitAsync([new(row, null, previous)], null, ct);
+            await using (var db = await dbs.CreateDbContextAsync(ct))
+            {
+                if (previous is null) db.Add(row);
+                else db.Update(row);
+                try { await db.SaveChangesAsync(ct); }
+                catch (DbUpdateException ex) when (Conflict(ex)) { }
+            }
             return new(payload, false, true, null);
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException

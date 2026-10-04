@@ -1,17 +1,41 @@
 using System.Collections.Immutable;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Metadata;
 
 internal sealed partial class MetadataService
 {
+    private async Task<WorkSnapshot?> SnapshotAsync(string id, CancellationToken ct)
+    {
+        await using var db = await dbs.CreateDbContextAsync(ct);
+        var work = await db.Works.AsNoTracking().SingleOrDefaultAsync(w => w.Id == id, ct)
+            ?? await db.Works.AsNoTracking().SingleOrDefaultAsync(w => w.WorkKey == id, ct);
+        if (work is null) return null;
+        var seasons = await db.Seasons.AsNoTracking().Where(s => s.WorkId == work.Id)
+            .OrderBy(s => s.Number).ThenBy(s => s.Id).ToListAsync(ct);
+        var seasonIds = seasons.Select(s => s.Id).ToArray();
+        var episodes = await db.Episodes.AsNoTracking().Where(e => seasonIds.Contains(e.SeasonId))
+            .OrderBy(e => e.SeasonId).ThenBy(e => e.Id).ToListAsync(ct);
+        var names = await db.WorkNames.AsNoTracking().Where(n => n.WorkId == work.Id)
+            .OrderBy(n => n.Ordinal).ThenBy(n => n.Id).ToListAsync(ct);
+        var links = await db.WorkLinks.AsNoTracking().Where(l => l.WorkId == work.Id).OrderBy(l => l.Id).ToListAsync(ct);
+        return new(work, [.. names], [.. links], [.. seasons], [.. episodes]);
+    }
+
+    private async Task<List<WorkLinkRow>> LinksAsync(CancellationToken ct)
+    {
+        await using var db = await dbs.CreateDbContextAsync(ct);
+        return await db.WorkLinks.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
+    }
+
     private async Task<ImmutableArray<WorkSnapshot>> PersistListingsAsync(IEnumerable<WorkSnapshot> candidates,
         CancellationToken ct)
     {
         await commits.WaitAsync(ct);
         try
         {
-            var links = (await store.AllAsync<WorkLinkRow>(null, ct)).Where(l => l.Status == LinkStatus.Verified)
+            var links = (await LinksAsync(ct)).Where(l => l.Status == LinkStatus.Verified)
                 .GroupBy(l => (l.Provider, l.ProviderKind, l.ExternalId))
                 .ToDictionary(g => g.Key, g => g.Select(l => l.WorkId).Distinct().ToArray());
             var rows = new Dictionary<string, StoreRow>();
@@ -39,9 +63,16 @@ internal sealed partial class MetadataService
                     links.TryAdd((link.Provider, link.ProviderKind, link.ExternalId), [proposed.Work.Id]);
                 result.Add(proposed);
             }
-            if (rows.Count > 0 && !(await store.CommitAsync(rows.Values.Select(r => new RowWrite(r, null, null)),
-                null, ct)).Applied)
-                throw new IOException("Catalog listing changed while it was being saved.");
+            if (rows.Count > 0)
+            {
+                await using var db = await dbs.CreateDbContextAsync(ct);
+                db.AddRange(rows.Values);
+                try { await db.SaveChangesAsync(ct); }
+                catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex))
+                {
+                    throw new IOException("Catalog listing changed while it was being saved.", ex);
+                }
+            }
             return result.ToImmutable();
         }
         finally { commits.Release(); }
@@ -53,7 +84,8 @@ internal sealed partial class MetadataService
         await commits.WaitAsync(ct);
         try
         {
-            var existingLinks = await store.AllAsync<WorkLinkRow>(null, ct);
+            await using var db = await dbs.CreateDbContextAsync(ct);
+            var existingLinks = await LinksAsync(ct);
             var matchingWorkIds = existingLinks.Where(l => l.Status == LinkStatus.Verified &&
                 proposed.Links.Any(p => p.Status == LinkStatus.Verified &&
                     SameId(l, new(p.Provider, p.ExternalId, p.ProviderKind))))
@@ -71,7 +103,7 @@ internal sealed partial class MetadataService
             {
                 var snapshots = new List<WorkSnapshot>();
                 foreach (var id in directWorkIds)
-                    if (await store.SnapshotAsync(id, ct) is { } snapshot) snapshots.Add(snapshot);
+                    if (await SnapshotAsync(id, ct) is { } snapshot) snapshots.Add(snapshot);
                 var retained = new List<WorkSnapshot>();
                 foreach (var snapshot in snapshots)
                     if (await HasReferencesAsync(snapshot, ct)) retained.Add(snapshot);
@@ -90,16 +122,17 @@ internal sealed partial class MetadataService
                 existingLinks = [.. existingLinks.Where(l => duplicates.All(d => d.Work.Id != l.WorkId))];
             }
             else if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
-            var previous = anchorWorkId is not null ? await store.SnapshotAsync(anchorWorkId, ct) :
-                matchingWorkIds.Length == 1 ? await store.SnapshotAsync(matchingWorkIds[0], ct) : null;
+            var previous = anchorWorkId is not null ? await SnapshotAsync(anchorWorkId, ct) :
+                matchingWorkIds.Length == 1 ? await SnapshotAsync(matchingWorkIds[0], ct) : null;
             if (previous is null && matchingWorkIds.Length == 1)
-                previous = await store.SnapshotAsync(matchingWorkIds[0], ct);
+                previous = await SnapshotAsync(matchingWorkIds[0], ct);
             if (previous is null)
             {
-                var rows = proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)
-                    .Concat(proposed.Episodes).Prepend(proposed.Work);
-                var inserted = await store.CommitAsync(rows.Select(r => new RowWrite(r, null, null)), null, ct);
-                return inserted.Applied ? proposed : null;
+                db.AddRange(proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)
+                    .Concat(proposed.Episodes).Prepend(proposed.Work));
+                try { await db.SaveChangesAsync(ct); }
+                catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex)) { return null; }
+                return proposed;
             }
             if (proposed.Work.RefreshedAt is null && previous.Work.RefreshedAt is not null)
                 return previous;
@@ -192,8 +225,8 @@ internal sealed partial class MetadataService
                 (old.SeasonId != e.SeasonId || old.Number != e.Number || old.AbsoluteNumber != e.AbsoluteNumber));
             if (changedCoordinates)
             {
-                var targets = await store.AllAsync<TargetRow>(CatalogStore.Query(workId: work.Id), ct);
-                if (targets.Any(t => t.State is TargetState.Finding or TargetState.Checking or TargetState.Planning
+                var states = await db.Targets.Where(t => t.WorkId == work.Id).Select(t => t.State).ToListAsync(ct);
+                if (states.Any(s => s is TargetState.Finding or TargetState.Checking or TargetState.Planning
                     or TargetState.Fetching or TargetState.Filing))
                 {
                     seasons = [.. previous.Seasons];
@@ -208,14 +241,12 @@ internal sealed partial class MetadataService
             var retainedIds = new HashSet<string>();
             if (completeListing && missingEpisodes.Length > 0)
             {
-                foreach (var file in await store.AllAsync<MediaFileRow>(CatalogStore.Query(workId: work.Id), ct))
-                    if (file.EpisodeId is { } id) retainedIds.Add(id);
-                foreach (var target in await store.AllAsync<TargetRow>(CatalogStore.Query(workId: work.Id), ct))
-                {
-                    if (target.EpisodeId is { } id) retainedIds.Add(id);
-                }
-                foreach (var follow in await store.AllAsync<FollowRow>(CatalogStore.Query(workId: work.Id), ct))
-                    if (follow.FromEpisodeId is { } id) retainedIds.Add(id);
+                retainedIds.UnionWith(await db.MediaFiles.Where(f => f.WorkId == work.Id && f.EpisodeId != null)
+                    .Select(f => f.EpisodeId!).ToListAsync(ct));
+                retainedIds.UnionWith(await db.Targets.Where(t => t.WorkId == work.Id && t.EpisodeId != null)
+                    .Select(t => t.EpisodeId!).ToListAsync(ct));
+                retainedIds.UnionWith(await db.Follows.Where(f => f.WorkId == work.Id && f.FromEpisodeId != null)
+                    .Select(f => f.FromEpisodeId!).ToListAsync(ct));
             }
             foreach (var old in missingEpisodes.Where(e => !completeListing || retainedIds.Contains(e.Id)))
                 episodes.Add(completeListing ? old with { MappingStatus = MappingStatus.Unavailable,
@@ -229,28 +260,55 @@ internal sealed partial class MetadataService
                 if (original?.SeasonId is { } sid && seasonMap.TryGetValue(sid, out var mapped))
                     links[i] = links[i] with { SeasonId = mapped };
             }
-            var writes = new List<RowWrite> { new(work, previous.Work.Version, null) };
+            var deletedLinks = retired.Concat(duplicates.SelectMany(d => d.Links.Where(l => links.All(p => p.Id != l.Id))))
+                .ToArray();
+            var deletedEpisodes = previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id))
+                .Concat(duplicates.SelectMany(d => d.Episodes)).ToArray();
+            var movingEpisodes = episodes.Where(e => previous.Episodes.FirstOrDefault(p => p.Id == e.Id) is { } old &&
+                (old.SeasonId != e.SeasonId || old.Number != e.Number)).ToArray();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // EF cannot order its statements around the raw verified-link index or episode number swaps,
+            // so release those unique values before saving.
+            var vacated = deletedLinks.Where(l => l.Status == LinkStatus.Verified).Select(l => l.Id).ToArray();
+            if (vacated.Length > 0)
+                await db.WorkLinks.Where(l => vacated.Contains(l.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(l => l.Status, LinkStatus.Suggested), ct);
+            var deletedEpisodeIds = deletedEpisodes.Select(e => e.Id).ToArray();
+            if (deletedEpisodeIds.Length > 0)
+                await db.Episodes.Where(e => deletedEpisodeIds.Contains(e.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(e => e.ProviderEpisodeId, (string?)null), ct);
+            if (movingEpisodes.Length > 0)
+            {
+                var temporary = await db.Episodes.MaxAsync(e => (int?)e.Number, ct) ?? 0;
+                foreach (var episode in movingEpisodes)
+                {
+                    temporary = checked(temporary + 1);
+                    await db.Episodes.Where(e => e.Id == episode.Id)
+                        .ExecuteUpdateAsync(s => s.SetProperty(e => e.Number, temporary), ct);
+                }
+            }
+            Write(work, previous.Work);
             AddUnversioned(links, previous.Links);
             AddUnversioned(names, previous.Names);
             foreach (var season in seasons.Where(s => !previous.Seasons.Contains(s)))
-                writes.Add(new(season, previous.Seasons.FirstOrDefault(s => s.Id == season.Id)?.Version, null));
+                Write(season, previous.Seasons.FirstOrDefault(s => s.Id == season.Id));
             foreach (var episode in episodes.Where(e => !previous.Episodes.Contains(e)))
-                writes.Add(new(episode, previous.Episodes.FirstOrDefault(e => e.Id == episode.Id)?.Version, null));
-            var deletes = previous.Names.Where(n => names.All(p => p.Id != n.Id))
-                .Select(n => new RowDelete(StoreTable.WorkName, n.Id, null, n))
-                .Concat(retired.Select(l => new RowDelete(StoreTable.WorkLink, l.Id, null, l)))
-                .Concat(previous.Episodes.Where(e => episodes.All(p => p.Id != e.Id))
-                    .Select(e => new RowDelete(StoreTable.Episode, e.Id, e.Version, null)))
-                .Concat(previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id))
-                    .Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)))
-                .Concat(duplicates.SelectMany(d => d.Names.Select(n => new RowDelete(StoreTable.WorkName, n.Id, null, n))
-                    .Concat(d.Links.Where(l => links.All(p => p.Id != l.Id))
-                        .Select(l => new RowDelete(StoreTable.WorkLink, l.Id, null, l)))
-                    .Concat(d.Episodes.Select(e => new RowDelete(StoreTable.Episode, e.Id, e.Version, null)))
-                    .Concat(d.Seasons.Select(s => new RowDelete(StoreTable.Season, s.Id, s.Version, null)))
-                    .Append(new RowDelete(StoreTable.Work, d.Work.Id, d.Work.Version, null))));
-            var result = await store.CommitAsync(writes, deletes, ct);
-            if (result.Applied && duplicates.Count > 0)
+                Write(episode, previous.Episodes.FirstOrDefault(e => e.Id == episode.Id));
+            foreach (var episode in movingEpisodes) db.Entry(episode).Property(e => e.Number).IsModified = true;
+            db.RemoveRange(previous.Names.Where(n => names.All(p => p.Id != n.Id))
+                .Concat(duplicates.SelectMany(d => d.Names)));
+            db.RemoveRange(deletedLinks);
+            db.RemoveRange(deletedEpisodes);
+            db.RemoveRange(previous.Seasons.Where(s => seasons.All(p => p.Id != s.Id))
+                .Concat(duplicates.SelectMany(d => d.Seasons)));
+            db.RemoveRange(duplicates.Select(d => d.Work));
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex)) { return null; }
+            if (duplicates.Count > 0)
             {
                 var changedIds = duplicates.Select(d => d.Work.Id).Append(work.Id).ToHashSet();
                 foreach (var cached in partialAnswers.Where(p => p.Value.Result.Work is { } snapshot &&
@@ -259,8 +317,14 @@ internal sealed partial class MetadataService
                 foreach (var cached in resolvedQueries.Where(p => changedIds.Contains(p.Value.WorkId)))
                     resolvedQueries.TryRemove(cached);
             }
-            return result.Applied ? new(work, [.. names.OrderBy(n => n.Ordinal)], [.. links],
-                [.. seasons.OrderBy(s => s.Number)], [.. episodes]) : null;
+            return new(work, [.. names.OrderBy(n => n.Ordinal)], [.. links],
+                [.. seasons.OrderBy(s => s.Number)], [.. episodes]);
+
+            void Write<T>(T row, T? old) where T : StoreRow
+            {
+                if (old is null) db.Add(row);
+                else db.Attach(row).OriginalValues.SetValues(old);
+            }
 
             void AddUnversioned<T>(IEnumerable<T> rows, ImmutableArray<T> oldRows) where T : StoreRow
             {
@@ -269,7 +333,7 @@ internal sealed partial class MetadataService
                     var old = oldRows.FirstOrDefault(p => p.Id == row.Id)
                         ?? duplicates.SelectMany(d => d.Links.Cast<StoreRow>()).OfType<T>()
                             .FirstOrDefault(p => p.Id == row.Id);
-                    if (!Equals(row, old)) writes.Add(new(row, null, old));
+                    if (!Equals(row, old)) Write(row, old);
                 }
             }
         }
@@ -278,16 +342,17 @@ internal sealed partial class MetadataService
 
     private async Task<bool> HasReferencesAsync(WorkSnapshot work, CancellationToken ct)
     {
-        var query = CatalogStore.Query(workId: work.Work.Id);
-        return !(await store.AllAsync<MediaFileRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<TargetRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<WatchItemRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<FollowRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<WorkPreferenceRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<ScopeIntentRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<RequestRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<AttemptRow>(query, ct)).IsEmpty ||
-            !(await store.AllAsync<WorkFolderRow>(query, ct)).IsEmpty;
+        var id = work.Work.Id;
+        await using var db = await dbs.CreateDbContextAsync(ct);
+        return await db.MediaFiles.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.Targets.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.WatchItems.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.Follows.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.WorkPreferences.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.ScopeIntents.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.Requests.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.Attempts.AnyAsync(r => r.WorkId == id, ct) ||
+            await db.WorkFolders.AnyAsync(r => r.WorkId == id, ct);
     }
 
     public async Task<MetadataResult> ChangeLinkAsync(LinkCommand command, CancellationToken cancellationToken)
@@ -295,7 +360,7 @@ internal sealed partial class MetadataService
         await commits.WaitAsync(cancellationToken);
         try
         {
-            var work = await store.SnapshotAsync(command.WorkId, cancellationToken);
+            var work = await SnapshotAsync(command.WorkId, cancellationToken);
             if (work is null) return Missing("not_found", "This title is no longer in the catalog.", true);
             if (work.Work.Version != command.ExpectedWorkVersion)
                 return Missing("catalog_conflict", "This title changed. Refresh the page before changing its link.", false);
@@ -308,22 +373,28 @@ internal sealed partial class MetadataService
             var row = work.Work with { Version = work.Work.Version + 1, UpdatedAt = DateTimeOffset.UtcNow,
                 RefreshedAt = null };
             var removed = command.Reject ? work.Names.Where(n => n.LinkId == link.Id).ToArray() : [];
-            var writes = new List<RowWrite> { new(row, work.Work.Version, null), new(updated, null, link) };
+            await using var db = await dbs.CreateDbContextAsync(cancellationToken);
+            db.Attach(row).OriginalValues.SetValues(work.Work);
+            db.Attach(updated).OriginalValues.SetValues(link);
             if (command.Reject && link.Provider == "anilist")
             {
                 var episodes = work.Episodes.Where(e => e.Provider == "anilist" &&
                     e.ProviderEpisodeId?.StartsWith(link.ExternalId + ":", StringComparison.Ordinal) == true).ToArray();
-                writes.AddRange(episodes.Select(e => new RowWrite(e with { MappingStatus = MappingStatus.Unavailable,
-                    UpdatedAt = row.UpdatedAt, Version = e.Version + 1 }, e.Version, null)));
-                writes.AddRange(work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id))
-                    .Select(s => new RowWrite(s with { MappingStatus = MappingStatus.Unavailable,
-                        UpdatedAt = row.UpdatedAt, Version = s.Version + 1 }, s.Version, null)));
+                foreach (var episode in episodes)
+                    db.Attach(episode with { MappingStatus = MappingStatus.Unavailable, UpdatedAt = row.UpdatedAt,
+                        Version = episode.Version + 1 }).OriginalValues.SetValues(episode);
+                foreach (var season in work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id)))
+                    db.Attach(season with { MappingStatus = MappingStatus.Unavailable, UpdatedAt = row.UpdatedAt,
+                        Version = season.Version + 1 }).OriginalValues.SetValues(season);
             }
-            var result = await store.CommitAsync(writes,
-                removed.Select(n => new RowDelete(StoreTable.WorkName, n.Id, null, n)), cancellationToken);
-            if (result.Applied) partialAnswers.Clear();
-            return result.Applied ? new(await store.SnapshotAsync(work.Work.Id, cancellationToken), null, true, false) :
-                Missing("catalog_conflict", "This link changed. Refresh the page and try again.", false);
+            db.RemoveRange(removed);
+            try { await db.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex))
+            {
+                return Missing("catalog_conflict", "This link changed. Refresh the page and try again.", false);
+            }
+            partialAnswers.Clear();
+            return new(await SnapshotAsync(work.Work.Id, cancellationToken), null, true, false);
         }
         finally { commits.Release(); }
     }
@@ -335,15 +406,19 @@ internal sealed partial class MetadataService
         try
         {
             await map.RefreshAsync(now, cancellationToken);
-            var rows = await store.AllAsync<WorkRow>(null, cancellationToken);
-            foreach (var work in rows.Where(w => w.RefreshedAt is null || now - w.RefreshedAt >= TimeSpan.FromDays(7)).Take(10))
+            await using var db = await dbs.CreateDbContextAsync(cancellationToken);
+            var works = await db.Works.AsNoTracking().OrderBy(w => w.Id)
+                .Select(w => new { w.Id, w.RefreshedAt }).ToListAsync(cancellationToken);
+            foreach (var work in works.Where(w => w.RefreshedAt is null || now - w.RefreshedAt >= TimeSpan.FromDays(7)).Take(10))
                 await GetWorkAsync(work.Id, true, cancellationToken);
-            var expired = (await store.AllAsync<MetadataCacheRow>(null, cancellationToken))
-                .Where(c => c.Kind is not (CacheKind.FribbMap or CacheKind.BrowseRail) &&
-                    c.ExpiresAt < now.AddDays(c.Kind == CacheKind.TitleSearch ? -1 : -7)).Take(100).ToArray();
+            // Dates are stored as text, so expiry is compared in memory.
+            var caches = await db.MetadataCaches.AsNoTracking()
+                .Where(c => c.Kind != CacheKind.FribbMap && c.Kind != CacheKind.BrowseRail).OrderBy(c => c.Id)
+                .Select(c => new { c.Id, c.Kind, c.ExpiresAt }).ToListAsync(cancellationToken);
+            var expired = caches.Where(c => c.ExpiresAt < now.AddDays(c.Kind == CacheKind.TitleSearch ? -1 : -7))
+                .Take(100).Select(c => c.Id).ToArray();
             if (expired.Length > 0)
-                await store.CommitAsync([], expired.Select(c => new RowDelete(StoreTable.MetadataCache, c.Id, null, c)),
-                    cancellationToken);
+                await db.MetadataCaches.Where(c => expired.Contains(c.Id)).ExecuteDeleteAsync(cancellationToken);
         }
         finally { ProviderHttp.Background.Value = previous; }
     }

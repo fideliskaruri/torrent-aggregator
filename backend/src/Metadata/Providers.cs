@@ -1,17 +1,19 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Metadata;
 
-internal sealed class TmdbClient(ProviderHttp http, CatalogStore store, MetadataPaths paths)
+internal sealed class TmdbClient(ProviderHttp http, IDbContextFactory<TorrentFlowDbContext> dbs, MetadataPaths paths)
 {
     internal async Task<bool> EnabledAsync(CancellationToken ct) => await CredentialAsync(ct) is not null;
 
     private async Task<string?> CredentialAsync(CancellationToken ct)
     {
-        var setting = await store.SettingsAsync(ct);
+        var setting = await ProviderHttp.SettingsAsync(dbs, ct);
         if (setting.TmdbCredential is not { } reference)
             return Environment.GetEnvironmentVariable("TMDB_API_KEY")?.Trim();
         if (Path.GetFileName(reference.FileId) != reference.FileId || reference.FileId.Contains("..", StringComparison.Ordinal))
@@ -86,7 +88,7 @@ internal sealed class AniListClient(ProviderHttp http)
         TimeSpan? ttl = null, bool force = false)
     {
         var body = new { query, variables };
-        var key = JsonSerializer.Serialize(body, CatalogStore.Json);
+        var key = JsonSerializer.Serialize(body, JsonSerializerOptions.Web);
         return http.FetchAsync("anilist", key, () => new(HttpMethod.Post, "https://graphql.anilist.co")
         {
             Content = JsonContent.Create(body),
