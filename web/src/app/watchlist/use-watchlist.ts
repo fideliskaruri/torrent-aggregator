@@ -1,7 +1,6 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { parseLibrary } from "@/lib/requests";
 import { toast } from "@/lib/toast";
 import { removeWatchlistItem } from "@/lib/api/watchlist";
@@ -62,15 +61,6 @@ export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
       ? { items: ownerItems.map(readOnlyItem) }
       : owner.data;
   const items = data?.items ?? [];
-  const missingArt = useMemo(
-    () => items.filter((item) => !item.posterUrl).map((item) => ({
-      name: item.title,
-      workTitle: item.title,
-      workMediaType: item.mediaType,
-    })),
-    [items],
-  );
-  const artwork = useWorkArtwork(missingArt);
   const patch = useApiMutation<{
     id: string;
     status?: string;
@@ -110,7 +100,6 @@ export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
   return {
     state,
     query: source,
-    artwork,
     update,
     remove,
     pending: patch.pending,

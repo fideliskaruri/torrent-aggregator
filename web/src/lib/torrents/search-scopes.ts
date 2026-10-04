@@ -41,10 +41,8 @@ export interface SearchScope {
   /**
    * Download folder these land in, from `DEFAULT_CATEGORIES`.
    *
-   * Stated here so the UI can promise where a file will go *before* the
-   * download starts. The server still decides for itself (`smart-category.ts`)
-   * — this must never be the only thing routing a file, only what we tell the
-   * owner to expect.
+   * Stated here so the UI can promise where a file will go before the download
+   * starts. The server remains the source of truth for file placement.
    */
   downloadCategory: string | null;
   /** A real example the owner might type, not "Search…". */

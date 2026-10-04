@@ -17,6 +17,7 @@ import type { MediaMetadata } from "@/lib/torrents/types";
 import type { CatalogCardData } from "@/lib/api/catalog-types";
 
 type Recommendation = CatalogCardData & {
+  workKey: string;
   provider: "anilist" | "tmdb";
   sourceMediaType: "anime" | "movie" | "tv";
   /** Provider/library family. AniList movies remain anime identities. */

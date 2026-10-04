@@ -142,10 +142,11 @@ internal static class CatalogEndpoints
             seedTitle = seed is null ? rail.Title : CatalogProjection.Title(seed),
             items = rail.Works.Select(w => new
             {
+                workKey = w.Work.WorkKey,
                 provider = CatalogProjection.Provider(w), sourceMediaType = CatalogProjection.Type(w),
                 mediaType = CatalogProjection.TitleType(w), titleMediaType = CatalogProjection.TitleType(w),
                 externalId = CatalogProjection.Primary(w)?.ExternalId, title = CatalogProjection.Title(w),
-                w.Work.PosterUrl, w.Work.Year, w.Work.Rating, format = CatalogProjection.Format(w),
+                w.Work.PosterUrl, w.Work.BackdropUrl, w.Work.Year, w.Work.Rating, format = CatalogProjection.Format(w),
                 isSeries = CatalogProjection.Series(w), href = CatalogProjection.Href(w),
                 action = actions[w.Work.Id], searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
             }),

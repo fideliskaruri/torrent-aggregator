@@ -1,14 +1,10 @@
-import { useMemo,useState } from "react";
+import { useState } from "react";
 import { Ban,Check,Inbox,Loader2,RotateCw,Search,X } from "lucide-react";
 import { openReleasePicker,PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { MediaPoster } from "@/components/browse/media-poster-card";
-import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { cn } from "@/lib/utils";
@@ -30,8 +26,7 @@ canRetryRequest,
 statusTone,
 type OwnerRequest,
 } from "@/lib/requests";
-
-const REASON_MAX = 500;
+import { RequestDeclineDialog } from "./request-decline-dialog";
 
 /**
  * One page for everyone. The owner sees the inbox of every request, with
@@ -57,15 +52,6 @@ export default function RequestsPage() {
   const [declining, setDeclining] = useState<OwnerRequest | null>(null);
   const [reason, setReason] = useState("");
   const rows = reviewing ? inboxRows(list.data?.requests ?? []) : myRequestRows(list.data?.requests ?? []);
-  // Requests saved without a poster ask the shared artwork lookup by title and year.
-  const missingArt = useMemo(
-    () =>
-      rows
-        .filter((r) => !r.posterUrl)
-        .map((r) => ({ name: r.title, workTitle: r.title, workYear: r.year ?? null })),
-    [rows],
-  );
-  const artwork = useWorkArtwork(missingArt);
   async function decide(request: OwnerRequest, action: "approve" | "decline" | "retry", declineReason?: string) {
     setBusyId(request.id);
     try {
@@ -158,7 +144,7 @@ export default function RequestsPage() {
             const from = (request.requesters.length > 0 ? request.requesters : [request.requestedBy]).filter(Boolean).join(", ");
             return (
               <li key={request.id} className="surface flex gap-3 p-3 sm:gap-4" data-owner-request-row={request.status}>
-                <MediaPoster variant="row" src={request.posterUrl ?? artwork.artFor({ name: request.title, workTitle: request.title, workYear: request.year ?? null })?.posterUrl} title={request.title} />
+                <MediaPoster variant="row" src={request.posterUrl} title={request.title} />
                 <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1">
                     <p className="line-clamp-2 text-sm font-medium text-foreground">
@@ -278,37 +264,16 @@ export default function RequestsPage() {
         )}
       </PageQueryBoundary>
 
-      <ConfirmDialog
-        open={declining != null}
+      <RequestDeclineDialog
+        request={declining}
+        reason={reason}
+        onReasonChange={setReason}
         onOpenChange={(open) => (!open ? setDeclining(null) : undefined)}
-        contentData={{ "data-owner-decline-dialog": true }}
-        confirmData={{ "data-owner-decline-confirm": true }}
-        title={`Decline ${declining?.title ?? "this request"}?`}
-        description="They'll see it was declined, and your reason if you give one."
-        cancelLabel="Keep it"
-        variant="destructive"
-        confirmLabel="Decline request"
         onConfirm={() => {
           if (declining) void decide(declining, "decline", reason);
           setDeclining(null);
         }}
-      >
-          <div className="space-y-1.5">
-            <Label htmlFor="decline-reason" className="text-xs text-muted-foreground">
-              Reason <span className="font-normal text-subtle-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="decline-reason"
-              value={reason}
-              maxLength={REASON_MAX}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              className="min-h-20"
-              placeholder="Already on a streaming service, for example"
-              data-owner-decline-reason
-            />
-          </div>
-      </ConfirmDialog>
+      />
     </div>
   );
 }
