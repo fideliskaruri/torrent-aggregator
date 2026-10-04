@@ -1,13 +1,16 @@
-# Runs the .NET version. Pass a different address with: .\run.ps1 --urls http://127.0.0.1:3001
+# Builds the web app and runs the server on http://127.0.0.1:3968. Pass a different address with: .\run.ps1 --urls http://127.0.0.1:3001
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
-    $urls = if ($args.Count -gt 0) { $args } else { @('--urls', 'http://127.0.0.1:3000') }
-    # dotnet run's content root is the project folder, so the library lives in server\TorrentFlow.Api\data.
-    $dataDir = if ($env:TorrentFlow__DataDirectory) { $env:TorrentFlow__DataDirectory } else { Join-Path $PSScriptRoot 'server\TorrentFlow.Api\data' }
-    Write-Host "Dev mode: data in $dataDir. To install the app run .\install.ps1"
-    Write-Host "TorrentFlow: $($urls[-1]) (first run builds the web UI)"
-    dotnet run -c Release --project server\TorrentFlow.Api -- @urls
+    $urls = if ($args.Count -gt 0) { $args } else { @('--urls', 'http://127.0.0.1:3968') }
+    $dataDir = if ($env:TorrentFlow__DataDirectory) { $env:TorrentFlow__DataDirectory } else { Join-Path $PSScriptRoot 'backend\data' }
+    $webRoot = Join-Path $PSScriptRoot 'web\dist'
+    if (-not (Test-Path (Join-Path $webRoot 'index.html'))) {
+        pnpm --dir web install
+        pnpm --dir web run build
+    }
+    Write-Host "TorrentFlow: $($urls[-1]), data in $dataDir"
+    dotnet run -c Release --project backend\src\Api -- @urls --TorrentFlow:DataDirectory $dataDir --TorrentFlow:WebRoot $webRoot --no-browser
     exit $LASTEXITCODE
 }
 finally {
