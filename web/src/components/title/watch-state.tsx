@@ -1,7 +1,7 @@
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { JellyfinNextUp, JellyfinWatchState } from "./types";
+import type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 
 /** Plain words for Jellyfin progress, or null when there is nothing to say. */
 export function watchStateLabel(state: JellyfinWatchState | null | undefined): string | null {
