@@ -56,8 +56,7 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
         {
             if (await db.MediaFiles.AnyAsync(row => row.RootId == id, ct) ||
                 await db.WorkFolders.AnyAsync(row => row.RootId == id, ct) ||
-                await db.Downloads.AnyAsync(row => row.RootId == id, ct) ||
-                await db.RawIntents.AnyAsync(row => row.RootId == id, ct)) return false;
+                await db.Downloads.AnyAsync(row => row.RootId == id, ct)) return false;
             var entity = await db.StorageRoots.SingleOrDefaultAsync(row => row.Id == id, ct);
             if (entity is null || entity.Version != expectedVersion) return false;
             var rootPath = entity.Path;

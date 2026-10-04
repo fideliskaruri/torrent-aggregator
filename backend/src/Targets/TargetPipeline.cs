@@ -24,7 +24,7 @@ public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
 }
 
 public sealed partial class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
-    IEngine engine, ILogger<TargetPipeline> logger)
+    IEngine engine, RawDownloads rawDownloads, ILogger<TargetPipeline> logger)
 {
     private readonly SemaphoreSlim stateGate = new(1, 1);
     private readonly ConcurrentDictionary<string, Task> flights = new();
@@ -36,8 +36,10 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     public static IServiceCollection AddTargets(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<DiscoveryPlan>();
+        services.AddSingleton<RawDownloads>();
         services.AddSingleton<TargetPipeline>(sp => new(sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<DiscoveryPlan>(), sp.GetRequiredService<IEngine>(),
+            sp.GetRequiredService<RawDownloads>(),
             sp.GetRequiredService<ILogger<TargetPipeline>>())
         {
             maximumScopes = Math.Clamp(configuration.GetValue("TorrentFlow:Targets:MaximumScopes", 8), 1, 8),

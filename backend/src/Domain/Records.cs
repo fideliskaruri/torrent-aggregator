@@ -197,20 +197,9 @@ public sealed record RawIntentRow : StoreRow
     public required string ReleaseHash { get; init; }
     public string? DownloadId { get; init; }
     public required ImmutableArray<int> SelectedFiles { get; init; }
-    public string? RootId { get; init; }
     public string? ExplicitDirectory { get; init; }
-    public LibraryKind? ExplicitKind { get; init; }
     public required RawDownloadState State { get; init; }
-    public RawDownloadState? ResumeState { get; init; }
-    public WaitReason? ReasonCode { get; init; }
-    public string? ReasonText { get; init; }
-    public DateTimeOffset? NextTryAt { get; init; }
     public DateTimeOffset? NowAt { get; init; }
-    public required bool OwnerRanked { get; init; }
-    public required long Rank { get; init; }
-    public DateTimeOffset? LeaseUntil { get; init; }
-    public string? LeaseToken { get; init; }
-    public required string BatchId { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
     public required long Version { get; init; }

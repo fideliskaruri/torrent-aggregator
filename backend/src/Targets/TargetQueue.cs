@@ -20,8 +20,7 @@ internal static class TargetQueue
                 raws.SingleOrDefault(row => row.Id == rawId) is { } raw)
                 return (DownloadId: download.Id, CreatedAt: raw.CreatedAt,
                     Now: raw.NowAt is not null, Eligible: download.FinishedAt is null &&
-                        raw.State is not (RawDownloadState.Paused or RawDownloadState.Done or
-                            RawDownloadState.Removed or RawDownloadState.Review));
+                        raw.State is not (RawDownloadState.Paused or RawDownloadState.Done or RawDownloadState.Removed));
 
             var members = targets.Where(target =>
                 links.Any(link => link.DownloadId == download.Id && link.TargetId == target.Id) &&

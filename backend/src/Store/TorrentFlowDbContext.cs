@@ -157,11 +157,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<RawIntentRow>().ToTable("RawIntent", table =>
         {
             table.HasCheckConstraint("CK_RawIntent_selectedFilesJson", "json_valid(\"selectedFilesJson\")");
-            table.HasCheckConstraint("CK_RawIntent_explicitKind", "\"explicitKind\" IN ('movies','tv','anime','animemovies')");
-            table.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
-            table.HasCheckConstraint("CK_RawIntent_resumeState", "\"resumeState\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
-            table.HasCheckConstraint("CK_RawIntent_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
-            table.HasCheckConstraint("CK_RawIntent_ownerRanked", "\"ownerRanked\" IN (0,1)");
+            table.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','done','removed')");
             table.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
         });
         var rawIntent = modelBuilder.Entity<RawIntentRow>();
@@ -381,7 +377,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<ScopeIntentRow>().HasIndex(new[] { "WorkId" }, "IX_ScopeIntent_workId_all").IsUnique(false);
         modelBuilder.Entity<ScopeIntentRow>().HasIndex(new[] { "BatchId" }, "IX_ScopeIntent_batchId_all").IsUnique(false);
         modelBuilder.Entity<RawIntentRow>().HasIndex(new[] { "DownloadId" }, "IX_RawIntent_downloadId_downloadIdISNOTNULL").IsUnique(true).HasFilter("downloadId IS NOT NULL");
-        modelBuilder.Entity<RawIntentRow>().HasIndex(new[] { "State", "NextTryAt" }, "IX_RawIntent_state_nextTryAt_all").IsUnique(false);
         modelBuilder.Entity<RawIntentRow>().HasIndex(new[] { "ReleaseHash" }, "IX_RawIntent_releaseHash_all").IsUnique(false);
         modelBuilder.Entity<RequestRow>().HasIndex(new[] { "UserId", "Decision", "CreatedAt" }, "IX_Request_userId_decision_createdAt_all").IsUnique(false);
         modelBuilder.Entity<RequestRow>().HasIndex(new[] { "WorkId", "Decision" }, "IX_Request_workId_decision_all").IsUnique(false);
@@ -478,8 +473,6 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_RawIntent_Release_releaseHash");
         modelBuilder.Entity<RawIntentRow>().HasOne<DownloadRow>().WithMany().HasForeignKey(row => row.DownloadId)
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_RawIntent_Download_downloadId");
-        modelBuilder.Entity<RawIntentRow>().HasOne<StorageRootRow>().WithMany().HasForeignKey(row => row.RootId)
-            .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_RawIntent_StorageRoot_rootId");
         modelBuilder.Entity<RequestRow>().HasOne<UserRow>().WithMany().HasForeignKey(row => row.UserId)
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_Request_User_userId");
         modelBuilder.Entity<RequestRow>().HasOne<WorkRow>().WithMany().HasForeignKey(row => row.WorkId)

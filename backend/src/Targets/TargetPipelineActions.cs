@@ -68,6 +68,29 @@ public sealed partial class TargetPipeline
         finally { stateGate.Release(); }
     }
 
+    public async Task<TargetActionReply> BulkActionAsync(TargetAction action, CancellationToken ct)
+    {
+        if (action is not (TargetAction.Pause or TargetAction.Resume))
+            throw new ArgumentException("Choose Pause all or Resume all.");
+        var snapshot = await ReadAsync(ct);
+        var ids = ImmutableArray.CreateBuilder<string>();
+        foreach (var target in snapshot.Targets.Where(t => action == TargetAction.Pause
+            ? !t.IsPaused() && t.State is not (TargetState.Done or TargetState.Removed)
+            : t.IsPaused()))
+        {
+            if ((await ActionAsync(target.Id, action, ct)).Accepted) ids.Add(target.Id);
+        }
+        foreach (var raw in snapshot.RawIntents.Where(r => action == TargetAction.Pause
+            ? r.State is not (RawDownloadState.Paused or RawDownloadState.Done or RawDownloadState.Removed)
+            : r.State == RawDownloadState.Paused))
+        {
+            if ((await rawDownloads.PauseAsync(raw.Id, action == TargetAction.Pause, ct)).Accepted)
+                ids.Add(raw.Id);
+        }
+        return new(true, 0, 0, ids.ToImmutable(),
+            $"{ids.Count} {(action == TargetAction.Pause ? "paused" : "resumed")}");
+    }
+
     private async Task<TargetRow?> ChangeAsync(string id, string? token, TargetState state, CancellationToken ct,
         WaitReason? reason = null, string? text = null, string? chosen = null, string? newLease = null,
         long? expectedVersion = null)
