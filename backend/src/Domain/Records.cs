@@ -767,18 +767,8 @@ public sealed record BackfillEstimate(string Title, double FromSeason, double To
     string Message, string? Note, Failure? Failure);
 public sealed record WorkerTick(DateTimeOffset Now, int MaxScopes);
 public sealed record WorkerResult(int Claimed, int Settled, DateTimeOffset? NextDueAt);
-public sealed record StoreQuery(string? Id, string? WorkId, string? TargetId, string? DownloadId,
-    string? UserId, string? Hash, string? NormalizedQuery, string? SeasonId, string? RequestId,
-    string? RootId, string? SourceId, DateTimeOffset? DueAt,
-    DateTimeOffset? Before, string? Cursor, int Limit, StoreOrder Order);
 public sealed record RowWrite(StoreRow Row, long? ExpectedVersion, StoreRow? ExpectedRow);
 public sealed record RowDelete(StoreTable Table, string Id, long? ExpectedVersion, StoreRow? ExpectedRow);
-public sealed record StoreCommit(string IdempotencyKey, StoreOwner Owner, ImmutableArray<RowWrite> Writes,
-    ImmutableArray<RowDelete> Deletes)
-{
-    public LibraryWriteProposal? LibraryProposal { get; init; }
-}
-public sealed record CommitResult(bool Applied, bool Conflict, ImmutableArray<string> ConflictingIds);
 public sealed record ApiCall(string Method, string RoutePattern, ImmutableDictionary<string, string> RouteValues,
     ImmutableDictionary<string, string> Query, JsonElement? Body, Actor Actor);
 public sealed record ApiReply(int StatusCode, string ContentType, JsonElement Body);

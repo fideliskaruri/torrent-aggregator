@@ -40,11 +40,11 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             return new
             {
-                rows = (await new CatalogState(store).ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray(),
-                intents = (await new CatalogState(store).ReadAsync<RawIntentRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray(),
+                rows = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray(),
+                intents = (await store.ListAsync<RawIntentRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray(),
                 live = await engine.SnapshotAsync(ct),
                 managers = await engine.DiagnosticsAsync(ct),
                 events = events.ToArray(),
@@ -65,8 +65,8 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var existing = (await new CatalogState(store).ReadAsync<DownloadRow>(CatalogState.Query(), ct)).SingleOrDefault(d => d.Hash == hash);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var existing = (await store.ListAsync<DownloadRow>(row => row.Hash == hash, ct)).SingleOrDefault();
             if (existing is not null)
                 return new(true, (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == existing.Id), null);
             var xs = magnet.Split('&').FirstOrDefault(p => p.StartsWith("xs=", StringComparison.Ordinal));
@@ -100,14 +100,13 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 var now = DateTimeOffset.UtcNow;
                 var release = candidate.Release with { Name = input.Name ?? candidate.Release.Name,
                     Files = metadata, TotalBytes = metadata?.Sum(f => f.Bytes) };
-                var findStore = scope.ServiceProvider.GetRequiredService<IStore>();
-                var oldRelease = (await findStore.ReadAsync<ReleaseRow>(CatalogState.Query(hash), ct)).SingleOrDefault();
-                await CommitAsync(findStore, StoreOwner.Find, [new(release, null, oldRelease)], [], ct);
+                var findStore = scope.ServiceProvider.GetRequiredService<TargetStore>();
+                await CommitAsync(findStore, [new(release, null, null)], [], ct);
                 var raw = new RawIntentRow { Id = id, ActorUserId = input.Actor, ReleaseHash = hash, DownloadId = null, SelectedFiles = [.. input.Files], RootId = null, ExplicitDirectory = Path.GetFullPath(input.SavePath), ExplicitKind = null, State = input.Paused ? RawDownloadState.Paused : RawDownloadState.Fetching, ResumeState = null, ReasonCode = null, ReasonText = null, NextTryAt = null, NowAt = input.Now ? now : null, OwnerRanked = false, Rank = 0, LeaseUntil = null, LeaseToken = null, BatchId = token, CreatedAt = now, UpdatedAt = now, Version = 1 };
-                await CommitAsync(store, StoreOwner.Targets, [new(raw, null, null)], [], ct);
+                await CommitAsync(store, [new(raw, null, null)], [], ct);
                 var download = new DownloadRow { Id = id, Hash = hash, Intent = input.Paused ? DownloadIntent.Paused : DownloadIntent.Run, RootId = null, AddedAt = now, FinishedAt = null, AdmissionToken = token, ResumeArtifact = null, RawIntentId = id, Version = 1 };
-                await CommitAsync(store, StoreOwner.Targets, [new(download, null, null)], [], ct);
-                await CommitAsync(store, StoreOwner.Targets, [new(raw with { DownloadId = id, Version = 2 }, 1, null)], [], ct);
+                await CommitAsync(store, [new(download, null, null)], [], ct);
+                await CommitAsync(store, [new(raw with { DownloadId = id, Version = 2 }, 1, null)], [], ct);
                 await engine.ApplyQueueAsync(new([])
                 {
                     Order = [new(id, 0, input.Now ? TargetPriority.Now : TargetPriority.BackCatalogue,
@@ -123,20 +122,20 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
             catch
             {
                 await engine.StopAndReleaseFilesAsync(id, CancellationToken.None);
-                var persisted = (await store.ReadAsync<RawIntentRow>(CatalogState.Query(id), CancellationToken.None)).SingleOrDefault();
+                var persisted = (await store.ListAsync<RawIntentRow>(row => row.Id == id, CancellationToken.None)).SingleOrDefault();
                 if (persisted is not null)
                 {
                     if (persisted.DownloadId is not null)
                     {
-                        await CommitAsync(store, StoreOwner.Targets, [new(persisted with
+                        await CommitAsync(store, [new(persisted with
                             { DownloadId = null, Version = persisted.Version + 1 }, persisted.Version, null)], [], CancellationToken.None);
-                        var download = (await store.ReadAsync<DownloadRow>(CatalogState.Query(id), CancellationToken.None)).SingleOrDefault();
+                        var download = (await store.ListAsync<DownloadRow>(row => row.Id == id, CancellationToken.None)).SingleOrDefault();
                         if (download is not null)
-                            await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.Download,
+                            await CommitAsync(store, [], [new(StoreTable.Download,
                                 id, download.Version, null)], CancellationToken.None);
                         persisted = persisted with { Version = persisted.Version + 1 };
                     }
-                    await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.RawIntent,
+                    await CommitAsync(store, [], [new(StoreTable.RawIntent,
                         id, persisted.Version, null)], CancellationToken.None);
                 }
                 await engine.DeleteTorrentAsync(id, CancellationToken.None);
@@ -157,14 +156,14 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var raws = (await new CatalogState(store).ReadAsync<RawIntentRow>(CatalogState.Query(), ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
-            var rows = (await new CatalogState(store).ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var raws = (await store.ListAsync<RawIntentRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
+            var rows = (await store.ListAsync<DownloadRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             var live = await engine.SnapshotAsync(ct);
             foreach (var row in rows.Where(r => r.FinishedAt is null && live.All(s => s.Hash != r.Hash)))
             {
                 var raw = raws.Single(r => r.Id == row.RawIntentId);
-                var release = (await store.ReadAsync<ReleaseRow>(CatalogState.Query(row.Hash), ct)).Single();
+                var release = (await store.ListAsync<ReleaseRow>(r => r.Id == row.Hash, ct)).Single();
                 var bindings = await engine.MetadataAsync(row.Hash, ct) is { } files ? Bindings(row.Hash, raw.ExplicitDirectory!, files,
                     raw.SelectedFiles.ToArray(), recovery: true) : [];
                 await engine.ClaimAdmissionAsync(new(row.AdmissionToken, row.Hash, row.Id, null,
@@ -185,22 +184,22 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var rawRows = (await new CatalogState(store).ReadAsync<RawIntentRow>(CatalogState.Query(), ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var rawRows = (await store.ListAsync<RawIntentRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             if (rawRows.Length == 0) return;
             foreach (var snapshot in await engine.SnapshotAsync(ct))
             {
                 var raw = rawRows.SingleOrDefault(r => r.Id == snapshot.DownloadId);
                 if (raw is null) continue;
-                var row = (await store.ReadAsync<DownloadRow>(CatalogState.Query(snapshot.DownloadId), ct)).Single();
+                var row = (await store.ListAsync<DownloadRow>(d => d.Id == snapshot.DownloadId, ct)).Single();
                 if (snapshot.MetadataAvailable && snapshot.Files.All(f => !f.Selected) && row.FinishedAt is null &&
                     await engine.MetadataAsync(snapshot.Hash, ct) is { } metadata)
                 {
                     await engine.SelectAsync(snapshot.DownloadId, Bindings(snapshot.Hash, raw.ExplicitDirectory!,
                         metadata, raw.SelectedFiles.ToArray(), recovery: true), ct);
-                    var findStore = scope.ServiceProvider.GetRequiredService<IStore>();
-                    var oldRelease = (await findStore.ReadAsync<ReleaseRow>(CatalogState.Query(snapshot.Hash), ct)).Single();
-                    await CommitAsync(findStore, StoreOwner.Find, [new(oldRelease with
+                    var findStore = scope.ServiceProvider.GetRequiredService<TargetStore>();
+                    var oldRelease = (await findStore.ListAsync<ReleaseRow>(r => r.Id == snapshot.Hash, ct)).Single();
+                    await CommitAsync(findStore, [new(oldRelease with
                     {
                         Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes),
                     }, null, oldRelease)], [], ct);
@@ -208,7 +207,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 if (snapshot.Complete && raw.State != RawDownloadState.Done)
                 {
                     await PublishAsync(snapshot, raw.ExplicitDirectory!, ct);
-                    await CommitAsync(store, StoreOwner.Targets, [new(raw with
+                    await CommitAsync(store, [new(raw with
                     {
                         State = RawDownloadState.Done, UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1,
                     }, raw.Version, null)], [], ct);
@@ -220,7 +219,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
                 {
                     var next = row with { Intent = nextIntent, FinishedAt = snapshot.Complete ? DateTimeOffset.UtcNow : null,
                         Version = row.Version + 1 };
-                    await CommitAsync(store, StoreOwner.Targets, [new(next, row.Version, null)], [], ct);
+                    await CommitAsync(store, [new(next, row.Version, null)], [], ct);
                 }
             }
             events.AddRange(await engine.ReadEventsAsync(ct));
@@ -244,8 +243,8 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var old = (await store.ReadAsync<SettingRow>(CatalogState.Query("engine"), ct)).Single();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var old = (await store.ListAsync<SettingRow>(setting => setting.Id == "engine", ct)).Single();
             var value = SettingsCatalog.Read<EngineSettings>(old);
             value = value with { MaxActiveDownloads = input.Cap ?? value.MaxActiveDownloads,
                 MetadataStallSeconds = input.MetadataStallSeconds ?? value.MetadataStallSeconds,
@@ -256,7 +255,7 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
             if (value.MaxActiveDownloads is < 1 or > 20 || value.MetadataStallSeconds < 1 ||
                 value.ProgressStallSeconds < 1 || value.ProgressStallBytes < 1)
                 throw new ArgumentException("The cap must be 1..20 and stall thresholds must be positive.");
-            await CommitAsync(store, StoreOwner.Targets, [new(next, old.Revision, null)], [], ct);
+            await CommitAsync(store, [new(next, old.Revision, null)], [], ct);
             await engine.UpdateSettingsAsync(value, ct);
             if (input.DownloadBytesPerSecond is { } rate) await engine.LimitDevRateAsync(rate, ct);
             await engine.SaveDevStateAsync(ct);
@@ -271,14 +270,14 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var old = (await store.ReadAsync<RawIntentRow>(CatalogState.Query(Prefix + hash), ct)).Single();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var old = (await store.ListAsync<RawIntentRow>(row => row.Id == Prefix + hash, ct)).Single();
             var next = old with { NowAt = input.Now is { } now
                 ? now ? DateTimeOffset.UtcNow : null : old.NowAt,
                 State = input.Paused is { } paused ? paused ? RawDownloadState.Paused : RawDownloadState.Fetching : old.State,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
-            await CommitAsync(store, StoreOwner.Targets, [new(next, old.Version, null)], [], ct);
-            await ApplyOrderAsync((await new CatalogState(store).ReadAsync<RawIntentRow>(CatalogState.Query(), ct))
+            await CommitAsync(store, [new(next, old.Version, null)], [], ct);
+            await ApplyOrderAsync((await store.ListAsync<RawIntentRow>(null, ct))
                 .Where(r => r.Id.StartsWith(Prefix)).ToArray(), ct);
             if (next.DownloadId is not null)
                 await engine.SetIntentAsync(next.DownloadId, next.State != RawDownloadState.Paused, ct);
@@ -307,24 +306,24 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var raw = (await store.ReadAsync<RawIntentRow>(CatalogState.Query(Prefix + hash), ct)).SingleOrDefault();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var raw = (await store.ListAsync<RawIntentRow>(row => row.Id == Prefix + hash, ct)).SingleOrDefault();
             if (raw is null) return new { removed = true, files = 0 };
             var paths = await engine.RemoveDevAsync(hash, ct);
             if (data)
             {
-                var release = (await store.ReadAsync<ReleaseRow>(CatalogState.Query(hash), ct)).Single();
+                var release = (await store.ListAsync<ReleaseRow>(row => row.Id == hash, ct)).Single();
                 if (release.Files is { } metadata)
                     paths = Bindings(hash, raw.ExplicitDirectory!, metadata, raw.SelectedFiles.ToArray(), true)
                         .SelectMany(b => b.Selected ? new[] { b.AbsolutePath, b.AbsolutePath[..^".partial".Length] }
                             : [b.AbsolutePath]).ToImmutableArray();
                 RawDownloadFiles.DeletePayload(raw.ExplicitDirectory!, hash, paths);
             }
-            var row = (await store.ReadAsync<DownloadRow>(CatalogState.Query(raw.DownloadId), ct)).Single();
-            await CommitAsync(store, StoreOwner.Targets,
+            var row = (await store.ListAsync<DownloadRow>(download => download.Id == raw.DownloadId, ct)).Single();
+            await CommitAsync(store,
                 [new(raw with { DownloadId = null, Version = raw.Version + 1 }, raw.Version, null)], [], ct);
-            await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
-            await CommitAsync(store, StoreOwner.Targets, [], [new(StoreTable.RawIntent, raw.Id, raw.Version + 1, null)], ct);
+            await CommitAsync(store, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
+            await CommitAsync(store, [], [new(StoreTable.RawIntent, raw.Id, raw.Version + 1, null)], ct);
             await engine.DeleteTorrentAsync(row.Id, ct);
             await engine.SaveDevStateAsync(ct);
             return new { removed = true, files = paths.Length };
@@ -332,13 +331,10 @@ public sealed class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory 
         finally { gate.Release(); }
     }
 
-    private static async Task CommitAsync(IStore store, StoreOwner owner, ImmutableArray<RowWrite> writes,
-        ImmutableArray<RowDelete> deletes, CancellationToken ct)
+    private static async Task CommitAsync(TargetStore store, IEnumerable<RowWrite> writes,
+        IEnumerable<RowDelete> deletes, CancellationToken ct)
     {
-        var key = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow { Id = $"commit:dev-download:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = "dev-download", ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
-        if (!(await store.CommitAsync(new(key, owner, writes.Add(new(receipt, null, null)), deletes), ct)).Applied)
+        if (!await store.SaveAsync(writes, deletes, ct))
             throw new InvalidOperationException("The download changed during this operation. Retry the action.");
     }
 

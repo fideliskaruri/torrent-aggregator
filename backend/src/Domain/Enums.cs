@@ -46,8 +46,6 @@ public enum AttemptKind { Search, Check, Plan, Fetch, File, Swap, LegacyEvent }
 public enum BlockOrigin { Owner, Unsafe, Foreign, Stalled, Swap }
 public enum CacheKind { ProviderDetail, TitleSearch, BrowseRail, FribbMap, JellyfinState }
 public enum ProbeScope { Off, Watching, Monitored }
-public enum StoreOwner { Metadata, Find, Check, Targets, Library, Converter }
-public enum StoreOrder { PrimaryKey, CreatedNewest, DuePriority, CheckedNewest }
 public enum StoreTable
 {
     Work, WorkName, WorkLink, Season, Episode, MetadataCache, WorkPreference, Target,

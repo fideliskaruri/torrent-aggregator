@@ -2,12 +2,13 @@ using System.Collections.Immutable;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
 internal static class DownloadFiling
 {
-    internal static async Task FileAsync(IStore store, ILibraryDownloadRepository repository, IEngine engine,
+    internal static async Task FileAsync(TargetStore store, ILibraryDownloadRepository repository, IEngine engine,
         DownloadRow download, EngineSnapshot? snapshot, ImmutableArray<DownloadFileRow> allFiles,
         ImmutableArray<TargetRow> members, SemaphoreSlim stateGate, CancellationToken ct)
     {
@@ -23,8 +24,8 @@ internal static class DownloadFiling
         await stateGate.WaitAsync(ct);
         try
         {
-            var latestDownload = (await store.ReadAsync<DownloadRow>(CatalogState.Query(download.Id), ct)).Single();
-            var latestTargets = (await store.ReadAsync<TargetRow>(CatalogState.Query(), ct))
+            var latestDownload = (await store.ListAsync<DownloadRow>(row => row.Id == download.Id, ct)).Single();
+            var latestTargets = (await store.ListAsync<TargetRow>(null, ct))
                 .Where(t => members.Any(member => member.Id == t.Id)).ToArray();
             var now = DateTimeOffset.UtcNow;
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
@@ -53,13 +54,15 @@ internal static class DownloadFiling
             var workIds = selected.Select(f => members.Single(t => t.Id == f.TargetId).WorkId).Distinct().ToArray();
             if (workIds.Length != 1) throw new IOException("A download cannot file files from multiple catalog works.");
             var workId = workIds[0];
-            var work = (await store.ReadAsync<WorkRow>(CatalogState.Query(workId), ct)).Single();
+            var work = (await store.ListAsync<WorkRow>(row => row.Id == workId, ct)).Single();
+            var seasons = await store.ListAsync<SeasonRow>(row => row.WorkId == workId, ct);
+            var seasonIds = seasons.Select(row => row.Id).ToArray();
             var workSnapshot = new WorkSnapshot(work,
-                await store.ReadAsync<WorkNameRow>(CatalogState.Query(workId), ct),
-                await store.ReadAsync<WorkLinkRow>(CatalogState.Query(workId), ct),
-                await store.ReadAsync<SeasonRow>(CatalogState.Query(workId), ct),
-                await store.ReadAsync<EpisodeRow>(CatalogState.Query(workId), ct));
-            var release = (await store.ReadAsync<ReleaseRow>(CatalogState.Query(download.Hash), ct)).Single();
+                [.. await store.ListAsync<WorkNameRow>(row => row.WorkId == workId, ct)],
+                [.. await store.ListAsync<WorkLinkRow>(row => row.WorkId == workId, ct)],
+                [.. seasons],
+                [.. await store.ListAsync<EpisodeRow>(row => seasonIds.Contains(row.SeasonId), ct)]);
+            var release = (await store.ListAsync<ReleaseRow>(row => row.Id == download.Hash, ct)).Single();
             var prepared = ImmutableArray.CreateBuilder<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)>();
             foreach (var binding in selected)
             {
@@ -90,12 +93,12 @@ internal static class DownloadFiling
             await stateGate.WaitAsync(ct);
             try
             {
-                var proposal = await repository.ProposeFiledAsync(prepared.ToImmutable(), ct);
-                if (proposal is null) return;
-                var latestDownload = (await store.ReadAsync<DownloadRow>(CatalogState.Query(download.Id), ct)).Single();
+                var filedWrites = await repository.ProposeFiledAsync(prepared.ToImmutable(), ct);
+                if (filedWrites is null) return;
+                var latestDownload = (await store.ListAsync<DownloadRow>(row => row.Id == download.Id, ct)).Single();
                 var latestBindings = await repository.BindingsAsync(ct);
                 var completedIds = prepared.Select(p => p.Before.TargetId).OfType<string>().Distinct().ToArray();
-                var latestTargets = (await store.ReadAsync<TargetRow>(CatalogState.Query(), ct))
+                var latestTargets = (await store.ListAsync<TargetRow>(null, ct))
                     .Where(t => completedIds.Contains(t.Id)).ToArray();
                 var now = DateTimeOffset.UtcNow;
                 var writes = ImmutableArray.CreateBuilder<RowWrite>();
@@ -119,7 +122,8 @@ internal static class DownloadFiling
                 if (allFiled)
                     writes.Add(new(latestDownload with { Intent = DownloadIntent.Stopped,
                         FinishedAt = now, Version = latestDownload.Version + 1 }, latestDownload.Version, null));
-                await TargetPipeline.CommitAsync(store, writes.ToImmutable(), [], ct, proposal);
+                writes.AddRange(filedWrites.Value);
+                await TargetPipeline.CommitAsync(store, writes.ToImmutable(), [], ct);
             }
             finally { stateGate.Release(); }
         }
@@ -129,7 +133,7 @@ internal static class DownloadFiling
             try
             {
                 var now = DateTimeOffset.UtcNow;
-                var latestTargets = (await store.ReadAsync<TargetRow>(CatalogState.Query(), ct))
+                var latestTargets = (await store.ListAsync<TargetRow>(null, ct))
                     .Where(t => members.Any(member => member.Id == t.Id) &&
                         t.State is not (TargetState.Removed or TargetState.Done)).ToArray();
                 var writes = latestTargets.Select(t => new RowWrite(t with

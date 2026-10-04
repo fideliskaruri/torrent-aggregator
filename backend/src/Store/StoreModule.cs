@@ -17,7 +17,8 @@ public static class StoreModule
         services.AddDbContextFactory<TorrentFlowDbContext>(options => options.UseSqlite(connection)
             .AddInterceptors(new SqlitePragmas()));
         services.AddScoped(sp => new StoreDatabase(sp.GetRequiredService<TorrentFlowDbContext>()));
-        services.AddScoped<IStore, StoreCapability>();
+        services.AddScoped(sp => new TargetStore(sp.GetRequiredService<TorrentFlowDbContext>(),
+            sp.GetRequiredService<ITargetEvents>()));
         services.AddSingleton<ITargetEvents, TargetEvents>();
         services.AddScoped<NotificationRepository>(sp => new NotificationRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddScoped<ILibraryRepository>(sp => new LibraryRepository(sp.GetRequiredService<TorrentFlowDbContext>()));

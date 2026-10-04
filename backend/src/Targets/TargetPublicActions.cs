@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
@@ -17,14 +18,13 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
-            var target = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(targetId), ct)).SingleOrDefault()
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var target = (await store.ListAsync<TargetRow>(row => row.Id == targetId, ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This target no longer exists.");
             if (target.State is TargetState.Fetching or TargetState.Filing or TargetState.Done or TargetState.Removed ||
                 target.ResumeState is TargetState.Fetching or TargetState.Filing)
                 throw new ArgumentException("Pick a release for an item still waiting to download.");
-            var release = (await catalog.ReadAsync<ReleaseRow>(CatalogState.Query(releaseHash), ct)).SingleOrDefault()
+            var release = (await store.ListAsync<ReleaseRow>(row => row.Id == releaseHash, ct)).SingleOrDefault()
                 ?? throw new ArgumentException("That release is no longer in the search results. Search again.");
             if (release.Parsed.Unsafe || release.Parsed.Cam || release.Parsed.Sample ||
                 target.ResolutionFloor is { } floor &&
@@ -52,11 +52,10 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
-            var all = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var all = await store.ListAsync<TargetRow>(null, ct);
             var target = all.FirstOrDefault(t => t.Id == workOrTargetId);
-            var works = await catalog.ReadAsync<WorkRow>(CatalogState.Query(), ct);
+            var works = await store.ListAsync<WorkRow>(null, ct);
             var work = works.FirstOrDefault(w => w.Id == (target?.WorkId ?? workOrTargetId) || w.WorkKey == workOrTargetId);
             if (work is null && target is null)
             {
@@ -64,7 +63,7 @@ public sealed partial class TargetPipeline
                 work = resolved.Work?.Work;
             }
             if (work is null) throw new ArgumentException("Open the title before changing its quality.");
-            var preference = (await catalog.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Id), ct)).FirstOrDefault();
+            var preference = (await store.ListAsync<WorkPreferenceRow>(row => row.WorkId == work.Id, ct)).FirstOrDefault();
             var now = DateTimeOffset.UtcNow;
             var nextPreference = preference is null
                 ? new WorkPreferenceRow { Id = "preference:" + work.Id, WorkId = work.Id, ResolutionFloor = quality, PreferredResolution = quality, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 1 }

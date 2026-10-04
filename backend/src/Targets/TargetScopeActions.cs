@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
@@ -17,12 +18,13 @@ public sealed partial class TargetPipeline
         if (canonical is null) return 0;
         if (canonical.Id != workKey && canonical.WorkKey != workKey)
         {
-            var aliasCatalog = new CatalogState(resolutionScope.ServiceProvider.GetRequiredService<IStore>());
-            var seasons = await aliasCatalog.ReadAsync<SeasonRow>(CatalogState.Query(workId: canonical.Id), ct);
-            var episodes = await aliasCatalog.ReadAsync<EpisodeRow>(CatalogState.Query(), ct);
-            var links = await aliasCatalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-            var downloads = await aliasCatalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct);
-            var targets = await aliasCatalog.ReadAsync<TargetRow>(CatalogState.Query(workId: canonical.Id), ct);
+            var aliasStore = resolutionScope.ServiceProvider.GetRequiredService<TargetStore>();
+            var seasons = await aliasStore.ListAsync<SeasonRow>(row => row.WorkId == canonical.Id, ct);
+            var seasonIds = seasons.Select(row => row.Id).ToArray();
+            var episodes = await aliasStore.ListAsync<EpisodeRow>(row => seasonIds.Contains(row.SeasonId), ct);
+            var links = await aliasStore.ListAsync<DownloadTargetRow>(null, ct);
+            var downloads = await aliasStore.ListAsync<DownloadRow>(null, ct);
+            var targets = await aliasStore.ListAsync<TargetRow>(row => row.WorkId == canonical.Id, ct);
             foreach (var target in targets.Where(t =>
                 t.State is TargetState.Wanted or TargetState.Waiting or TargetState.Finding or TargetState.Checking or TargetState.Planning))
             {
@@ -38,9 +40,8 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
-            var pending = (await catalog.ReadAsync<ScopeIntentRow>(CatalogState.Query(workId: canonical.Id), ct))
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var pending = (await store.ListAsync<ScopeIntentRow>(row => row.WorkId == canonical.Id, ct))
                 .Where(s => s.State == ScopeIntentState.Pending &&
                     (season is null || s.ScopeData.Seasons.Contains(season.Value)) &&
                     (episode is null || s.Scope == RequestScope.Episodes &&

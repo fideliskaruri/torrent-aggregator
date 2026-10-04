@@ -20,11 +20,9 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var catalog = new CatalogState(store);
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var hash = MonoTorrentEngine.NormalizeHash(input.Hash);
-            var existing = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
-                .SingleOrDefault(d => d.Hash == hash);
+            var existing = (await store.ListAsync<DownloadRow>(row => row.Hash == hash, ct)).SingleOrDefault();
             if (existing is not null)
                 return new(true, (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == existing.Id), null);
             var external = (IExternalEngineAdmission)engine;
@@ -55,7 +53,7 @@ public sealed partial class TargetPipeline
                     !work.Work.Episodes.Any(e => e.Id == item.EpisodeId && e.MappingStatus == MappingStatus.Confirmed)))
                     throw new ArgumentException("Confirm the video's catalog identity in Import first.");
                 var targetId = $"target:{item.WorkId}:{item.EpisodeId ?? "film"}";
-                var prior = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(targetId), ct)).SingleOrDefault();
+                var prior = (await store.ListAsync<TargetRow>(row => row.Id == targetId, ct)).SingleOrDefault();
                 if (prior is not null && prior.State != TargetState.Removed)
                     throw new InvalidOperationException("This item already has download intent. Remove it before handing over another transfer.");
                 previous[targetId] = prior;
@@ -111,20 +109,23 @@ public sealed partial class TargetPipeline
             try
             {
                 var candidate = MonoTorrentEngine.CandidateFor(hash);
-                var find = scope.ServiceProvider.GetRequiredService<IStore>();
-                var oldRelease = (await find.ReadAsync<ReleaseRow>(CatalogState.Query(hash), ct)).SingleOrDefault();
+                var find = scope.ServiceProvider.GetRequiredService<TargetStore>();
                 var release = candidate.Release with { Name = input.Name, Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes) };
-                var key = Guid.NewGuid().ToString("N");
-                var receipt = new AttemptRow { Id = "commit:external:" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = actor, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
-                var written = await find.CommitAsync(new(key, StoreOwner.Find,
-                    [new(release, null, oldRelease), new(receipt, null, null)], []), ct);
-                if (!written.Applied) throw new IOException("The release metadata could not be saved.");
-                var proposal = await ((ILibraryPlacementProposalRepository)inventory).ProposeExternalPlacementAsync(
+                if (!await find.SaveAsync([new(release, null, null)], [], ct))
+                    throw new IOException("The release metadata could not be saved.");
+                var fileWrites = await ((ILibraryPlacementProposalRepository)inventory).ProposeExternalPlacementAsync(
                     files, input.ReviewId, input.ReviewItemIds, ct)
                     ?? throw new IOException("The original file bindings are already reserved. Scan again.");
                 await CommitAsync(store, [new(download, null, null),
                     .. targets.Select(t => new RowWrite(t, previous[t.Id]?.Version, null)),
-                    .. targets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null))], [], ct, proposal);
+                    .. targets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null)),
+                    .. fileWrites], [], ct);
+                if (input.ReviewId is not null)
+                {
+                    var reviews = scope.ServiceProvider.GetRequiredService<ImportReviewRepository>();
+                    foreach (var reviewItemId in input.ReviewItemIds)
+                        await reviews.DecideAsync(input.ReviewId, reviewItemId, "handed-over", ct);
+                }
                 var result = await external.AdmitExternalAsync(new(download,
                     candidate with { Release = release }, [.. files.Select(f => new FileBinding(f.FileIndex,
                         f.EnginePath!, f.Selected))], token), ct);
@@ -134,7 +135,7 @@ public sealed partial class TargetPipeline
             catch (Exception ex)
             {
                 await engine.StopAndReleaseFilesAsync(id, CancellationToken.None);
-                var persisted = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(id), CancellationToken.None)).SingleOrDefault();
+                var persisted = (await store.ListAsync<DownloadRow>(row => row.Id == id, CancellationToken.None)).SingleOrDefault();
                 if (persisted is not null)
                 {
                     var failedAt = DateTimeOffset.UtcNow;
