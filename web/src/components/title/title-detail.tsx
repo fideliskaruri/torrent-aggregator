@@ -108,7 +108,6 @@ import {
 import { encodeKeySegment } from "./work-key";
 import { toastDownloadOutcome } from "@/components/releases/download-outcome-toast";
 import { canFindAnotherSource, FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
-import { ReleaseSwapDialog, type ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
 import { openReleasePicker } from "@/components/releases/release-picker-store";
 import {
   isValidSeason,
@@ -247,8 +246,9 @@ export function TitleDetail(props: TitleDetailProps) {
   // Season requests still waiting on the server; a toast Retry may pass a
   // spent (partially started) season but never one of these.
   const inFlightSeasonGrabs = useRef(new Set<string>());
-  // The download "Find another source" is open for: the film, or one episode. Owner only.
-  const [swapSubject, setSwapSubject] = useState<ReleaseSwapSubject | null>(null);
+  // The owner confirms before removing a current film or episode download.
+  const [findAnother, setFindAnother] = useState<{ hash: string; label: string } | null>(null);
+  const [findingAnother, setFindingAnother] = useState(false);
 
   // Resync on props change — the SPA half of cookie persistence. A cached RSC
   // payload can carry an old server cookie, so the live browser cookie wins.
@@ -795,23 +795,45 @@ export function TitleDetail(props: TitleDetailProps) {
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
           onLibraryChanged={refetch}
-          onFindAnotherSource={setSwapSubject}
+          onFindAnother={setFindAnother}
           provider={props.provider ?? null}
           providerId={props.providerId ?? null}
           routeTitle={props.title ?? null}
         />
       )}
 
-      {swapSubject && caps.canDownload ? (
-        <ReleaseSwapDialog
-          key={swapSubject.hash}
-          subject={swapSubject}
-          onClose={() => setSwapSubject(null)}
-          onSwapped={() => {
-            setSwapSubject(null);
-            startTransferPoll();
-            void refetch();
+      {findAnother && caps.canDownload ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !findingAnother) setFindAnother(null);
           }}
+          title={`Find another release for ${findAnother.label}?`}
+          description="The current download and its partial files will be removed. TorrentFlow will search again."
+          variant="destructive"
+          busy={findingAnother}
+          confirmLabel="Find another"
+          onConfirm={() => void (async () => {
+            setFindingAnother(true);
+            try {
+              const response = await fetch(`/api/downloads/${encodeURIComponent(findAnother.hash)}/find-another`, {
+                method: "POST",
+              });
+              const result = await response.json().catch(() => null) as { ok?: boolean; message?: string } | null;
+              if (!response.ok || result?.ok !== true) {
+                toast.error(result?.message ?? "The download could not be removed. Try again.");
+                return;
+              }
+              toast.success(result.message ?? `Looking for another release of ${findAnother.label}.`);
+              setFindAnother(null);
+              startTransferPoll();
+              void refetch();
+            } catch {
+              toast.error("Couldn't reach TorrentFlow. Try again.");
+            } finally {
+              setFindingAnother(false);
+            }
+          })()}
         />
       ) : null}
 
@@ -842,7 +864,7 @@ function TitleContent({
   onSeasonGrab,
   onAction,
   onLibraryChanged,
-  onFindAnotherSource,
+  onFindAnother,
   provider,
   providerId,
   routeTitle,
@@ -880,8 +902,8 @@ function TitleContent({
     resolution?: number,
   ) => void;
   onLibraryChanged: () => void;
-  /** Opens Find another source for the film's or an episode's download. Stable: a state setter. */
-  onFindAnotherSource: (subject: ReleaseSwapSubject) => void;
+  /** Opens the confirmation to remove the current download and search again. */
+  onFindAnother: (subject: { hash: string; label: string }) => void;
 }) {
   const caps = useCapabilities();
   const { openFolder } = useFeatures();
@@ -927,8 +949,8 @@ function TitleContent({
   // cards don't re-render for it. Names the episode the way Downloads does.
   const handleFindEpisodeSource = useCallback(
     (hash: string, episodeLabel: string) =>
-      onFindAnotherSource({ hash, workTitle: title, label: `${title} ${episodeLabel}` }),
-    [onFindAnotherSource, title],
+      onFindAnother({ hash, label: `${title} ${episodeLabel}` }),
+    [onFindAnother, title],
   );
   // Waiting for an English release: the owner can pick one by hand, which always goes.
   const workKey = payload.workKey;
@@ -1142,7 +1164,7 @@ function TitleContent({
   // grab elsewhere in this work must not silence the title's own control.
   const showDownload = !payload.isSeries && !gated;
   // An owned film never offers Download: it says what you have, and the owner
-  // gets Upgrade or Check again from the quality sweep (OPS-857).
+  // transfers can change without making this owned-quality display interactive.
   const ownedFilm = payload.isSeries ? null : ownedLabel(payload.owned);
   const downloadAction: TitleAction = {
     kind: "get",
@@ -1389,14 +1411,7 @@ function TitleContent({
                 {ownedFilm && payload.owned ? (
                   <OwnedQuality
                     variant="title"
-                    workKey={workKey}
-                    name={title}
                     owned={payload.owned}
-                    upgrade={payload.upgrade}
-                    bestAvailable={payload.bestAvailable}
-                    upgradeQueued={payload.upgradeQueued}
-                    canAct={caps.canDownload}
-                    onChanged={onLibraryChanged}
                   />
                 ) : !caps.canDownload ? (
                   gated ? null : (
@@ -1527,7 +1542,7 @@ function TitleContent({
                     variant="outline"
                     data-title-find-source
                     aria-label={`${FIND_ANOTHER_SOURCE_LABEL} for ${title}`}
-                    onClick={() => onFindAnotherSource({ hash: findSourceHash, workTitle: title, label: title })}
+                    onClick={() => onFindAnother({ hash: findSourceHash, label: title })}
                     className="relative w-full min-w-0 md:w-auto"
                   >
                     <Search aria-hidden />
@@ -1652,11 +1667,9 @@ function TitleContent({
             onSeasonChange={onSeasonChange}
             onSeasonGrab={requestSeasonGrab}
             onAction={handleEpisodeListAction}
-            onFindAnotherSource={caps.canDownload ? handleFindEpisodeSource : undefined}
+            onFindAnother={caps.canDownload ? handleFindEpisodeSource : undefined}
             onPickRelease={caps.canDownload ? handlePickEpisodeRelease : undefined}
             onWantedAction={caps.canDownload ? handleWantedAction : undefined}
-            workKey={workKey}
-            onOwnedChanged={onLibraryChanged}
           />
 
         ) : null}

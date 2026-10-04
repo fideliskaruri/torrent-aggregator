@@ -78,11 +78,11 @@ export interface ClientTorrent {
 /**
  * A one-row action on a transfer. `force` is "Download now": it starts a row
  * waiting in the built-in engine's queue past the active-download cap.
- * `swap` opens "Find another source"; it sends nothing by itself.
+ * `find-another-release` confirms and discards the unfinished release before searching again.
  * `keep` and `find-another` answer a held row: move its files into the
  * library, or drop them and pick another release.
  */
-export type TorrentRowAction = "pause" | "resume" | "force" | "swap" | "keep" | "find-another";
+export type TorrentRowAction = "pause" | "resume" | "force" | "find-another-release" | "keep" | "find-another";
 
 /**
  * Whether a row belongs on the Downloads page: every transfer the server marks

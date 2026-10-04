@@ -320,18 +320,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/client/torrents/{hash}/alternatives",
-      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs",
-      "line": 8
-    },
-    {
-      "method": "POST",
-      "path": "/api/client/torrents/{hash}/alternatives",
-      "file": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs",
-      "line": 21
-    },
-    {
-      "method": "GET",
       "path": "/api/wanted",
       "file": "server\\TorrentFlow.Library\\Features\\Grabs\\WantedController.cs",
       "line": 15
@@ -1024,41 +1012,6 @@
       "file": "web\\src\\components\\releases\\release-picker-dialog.tsx",
       "line": 114,
       "text": "const res = await sessionAwareFetch(url, {"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 7,
-      "text": "*   GET  /api/client/torrents/{hash}/alternatives[?source=id]"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 9,
-      "text": "*   POST /api/client/torrents/{hash}/alternatives { token, allowBlocked? } → { ok, message, hash }"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 10,
-      "text": "*   POST /api/client/torrents/{hash}/alternatives { best: true, source? } → { ok, message, hash }"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 101,
-      "text": "return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 192,
-      "text": "const res = await sessionAwareFetch(url, { cache: \"no-store\", signal: controller.signal });"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 235,
-      "text": "const res = await sessionAwareFetch(endpoint, {"
-    },
-    {
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 263,
-      "text": "const res = await sessionAwareFetch(endpoint, {"
     },
     {
       "file": "web\\src\\components\\requests\\request-dialog.tsx",
@@ -2782,60 +2735,6 @@
       "declaration": "type Listener = (target: ReleasePickTarget) => void;"
     },
     {
-      "name": "ReleaseCardData",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 33,
-      "declaration": "type ReleaseCardData } from \"./release-card\";"
-    },
-    {
-      "name": "ReleaseLanguageInfo",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 34,
-      "declaration": "type ReleaseLanguageInfo } from \"./release-language\";"
-    },
-    {
-      "name": "ReleaseSwapHealth",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 37,
-      "declaration": "export interface ReleaseSwapHealth {"
-    },
-    {
-      "name": "ReleaseAlternative",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 45,
-      "declaration": "export interface ReleaseAlternative extends ReleaseCardData {"
-    },
-    {
-      "name": "ReleaseSwapSource",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 51,
-      "declaration": "export interface ReleaseSwapSource {"
-    },
-    {
-      "name": "ReleaseSwapCurrent",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 58,
-      "declaration": "export interface ReleaseSwapCurrent {"
-    },
-    {
-      "name": "ReleaseAlternatives",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 67,
-      "declaration": "export interface ReleaseAlternatives {"
-    },
-    {
-      "name": "ReleaseSwapSubject",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 78,
-      "declaration": "export interface ReleaseSwapSubject {"
-    },
-    {
-      "name": "LoadState",
-      "file": "web\\src\\components\\releases\\release-swap-dialog.tsx",
-      "line": 139,
-      "declaration": "type LoadState ="
-    },
-    {
       "name": "RequestState",
       "file": "web\\src\\components\\requests\\request-action.tsx",
       "line": 6,
@@ -3410,12 +3309,6 @@
       "file": "web\\src\\components\\title\\title-detail.tsx",
       "line": 98,
       "declaration": "type SeasonGrabStatus,"
-    },
-    {
-      "name": "ReleaseSwapSubject",
-      "file": "web\\src\\components\\title\\title-detail.tsx",
-      "line": 108,
-      "declaration": "type ReleaseSwapSubject } from \"@/components/releases/release-swap-dialog\";"
     },
     {
       "name": "TitleDetailProps",

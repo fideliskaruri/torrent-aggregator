@@ -209,7 +209,7 @@ export function SeriesDownloadDialog({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => onAction("swap", firstFailed.torrent)}
+                    onClick={() => onAction("find-another-release", firstFailed.torrent)}
                     data-group-find-release
                   >
                     <Search className="h-3.5 w-3.5" />

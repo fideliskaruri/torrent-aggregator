@@ -11,12 +11,11 @@ internal sealed record HunterPass(string Lane, bool Busy, ImmutableArray<HunterI
     int Existing, int Notifications, string? BlockedReason);
 
 internal sealed class Hunter(AutomationRepository repository, IMetadata metadata, TargetPipeline targets,
-    DiscoveryPlan discovery, IServiceScopeFactory scopes, IEngine engine)
+    IServiceScopeFactory scopes)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
-    private readonly Dictionary<string, DateTimeOffset> nextWatch = new();
 
-    internal async Task<HunterPass> RunAsync(bool probe, CancellationToken ct)
+    internal async Task<HunterPass> RunAsync(CancellationToken ct)
     {
         if (!await gate.WaitAsync(0, ct)) return new("background", true, [], 0, 0, 0, null);
         try
@@ -96,41 +95,7 @@ internal sealed class Hunter(AutomationRepository repository, IMetadata metadata
                 await repository.SaveAsync(rule with { LastRunAt = now, MatchCount = rule.MatchCount + count,
                     UpdatedAt = now, Version = rule.Version + 1 }, rule.Version, ct);
             }
-            var notifications = 0;
-            if (probe)
-            foreach (var watch in (await repository.ReadAsync<WatchItemRow>(ct)).Where(w => w.UpgradeWatch && w.UserId == "local"))
-            {
-                if (nextWatch.GetValueOrDefault(watch.Id) > now) continue;
-                nextWatch[watch.Id] = now.AddHours(6);
-                var work = (await metadata.GetWorkAsync(watch.WorkId, false, ct)).Work;
-                if (work is null) continue;
-                var preference = (await repository.ReadAsync<WorkPreferenceRow>(ct)).FirstOrDefault(p => p.WorkId == watch.WorkId);
-                var floor = preference?.PreferredResolution ?? 1080;
-                var scope = new TargetScope(work.Work.Id, [], work.Work.Kind == WorkKind.Film);
-                // Series watches need an explicit episode scope; never search the whole series as a film.
-                if (!scope.Film) continue;
-                var owned = await library.OwnedAsync(scope, ct);
-                if (owned.Any(o => o.Videos.Any(v => v.Resolution >= floor))) continue;
-                var result = await discovery.RunAsync(work, scope, new(floor, floor, null, null, null, 0),
-                    PriorityLane.Background, false, ct);
-                try
-                {
-                    foreach (var assignment in result.Plan.Assignments.Take(1))
-                    {
-                        var id = "quality:" + watch.Id + ":" + assignment.Hash;
-                        if ((await repository.ReadAsync<NotificationRow>(ct)).Any(n => n.Id == id)) continue;
-                        await repository.SaveAsync(new NotificationRow(id, "local", "quality",
-                            $"{floor}p is available", "Open the title and choose a release.",
-                            "/title/" + Uri.EscapeDataString(work.Work.WorkKey), id, now, null, true, null, 0), null, ct);
-                        notifications++;
-                    }
-                }
-                finally
-                {
-                    foreach (var handle in result.Evidence.Select(e => e.AdmissionHandle).OfType<ProbeHandle>().Distinct())
-                        await engine.ReleaseProbeAsync(handle, CancellationToken.None);
-                }
-            }
+            const int notifications = 0;
             return new("background", false, items.ToImmutable(), ownedCount, existingCount, notifications,
                 null);
         }
@@ -148,7 +113,7 @@ internal sealed class HunterScheduler(Hunter hunter, IConfiguration configuratio
             Math.Clamp(configuration.GetValue("TorrentFlow:Scheduler:IntervalMinutes", 15), 1, 1440)));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            try { await hunter.RunAsync(true, stoppingToken); }
+            try { await hunter.RunAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning(ex, "Automatic checks failed; retrying on the next pass."); }
         }

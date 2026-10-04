@@ -8,7 +8,6 @@
  * carrying a copy that drifts the first time either changes.
  */
 import { canFindAnotherSource } from "@/components/releases/find-another-source";
-import type { ReleaseSwapSubject } from "@/components/releases/release-swap-dialog";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseSource, qualityChipLabel, type ReleaseSource } from "@/lib/torrents/quality";
@@ -291,7 +290,7 @@ export function packLabel(torrent: Pick<ClientTorrent, "state" | "packEpisodes" 
 }
 
 /**
- * Whether a Downloads row offers Find another source. A season pack row fills
+ * Whether a Downloads row offers Find another. A season pack row fills
  * several episodes at once, so it offers none for now.
  */
 export function canFindAnotherSourceFor(
@@ -303,21 +302,6 @@ export function canFindAnotherSourceFor(
     pack: Boolean(torrent.packEpisodes),
     finished: isFinishedTransfer(torrent),
   });
-}
-
-/** What the Find another source dialog is told about a Downloads row. */
-export function swapSubjectFor(torrent: ClientTorrent): ReleaseSwapSubject {
-  return {
-    hash: torrent.hash,
-    workTitle: torrent.workTitle,
-    label: transferLabel(torrent),
-    live: {
-      state: torrent.state,
-      queuePosition: torrent.queuePosition,
-      peers: torrent.peers,
-      dlspeed: torrent.dlspeed,
-    },
-  };
 }
 
 /** How a toast or announcement names one download: its title, plus its episode when it has one. */

@@ -30,26 +30,6 @@ counts and the remaining Targets/Library and Metadata failures.
 
 ## Files
 
-### Additive owned-quality extension (OPS-857)
-
-The original capture baseline is unchanged. The title read adds optional
-`upgrade: {resolution:number, seeders:number}` or
-`bestAvailable: {resolution:number|null, checkedAt:string}` at film level and
-on each episode. Both are null when the owned quality meets the preference or
-the evidence has expired or become invalid. Unknown title responses may omit
-these optional additions. Seasons add `upgradeableEpisodes:number`,
-counted over all catalog episodes rather than just the rendered 200.
-Existing `owned`, availability, transfer and Library fields retain their shapes.
-`owned-quality.schema.json` describes these additions without making them required.
-
-Owner-only POST actions `/api/title/{workKey}/check-again` and `/upgrade` accept
-`{season?:number,episode?:number}` (empty object means the title).
-Check again returns `{items:[{episodeId:string|null,upgrade?,bestAvailable?}]}`;
-Upgrade returns the existing TargetActionReply shape. The web types currently
-declare `TitleOwned` but not these quality additions; the later web lane should
-add optional fields to `TitleDetailPayload`, `TitleEpisode` and `TitleSeason`, not change
-any existing required property. Real HTTP evidence: `tools\.upg-proof\report.md`.
-
 - `routes.md`: one row per method/path, including server-only endpoints.
 - `routes.json`: the same inventory with capture links and source locations.
 - `captures/<family>/<name>.json`: `{method,path,status,contentType,body}` from real HTTP.
@@ -86,7 +66,7 @@ open/reveal, recovery, tidy, automation, torrent and request actions.
 
 The scripts discover work keys and library IDs from the captured library, and a
 download hash from the captured transfers. Detail captures cover real series,
-progress, linked records, extras, release lists, deletion previews and alternatives.
+progress, linked records, extras, release lists and deletion previews.
 Sintel supplements series examples with a film. Owner/request lists, settings and
 notifications are also captured. There are no GET request-ID detail endpoints.
 

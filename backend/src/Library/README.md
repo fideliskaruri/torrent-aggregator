@@ -51,21 +51,9 @@ Already-cleared download bindings do not create phantom preview releases.
 the existing Targets acquisition action. The response reports its actual queued
 and owned counts without claiming that bytes have started.
 
-An explicitly replacing target whose video basename matches its current
-binding reserves `<stem> [<replacement-hash8>]<extension>` and that path's
-`.partial`. Unrelated collisions still fail. Engine's normal atomic publication
-then completes the new file without overwriting or removing the old file.
-Targets remains responsible for switching Current and retiring the fallback.
-For owned-item upgrades, Targets uses that same placement/filing path with a
-Replace-kind target. It retains the referenced old MediaFile until the new
-target is Done and its filed binding identifies a better MediaFile, then calls
-Library's existing exact, digest-checked removal. Library stores neither
-upgrade availability nor a second copy of the target state.
-Store's opaque removal proposal lets Targets clear its replacement reference in
-the same transaction that removes the old inventory and bindings. The optional
-inventory-commit callback on unbound removal changes only that transaction
-composition; the existing digest/path validation and physical deletion remain
-Library-owned. Ordinary removal uses the same proposal builder.
+The optional inventory-commit callback on unbound removal changes only that
+transaction composition; the existing digest/path validation and physical
+deletion remain Library-owned. Ordinary removal uses the same proposal builder.
 
 Removal includes imported/adopted MediaFiles without Download bindings. Exact
 recorded videos and sidecars are digest-checked together before any unlink; only

@@ -705,24 +705,6 @@
   },
   {
     "method": "GET",
-    "path": "/api/client/torrents/{hash}/alternatives",
-    "evidence": "from source, not captured",
-    "source": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs:8",
-    "requestFields": {},
-    "requestParameters": "source?:source id",
-    "handler": "    [HttpGet]\n    public async Task<IActionResult> Get(string hash, [FromQuery] string? source, CancellationToken ct)\n    {\n        try { return Ok(await swaps.Alternatives(hash, source, ct)); }\n        catch (InvalidOperationException error) { return Conflict(new { message = error.Message }); }\n    }\n\n    /// <summary>\n    /// Either a token from GET, or <c>best: true</c> (optionally with a source) to search and swap in one step. A token for\n    /// a blocked release also needs <c>allowBlocked: true</c> (\"Use it anyway\"); best never picks a blocked release.\n    /// </summary>\n    public sealed record SwapInput(string? Token, bool? Best, string? Source, bool? AllowBlocked = null);\n"
-  },
-  {
-    "method": "POST",
-    "path": "/api/client/torrents/{hash}/alternatives",
-    "evidence": "from source, not captured",
-    "source": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs:21",
-    "requestFields": {},
-    "requestParameters": "body: {token?,allowBlocked?,best?,source?}",
-    "handler": "    [HttpPost]\n    public async Task<IActionResult> Post(string hash, SwapInput input, CancellationToken ct)\n    {\n        if (input.Best == true)\n        {\n            try\n            {\n                var best = await swaps.SwapBest(hash, input.Source, ct);\n                return best.Ok ? Ok(best) : Conflict(best);\n            }\n            catch (InvalidOperationException error) { return Conflict(new { ok = false, message = error.Message }); }\n        }\n        if (string.IsNullOrWhiteSpace(input.Token))\n            return BadRequest(new { message = \"Choose a release, or ask for the best one.\" });\n        var result = await swaps.Swap(hash, input.Token, input.AllowBlocked == true, ct);\n        return result.Ok ? Ok(result) : Conflict(result);\n    }\n}"
-  },
-  {
-    "method": "GET",
     "path": "/api/wanted",
     "evidence": "from source, not captured",
     "source": "server\\TorrentFlow.Library\\Features\\Grabs\\WantedController.cs:15",

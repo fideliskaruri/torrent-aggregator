@@ -792,36 +792,6 @@
   },
   {
     "method": "GET",
-    "path": "/api/client/torrents/{hash}/alternatives",
-    "family": "client",
-    "parameters": "source?:source id",
-    "expectedType": "ReleaseAlternatives",
-    "typeSource": "web\\src\\components\\releases\\release-swap-dialog.tsx:67",
-    "consumer": "Find another source dialog",
-    "scope": "web",
-    "mutates": false,
-    "serverSource": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs:8",
-    "evidence": "captured",
-    "captures": [
-      "captures\\client\\alternatives.json"
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/client/torrents/{hash}/alternatives",
-    "family": "client",
-    "parameters": "body: {token?,allowBlocked?,best?,source?}",
-    "expectedType": "{ok:boolean,message?:string,hash?:string}",
-    "typeSource": "web\\src\\components\\releases\\release-swap-dialog.tsx:7",
-    "consumer": "Find another source dialog",
-    "scope": "web",
-    "mutates": true,
-    "serverSource": "server\\TorrentFlow.Library\\Features\\Grabs\\ReleaseSwapController.cs:21",
-    "evidence": "from source, not captured",
-    "captures": []
-  },
-  {
-    "method": "GET",
     "path": "/api/wanted",
     "family": "wanted",
     "parameters": "none",

@@ -7,11 +7,6 @@ a download happened.
 
 `PUT /api/follows/{workKey}` takes `{ "enabled": true }`. Existing watchlist
 `monitored` flags use the same Follow rows. `GET /api/follows` reads them.
-`PUT /api/quality-watches/{workKey}` takes `{ "enabled": true, "resolution": 1080 }`.
-Film quality watches run shared checked DiscoveryPlan in the Background lane,
-notify once per matching hash, release probe handles, and never admit a download.
-Series quality-watch execution remains unimplemented.
-
 The single nonoverlapping scheduler honors `TorrentFlow:Scheduler:Disabled` and
 `TorrentFlow:Scheduler:IntervalMinutes` (default 15).
 The default pass only reads Metadata and Library, enumerating confirmed aired,
@@ -31,7 +26,4 @@ blocked on a public Targets automation acceptance operation.
 HTTP proof is in `tools\.hunter-proof\`; run `tools\Test-HunterContract.ps1`
 against the isolated development listener. Abbott Elementary produces 92 aired
 unowned candidates on 2026-10-03; unfollow removes them from the next pass.
-The free Sintel film produced one real 1080p quality notification in 6.3 seconds;
-another pass produced no duplicate and Targets reported zero targets/downloads.
-No content downloads are initiated, only the existing bounded swarm probe.
 The unrelated Store health readiness count regression is tracked in OPS-788.

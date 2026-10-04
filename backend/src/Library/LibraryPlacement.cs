@@ -365,9 +365,7 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                     var key = LibraryPaths.PhysicalKey(final);
                     var replacing = target.ChosenReleaseHash is { } current && current != input.Assignment.Hash &&
                         bindings.Any(b => b.TargetId == target.Id &&
-                            (b.PhysicalKey == key || b.FinalPath is { } oldFinal && LibraryPaths.PhysicalKey(oldFinal) == key)) ||
-                        target.Kind == TargetKind.Replace && media.Any(m => m.PhysicalKey == key &&
-                            m.WorkId == target.WorkId && m.EpisodeId == target.EpisodeId);
+                            (b.PhysicalKey == key || b.FinalPath is { } oldFinal && LibraryPaths.PhysicalKey(oldFinal) == key));
                     if (replacing)
                     {
                         // A replacement reserves its own final and partial. Publication is

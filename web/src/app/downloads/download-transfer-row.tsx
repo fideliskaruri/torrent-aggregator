@@ -222,7 +222,7 @@ export function DownloadTransferRow({
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => onAction("swap", t)}
+          onClick={() => onAction("find-another-release", t)}
           aria-label={`${FIND_ANOTHER_SOURCE_LABEL} for ${title}`}
           {...rowAttr(kind, "find-release")}
         >

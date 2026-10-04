@@ -11,6 +11,23 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     private const string Prefix = "targets:";
     private readonly SemaphoreSlim gate = new(1, 1);
 
+    private async Task CleanRetiredAsync(IStore store, ILibraryDownloadRepository repository,
+        DownloadRow download, ImmutableArray<DownloadFileRow> files,
+        ImmutableArray<DownloadTargetRow> links, CancellationToken ct)
+    {
+        foreach (var file in files.Where(f => !f.Filed && f.EnginePath is not null))
+        {
+            LibraryPaths.NoLinks(file.EnginePath!);
+            if (File.Exists(file.EnginePath)) File.Delete(file.EnginePath);
+        }
+        if (!await repository.RemoveDownloadFilesAsync(download.Id, ct))
+            throw new IOException("The previous release's files could not be cleaned. Trying again.");
+        await TargetPipeline.CommitAsync(store, [], [.. links.Where(l => l.DownloadId == download.Id)
+            .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
+            new(StoreTable.Download, download.Id, download.Version, null)], ct);
+        await ((IEngineRetirement)engine).ForgetAsync(download.Id, ct);
+    }
+
     internal async Task AdmitAsync(WorkSnapshot work, ImmutableArray<TargetRow> targets, Assignment assignment,
         Candidate candidate, ImmutableArray<TorrentFile> metadata, ProbeHandle? handle,
         Func<string, TargetState, WaitReason?, string?, Task> change, SemaphoreSlim stateGate, CancellationToken ct)
@@ -30,7 +47,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (targets.IsEmpty) return;
             var owned = await library.OwnedAsync(new(work.Work.Id,
                 [.. targets.Where(t => t.EpisodeId is not null).Select(t => t.EpisodeId!)], targets[0].EpisodeId is null), ct);
-            targets = [.. targets.Where(t => t.Kind == TargetKind.Replace || !owned.Any(o => o.EpisodeId == t.EpisodeId))];
+            targets = [.. targets.Where(t => !owned.Any(o => o.EpisodeId == t.EpisodeId))];
             if (targets.IsEmpty) return;
             assignment = assignment with
             {
@@ -162,18 +179,16 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     }
 
     internal async Task RecoverAsync(Func<string, TargetState, WaitReason?, string?, CancellationToken, Task> change,
-        CancellationToken ct, ImmutableHashSet<string>? permitted = null)
+        CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
         var catalog = new CatalogState(store);
         var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
         var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-        var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix) &&
-            (permitted is null || links.Any(l => l.DownloadId == d.Id && permitted.Contains(l.TargetId)))).ToImmutableArray();
+        var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToImmutableArray();
         var bindings = (await repository.BindingsAsync(ct)).Where(f => downloads.Any(d => d.Id == f.DownloadId)).ToImmutableArray();
         var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
-        if (permitted is not null) targets = [.. targets.Where(t => permitted.Contains(t.Id))];
         foreach (var interrupted in downloads.Where(d => links.Any(l => l.DownloadId == d.Id) &&
             links.Where(l => l.DownloadId == d.Id).All(l => l.Role == AssociationRole.Replacement)))
         {
@@ -205,7 +220,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     }
 
     internal async Task TickAsync(Func<string, TargetState, WaitReason?, string?, CancellationToken, Task> change,
-        SemaphoreSlim stateGate, CancellationToken ct, ImmutableHashSet<string>? permitted = null)
+        SemaphoreSlim stateGate, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
@@ -215,10 +230,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var catalog = new CatalogState(store);
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
             var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
-            if (permitted is not null) targets = [.. targets.Where(t => permitted.Contains(t.Id))];
-            var associations = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-            var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix) &&
-                (permitted is null || associations.Any(a => a.DownloadId == d.Id && permitted.Contains(a.TargetId)))).ToArray();
+                var associations = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
+            var downloads = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
             await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(downloads,
                 associations, targets) }, ct);
             foreach (var download in downloads)
@@ -229,7 +242,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     await engine.DetachAsync(download.Id, ct);
                     if (members.All(t => t.State is TargetState.Done or TargetState.Removed) &&
-                        !(files.Any(f => f.Filed) && members.Any(t => t.Kind == TargetKind.Replace)))
+                        !files.Any(f => f.Filed))
                         await CleanRetiredAsync(store, repository, download, files, associations, ct);
                     continue;
                 }
@@ -260,8 +273,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     await change(retry.Id, TargetState.Fetching, null, null, ct);
                 }
                 members = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct))
-                    .Where(t => (permitted is null || permitted.Contains(t.Id)) &&
-                        associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
+                    .Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
                 var runnable = members.Where(t => t.State is TargetState.Fetching or TargetState.Filing ||
                     t.State == TargetState.Waiting && t.ResumeState == TargetState.Filing).ToArray();
                 var run = runnable.Length > 0 && members.Any(t => t.State == TargetState.Fetching);

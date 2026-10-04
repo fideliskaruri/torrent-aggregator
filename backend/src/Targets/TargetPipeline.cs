@@ -142,7 +142,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                         null, actor, origin, ruleId, null, null, null, batch, now, 0, null, 0,
                         null, null, now, now, 1)
                     : old with { Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
-                        PickedReleaseHash = old.Kind == TargetKind.Replace ? null : old.PickedReleaseHash,
+                        PickedReleaseHash = old.PickedReleaseHash,
                         Origin = origin, CreatedBy = actor,
                         State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,
@@ -274,7 +274,6 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         if (!await CanRunAsync(ct)) return;
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct);
-        await RetireUpgradeFilesAsync(ct);
         var snapshot = await ReadAsync(ct);
         await RecoverStallsAsync(snapshot, ct);
         await using var scope = scopes.CreateAsyncScope();
@@ -301,7 +300,6 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var key = "scope:" + intent.Id;
             if (!flights.ContainsKey(key)) flights[key] = MaterializeAsync([intent], ct);
         }
-        await ScheduleQualityAsync(catalog, ct);
     }
 
     private async Task MaterializeAsync(IEnumerable<ScopeIntentRow> pending, CancellationToken ct)
@@ -380,7 +378,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var owned = await library.OwnedAsync(targetScope, lifetime.Token);
             foreach (var row in rows.Where(r => r.Kind == TargetKind.Acquire && owned.Any(o => o.EpisodeId == r.EpisodeId)))
                 await ChangeAsync(row.Id, token, TargetState.Done, lifetime.Token);
-            rows = [.. rows.Where(r => r.Kind == TargetKind.Replace || !owned.Any(o => o.EpisodeId == r.EpisodeId))];
+            rows = [.. rows.Where(r => !owned.Any(o => o.EpisodeId == r.EpisodeId))];
             if (rows.IsEmpty) return;
             var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
             var audioLanguage = await AudioLanguageAsync(store, lifetime.Token);
@@ -389,7 +387,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             var lane = !forceOwner && rows.All(r => r.Priority != TargetPriority.Now &&
                 (r.SubstantiveMisses > 0 || r.Origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter or IntentOrigin.Upgrade))
                 ? PriorityLane.Background : PriorityLane.Owner;
-            var blocked = await ExcludedAsync(store, work.Work.Id, null, lifetime.Token);
+            var blocked = await ExcludedAsync(store, work.Work.WorkKey, null, lifetime.Token);
             var result = await discovery.RunAsync(work, targetScope, policy, lane,
                 false, lifetime.Token, actualTargets: [.. rows.Select(r => r with { AudioLanguage = audioLanguage })],
                 owned: owned, onStage: async state =>
