@@ -1,20 +1,8 @@
 /**
- * The series download dialog — Season 1 chapter rail, one column of episode
- * cards below it.
- *
- * `page.tsx` used to answer "what is Season 3 of this show doing" by growing a
- * disclosure triangle three levels deep (show → season → episode), and BUG-004
- * is the owner naming that for what it was: rearranged divs, not a considered
- * answer to the question. This is the redesign. The main page stays a single
- * compact row per work; this dialog is where the seasons and episodes of one
- * series actually live, opened explicitly rather than accumulated in place.
- *
- * The dialog does not own its selected season or its open/closed state — both
- * live in `page.tsx` — so a notification link can open it on the right season
- * and a snapshot that drops the series can close it.
+ * Season and episode details for one series download.
  */
 import { useId, useMemo } from "react";
-import { Pause, Play, Search, Trash2 } from "lucide-react";
+import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -27,28 +15,27 @@ import {
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { SeasonSwitcher, type SeasonOption } from "@/components/tf/season-switcher";
 import { progressPercent } from "@/components/tf/active-row-state";
-import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import {
   isError,
   type GroupEntry,
   type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
-import { canFindAnotherSourceFor, pauseResumeTargets, releaseDisplayFacts, rollupChip } from "./release-display";
-import type { Artwork } from "@/lib/metadata/artwork";
+import { canFindAnotherSourceFor, releaseDisplayFacts, rollupChip } from "./release-display";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import type { OpenDownloadMode } from "@/lib/open-download";
-import { DownloadGroupSummary, DownloadTransferRow } from "./download-transfer-row";
+import { DownloadGroupSummary } from "./download-group-summary";
+import { DownloadTransferRow } from "./download-transfer-row";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
 import { TransferProgress, transferBarTone } from "./transfer-progress";
+import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
   group: SeriesGroup<ClientTorrent> | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   titleHref: string | null;
-  artwork: Record<string, Artwork>;
   selectedSeasonKey: string | null;
   onSelectSeason: (key: string) => void;
   /** The page's own multi-select set — shared, not a second selection model. */
@@ -88,7 +75,7 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
         <span className="flex w-full items-center gap-1.5">
           <TransferProgress
             percent={pct}
-            tone={transferBarTone(season.state, rollupChip(season).failing)}
+            tone={transferBarTone(season.status, rollupChip(season).failing)}
             label={`${label} progress`}
             size="mini"
             className="w-auto"
@@ -119,7 +106,6 @@ export function SeriesDownloadDialog({
   open,
   onOpenChange,
   titleHref,
-  artwork,
   selectedSeasonKey,
   onSelectSeason,
   selected,
@@ -141,27 +127,8 @@ export function SeriesDownloadDialog({
   );
   const selectAllId = useId();
 
-  // Scoped to this series so Pause/Resume/Delete act only on what is checked
-  // under this show, even though the checkboxes write into the page's one
-  // shared `selected` set.
-  const selectedTransferIdsInGroup = useMemo(() => {
-    if (!group) return [];
-    const members = new Set(group.torrents.map((t) => t.transferId));
-    return [...selected].filter((transferId) => members.has(transferId));
-  }, [group, selected]);
-  // What the selection bar's Pause and Resume would act on: only the checked episodes each one applies to.
-  const selectedTargets = useMemo(
-    () =>
-      pauseResumeTargets(
-        group ? group.torrents.filter((torrent) => selected.has(torrent.transferId)) : [],
-      ),
-    [group, selected],
-  );
-
   if (!group) return null;
 
-  const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
-  const art = artwork[query.key];
   const seasons = seasonOptions(group);
   const seasonIds = selectedSeason?.entries.map((entry) => entry.torrent.transferId) ?? [];
   const seasonCheckedCount = seasonIds.filter((transferId) => selected.has(transferId)).length;
@@ -175,7 +142,7 @@ export function SeriesDownloadDialog({
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
     .flatMap((season) => season.entries)
-    .find((entry) => isError(entry.torrent.state) && canFindAnotherSourceFor(entry.torrent));
+    .find((entry) => isError(entry.torrent.status) && canFindAnotherSourceFor(entry.torrent));
   const firstFailedLabel = firstFailed
     ? (firstFailed.episodeLabel ?? releaseDisplayFacts(firstFailed.torrent).title)
     : null;
@@ -202,7 +169,7 @@ export function SeriesDownloadDialog({
         {/* The same summary as the series' row on the page. */}
         <DialogHeader className="shrink-0 border-b border-border px-4 pb-3 pr-14 pt-3 sm:px-5 sm:pr-14 sm:pt-4">
           <div className="flex items-start gap-2">
-            <DownloadGroupSummary group={group} titleHref={titleHref} posterUrl={art?.posterUrl} heading>
+            <DownloadGroupSummary group={group} titleHref={titleHref} posterUrl={group.torrents[0].posterUrl} heading>
               {firstFailed ? (
                 <div className="flex pt-1">
                   <Button
@@ -319,59 +286,11 @@ export function SeriesDownloadDialog({
         </TabsContent>
         </Tabs>
 
-        {selectedTransferIdsInGroup.length > 0 ? (
-          <div
-            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 shadow-[var(--shadow-md)] sm:px-5 sm:pb-2 sm:shadow-none"
-            data-dialog-bulk-bar
-          >
-            <span className="mr-1 text-[12px] text-muted-foreground">
-              {selectedTransferIdsInGroup.length} selected
-            </span>
-            {/*
-              aria-disabled, not disabled, when nothing checked applies: Pause
-              stops applying the moment it has worked, while it still has
-              focus, and a disabled button drops focus to <body>.
-            */}
-            <Button
-              size="sm"
-              variant="secondary"
-              aria-disabled={!selectedTargets.pause.length || undefined}
-              onClick={() => {
-                if (selectedTargets.pause.length) onActionMany("pause", selectedTargets.pause);
-              }}
-              data-dialog-bulk-pause
-            >
-              <Pause className="h-3.5 w-3.5" />
-              Pause
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              aria-disabled={!selectedTargets.resume.length || undefined}
-              onClick={() => {
-                if (selectedTargets.resume.length) onActionMany("resume", selectedTargets.resume);
-              }}
-              data-dialog-bulk-resume
-            >
-              <Play className="h-3.5 w-3.5" />
-              Resume
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() =>
-                onDeleteRequest(
-                  group.torrents.filter((torrent) =>
-                    selectedTransferIdsInGroup.includes(torrent.transferId),
-                  ),
-                )
-              }
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </Button>
-          </div>
-        ) : null}
+        <SeriesDownloadBulkBar
+          torrents={group.torrents.filter((torrent) => selected.has(torrent.transferId))}
+          onActionMany={onActionMany}
+          onDeleteRequest={onDeleteRequest}
+        />
       </DialogContent>
     </Dialog>
   );

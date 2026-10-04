@@ -9,13 +9,13 @@ import type {
  * Keep last-known rows belonging to a client that failed this poll, while
  * replacing every successfully queried client's rows with the fresh answer.
  */
-export function mergeOwnedTransferSnapshots(
-  previous: readonly OwnedClientTorrent[],
-  fresh: readonly OwnedClientTorrent[],
+export function mergeOwnedTransferSnapshots<T extends Pick<OwnedClientTorrent, "transferId" | "ownerClientType">>(
+  previous: readonly T[],
+  fresh: readonly T[],
   unavailableClientTypes: readonly TorrentClientType[],
-): OwnedClientTorrent[] {
+): T[] {
   const unavailable = new Set(unavailableClientTypes);
-  const merged = new Map<string, OwnedClientTorrent>();
+  const merged = new Map<string, T>();
   for (const torrent of previous) {
     if (unavailable.has(torrent.ownerClientType)) {
       merged.set(torrent.transferId, torrent);

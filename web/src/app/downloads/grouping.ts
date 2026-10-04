@@ -1,297 +1,36 @@
-/**
- * Collapsing the Downloads list into one row per work.
- *
- * A client mid-way through a season shows twelve rows that are all the same
- * show, all at different percentages, and no answer at all to the question the
- * page exists to answer: *am I going to be able to watch this tonight?* One
- * row per series, carrying the combined progress of everything under it, is
- * that answer. Films stay as they are — a film is already one row, and wrapping
- * it in a group would add a disclosure triangle that reveals itself.
- *
- * Four rules run through everything below, and each of them is a specific way
- * this would otherwise lie to the user:
- *
- *  - **Progress is weighted by size, never averaged.** Ten finished 100 MB
- *    episodes plus one untouched 4 GB season pack is 19% of the bytes, and the
- *    average of the percentages says 91%. The second number sends someone to
- *    the sofa.
- *  - **A group never claims more than its members.** If anything under it is
- *    still downloading, the group is not downloaded, whatever the
- *    percentage rounds to.
- *  - **A season pack and the loose episodes of that season are not counted
- *    twice.** They are the same content held twice on disk; summing both
- *    inflates the denominator and understates how far along you are.
- *  - **Order cannot depend on anything that moves.** The page re-polls the
- *    client every five seconds and re-renders from the answer, so an order
- *    derived from progress, speed or state would rearrange rows under the
- *    cursor. The engine already sorts its own list for exactly this reason
- *    (`builtin-engine.ts`: "a torrent visibly JUMPED from the tail of the list
- *    into the middle"), and an external client offers no such promise, so the
- *    order is recomputed here from identity alone.
- *
- * Pure and DOM-free: `grouping.test.ts` drives it as a table.
- */
-import { workIdentityFor } from "@/components/title/work-key";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
-import { parseEpisode, seasonFolderSegment } from "@/lib/torrents/episodes";
-import { isSeriesDownload } from "./media-filter";
-import { emptyStatusCounts, type StatusCounts } from "./status-rollup";
+import type { ClientTorrent, DownloadStatus } from "./types";
 
-/** The fields grouping needs. The page's own row type is a superset. */
-export interface TransferRow {
-  hash: string;
-  transferId?: string;
-  name: string;
-  category?: string | null;
-  /** 0–1. */
-  progress: number;
-  sizeBytes: number;
-  dlspeed: number;
-  upspeed: number;
-  /** Raw client state string, in qBittorrent's vocabulary. */
-  state: string;
-  /** 1-based place in the built-in download queue, while `state` is "queued". */
-  queuePosition?: number;
-  /** Why that queued row is waiting: outside-window or queue-full. */
-  waitReason?: string | null;
-  workId?: string | null;
-  workKey?: string | null;
-  workTitle?: string | null;
-  workYear?: number | null;
-  workMediaType?: string | null;
-  season?: number | null;
-  episode?: number | null;
+export interface StatusCounts {
+  total: number;
+  downloading: number;
+  queued: number;
+  paused: number;
+  done: number;
+  error: number;
 }
 
-// ---------------------------------------------------------------------------
-// What a transfer is doing
-// ---------------------------------------------------------------------------
-//
-// These moved out of `page.tsx` rather than being rewritten here. The status
-// filter, the badge colours and a group's combined state all have to agree
-// about what "downloaded" means, including legacy external-client seed states.
-
-const DOWNLOADING_STATES = new Set([
-  "allocating",
-  "checking",
-  "checkingdl",
-  "checkingresumedata",
-  "checkingup",
-  "downloading",
-  // Every byte is in; the files are being checked and moved into the library.
-  "finishing",
-  "forceddl",
-  "metadl",
-  "queuedcheck",
-  "queueddownload",
-  "queueddl",
-  "stalleddl",
-]);
-
-const DOWNLOADED_STATES = new Set([
-  "complete",
-  "downloaded",
-  "forcedup",
-  "queuedseed",
-  "queuedup",
-  "seeding",
-  "stalledup",
-  "uploading",
-]);
-
-const PAUSED_STATES = new Set([
-  "paused",
-  "pauseddl",
-  "pausedup",
-  "stopped",
-  "stoppeddl",
-  "stoppedup",
-]);
-
-/** Failed transfers (metadata timeout, missing files, engine error) — not paused. */
-const ERROR_STATES = new Set(["error", "missingfiles"]);
-
-export function isDownloading(state: string): boolean {
-  return DOWNLOADING_STATES.has(state.trim().toLowerCase());
-}
-
-export function isDownloaded(state: string): boolean {
-  return DOWNLOADED_STATES.has(state.trim().toLowerCase());
-}
-
-export function isPaused(state: string): boolean {
-  return PAUSED_STATES.has(state.trim().toLowerCase());
-}
-
-/** True when the client reports a failed transfer (`error` / `missingFiles`). */
-export function isError(state: string): boolean {
-  return ERROR_STATES.has(state.trim().toLowerCase());
-}
-
-/**
- * Waiting in the built-in engine's download queue. Unfinished and not stopped,
- * but not moving either — so it is neither "downloading" nor "paused".
- */
-export function isQueued(state: string): boolean {
-  return state.trim().toLowerCase() === "queued";
-}
-
-/**
- * Downloaded but held outside the library until the owner decides: Keep or
- * Find another (docs/english-gates-plan.md). Never "downloaded" yet.
- */
-export function isHeld(state: string): boolean {
-  return state.trim().toLowerCase() === "held";
-}
-
-/** The earliest queue position among a set's queued members, or null. */
-export function leadQueuePosition(
-  members: readonly Pick<TransferRow, "state" | "queuePosition">[],
-): number | null {
-  let lead: number | null = null;
-  for (const member of members) {
-    if (!isQueued(member.state ?? "")) continue;
-    const position = member.queuePosition;
-    if (typeof position !== "number" || !Number.isFinite(position) || position <= 0) continue;
-    if (lead == null || position < lead) lead = position;
-  }
-  return lead;
-}
-
-// ---------------------------------------------------------------------------
-// Combining
-// ---------------------------------------------------------------------------
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(1, Math.max(0, value));
-}
-
-function usableSize(bytes: number): number {
-  return Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
-}
-
-/**
- * How far along a set of transfers is, as a fraction of their *bytes*.
- *
- * The naive version — the mean of the percentages — is wrong in the direction
- * that matters. A season of ten 100 MB episodes at 100% next to one 4 GB
- * remux at 0% is 1 GB of 5 GB, so 19%; averaging the percentages reports 91%
- * and the row says "nearly there" about a download that has four fifths left
- * to fetch.
- *
- * Zero total size returns 0 rather than falling back to an average. A torrent
- * reports `sizeBytes: 0` while it is still fetching its metadata, and at that
- * point nothing has been downloaded — an average over rows we know nothing
- * about would reintroduce the exact error above in the one case where we have
- * no evidence at all.
- */
-function combinedProgress(
-  members: readonly Pick<TransferRow, "progress" | "sizeBytes">[],
-): number {
-  let total = 0;
-  let done = 0;
-  for (const member of members) {
-    const size = usableSize(member.sizeBytes);
-    total += size;
-    done += size * clamp01(member.progress);
-  }
-  if (total <= 0) return 0;
-  return clamp01(done / total);
-}
-
-/**
- * The one state string that speaks for a set of transfers.
- *
- * Picked by *least finished*, not by majority or by first: a group with nine
- * downloaded episodes and one still downloading is a group you cannot watch
- * through, and badging it "Ready" claims completion that no member has. The
- * page renders whatever comes back through its own `stateLabel`, so this
- * returns a real member's raw state rather than inventing a vocabulary.
- *
- * Error outranks paused and queued: a failed member is the thing the user has
- * to act on, and must never be collapsed into "Paused".
- *
- * Paused outranks downloaded for the same reason: unfinished-and-stopped is the
- * honest description of a group holding one paused episode, and it is the
- * state the user has to act on.
- *
- * Queued sits between downloading and error: behind a member that is actually
- * moving, but ahead of paused, because a queued member will start on its own.
- */
-function combinedState(
-  members: readonly Pick<TransferRow, "state">[],
-): string {
-  let best: string | null = null;
-  let bestRank = -1;
-  for (const member of members) {
-    const state = member.state ?? "";
-    const rank = isDownloading(state)
-      ? 5
-      : isError(state)
-        ? 4
-        : isQueued(state)
-          ? 3
-          : isPaused(state)
-            ? 2
-            : isDownloaded(state)
-              ? 1
-              : 0;
-    if (rank > bestRank) {
-      bestRank = rank;
-      best = state;
-    }
-  }
-  return best ?? "";
-}
-
-// ---------------------------------------------------------------------------
-// The grouped shape
-// ---------------------------------------------------------------------------
-
-/** Aggregate figures shared by a group and by each of its seasons. */
 interface CombinedTotals {
-  /** Size-weighted, 0–1, over the members that are not double-counted. */
   progress: number;
-  /** Bytes, over the members that are not double-counted. */
   sizeBytes: number;
-  /**
-   * Live transfer rates, summed over **every** member including the
-   * double-counted ones. A subsumed episode is still moving real bytes through
-   * the network card, and hiding them would make the group's speed disagree
-   * with the totals in the stat strip above it.
-   */
   dlspeed: number;
   upspeed: number;
-  /** A member's own raw state; see `combinedState`. */
-  state: string;
-  /** How many members are in each state, over every member; see `summarizeStatus`. */
+  status: DownloadStatus;
+  statusLabel: string;
   counts: StatusCounts;
 }
 
 export interface GroupEntry<T> {
   torrent: T;
-  /** Null when the release names no single season (see `seasonFolderSegment`). */
   season: number | null;
   episode: number | null;
   isSeasonPack: boolean;
-  /** `S02E05`, `S01 pack`, … straight from `parseEpisode`. */
   episodeLabel: string | null;
-  /**
-   * A season pack in the same season already accounts for these bytes, so they
-   * are left out of the totals. The row is still listed: it is a real torrent
-   * the user can pause or delete, and hiding it would make the count of things
-   * on disk wrong in the other direction.
-   */
-  subsumed: boolean;
 }
 
 export interface SeasonBucket<T> extends CombinedTotals {
-  /** Null for multi-season packs and for releases that state no season. */
   season: number | null;
-  /** Stable across polls; safe as a React key and an expand/collapse handle. */
   key: string;
-  /** `Season 09`, or `Other` for the null bucket. */
   label: string;
   entries: GroupEntry<T>[];
 }
@@ -301,7 +40,6 @@ export interface SeriesGroup<T> extends CombinedTotals {
   key: string;
   title: string;
   seasons: SeasonBucket<T>[];
-  /** Every member, in the order the expanded view lists them. */
   torrents: T[];
   releaseCount: number;
   seasonCount: number;
@@ -310,328 +48,171 @@ export interface SeriesGroup<T> extends CombinedTotals {
 interface SingleGroup<T> {
   kind: "single";
   key: string;
-  /**
-   * Used for ordering, and only for ordering. The row keeps rendering the
-   * display title the page already derives for it, so nothing about how a film
-   * looks changes just because it now passes through here.
-   */
   title: string;
   torrent: T;
 }
 
 export type DownloadGroup<T> = SeriesGroup<T> | SingleGroup<T>;
 
-// ---------------------------------------------------------------------------
-// Grouping
-// ---------------------------------------------------------------------------
-
-/** `Season 09` for a single known season, `Other` for everything else. */
-const OTHER_SEASON_LABEL = "Other";
-
-function totalsFor<T extends TransferRow>(
-  entries: readonly GroupEntry<T>[],
-): CombinedTotals {
-  const counted = entries.filter((entry) => !entry.subsumed);
-  const all = entries.map((entry) => entry.torrent);
-  return {
-    progress: combinedProgress(counted.map((entry) => entry.torrent)),
-    sizeBytes: counted.reduce(
-      (sum, entry) => sum + usableSize(entry.torrent.sizeBytes),
-      0,
-    ),
-    dlspeed: all.reduce((sum, t) => sum + (Number(t.dlspeed) || 0), 0),
-    upspeed: all.reduce((sum, t) => sum + (Number(t.upspeed) || 0), 0),
-    state: combinedState(all),
-    counts: statusCounts(all),
-  };
+export function isDownloading(status: DownloadStatus): boolean {
+  return status === "downloading" || status === "finishing" || status === "waiting";
 }
 
-/** Per-state member counts, so a rollup can say "1 downloading · 30 need attention". */
-export function statusCounts(
-  members: readonly Pick<TransferRow, "state">[],
-): StatusCounts {
+export function isDownloaded(status: DownloadStatus): boolean {
+  return status === "ready";
+}
+
+export function isPaused(status: DownloadStatus): boolean {
+  return status === "paused";
+}
+
+export function isError(status: DownloadStatus): boolean {
+  return status === "error";
+}
+
+export function isQueued(status: DownloadStatus): boolean {
+  return status === "queued";
+}
+
+function emptyStatusCounts(): StatusCounts {
+  return { total: 0, downloading: 0, queued: 0, paused: 0, done: 0, error: 0 };
+}
+
+export function statusCounts(rows: readonly Pick<ClientTorrent, "status">[]): StatusCounts {
   const counts = emptyStatusCounts();
-  for (const member of members) {
-    const state = member.state ?? "";
+  for (const row of rows) {
     counts.total += 1;
-    // A held row waits for the owner, so it counts with the ones that need attention.
-    if (isError(state) || isHeld(state)) counts.error += 1;
-    else if (isDownloaded(state)) counts.done += 1;
-    else if (isDownloading(state)) counts.downloading += 1;
-    else if (isQueued(state)) counts.queued += 1;
-    else if (isPaused(state)) counts.paused += 1;
+    if (row.status === "error") counts.error += 1;
+    else if (row.status === "ready") counts.done += 1;
+    else if (row.status === "queued") counts.queued += 1;
+    else if (row.status === "paused") counts.paused += 1;
+    else counts.downloading += 1;
   }
   return counts;
 }
 
-/**
- * Mark the loose episodes of a season that its season pack already contains.
- *
- * A pack and the individual episodes inside it are the same content twice, so
- * counting both puts the episodes' bytes in the denominator a second time and
- * the group reads as less complete than it is. The pack wins because it is the
- * superset by definition.
- *
- * Two deliberate limits:
- *
- *  - **The pack must actually be big enough.** Subsuming is only credible when
- *    the pack is at least as large as what it claims to contain; a pack that is
- *    smaller either is not really a pack of these episodes, or is still
- *    fetching metadata and reporting `sizeBytes: 0`. In both cases dropping
- *    real bytes from the total would be the worse error, so nothing is
- *    subsumed and the group merely over-counts.
- *  - **Multi-season packs subsume nothing.** `S01-S10` overlaps ten seasons,
- *    and deciding how much of each it covers would need per-season sizes that
- *    no client reports. Guessing there would be inventing physics, so it is
- *    left alone and counted whole — an over-count we can name, rather than an
- *    under-count we cannot.
- */
-function applySeasonPackSubsumption<T extends TransferRow>(
-  entries: GroupEntry<T>[],
-): void {
-  const bySeason = new Map<number, GroupEntry<T>[]>();
-  for (const entry of entries) {
-    if (entry.season == null) continue;
-    const bucket = bySeason.get(entry.season);
-    if (bucket) bucket.push(entry);
-    else bySeason.set(entry.season, [entry]);
-  }
-
-  for (const bucket of bySeason.values()) {
-    const packs = bucket.filter((entry) => entry.isSeasonPack);
-    if (!packs.length) continue;
-
-    // Largest pack wins; hash breaks a tie so two identically sized packs
-    // cannot swap authority between polls and flip the totals back and forth.
-    const authoritative = [...packs].sort(
-      (a, b) =>
-        usableSize(b.torrent.sizeBytes) - usableSize(a.torrent.sizeBytes) ||
-        (a.torrent.transferId ?? a.torrent.hash).localeCompare(
-          b.torrent.transferId ?? b.torrent.hash,
-        ),
-    )[0];
-
-    const covered = bucket.filter((entry) => entry !== authoritative);
-    const coveredBytes = covered.reduce(
-      (sum, entry) => sum + usableSize(entry.torrent.sizeBytes),
-      0,
-    );
-    if (usableSize(authoritative.torrent.sizeBytes) < coveredBytes) continue;
-    for (const entry of covered) entry.subsumed = true;
-  }
+function combinedStatus(rows: readonly ClientTorrent[]): ClientTorrent {
+  const rank: Record<DownloadStatus, number> = {
+    downloading: 7,
+    finishing: 6,
+    waiting: 5,
+    error: 4,
+    queued: 3,
+    paused: 2,
+    ready: 1,
+  };
+  return rows.reduce((best, row) => rank[row.status] > rank[best.status] ? row : best);
 }
 
-function compareEntries<T extends TransferRow>(
-  a: GroupEntry<T>,
-  b: GroupEntry<T>,
-): number {
-  // A pack covers the whole season, so it heads the season it belongs to.
-  if (a.isSeasonPack !== b.isSeasonPack) return a.isSeasonPack ? -1 : 1;
-  const ae = a.episode ?? Number.MAX_SAFE_INTEGER;
-  const be = b.episode ?? Number.MAX_SAFE_INTEGER;
-  if (ae !== be) return ae - be;
-  return (
-    a.torrent.name.localeCompare(b.torrent.name, undefined, { numeric: true }) ||
-    (a.torrent.transferId ?? a.torrent.hash).localeCompare(
-      b.torrent.transferId ?? b.torrent.hash,
-    )
+function totalsFor(rows: readonly ClientTorrent[]): CombinedTotals {
+  const sizeBytes = rows.reduce((sum, row) => sum + Math.max(0, row.sizeBytes || 0), 0);
+  const completedBytes = rows.reduce(
+    (sum, row) => sum + Math.max(0, row.sizeBytes || 0) * Math.min(1, Math.max(0, row.progress || 0)),
+    0,
   );
+  const representative = combinedStatus(rows);
+  return {
+    progress: sizeBytes > 0 ? completedBytes / sizeBytes : 0,
+    sizeBytes,
+    dlspeed: rows.reduce((sum, row) => sum + (Number(row.dlspeed) || 0), 0),
+    upspeed: rows.reduce((sum, row) => sum + (Number(row.upspeed) || 0), 0),
+    status: representative.status,
+    statusLabel: representative.statusLabel,
+    counts: statusCounts(rows),
+  };
 }
 
-/**
- * One row per work: a group for every series, and the film rows untouched.
- *
- * The returned order is a total order over identity — display title, then the
- * group's own key — and is therefore identical for the same set of torrents
- * however the client happened to hand them over and whatever they are doing.
- * That is the property the five-second poll needs; sorting on progress or
- * speed would move a row the instant it moved.
- */
-export function groupDownloads<T extends TransferRow>(
-  rows: readonly T[],
-): DownloadGroup<T>[] {
-  const singles: SingleGroup<T>[] = [];
-  const seriesRows: Array<{
-    workId: string | null;
-    key: string;
-    title: string;
-    aliases: Set<string>;
-    rows: T[];
-  }> = [];
+function compareEntries(a: GroupEntry<ClientTorrent>, b: GroupEntry<ClientTorrent>): number {
+  return (a.episode ?? Number.MAX_SAFE_INTEGER) - (b.episode ?? Number.MAX_SAFE_INTEGER)
+    || a.torrent.name.localeCompare(b.torrent.name, undefined, { numeric: true })
+    || a.torrent.transferId.localeCompare(b.torrent.transferId);
+}
 
+export function groupDownloads(rows: readonly ClientTorrent[]): DownloadGroup<ClientTorrent>[] {
+  const byKey = new Map<string, ClientTorrent[]>();
   for (const row of rows) {
-    const identity = workIdentityFor(row.name ?? "");
-    const title = row.workTitle?.trim() || identity.name || row.name || "";
-    const key = row.workKey?.trim() || identity.key;
-    const workId = row.workId?.trim() || null;
-    const aliases = new Set([
-      `key:${key}`,
-      `release:${identity.key}`,
-      ...(row.workTitle?.trim()
-        ? [`title:${workIdentityFor(row.workTitle).key}`]
-        : []),
-    ]);
-    if (!isSeriesDownload(row)) {
-      // Films stay individual, and each keeps its own row even when two prints
-      // of the same film are present: they are separate torrents taking
-      // separate disk, and merging them would hide one behind the other's
-      // pause and delete controls.
-      singles.push({
-        kind: "single",
-        key: `single:${row.transferId ?? row.hash}`,
-        title,
-        torrent: row,
-      });
+    const key = row.groupKey || `raw:${row.hash}`;
+    const bucket = byKey.get(key);
+    if (bucket) bucket.push(row);
+    else byKey.set(key, [row]);
+  }
+
+  const groups: DownloadGroup<ClientTorrent>[] = [];
+  for (const [key, members] of byKey) {
+    const title = members.find((row) => row.workTitle?.trim())?.workTitle?.trim() || members[0].name;
+    if (members[0].mediaKind !== "series") {
+      for (const torrent of members) {
+        groups.push({ kind: "single", key: `single:${torrent.transferId}`, title, torrent });
+      }
       continue;
     }
-    const overlaps = (bucket: (typeof seriesRows)[number]) =>
-      [...aliases].some((alias) => bucket.aliases.has(alias));
-    let matches = seriesRows.filter((bucket) => {
-      if (workId && bucket.workId) return workId === bucket.workId;
-      return overlaps(bucket);
-    });
-    if (!workId) {
-      const linkedIds = new Set(
-        matches
-          .map((bucket) => bucket.workId)
-          .filter((id): id is string => id != null),
-      );
-      if (linkedIds.size > 1) {
-        matches = matches.filter((bucket) => bucket.workId == null);
-      }
-    }
 
-    let bucket = matches.find((candidate) => candidate.workId === workId)
-      ?? matches.find((candidate) => candidate.workId != null)
-      ?? matches[0];
-    if (!bucket) {
-      bucket = { workId, key, title, aliases, rows: [] };
-      seriesRows.push(bucket);
-    } else {
-      for (const match of matches) {
-        if (match === bucket) continue;
-        match.rows.forEach((member) => bucket.rows.push(member));
-        match.aliases.forEach((alias) => bucket.aliases.add(alias));
-        seriesRows.splice(seriesRows.indexOf(match), 1);
-      }
-      aliases.forEach((alias) => bucket.aliases.add(alias));
-      if (workId && !bucket.workId) bucket.workId = workId;
-      if (workId && row.workKey?.trim()) bucket.key = row.workKey.trim();
-      if (workId && row.workTitle?.trim()) bucket.title = row.workTitle.trim();
-    }
-    bucket.rows.push(row);
-  }
-
-  const groups: DownloadGroup<T>[] = [...singles];
-
-  for (const bucket of seriesRows) {
-    const key = bucket.key;
-    const labelled = bucket.rows.map((torrent) => {
-      const parsed = parseEpisode(torrent.name ?? "");
-      const explicitSeason = torrent.season ?? null;
-      const episode = torrent.episode ?? parsed.episode ?? null;
-      // `seasonFolderSegment` answers "does this name state one single
-      // season?" — null for a multi-season pack and for a name with no season
-      // at all — which is exactly the bucket question, and reusing it means the
-      // heading on screen reads the same as the folder on disk.
-      const folder = explicitSeason != null
-        ? `Season ${String(explicitSeason).padStart(2, "0")}`
-        : seasonFolderSegment(parsed);
-      const season = explicitSeason ?? (folder ? parsed.season ?? null : null);
-      const entry: GroupEntry<T> = {
+    const seasonMap = new Map<number | null, GroupEntry<ClientTorrent>[]>();
+    for (const torrent of members) {
+      const season = torrent.season ?? null;
+      const entry: GroupEntry<ClientTorrent> = {
         torrent,
-        season: folder ? season : null,
-        episode,
-        isSeasonPack: parsed.isSeasonPack === true,
-        episodeLabel:
-          season != null && episode != null
-            ? formatEpisodeLabel(season, episode)
-            : parsed.label,
-        subsumed: false,
+        season,
+        episode: torrent.episode ?? null,
+        isSeasonPack: (torrent.packEpisodes ?? 0) > 0,
+        episodeLabel: season != null && torrent.episode != null
+          ? formatEpisodeLabel(season, torrent.episode)
+          : null,
       };
-      return { entry, label: folder ?? OTHER_SEASON_LABEL };
-    });
-    const entries = labelled.map((row) => row.entry);
-
-    applySeasonPackSubsumption(entries);
-
-    const buckets = new Map<string, GroupEntry<T>[]>();
-    for (const { entry, label } of labelled) {
-      const existing = buckets.get(label);
-      if (existing) existing.push(entry);
-      else buckets.set(label, [entry]);
+      const bucket = seasonMap.get(season);
+      if (bucket) bucket.push(entry);
+      else seasonMap.set(season, [entry]);
     }
 
-    const seasons: SeasonBucket<T>[] = [...buckets.entries()]
-      .map(([label, bucketEntries]) => {
-        const sorted = [...bucketEntries].sort(compareEntries);
+    const seasons = [...seasonMap.entries()]
+      .map(([season, entries]) => {
+        const sorted = [...entries].sort(compareEntries);
+        const label = season == null ? "Other" : `Season ${String(season).padStart(2, "0")}`;
         return {
-          season: sorted[0].season,
+          season,
           key: `${key}::${label}`,
           label,
           entries: sorted,
-          ...totalsFor(sorted),
+          ...totalsFor(sorted.map((entry) => entry.torrent)),
         };
       })
-      // Numbered seasons ascending; the "Other" bucket last, because a
-      // multi-season pack or an unnumbered batch is not a place in the run and
-      // sorting it in among the numbers would imply it was one.
-      .sort((a, b) => {
-        if (a.season == null) return b.season == null ? 0 : 1;
-        if (b.season == null) return -1;
-        return a.season - b.season;
-      });
-
-    const ordered = seasons.flatMap((season) =>
-      season.entries.map((entry) => entry.torrent),
-    );
+      .sort((a, b) => a.season == null ? 1 : b.season == null ? -1 : a.season - b.season);
 
     groups.push({
       kind: "series",
       key,
-      title: bucket.title,
+      title,
       seasons,
-      torrents: ordered,
-      releaseCount: entries.length,
+      torrents: members,
+      releaseCount: members.length,
       seasonCount: seasons.length,
-      ...totalsFor(entries),
+      ...totalsFor(members),
     });
   }
 
   return groups.sort(
-    (a, b) =>
-      a.title.localeCompare(b.title, undefined, { numeric: true }) ||
-      a.key.localeCompare(b.key),
+    (a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }) || a.key.localeCompare(b.key),
   );
 }
 
-/**
- * Distinct single episodes a series group holds, for "12 downloaded · 2
- * downloading · 3 queued" (the title page's wording). An episode counts once,
- * by its furthest copy: downloaded, then moving, then waiting its turn. Season
- * packs are left out: a pack's contents are not known here, and guessing an
- * episode count for it would be a claim nobody made.
- */
-export function seriesEpisodeTally<T extends TransferRow>(
-  group: SeriesGroup<T>,
-): { downloaded: number; downloading: number; queued: number } {
-  const done = new Set<string>();
-  const active = new Set<string>();
-  const waiting = new Set<string>();
-  for (const bucket of group.seasons) {
-    for (const entry of bucket.entries) {
-      if (entry.isSeasonPack || entry.season == null || entry.episode == null) continue;
-      const key = `${entry.season}:${entry.episode}`;
-      const t = entry.torrent;
-      if (isDownloaded(t.state)) done.add(key);
-      else if (isDownloading(t.state)) active.add(key);
-      else if (isQueued(t.state)) waiting.add(key);
-    }
+export function seriesEpisodeTally(group: SeriesGroup<ClientTorrent>) {
+  const statuses = new Map<string, DownloadStatus>();
+  const rank: Record<DownloadStatus, number> = {
+    ready: 1, paused: 2, queued: 3, error: 4, waiting: 5, finishing: 6, downloading: 7,
+  };
+  for (const row of group.torrents) {
+    if (row.season == null || row.episode == null || row.packEpisodes) continue;
+    const key = `${row.season}:${row.episode}`;
+    const current = statuses.get(key);
+    if (!current || rank[row.status] > rank[current]) statuses.set(key, row.status);
   }
-  for (const key of done) {
-    active.delete(key);
-    waiting.delete(key);
+  let downloaded = 0;
+  let downloading = 0;
+  let queued = 0;
+  for (const status of statuses.values()) {
+    if (status === "ready") downloaded += 1;
+    else if (status === "downloading" || status === "finishing") downloading += 1;
+    else if (status === "queued") queued += 1;
   }
-  for (const key of active) waiting.delete(key);
-  return { downloaded: done.size, downloading: active.size, queued: waiting.size };
+  return { downloaded, downloading, queued };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { get, send } from "@/lib/api";
+import { send } from "@/lib/api";
 import { useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { MaxActiveDownloadsControl } from "@/components/settings/max-active-downloads";
@@ -51,16 +51,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import {
-  titleHrefForName,
-  titlePath,
-} from "@/components/title/work-key";
-import { useWorkArtwork, type WorkArtwork } from "@/hooks/use-work-artwork";
-import { artworkQueryForRelease } from "@/lib/metadata/release-art";
+import { BulkBar } from "@/components/tf/bulk-bar";
+import { downloadTitleHref } from "./download-links";
+import { DownloadGroupRow } from "./download-group-row";
+import { DownloadFilmRow } from "./download-film-row";
+import { ClientSkeleton, DetailsDisclosure } from "./download-page-states";
 import { formatSpeed } from "@/lib/format";
-import { useVisiblePoll } from "@/hooks/use-visible-poll";
 import { LookingSection } from "./looking-section";
-import { useMaxActiveDownloads } from "./use-max-active";
 import {
   groupDownloads,
   statusCounts,
@@ -93,22 +90,8 @@ import {
   TORRENT_SOURCE_INPUT_HINT,
 } from "@/lib/torrents/magnet-input";
 import { resolveSelectedSeasonKey, seriesGroupByKey } from "./season-selection";
-import {
-  applySnapshot,
-  areAllVisibleSelected,
-  emptySnapshotState,
-  shouldApplySnapshot,
-  shouldCloseMissingGroup,
-  toggleVisibleSelection,
-  type SnapshotState,
-} from "./snapshot-sync";
+import { areAllVisibleSelected, shouldCloseMissingGroup, toggleVisibleSelection } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
-import {
-  DownloadGroupSummary,
-  DownloadTransferRow,
-  type DownloadTransferRowProps,
-} from "./download-transfer-row";
-import { IconMenuButton, groupMenuItems } from "./row-menu";
 import {
   downloadLinkFrom,
   downloadLinkKey,
@@ -118,8 +101,6 @@ import {
 import { isDownloadRow, type ClientTorrent, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
-  PageSkeletonFrame,
-  SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { parseStoredBoolean, storedOneOf, usePersistedState } from "@/hooks/use-persisted-state";
@@ -131,10 +112,7 @@ import {
   sortDownloadGroups,
   type DownloadSort,
 } from "./sort";
-import {
-  mergeOwnedTransferSnapshots,
-} from "@/lib/clients/transfer-ownership";
-import type { TorrentClientType } from "@/lib/clients";
+import { useDownloads } from "./use-downloads";
 
 type StatusFilter = "all" | "active" | "downloading" | "queued" | "ready" | "paused" | "attention";
 
@@ -153,23 +131,6 @@ function magnetFor(torrent: ClientTorrent): string {
     ...SHARE_TRACKERS.map((tr) => `tr=${encodeURIComponent(tr)}`),
   ];
   return `magnet:?${params.join("&")}`;
-}
-
-function downloadTitleHref(torrent: ClientTorrent): string | null {
-  const workKey = torrent.workKey?.trim();
-  const workTitle = torrent.workTitle?.trim();
-  if (workKey && workTitle) {
-    return titlePath(workKey, {
-      title: workTitle,
-      year: torrent.workYear ?? null,
-      mediaType: torrent.workMediaType ?? torrent.category ?? null,
-      season: torrent.season ?? null,
-    });
-  }
-  return titleHrefForName(torrent.name, {
-    mediaType: torrent.category,
-    season: torrent.season ?? null,
-  });
 }
 
 /** Result of POST /api/client/torrents/tidy (LayoutTidyResult). */
@@ -227,30 +188,13 @@ async function postRowAction(
 }
 
 /** Keep or Find another on a held built-in row (docs/english-gates-plan.md). */
-async function postHeldDecision(
-  act: "keep" | "find-another",
-  torrent: ClientTorrent,
-): Promise<RowActionOutcome> {
-  const res = await send(`/api/downloads/${encodeURIComponent(torrent.transferId)}/${act}`, { method: "POST" }).catch(() => null);
-  if (!res) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
-  const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(res);
-  if (res.ok && data?.ok !== false) return { ok: true };
-  return {
-    ok: false,
-    reason: data?.message?.trim() || data?.error?.trim() || `TorrentFlow answered HTTP ${res.status}. Try again.`,
-  };
-}
 export default function ClientPage() {
   const displayPath = useDisplayPath();
-  // Rows, error, offline and "was that read authoritative" move together: a
-  // failed poll must never be able to leave the rows blanked but the error
-  // stale, or vice versa. `snapshot-sync.ts` owns the folding rules.
-  const [snapshot, setSnapshot] = useState<SnapshotState<ClientTorrent>>(() =>
-    emptySnapshotState<ClientTorrent>(),
-  );
-  const { torrents, error, offline, authoritative } = snapshot;
-  const [clientType, setClientType] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(null);
+  const {
+    torrents, error, offline, authoritative, clientType, clientHost, loading,
+    switchingBuiltin, switchToBuiltin, load, invalidateInFlight, maxActive,
+  } = useDownloads(Boolean(pendingDelete));
   const [openingHash, setOpeningHash] = useState<string | null>(null);
   const [tidying, setTidying] = useState(false);
   const [findAnotherTorrent, setFindAnotherTorrent] = useState<ClientTorrent | null>(null);
@@ -290,12 +234,7 @@ export default function ClientPage() {
     [setAddPanelOpen],
   );
   const { ensureDownloadSetup } = useDownloadSetup();
-  const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
-    null,
-  );
   const [deleting, setDeleting] = useState(false);
-  const [clientHost, setClientHost] = useState("");
-  const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   // The row that opened the series dialog, so closing it hands focus back.
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
@@ -307,193 +246,6 @@ export default function ClientPage() {
   const resolvedLinkRef = useRef<string | null>(null);
   const [linkedTransferId, setLinkedTransferId] = useState<string | null>(null);
   const showLoading = useStableLoading(loading && !torrents.length && !error);
-
-  // Every read of the client takes a generation, and a response may only be
-  // applied if it is at least as new as the newest already applied. Loads, the
-  // 5s poll and post-action refreshes all race each other: without this, a
-  // poll that started before a delete can answer from a pre-delete snapshot
-  // *after* the refresh that followed the delete and resurrect the rows the
-  // user just removed. Mutations bump the counter first (`invalidateInFlight`)
-  // so anything already in flight is discarded outright — the cheap,
-  // dependency-free equivalent of aborting them.
-  const requestSeqRef = useRef(0);
-  const appliedSeqRef = useRef(0);
-
-  const invalidateInFlight = useCallback(() => {
-    requestSeqRef.current += 1;
-    appliedSeqRef.current = requestSeqRef.current;
-  }, []);
-
-  const load = useCallback(async (opts?: { quiet?: boolean }) => {
-    if (!opts?.quiet) setLoading(true);
-    const seq = ++requestSeqRef.current;
-    /** Commit only if nothing newer has already landed. */
-    const commit = (apply: () => void) => {
-      if (!shouldApplySnapshot(seq, appliedSeqRef.current)) return false;
-      appliedSeqRef.current = seq;
-      apply();
-      return true;
-    };
-    try {
-      const res = await get("/api/client/torrents");
-      const text = await res.text();
-      let data: {
-        torrents?: ClientTorrent[];
-        clientType?: string;
-        message?: string;
-        error?: string;
-        offline?: boolean;
-        host?: string;
-        hasExternal?: boolean;
-        externalClientType?: string | null;
-        partial?: boolean;
-        clientIssues?: Array<{
-          clientType: TorrentClientType;
-          label: string;
-          message: string;
-          offline: boolean;
-        }>;
-      } = {};
-      try {
-        data = text ? (JSON.parse(text) as typeof data) : {};
-      } catch {
-        throw new Error(
-          text?.trim()
-            ? `Bad response: ${text.slice(0, 120)}`
-            : "Empty response from client API",
-        );
-      }
-      if (!shouldApplySnapshot(seq, appliedSeqRef.current)) return;
-      if (data.clientType) setClientType(data.clientType);
-      const type = data.clientType || "";
-      // Never show a qBit-style host for built-in (avoids implying port 8080 is required)
-      if (type === "builtin") {
-        setClientHost("");
-      } else if (data.host) {
-        setClientHost(data.host);
-      } else {
-        setClientHost("");
-      }
-
-      const isBuiltin = type === "builtin";
-
-      if (data.partial && data.clientIssues?.length) {
-        const unavailable = data.clientIssues.map((issue) => issue.clientType);
-        const warning = data.clientIssues
-          .map((issue) => issue.message)
-          .join(" ");
-        commit(() =>
-          setSnapshot((prev) =>
-            applySnapshot(prev, {
-              ok: false,
-              offline: false,
-              torrents: mergeOwnedTransferSnapshots(
-                prev.torrents,
-                data.torrents ?? [],
-                unavailable,
-              ),
-              error: warning,
-            }),
-          ),
-        );
-        return;
-      }
-
-      if (!res.ok || data.offline) {
-        // Offline framing is only for external clients (qBit/Transmission down).
-        // Built-in failures are engine errors — not "client unreachable".
-        commit(() =>
-          setSnapshot((prev) =>
-            applySnapshot(prev, {
-              ok: false,
-              offline: !isBuiltin && Boolean(data.offline || !res.ok),
-              torrents: data.torrents,
-              error:
-                data.message ||
-                data.error ||
-                (isBuiltin
-                  ? "Built-in engine failed to respond"
-                  : "Torrent client is offline or unreachable"),
-            }),
-          ),
-        );
-        return;
-      }
-      commit(() =>
-        setSnapshot((prev) => applySnapshot(prev, { ok: true, torrents: data.torrents ?? [] })),
-      );
-    } catch (err) {
-      // Failure talking to our own Next API — a dev server restart, a sleeping
-      // laptop, a dropped Wi-Fi. That is "we could not look", not "your
-      // downloads are gone": the last good rows stay on screen and the state
-      // stays non-authoritative so nothing auto-closes or announces a
-      // disappearance that never happened.
-      commit(() =>
-        setSnapshot((prev) =>
-          applySnapshot(prev, {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        ),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  async function switchToBuiltin() {
-    setSwitchingBuiltin(true);
-    try {
-      const res = await send("/api/settings/client", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ switchToBuiltin: true }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.message || data.error || "Could not switch");
-        return;
-      }
-      toast.success(
-        data.message ||
-          "Switched to the built-in downloader. Your external client connection is still saved.",
-      );
-      setSnapshot((prev) => ({ ...prev, error: null, offline: false }));
-      await load();
-    } catch {
-      toast.error("Could not switch to the built-in downloader. Try again.");
-    } finally {
-      setSwitchingBuiltin(false);
-    }
-  }
-
-  // First read on mount. Deliberately the same `load` the poll and every
-  // post-action refresh use: a second hand-inlined copy of this fetch drifted
-  // from the real one and had its own failure handling. Staleness is handled
-  // by the generation counter inside `load`, not a local `cancelled` flag.
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Healthy: 5s poll. Offline: 20s (avoid 502 spam while client is down).
-  //
-  // Self-scheduling rather than `setInterval`, for two reasons. An interval
-  // keeps firing while a request is still in flight, so a slow or hanging
-  // client stacks up overlapping polls; chaining the next timer to the end of
-  // the previous request cannot. And a background tab has nobody looking at
-  // it — polling a torrent client every 5s from a tab left open overnight is
-  // pure load on the engine for no one's benefit, so it pauses when hidden and
-  // refreshes immediately on return.
-  useVisiblePoll(() => load({ quiet: true }), {
-    intervalMs: offline ? 20_000 : 5_000,
-    paused: Boolean(pendingDelete),
-  });
-
-  // A built-in engine limit: an external client keeps its own queue.
-  const maxActive = useMaxActiveDownloads({
-    enabled: clientType === "builtin",
-    onSaved: () => void load({ quiet: true }),
-  });
 
   // Every download row this app tracks: the base both the main list and the
   // series dialog are built from.
@@ -511,13 +263,13 @@ export default function ClientPage() {
       ) {
         return false;
       }
-      if (statusFilter === "downloading") return isDownloading(t.state);
-      if (statusFilter === "queued") return isQueued(t.state);
-      if (statusFilter === "ready") return isDownloaded(t.state);
-      if (statusFilter === "paused") return isPaused(t.state);
-      if (statusFilter === "attention") return isError(t.state);
+      if (statusFilter === "downloading") return t.status === "downloading" || t.status === "finishing" || t.status === "waiting";
+      if (statusFilter === "queued") return isQueued(t.status);
+      if (statusFilter === "ready") return isDownloaded(t.status);
+      if (statusFilter === "paused") return isPaused(t.status);
+      if (statusFilter === "attention") return isError(t.status);
       if (statusFilter === "active")
-        return isDownloading(t.state) || isQueued(t.state);
+        return isDownloading(t.status) || isQueued(t.status);
       return true;
     });
     // Media type last, and through the shared rule: status answers "what is
@@ -648,8 +400,6 @@ export default function ClientPage() {
   // runs every five seconds and three episodes of one show are one lookup.
   // Deliberately driven by `torrents`, not `filtered`: typing in the filter box
   // must not re-ask for what is already known.
-  const artwork = useWorkArtwork(torrents);
-
   // Keyboard: Escape clears selection; Delete opens confirm; Ctrl/Cmd-A select all
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -708,14 +458,12 @@ export default function ClientPage() {
 
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
     if (act === "find-another-release") { setFindAnotherTorrent(torrent); return; }
-    if (act === "keep" || act === "find-another") { await decideHeld(act, torrent); return; }
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
     const label = transferLabel(torrent);
     // Resume on a failed row is the row's "Retry".
-    const verb =
-      act === "force" ? "start" : act === "resume" && isError(torrent.state) ? "retry" : act;
+    const verb = act === "force" ? "start" : act === "resume" && isError(torrent.status) ? "retry" : act;
     const outcome = await postRowAction(act, torrent);
     void load();
     if (!outcome.ok) {
@@ -731,23 +479,6 @@ export default function ClientPage() {
     setAnnouncement(
       `${act === "pause" ? "Paused" : verb === "retry" ? "Retrying" : "Resumed"} ${label}.`,
     );
-  }
-
-  /** The owner's answer to a held row: move it into the library, or drop it and pick another release. */
-  async function decideHeld(act: "keep" | "find-another", torrent: ClientTorrent) {
-    invalidateInFlight();
-    const label = transferLabel(torrent);
-    const outcome = await postHeldDecision(act, torrent);
-    void load();
-    if (!outcome.ok) {
-      const failed = act === "keep" ? `Couldn't keep ${label}` : `Couldn't drop ${label}`;
-      toast.error(failed, { description: outcome.reason });
-      setAnnouncement(`${failed}.`);
-      return;
-    }
-    const done = act === "keep" ? `Moved ${label} into your library` : `Looking for another release of ${label}`;
-    toast.success(done);
-    setAnnouncement(`${done}.`);
   }
 
   async function confirmFindAnother() {
@@ -1615,62 +1346,26 @@ export default function ClientPage() {
           </div>
 
           {selected.size > 0 ? (
-            <div
-              className="surface flex flex-wrap items-center gap-2 px-3 py-2"
-              data-bulk-bar
-            >
-              <span className="text-[12px] text-muted-foreground mr-1">
-                {selected.size} selected
-              </span>
-              {/*
-                aria-disabled, not disabled, when nothing selected applies:
-                Pause stops applying the moment it has worked, while it still
-                has focus, and a disabled button drops focus to <body>.
-              */}
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-disabled={!selectedTargets.pause.length || undefined}
-                onClick={() => {
-                  if (selectedTargets.pause.length) void bulkAction("pause");
-                }}
-                data-bulk-pause
-              >
-                <Pause className="h-3.5 w-3.5" />
-                Pause
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-disabled={!selectedTargets.resume.length || undefined}
-                onClick={() => {
-                  if (selectedTargets.resume.length) void bulkAction("resume");
-                }}
-                data-bulk-resume
-              >
-                <Play className="h-3.5 w-3.5" />
-                Resume
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() =>
-                  openDeleteDialog(
-                    torrents.filter((t) => selected.has(t.transferId)),
-                  )
-                }
-                data-bulk-delete
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelected(new Set())}
-              >
-                Clear
-              </Button>
+            <div data-bulk-bar>
+              <BulkBar count={selected.size} onClear={() => setSelected(new Set())} actions={
+                <>
+                  <Button size="sm" variant="secondary"
+                    aria-disabled={!selectedTargets.pause.length || undefined}
+                    onClick={() => selectedTargets.pause.length && void bulkAction("pause")} data-bulk-pause>
+                    <Pause className="h-3.5 w-3.5"/>Pause
+                  </Button>
+                  <Button size="sm" variant="secondary"
+                    aria-disabled={!selectedTargets.resume.length || undefined}
+                    onClick={() => selectedTargets.resume.length && void bulkAction("resume")} data-bulk-resume>
+                    <Play className="h-3.5 w-3.5"/>Resume
+                  </Button>
+                  <Button size="sm" variant="destructive"
+                    onClick={() => openDeleteDialog(torrents.filter((torrent) => selected.has(torrent.transferId)))}
+                    data-bulk-delete>
+                    <Trash2 className="h-3.5 w-3.5"/>Delete
+                  </Button>
+                </>
+              }/>
             </div>
           ) : null}
 
@@ -1704,7 +1399,7 @@ export default function ClientPage() {
             {isBuiltin &&
             torrents.length > 0 &&
             torrents.every(
-              (t) => t.progress < 0.01 && /meta|stall/i.test(t.state),
+              (t) => t.progress < 0.01 && (t.status === "waiting" || t.status === "queued"),
             ) ? (
               <p className="text-[12px] text-subtle-foreground px-1 mb-2">
                 These downloads have not started yet. Give them a minute to find
@@ -1736,10 +1431,9 @@ export default function ClientPage() {
                 {sortedGroups.map((group) => {
                   if (group.kind === "series") {
                     return (
-                      <SeriesOverviewRow
+                      <DownloadGroupRow
                         key={group.key}
                         group={group}
-                        artwork={artwork}
                         selected={selected}
                         onToggleGroupSelect={toggleGroupSelect}
                         onOpenDetails={openSeriesDialog}
@@ -1752,13 +1446,12 @@ export default function ClientPage() {
                   }
                   const t = group.torrent;
                   return (
-                    <FilmRow
+                    <DownloadFilmRow
                       key={t.transferId}
                       torrent={t}
                       isSelected={selected.has(t.transferId)}
                       highlighted={t.transferId === linkedTransferId}
                       openingHash={openingHash}
-                      artwork={artwork}
                       onToggleSelect={toggleSelect}
                       onAction={(act, torrent) => void action(act, torrent)}
                       onOpenFolder={(torrent) => void openDownloadFolder(torrent)}
@@ -1792,7 +1485,6 @@ export default function ClientPage() {
             if (!next) closeSeriesDialog();
           }}
           titleHref={downloadTitleHref(openGroup.torrents[0])}
-          artwork={artwork.map}
           selectedSeasonKey={selectedSeasonKey}
           onSelectSeason={setSelectedSeasonKey}
           selected={selected}
@@ -1886,178 +1578,5 @@ export default function ClientPage() {
         }
       />
     </div>
-  );
-}
-
-/**
- * A whole series, collapsed to one row: poster, title, the honest combined
- * state/progress/counts/size, a selection checkbox, an explicit way into its
- * seasons and episodes (Details), and an overflow for acting on every release
- * in the show at once. This is the entire on-page footprint of a series now —
- * no inline season or episode rows; those live in `SeriesDownloadDialog`.
- */
-function SeriesOverviewRow({
-  group,
-  artwork,
-  selected,
-  onToggleGroupSelect,
-  onOpenDetails,
-  onActionMany,
-  onDeleteRequest,
-}: {
-  group: SeriesGroup<ClientTorrent>;
-  artwork: WorkArtwork;
-  selected: Set<string>;
-  onToggleGroupSelect: (transferIds: string[]) => void;
-  onOpenDetails: (key: string, opener?: EventTarget | null) => void;
-  onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
-  onDeleteRequest: (torrents: ClientTorrent[]) => void;
-}) {
-  const head = group.torrents[0];
-  const art = artwork.artFor(head);
-  const transferIds = group.torrents.map((t) => t.transferId);
-  const checkedCount = transferIds.filter((transferId) => selected.has(transferId)).length;
-  const allSelected = transferIds.length > 0 && checkedCount === transferIds.length;
-  const chip = rollupChip(group);
-
-  return (
-    <div
-      className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors max-md:pl-4",
-        allSelected ? "bg-brand-dim" : "hover:bg-muted/60",
-      )}
-      data-download-group
-      data-group-key={group.key}
-      data-group-error={isError(group.state) || chip.failing ? "true" : undefined}
-    >
-      <Checkbox
-        checked={allSelected ? true : checkedCount > 0 ? "indeterminate" : false}
-        onCheckedChange={() => onToggleGroupSelect(transferIds)}
-        aria-label={`Select all of ${group.title}`}
-        className="shrink-0 max-md:z-[1]"
-      />
-      <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={art?.posterUrl} />
-
-      <div className="col-start-2 flex items-center justify-end gap-2 sm:col-start-auto lg:gap-1">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={(event) => onOpenDetails(group.key, event.currentTarget)}
-          aria-label={`Open downloads for ${group.title}`}
-          data-group-details
-        >
-          Details
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
-        <IconMenuButton label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
-          {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
-        </IconMenuButton>
-      </div>
-    </div>
-  );
-}
-
-/**
- * A film's row. A film is one download, and grouping it would only add a
- * disclosure triangle that reveals itself, so it keeps its own identity, its
- * own poster and its own controls rather than routing through the series
- * dialog.
- */
-function FilmRow({
-  torrent: t,
-  artwork,
-  ...rest
-}: Omit<DownloadTransferRowProps, "kind" | "title" | "titleHref" | "posterUrl" | "showThumb"> & {
-  artwork: WorkArtwork;
-}) {
-  const query = artworkQueryForRelease(t.name, t.category);
-  const display = releaseDisplayFacts(t, query);
-  return (
-    <DownloadTransferRow
-      torrent={t}
-      kind="torrent"
-      title={titleWithYear(display.title, display.year)}
-      titleHref={downloadTitleHref(t)}
-      posterUrl={artwork.artFor(t)?.posterUrl}
-      showThumb
-      {...rest}
-    />
-  );
-}
-
-/** "Details" disclosure for connection and error facts; closed by default. */
-function DetailsDisclosure({
-  className,
-  contentClassName,
-  children,
-  ...props
-}: React.ComponentProps<typeof Collapsible> & { contentClassName?: string }) {
-  return (
-    <Collapsible className={cn("group/details", className)} {...props}>
-      <CollapsibleTrigger className="inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 pointer-coarse:min-h-11">
-        Details
-        <ChevronDown
-          aria-hidden
-          className="h-3.5 w-3.5 transition-transform group-data-[state=open]/details:rotate-180"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className={contentClassName}>{children}</CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-function ClientSkeleton({ visible = true }: { visible?: boolean }) {
-  return (
-    <PageSkeletonFrame
-      aria-label="Loading client"
-      className={cn(
-        "container-app max-w-5xl py-6 sm:py-8 space-y-4 min-w-0 transition-opacity duration-150",
-        !visible && "opacity-0",
-      )}
-    >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-2">
-          <SkeletonBlock className="h-8 w-24" />
-          <SkeletonBlock className="h-4 w-80 max-w-full" />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <SkeletonBlock className="h-8 w-20" />
-          <SkeletonBlock className="h-8 w-24" />
-        </div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <SkeletonBlock key={i} className="h-16 w-full" />
-        ))}
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <SkeletonBlock className="h-8 w-full max-w-sm" />
-        <div className="flex gap-1">
-          {Array.from({ length: 5 }, (_, i) => (
-            <SkeletonBlock key={i} className="h-7 w-20" />
-          ))}
-        </div>
-      </div>
-      <div className="surface overflow-hidden">
-        {Array.from({ length: 6 }, (_, i) => (
-          <div
-            key={i}
-            className="grid grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-3"
-          >
-            <SkeletonBlock className="h-4 w-4" />
-            <div className="flex gap-2.5">
-              <SkeletonBlock className="h-10 w-10 shrink-0 rounded-md" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <SkeletonBlock className="h-4 w-4/5" />
-                <SkeletonBlock className="h-3 w-2/3" />
-                <SkeletonBlock className="h-3 w-1/2" />
-              </div>
-            </div>
-            <SkeletonBlock className="h-8 w-24 justify-self-end" />
-          </div>
-        ))}
-      </div>
-    </PageSkeletonFrame>
   );
 }

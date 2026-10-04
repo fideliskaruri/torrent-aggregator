@@ -81,7 +81,7 @@ export function torrentRowMenuItems({
 }): ReactNode {
   const pauseResume = pauseResumeAction(t);
   const facts = [
-    sourceChip(t.name),
+    sourceChip(t),
     t.ownerClientLabel,
     t.category,
     t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
@@ -135,10 +135,10 @@ export function torrentRowMenuItems({
       ) : pauseResume === "resume" ? (
         <DropdownMenuItem
           onClick={() => handlers.onAction("resume", t)}
-          {...(isError(t.state) ? rowAttr(kind, "menu-retry", "true") : {})}
+          {...(isError(t.status) ? rowAttr(kind, "menu-retry", "true") : {})}
         >
           <Play />
-          {isError(t.state) ? "Retry" : "Resume"}
+          {isError(t.status) ? "Retry" : "Resume"}
         </DropdownMenuItem>
       ) : null}
       {hasLifecycleItems ? <DropdownMenuSeparator /> : null}
