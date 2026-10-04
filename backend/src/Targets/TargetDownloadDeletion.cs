@@ -82,14 +82,14 @@ internal sealed partial class TargetTransfers
                      LeaseToken = null, LeaseUntil = null, UpdatedAt = DateTimeOffset.UtcNow,
                      Version = t.Version + 1,
                  }, t.Version, null))], [], ct);
-        var drain = await engine.DetachAsync(download.Id, ct);
+        var drain = await engine.StopAndReleaseFilesAsync(download.Id, ct);
         if (!drain.WritesDrained || drain.Failure is not null)
             throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
-        await DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
-            await repository.FilingOperationsAsync(ct), await repository.MediaAsync(null, ct), ct);
+        await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
+            await repository.MediaAsync(null, ct), ct);
         if (shared)
         {
-            var replacements = DownloadFiling.RetireBindings(files, allFiles, root.Path, hash);
+            var replacements = TorrentFlow.Library.DownloadFiling.RetireBindings(files, allFiles, root.Path, hash);
             var media = (await repository.MediaAsync(null, ct)).Where(m => files.Any(f =>
                 f.DownloadId == m.DownloadId && (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToImmutableArray();
             if (!await repository.RemoveLibraryFilesAsync(files, media, replacements, ct))
@@ -109,7 +109,7 @@ internal sealed partial class TargetTransfers
             await TargetPipeline.CommitAsync(store, [],
                 [.. links.Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                      new(StoreTable.Download, download.Id, download.Version + 1, null)], ct);
-            await ((TorrentFlow.Engine.IEngineRetirement)engine).ForgetAsync(download.Id, ct);
+            await engine.DeleteTorrentAsync(download.Id, ct);
         }
         if (engine is TorrentFlow.Engine.MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
     }

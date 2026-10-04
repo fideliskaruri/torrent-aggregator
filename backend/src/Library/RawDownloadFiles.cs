@@ -55,7 +55,15 @@ public static class RawDownloadFiles
                 throw new IOException("The download file is outside its folder.");
             if (file.Selected)
             {
-                var path = file.PhysicalPath![..^".partial".Length];
+                var partial = file.PhysicalPath!;
+                var path = partial.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)
+                    ? partial[..^".partial".Length] : partial;
+                if (File.Exists(partial) && !string.Equals(partial, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(path) || Directory.Exists(path))
+                        throw new IOException("A file already uses the destination name.");
+                    File.Move(partial, path);
+                }
                 if (!File.Exists(path)) throw new IOException("A completed file is missing.");
             }
             else if (File.Exists(file.PhysicalPath)) File.Delete(file.PhysicalPath!);

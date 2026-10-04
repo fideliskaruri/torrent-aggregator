@@ -42,7 +42,6 @@ public sealed partial class MonoTorrentEngine
     {
         var ordered = entries.Values.Where(e => !e.Probe && e.WantsRun && !e.Completed &&
                 (e.Bound || !MetadataReady(e.Manager)) &&
-                !permits.Values.Any(p => p.DownloadId == e.Id) &&
                 (!e.Bound || e.Manager.Files.Any(f => f.Priority != MonoTorrent.Priority.DoNotDownload)) &&
                 e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
                 (!e.Bound || !SelectedComplete(e.Manager)) &&
@@ -69,7 +68,6 @@ public sealed partial class MonoTorrentEngine
         {
             log($"Queue stop {entry.Id}: wantsRun={entry.WantsRun}, complete={entry.Completed}, " +
                 $"eligible={queueOrder.GetValueOrDefault(entry.Id)?.Eligible}, " +
-                $"permit={permits.Values.Any(p => p.DownloadId == entry.Id)}, " +
                 $"selected={entry.Manager.Files.Count(f => f.Priority != MonoTorrent.Priority.DoNotDownload)}, cap={settings.MaxActiveDownloads}.");
             await StopDownloadAsync(entry);
         }

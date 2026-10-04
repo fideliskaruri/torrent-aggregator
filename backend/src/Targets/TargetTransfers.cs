@@ -25,7 +25,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         await TargetPipeline.CommitAsync(store, [], [.. links.Where(l => l.DownloadId == download.Id)
             .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
             new(StoreTable.Download, download.Id, download.Version, null)], ct);
-        await ((IEngineRetirement)engine).ForgetAsync(download.Id, ct);
+        await engine.DeleteTorrentAsync(download.Id, ct);
     }
 
     internal async Task AdmitAsync(WorkSnapshot work, ImmutableArray<TargetRow> targets, Assignment assignment,
@@ -76,7 +76,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var root = (await library.RootsAsync(ct)).Single(r => r.Id == placement.RootId);
             var itemFolder = LibraryPaths.Within(root.Path, placement.Folders.First().RelativeItemFolder!);
             var id = Prefix + assignment.Hash;
-            var files = DownloadFiling.BindUnwanted(id, assignment.Hash, itemFolder, metadata, placement.Files);
+            var files = TorrentFlow.Library.DownloadFiling.BindUnwanted(id, assignment.Hash, itemFolder, metadata, placement.Files);
             var token = Guid.NewGuid().ToString("N");
             var now = DateTimeOffset.UtcNow;
             var claim = await engine.ClaimAdmissionAsync(new(token, assignment.Hash, id, handle, now.AddSeconds(90)), ct);
@@ -129,7 +129,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             }
             catch (Exception ex)
             {
-                await engine.DetachAsync(id, CancellationToken.None);
+                await engine.StopAndReleaseFilesAsync(id, CancellationToken.None);
                 await stateGate.WaitAsync(CancellationToken.None);
                 try
                 {
@@ -158,7 +158,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                                     null, null))],
                             [.. links.Where(l => l.DownloadId == id).Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                                 new(StoreTable.Download, id, persisted.Version, null)], CancellationToken.None);
-                        await ((IEngineRetirement)engine).ForgetAsync(id, CancellationToken.None);
+                        await engine.DeleteTorrentAsync(id, CancellationToken.None);
                     }
                 }
                 finally { stateGate.Release(); }
@@ -187,7 +187,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         foreach (var interrupted in downloads.Where(d => links.Any(l => l.DownloadId == d.Id) &&
             links.Where(l => l.DownloadId == d.Id).All(l => l.Role == AssociationRole.Replacement)))
         {
-            await engine.DetachAsync(interrupted.Id, ct);
+            await engine.StopAndReleaseFilesAsync(interrupted.Id, ct);
             await CleanRetiredAsync(store, repository, interrupted,
                 [.. bindings.Where(f => f.DownloadId == interrupted.Id)], links, ct);
         }
@@ -195,7 +195,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             l.Role == AssociationRole.Replacement))];
         foreach (var orphan in downloads.Where(d => bindings.All(f => f.DownloadId != d.Id)))
         {
-            await engine.DetachAsync(orphan.Id, ct);
+            await engine.StopAndReleaseFilesAsync(orphan.Id, ct);
             foreach (var link in links.Where(l => l.DownloadId == orphan.Id))
                 if (targets.Any(t => t.Id == link.TargetId && t.State != TargetState.Removed))
                     await change(link.TargetId, TargetState.Wanted, null, "The interrupted download will be found again.", ct);
@@ -203,7 +203,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             await TargetPipeline.CommitAsync(store, [], [.. retired.Where(l => l.DownloadId == orphan.Id)
                 .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                 new(StoreTable.Download, orphan.Id, orphan.Version, null)], ct);
-            await ((IEngineRetirement)engine).ForgetAsync(orphan.Id, ct);
+            await engine.DeleteTorrentAsync(orphan.Id, ct);
         }
         var resumable = downloads.Where(d => bindings.Any(f => f.DownloadId == d.Id) &&
             targets.Any(t => t.ChosenReleaseHash == d.Hash &&
@@ -235,7 +235,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 var files = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToImmutableArray();
                 if (members.Length > 0 && members.All(t => t.ChosenReleaseHash != download.Hash))
                 {
-                    await engine.DetachAsync(download.Id, ct);
+                    await engine.StopAndReleaseFilesAsync(download.Id, ct);
                     if (members.All(t => t.State is TargetState.Done or TargetState.Removed) &&
                         !files.Any(f => f.Filed))
                         await CleanRetiredAsync(store, repository, download, files, associations, ct);
@@ -243,7 +243,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 }
                 if (members.All(t => t.State == TargetState.Removed))
                 {
-                    await engine.DetachAsync(download.Id, ct);
+                    await engine.StopAndReleaseFilesAsync(download.Id, ct);
                     var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
                     foreach (var media in (await repository.MediaAsync(null, ct)).Where(m => m.DownloadId == download.Id))
                     {
@@ -256,7 +256,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     await TargetPipeline.CommitAsync(store, [], [.. associations.Where(a => a.DownloadId == download.Id)
                         .Select(a => new RowDelete(StoreTable.DownloadTarget, a.Id, null, a)),
                         new(StoreTable.Download, download.Id, download.Version, null)], ct);
-                    await ((IEngineRetirement)engine).ForgetAsync(download.Id, ct);
+                    await engine.DeleteTorrentAsync(download.Id, ct);
                     if (engine is MonoTorrentEngine removedEngine) await removedEngine.SaveDevStateAsync(ct);
                     continue;
                 }
@@ -289,82 +289,9 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     await engine.SelectAsync(download.Id, selected, ct);
                     live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
                 }
-                if (live is null || runnable.Length == 0) continue;
-                foreach (var binding in files.Where(f => f.Selected && !f.Filed && runnable.Any(t => t.Id == f.TargetId)))
-                {
-                    var target = runnable.Single(t => t.Id == binding.TargetId);
-                    if (target.State == TargetState.Waiting && target.NextTryAt > DateTimeOffset.UtcNow) continue;
-                    var file = live.Files.Single(f => f.Index == binding.FileIndex);
-                    if (!file.AllTouchingPiecesComplete) continue;
-                    if (files.Where(f => f.TargetId == target.Id && f.Selected && !f.Filed)
-                        .Any(f => !live.Files.Single(l => l.Index == f.FileIndex).AllTouchingPiecesComplete)) continue;
-                    await change(target.Id, TargetState.Filing, null, null, ct);
-                    var permit = await engine.PrepareFilingAsync(new(binding.Id, download.Id,
-                        [new(binding.FileIndex, binding.FinalPath!, false)]), ct);
-                    if (permit.Failure is { } failure)
-                    {
-                        await change(target.Id, TargetState.Waiting, WaitReason.FileBusy, failure.Message, ct);
-                        continue;
-                    }
-                    var committed = false;
-                    try
-                    {
-                        if (DownloadFiling.ValidatePartial(binding, file) is { } invalid)
-                        {
-                            await change(target.Id, invalid.NeedsOwner ? TargetState.Wanted : TargetState.Waiting,
-                                invalid.NeedsOwner ? null : WaitReason.FileBusy, invalid.Message, ct);
-                            continue;
-                        }
-                        var digest = await DownloadFiling.DigestAsync(file.PhysicalPath!, ct);
-                        if (!await repository.BeginFilingAsync(binding, digest, ct)) continue;
-                        if (engine is not IEngineFilePublisher publisher) throw new InvalidOperationException("Engine filing is unavailable.");
-                        var publication = await publisher.PublishFilingAsync(permit, ct);
-                        if (!publication.Accepted)
-                        {
-                            await change(target.Id, TargetState.Waiting, WaitReason.FileBusy, publication.Failure?.Message, ct);
-                            continue;
-                        }
-                        var work = (await store.ReadAsync<WorkRow>(CatalogState.Query(target.WorkId), ct)).Single();
-                        var release = (await store.ReadAsync<ReleaseRow>(CatalogState.Query(download.Hash), ct)).Single();
-                        var media = DownloadFiling.Media(new(download, new(work, [], [], [], []), [target],
-                            release.Parsed.Quality.Resolution, release.Parsed.Quality.Source), binding) with { ContentDigest = digest };
-                        await stateGate.WaitAsync(ct);
-                        try
-                        {
-                            var current = (await store.ReadAsync<TargetRow>(CatalogState.Query(target.Id), ct)).Single();
-                            if (current.State is TargetState.Removed or TargetState.Paused) continue;
-                            var proposal = await repository.ProposeFiledAsync(binding, binding with
-                            {
-                                EnginePath = binding.FinalPath, PartialPath = null, Selected = false, Filed = true, MediaFileId = media.Id,
-                            }, media, ct);
-                            if (proposal is null) continue;
-                            var siblings = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id && f.TargetId == target.Id &&
-                                f.Role != FileRole.Unwanted);
-                            var done = siblings.All(f => f.Id == binding.Id || f.Filed);
-                            var now = DateTimeOffset.UtcNow;
-                            await TargetPipeline.CommitAsync(store, [new(current with
-                                { State = done ? TargetState.Done : TargetState.Filing, UpdatedAt = now,
-                                  Version = current.Version + 1 }, current.Version, null),
-                                new(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = target.Id, WorkId = target.WorkId, ReleaseHash = download.Hash, ActorUserId = target.CreatedBy, Kind = AttemptKind.File, StartedAt = now, EndedAt = now, Outcome = done ? "Done" : "Filed", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = target.BatchId, DownloadId = download.Id, DeadlineAt = null, Swap = null }, null, null)], [], ct, proposal);
-                            committed = true;
-                        }
-                        finally { stateGate.Release(); }
-                    }
-                    finally { await engine.CompleteFilingAsync(permit, committed, CancellationToken.None); }
-                }
-                var after = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id &&
-                    f.Role != FileRole.Unwanted).ToArray();
-                foreach (var target in runnable)
-                    if (after.Any(f => f.TargetId == target.Id && f.Role == FileRole.Video) &&
-                        after.Where(f => f.TargetId == target.Id).All(f => f.Filed))
-                        await change(target.Id, TargetState.Done, null, null, ct);
-                if (after.Length > 0 && after.All(f => f.Filed) && download.FinishedAt is null)
-                {
-                    await engine.DetachAsync(download.Id, ct);
-                    await TargetPipeline.CommitAsync(store, [new(latestDownload with { Intent = DownloadIntent.Stopped,
-                        FinishedAt = DateTimeOffset.UtcNow, Version = latestDownload.Version + 1 }, latestDownload.Version, null)], [], ct);
-                    if (engine is MonoTorrentEngine concrete) await concrete.SaveDevStateAsync(ct);
-                }
+                if (runnable.Length == 0) continue;
+                await DownloadFiling.FileAsync(store, repository, engine, download, live, files, [.. members],
+                    stateGate, ct);
             }
         }
         finally { gate.Release(); }

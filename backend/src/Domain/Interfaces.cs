@@ -45,7 +45,7 @@ public interface IFind
     Task<RawSearchResult> SearchRawAsync(RawSearchQuery query, CancellationToken cancellationToken);
 }
 
-/// <summary>In: probe capabilities, bound paths, durable selections and Run/Stop decisions. Out: exact live files and safe filing permits. Never: admission policy, work lookup, naming, deleting or Target writes.</summary>
+/// <summary>In: probe capabilities, bound paths, durable selections and Run/Stop decisions. Out: exact live files and released file handles. Never: admission policy, work lookup, naming or Target writes.</summary>
 public interface IEngine
 {
     Task<ProbeAttachment> AttachProbeAsync(Candidate candidate, CancellationToken cancellationToken);
@@ -56,10 +56,8 @@ public interface IEngine
     Task<EngineResult> StartAsync(EngineAdmission admission, CancellationToken cancellationToken);
     Task<EngineResult> SetIntentAsync(string downloadId, bool run, CancellationToken cancellationToken);
     Task<EngineResult> SelectAsync(string downloadId, ImmutableArray<FileBinding> files, CancellationToken cancellationToken);
-    Task<EngineDrainResult> DetachAsync(string downloadId, CancellationToken cancellationToken);
-    Task<EngineFilingPermit> PrepareFilingAsync(EngineFilingRequest request, CancellationToken cancellationToken);
-    Task<EngineFilingPermit> PrepareDeleteAsync(EngineDeleteRequest request, CancellationToken cancellationToken);
-    Task<EngineResult> CompleteFilingAsync(EngineFilingPermit permit, bool published, CancellationToken cancellationToken);
+    Task<EngineDrainResult> StopAndReleaseFilesAsync(string downloadId, CancellationToken cancellationToken);
+    Task DeleteTorrentAsync(string downloadId, CancellationToken cancellationToken);
     Task ApplyQueueAsync(EngineQueuePolicy policy, CancellationToken cancellationToken);
     Task UpdateSettingsAsync(EngineSettings settings, CancellationToken cancellationToken);
     Task<ImmutableArray<EngineEvent>> ReadEventsAsync(CancellationToken cancellationToken);
@@ -72,7 +70,6 @@ public interface ILibrary
 {
     Task<ImmutableArray<OwnedItem>> OwnedAsync(TargetScope scope, CancellationToken cancellationToken);
     Task<PlacementResult> PlaceAsync(PlacementInput input, CancellationToken cancellationToken);
-    Task<FilingResult> FileAsync(FilingRequest request, CancellationToken cancellationToken);
     Task<ScanResult> ScanAsync(ScanRequest request, CancellationToken cancellationToken);
     Task<DeletionPlan> PreviewDeleteAsync(LibraryCommand command, CancellationToken cancellationToken);
     Task<FilingResult> ExecuteAsync(LibraryCommand command, CancellationToken cancellationToken);
