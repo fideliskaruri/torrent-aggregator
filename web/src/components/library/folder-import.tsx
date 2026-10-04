@@ -1,28 +1,28 @@
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { CheckCircle2, FolderSearch, RotateCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { FolderSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import {
-  candidateLabel,
-  fileName,
   libraryRequest,
   type ImportItem,
   type ImportResultItem,
   type ImportScan,
 } from "@/lib/library/import";
+import {
+  type CandidatePick,
+  CandidatePicker,
+  ImportGroup,
+  ImportResult,
+  ImportRow,
+} from "./folder-import-presentation";
 
-const TOUCH = "max-md:min-h-11 pointer-coarse:min-h-11";
-const LEAVE = "leave";
-
-type Pick = { workId: string; episodeId: string | null } | null;
+type Pick = CandidatePick;
 type GroupKey = "confident" | "needsPick" | "unmatched" | "owned";
 
 const GROUPS: { key: GroupKey; title: string; description: string }[] = [
@@ -140,7 +140,7 @@ export function FolderImport() {
         <FormField label="Folder to import" htmlFor={pathId} className="min-w-0 flex-1">
           <Input id={pathId} value={path} placeholder="E:\Old movies" spellCheck={false} autoComplete="off"
             aria-invalid={pathError !== null} aria-describedby={pathError ? `${pathId}-error` : undefined}
-            onChange={(event) => setPath(event.target.value)} className={`font-mono ${TOUCH}`} />
+            onChange={(event) => setPath(event.target.value)} className="font-mono max-md:min-h-11 pointer-coarse:min-h-11" />
         </FormField>
         <Button type="submit" size="sm" disabled={starting || (scanId !== null && !finished)}>
           {starting ? <LoadingGlyph className="size-3.5" /> : <FolderSearch aria-hidden />}
@@ -228,79 +228,4 @@ function defaultPicks(scan: ImportScan): Record<string, Pick> {
   const picks: Record<string, Pick> = {};
   for (const item of scan.items) picks[item.id] = groupOf(item) === "confident" ? choice(item, 0) : null;
   return picks;
-}
-
-function ImportGroup({ id, title, description, count, children }: {
-  id: string; title: string; description: string; count: number; children: ReactNode;
-}) {
-  return (
-    <section aria-labelledby={`import-${id}`} className="space-y-2" data-import-group={id}>
-      <div className="flex items-baseline gap-2">
-        <h3 id={`import-${id}`} className="text-[13px] font-medium text-foreground">{title}</h3>
-        <Badge variant="outline">{count}</Badge>
-      </div>
-      <p className="text-xs text-subtle-foreground">{description}</p>
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">{children}</ul>
-    </section>
-  );
-}
-
-function ImportRow({ item, children }: { item: ImportItem; children?: ReactNode }) {
-  return (
-    <li className="flex min-w-0 flex-col gap-2 p-3 sm:flex-row sm:items-center" data-import-item>
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="break-all text-[13px] text-foreground">{fileName(item.path)}</p>
-        {item.message ? <p className="text-xs text-subtle-foreground">{item.message}</p> : null}
-      </div>
-      {children ? <div className="w-full shrink-0 sm:w-72">{children}</div> : null}
-    </li>
-  );
-}
-
-function CandidatePicker({ item, pick, onPick }: { item: ImportItem; pick: Pick; onPick: (pick: Pick) => void }) {
-  const options = item.candidates.filter((c) => c.kind === "Film" || c.episodeId);
-  const index = pick ? options.findIndex((c) => c.workId === pick.workId && c.episodeId === pick.episodeId) : -1;
-  return (
-    <Select value={index >= 0 ? String(index) : LEAVE}
-      onValueChange={(value) => onPick(value === LEAVE ? null : { workId: options[Number(value)].workId, episodeId: options[Number(value)].episodeId })}>
-      <SelectTrigger className={`w-full ${TOUCH}`} aria-label={`Match for ${fileName(item.path)}`}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={LEAVE}>Leave this file alone</SelectItem>
-        {options.map((candidate, i) => (
-          <SelectItem key={`${candidate.workId}:${candidate.episodeId}`} value={String(i)}>{candidateLabel(candidate)}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function ImportResult({ items, onDone }: { items: ImportResultItem[]; onDone: () => void }) {
-  const imported = items.filter((i) => i.imported).length;
-  const owned = items.filter((i) => !i.imported && i.alreadyInLibrary).length;
-  const failed = items.filter((i) => !i.imported && !i.alreadyInLibrary);
-  const focusOnMount = useCallback((node: HTMLDivElement | null) => node?.focus(), []);
-  return (
-    <div ref={focusOnMount} tabIndex={-1} className="space-y-3 rounded-lg border border-border bg-card p-4 outline-none" role="status" data-import-result>
-      <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <CheckCircle2 className="size-4 text-success" aria-hidden />
-        Import finished
-      </p>
-      <p className="text-[13px] text-muted-foreground">
-        {imported} imported, {owned} already in your library, {failed.length} failed
-      </p>
-      {failed.length > 0 ? (
-        <ul className="space-y-1 text-xs text-destructive">
-          {[...new Set(failed.map((f) => f.error ?? "Could not import this file. Scan the folder again."))].map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
-      ) : null}
-      <Button type="button" size="sm" variant="secondary" onClick={onDone}>
-        <RotateCw aria-hidden />
-        Import another folder
-      </Button>
-    </div>
-  );
 }
