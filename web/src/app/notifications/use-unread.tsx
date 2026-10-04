@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { NOTIFICATIONS_CHANGED } from "./use-notifications";
 import { badgeText } from "./inbox";
 
 export function useUnreadNotifications(): { count: number; badge: string | null } {
@@ -7,8 +8,8 @@ export function useUnreadNotifications(): { count: number; badge: string | null 
     refreshMs: 15_000, emptyOnUnauthorized: false,
   });
   useEffect(() => {
-    window.addEventListener("tf:notifications-read", refetch);
-    return () => window.removeEventListener("tf:notifications-read", refetch);
+    window.addEventListener(NOTIFICATIONS_CHANGED, refetch);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, refetch);
   }, [refetch]);
   const count = data?.unreadCount ?? 0;
   return { count, badge: badgeText(count) };
