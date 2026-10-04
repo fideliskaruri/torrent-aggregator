@@ -14,7 +14,8 @@ public static class StoreModule
         {
             DataSource = databasePath, ForeignKeys = true, DefaultTimeout = 5, Pooling = true,
         }.ToString();
-        services.AddDbContext<TorrentFlowDbContext>(options => options.UseSqlite(connection)
+        // Also registers the scoped context, so endpoints and singletons share one configuration.
+        services.AddDbContextFactory<TorrentFlowDbContext>(options => options.UseSqlite(connection)
             .AddInterceptors(new SqlitePragmas()));
         services.AddScoped(sp => new StoreDatabase(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddScoped<IStore, StoreCapability>();

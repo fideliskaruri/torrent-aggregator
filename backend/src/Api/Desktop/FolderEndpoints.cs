@@ -12,8 +12,7 @@ public static class FolderEndpoints
     { DefaultIgnoreCondition = JsonIgnoreCondition.Never };
 
     public static IServiceCollection AddLocalFiles(this IServiceCollection services) =>
-        services.AddScoped<ILocalFiles>(sp => new LocalFiles(sp.GetRequiredService<ILibraryRepository>(),
-            sp.GetRequiredService<IStore>()));
+        services.AddScoped<ILocalFiles, LocalFiles>();
 
     public static void MapLocalFiles(this WebApplication app)
     {

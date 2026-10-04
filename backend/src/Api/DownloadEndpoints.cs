@@ -1,7 +1,7 @@
-using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
 using TorrentFlow.Domain;
@@ -71,10 +71,10 @@ internal static class DownloadEndpoints
         group.MapPost("/wanted/try", async (string workKey, int? season, int? episode,
             DownloadsApi api, CancellationToken ct) =>
             Reply(await api.WantedActionAsync(workKey, season, episode, TargetAction.TryNow, ct)));
-        group.MapGet("/settings/client", async (DownloadsApi api, CancellationToken ct) =>
-            Reply(await api.SettingsAsync(null, ct)));
-        group.MapPut("/settings/client", async (JsonElement input, DownloadsApi api, CancellationToken ct) =>
-            Reply(await api.SettingsAsync(input, ct)));
+        group.MapGet("/settings/client", async (DownloadsApi api, ILibraryPlacement library, CancellationToken ct) =>
+            Reply(await api.SettingsAsync(null, library, ct)));
+        group.MapPut("/settings/client", async (JsonElement input, DownloadsApi api, ILibraryPlacement library,
+            CancellationToken ct) => Reply(await api.SettingsAsync(input, library, ct)));
         group.MapGet("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(false, ct)));
         group.MapPost("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
@@ -145,32 +145,27 @@ internal static class DownloadEndpoints
         string? Provider = null, string? ProviderId = null, string? MediaType = null, string? Title = null, int? Year = null);
 }
 
-internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownloads, IEngine engine, IServiceScopeFactory scopes,
-    IConfiguration configuration)
+internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownloads, IEngine engine,
+    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration)
 {
     private readonly SemaphoreSlim settingsGate = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
 
-    private async Task<ImmutableArray<T>> Rows<T>(CancellationToken ct) where T : StoreRow
-    {
-        await using var scope = scopes.CreateAsyncScope();
-        return await AccessState.AllAsync<T>(scope.ServiceProvider.GetRequiredService<IStore>(), ct);
-    }
-
     internal async Task<object> ListAsync(CancellationToken ct)
     {
         var snapshot = await targets.ReadAsync(ct);
-        var links = await Rows<DownloadTargetRow>(ct);
-        var works = await Rows<WorkRow>(ct);
-        var names = await Rows<WorkNameRow>(ct);
-        var episodes = await Rows<EpisodeRow>(ct);
-        var seasons = await Rows<SeasonRow>(ct);
-        var releases = await Rows<ReleaseRow>(ct);
-        var raw = await Rows<RawIntentRow>(ct);
-        var files = await Rows<DownloadFileRow>(ct);
-        var media = await Rows<MediaFileRow>(ct);
-        var cap = SettingsCatalog.Read<EngineSettings>((await Rows<SettingRow>(ct)).Single(s => s.Id == "engine"))
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var links = await db.DownloadTargets.AsNoTracking().ToListAsync(ct);
+        var works = await db.Works.AsNoTracking().ToListAsync(ct);
+        var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);
+        var episodes = await db.Episodes.AsNoTracking().ToListAsync(ct);
+        var seasons = await db.Seasons.AsNoTracking().ToListAsync(ct);
+        var releases = await db.Releases.AsNoTracking().ToListAsync(ct);
+        var raw = await db.RawIntents.AsNoTracking().ToListAsync(ct);
+        var files = await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct);
+        var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
+        var cap = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct))
             .MaxActiveDownloads;
         var full = snapshot.Live.Count(l => l.Active && !l.Complete) >= cap;
         var rows = new List<object>();
@@ -265,7 +260,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var hashes = input.Hashes ?? (input.Hash is { } singleHash ? [singleHash] : []);
         if (hashes.Length == 0 || hashes.Length > 500) throw new ArgumentException("Choose downloads to change.");
         var snapshot = await targets.ReadAsync(ct);
-        var links = await Rows<DownloadTargetRow>(ct);
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var links = await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
         foreach (var hash in hashes.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var download = snapshot.Downloads.FirstOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
@@ -314,11 +310,12 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     private async Task<(TargetRow Target, WorkRow? Work, string? Title, int? Season, int? Episode)[]> WantedRows(CancellationToken ct)
     {
         var snapshot = await targets.ReadAsync(ct);
-        var works = await Rows<WorkRow>(ct);
-        var names = await Rows<WorkNameRow>(ct);
-        var episodes = await Rows<EpisodeRow>(ct);
-        var seasons = await Rows<SeasonRow>(ct);
-        var links = await Rows<DownloadTargetRow>(ct);
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var works = await db.Works.AsNoTracking().ToListAsync(ct);
+        var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);
+        var episodes = await db.Episodes.AsNoTracking().ToListAsync(ct);
+        var seasons = await db.Seasons.AsNoTracking().ToListAsync(ct);
+        var links = await db.DownloadTargets.AsNoTracking().ToListAsync(ct);
         return snapshot.Targets.Where(t => t.State is TargetState.Wanted or TargetState.Waiting or
             TargetState.Finding or TargetState.Checking or TargetState.Planning)
             .Where(t => !links.Any(l => l.TargetId == t.Id && snapshot.Downloads.Any(d => d.Id == l.DownloadId)))
@@ -344,8 +341,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             nextAttemptAt = r.Target.NextTryAt,
         }).ToList();
         var snapshot = await targets.ReadAsync(ct);
-        var works = await Rows<WorkRow>(ct);
-        var names = await Rows<WorkNameRow>(ct);
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var works = await db.Works.AsNoTracking().ToListAsync(ct);
+        var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);
         foreach (var intent in snapshot.Scopes.Where(s => s.State == ScopeIntentState.Pending))
         {
             var work = works.FirstOrDefault(w => w.Id == intent.WorkId);
@@ -375,22 +373,21 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             retried = action == TargetAction.TryNow ? rows.Length + pending : 0 };
     }
 
-    internal async Task<object> SettingsAsync(JsonElement? input, CancellationToken ct)
+    internal async Task<object> SettingsAsync(JsonElement? input, ILibraryPlacement library, CancellationToken ct)
     {
         await settingsGate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var row = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), ct)).Single();
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            var row = await db.Settings.SingleAsync(s => s.Id == "engine", ct);
             var value = SettingsCatalog.Read<EngineSettings>(row);
-            var qualityRow = (await store.ReadAsync<SettingRow>(AccessState.Query("quality"), ct)).Single();
+            var qualityRow = await db.Settings.SingleAsync(s => s.Id == "quality", ct);
             var quality = SettingsCatalog.Read<QualitySettings>(qualityRow);
             if (input is { } body)
             {
                 if (body.ValueKind != JsonValueKind.Object)
                     throw new ArgumentException("Send a settings object.");
-                await SaveRootAsync(scope.ServiceProvider.GetRequiredService<ILibraryPlacement>(), body, ct);
+                await SaveRootAsync(library, body, ct);
                 if (body.TryGetProperty("preferredResolution", out var resolution))
                 {
                     if (resolution.ValueKind != JsonValueKind.Number || !resolution.TryGetInt32(out var pixels) ||
@@ -416,18 +413,18 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
                 var nextQuality = qualityRow with { Value = JsonSerializer.SerializeToElement(quality, Json),
                     Revision = qualityRow.Revision + 1, UpdatedAt = next.UpdatedAt };
-                var key = Guid.NewGuid().ToString("N");
-                var receipt = new AttemptRow { Id = $"commit:settings:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = next.UpdatedAt, EndedAt = next.UpdatedAt, Outcome = "applied", ReasonCode = "settings", ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
-                if (!(await store.CommitAsync(new StoreCommit(key, StoreOwner.Targets,
-                    [new RowWrite(next, row.Revision, null), new RowWrite(nextQuality, qualityRow.Revision, null),
-                        new RowWrite(receipt, null, null)], []), ct)).Applied)
-                    throw new InvalidOperationException("Settings changed. Try again.");
+                SettingsCatalog.Validate(next);
+                SettingsCatalog.Validate(nextQuality);
+                db.Entry(row).CurrentValues.SetValues(next);
+                db.Entry(qualityRow).CurrentValues.SetValues(nextQuality);
+                try { await db.SaveChangesAsync(ct); }
+                catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
                 await engine.UpdateSettingsAsync(value, ct);
             }
-            var roots = await Rows<StorageRootRow>(ct);
+            var roots = await db.StorageRoots.AsNoTracking().OrderBy(r => r.Id).ToListAsync(ct);
             var scheduler = SettingsCatalog.Read<SchedulerSettings>(
-                (await store.ReadAsync<SettingRow>(AccessState.Query("scheduler"), ct)).Single());
-            var media = await Rows<MediaFileRow>(ct);
+                await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "scheduler", ct));
+            var mediaBytes = await db.MediaFiles.SumAsync(m => m.Bytes, ct);
             var maximum = roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes;
             var rootPath = roots.FirstOrDefault(r => r.Enabled)?.Path;
             var setupComplete = SetupComplete(roots);
@@ -461,13 +458,13 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 categories, pathRules = new { },
                 pathWarnings = Array.Empty<object>(), hasExternal = false,
                 defaultRetentionPolicy = "KEPT", defaultRetentionPolicyPersisted = true,
-                storageUsage = new { totalBytes = media.Sum(m => m.Bytes), keptBytes = media.Sum(m => m.Bytes),
+                storageUsage = new { totalBytes = mediaBytes, keptBytes = mediaBytes,
                     indeterminateBytes = 0, items = Array.Empty<object>(),
                     diskBytes = 0L, orphanBytes = 0L, orphans = Array.Empty<object>(),
                     disk = new
                     {
                         root = rootPath, status = "not-scanned", authoritative = false,
-                        observedBytes = 0L, trackedBytes = media.Sum(m => m.Bytes), internalBytes = 0L,
+                        observedBytes = 0L, trackedBytes = mediaBytes, internalBytes = 0L,
                         fileCount = 0, orphanFileCount = 0, truncated = false,
                         truncatedBy = Array.Empty<string>(), groupsTruncated = false,
                         unreadablePaths = Array.Empty<string>(), linksSkipped = 0, scannedAtMs = 0L,
@@ -525,14 +522,16 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
 
     internal async Task<object> RecoveryAsync(bool restore, CancellationToken ct)
     {
-        var roots = await Rows<StorageRootRow>(ct);
+        await using var db = await contexts.CreateDbContextAsync(ct);
         if (restore)
         {
-            await engine.RecoverAsync(await Rows<DownloadRow>(ct), await Rows<DownloadFileRow>(ct), ct);
+            await engine.RecoverAsync([.. await db.Downloads.AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct)],
+                [.. await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct)], ct);
             return new { ok = true, message = "Saved downloads restored." };
         }
         return new { dataDirectory = HostPaths.DataDirectory(configuration),
-            downloadDirectory = roots.FirstOrDefault(r => r.Enabled)?.Path,
-            hasMedia = (await Rows<MediaFileRow>(ct)).Any(m => m.MissingSince is null) };
+            downloadDirectory = (await db.StorageRoots.AsNoTracking().OrderBy(r => r.Id)
+                .FirstOrDefaultAsync(r => r.Enabled, ct))?.Path,
+            hasMedia = await db.MediaFiles.AnyAsync(m => m.MissingSince == null, ct) };
     }
 }

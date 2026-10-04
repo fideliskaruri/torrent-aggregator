@@ -1,5 +1,5 @@
 using System.Text.Json;
-using TorrentFlow.Api.Access;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
 using TorrentFlow.Library.Jellyfin;
@@ -23,15 +23,14 @@ internal static class JellyfinEndpoints
     }
     internal static void MapJellyfin(this RouteGroupBuilder group, string directory)
     {
-        group.MapGet("/jellyfin", async (HttpContext h, CancellationToken ct) =>
-            Results.Json(Public(await Settings(h, ct))));
-        group.MapPut("/jellyfin", async (HttpContext h, JsonElement body, CancellationToken ct) =>
+        group.MapGet("/jellyfin", async (TorrentFlowDbContext db, CancellationToken ct) =>
+            Results.Json(Public(await Settings(db, ct))));
+        group.MapPut("/jellyfin", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
         {
             await Gate.WaitAsync(ct);
             try
             {
-                var store = Store(h);
-                var row = (await store.ReadAsync<SettingRow>(AccessState.Query("jellyfin"), ct)).Single();
+                var row = await db.Settings.SingleAsync(s => s.Id == "jellyfin", ct);
                 var old = SettingsCatalog.Read<JellyfinSettings>(row);
                 var server = JellyfinWatchState.ValidateUrl(body.GetProperty("serverUrl").GetString());
                 var user = body.GetProperty("userId").GetString()?.Trim();
@@ -47,27 +46,26 @@ internal static class JellyfinEndpoints
                 }
                 if (credential is null) throw new ArgumentException("Enter a Jellyfin API key.");
                 var settings = new JellyfinSettings(server, credential, user);
-                await Save(store, row, settings, ct);
+                await Save(db, row, settings, ct);
                 return Results.Json(Public(settings));
             }
             finally { Gate.Release(); }
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
-        group.MapDelete("/jellyfin", async (HttpContext h, CancellationToken ct) =>
+        group.MapDelete("/jellyfin", async (TorrentFlowDbContext db, CancellationToken ct) =>
         {
             await Gate.WaitAsync(ct);
             try
             {
-                var store = Store(h);
-                var row = (await store.ReadAsync<SettingRow>(AccessState.Query("jellyfin"), ct)).Single();
+                var row = await db.Settings.SingleAsync(s => s.Id == "jellyfin", ct);
                 var empty = new JellyfinSettings(null, null, null);
-                await Save(store, row, empty, ct);
+                await Save(db, row, empty, ct);
                 return Results.Json(Public(empty));
             }
             finally { Gate.Release(); }
         });
-        group.MapPost("/jellyfin/test", async (HttpContext h, JsonElement body, CancellationToken ct) =>
+        group.MapPost("/jellyfin/test", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
         {
-            var saved = await Settings(h, ct);
+            var saved = await Settings(db, ct);
             var settings = saved with
             {
                 ServerUrl = body.TryGetProperty("serverUrl", out var server) ? JellyfinWatchState.ValidateUrl(server.GetString()) : saved.ServerUrl,
@@ -79,33 +77,34 @@ internal static class JellyfinEndpoints
                 "Connected to Jellyfin." : "Could not connect to Jellyfin. Check the server URL, API key and user." });
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
     }
-    internal static async Task<JellyfinTitleState?> ReadTitle(HttpContext h, WorkSnapshot work,
+    internal static async Task<JellyfinTitleState?> ReadTitle(HttpContext h, TorrentFlowDbContext db, WorkSnapshot work,
         System.Collections.Immutable.ImmutableArray<MediaFileRow> files, CancellationToken ct)
     {
-        var settings = await Settings(h, ct);
+        var settings = await Settings(db, ct);
         return await Adapter.ReadAsync(settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), work, files, ct);
     }
     internal static async Task<System.Collections.Immutable.ImmutableDictionary<string, JellyfinTitleState>>
-        ReadLibrary(HttpContext h, IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
+        ReadLibrary(HttpContext h, TorrentFlowDbContext db, IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
     {
-        var settings = await Settings(h, ct);
+        var settings = await Settings(db, ct);
         return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
     }
-    private static IStore Store(HttpContext h) => h.RequestServices.GetRequiredService<IStore>();
-    private static async Task<JellyfinSettings> Settings(HttpContext h, CancellationToken ct) =>
-        SettingsCatalog.Read<JellyfinSettings>((await Store(h).ReadAsync<SettingRow>(AccessState.Query("jellyfin"), ct)).Single());
+    private static async Task<JellyfinSettings> Settings(TorrentFlowDbContext db, CancellationToken ct) =>
+        SettingsCatalog.Read<JellyfinSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "jellyfin", ct));
     private static object Public(JellyfinSettings settings) => new
     {
         settings.ServerUrl, settings.UserId, configured = settings.Credential is not null,
     };
-    private static async Task Save(IStore store, SettingRow row, JellyfinSettings settings, CancellationToken ct)
+    private static async Task Save(TorrentFlowDbContext db, SettingRow row, JellyfinSettings settings, CancellationToken ct)
     {
         var next = row with { Value = JsonSerializer.SerializeToElement(settings),
             Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-        if (!(await AccessState.CommitAsync(store, next, row.Revision, null, ct)).Applied)
-            throw new InvalidOperationException("Settings changed. Try again.");
+        SettingsCatalog.Validate(next);
+        db.Entry(row).CurrentValues.SetValues(next);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
         Adapter.Invalidate();
     }
 }

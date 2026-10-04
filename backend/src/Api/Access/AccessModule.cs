@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Api.Access;
 
@@ -18,16 +20,15 @@ public static class AccessModule
         await app.Services.GetRequiredService<AccessState>().InitializeAsync(app);
         app.UseMiddleware<AccessMiddleware>();
         app.UseMiddleware<RequesterCatalogGuard>();
-        app.MapGet("/api/me", async (HttpContext http, CancellationToken ct) =>
+        app.MapGet("/api/me", async (HttpContext http, TorrentFlowDbContext db, CancellationToken ct) =>
         {
-            var store = http.RequestServices.GetRequiredService<IStore>();
             var requester = AccessIdentity.Role(http) == "requester";
+            var userId = AccessIdentity.UserId(http);
             int? pending = null;
             int? unread = null;
             try
             {
-                unread = (await AccessState.AllAsync<NotificationRow>(store, ct, AccessIdentity.UserId(http)))
-                    .Count(x => x.ReadAt is null);
+                unread = await db.Notifications.CountAsync(n => n.UserId == userId && n.ReadAt == null, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -35,7 +36,7 @@ public static class AccessModule
             }
             if (!requester)
             {
-                try { pending = (await AccessState.AllAsync<RequestRow>(store, ct)).Count(x => x.Decision == RequestDecision.Pending); }
+                try { pending = await db.Requests.CountAsync(r => r.Decision == RequestDecision.Pending, ct); }
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 { app.Logger.LogWarning(ex, "Could not count pending requests."); }
             }

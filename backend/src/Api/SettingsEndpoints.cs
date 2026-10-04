@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Metadata;
@@ -14,7 +15,7 @@ internal static class SettingsEndpoints
 {
     internal static async Task MapSettingsAsync(this WebApplication app)
     {
-        var service = new SettingsApi(app.Services.GetRequiredService<IServiceScopeFactory>(),
+        var service = new SettingsApi(app.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>(),
             HostPaths.DataDirectory(app.Configuration));
         await service.InitializeAsync(CancellationToken.None);
         var group = app.MapGroup("/api/settings").AddEndpointFilter(async (context, next) =>
@@ -52,7 +53,7 @@ internal static class SettingsEndpoints
     }
 }
 
-internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirectory)
+internal sealed class SettingsApi(IDbContextFactory<TorrentFlowDbContext> contexts, string dataDirectory)
 {
     internal sealed record TmdbTestResult(bool Ok, string Status, string Message,
         [property: JsonIgnore] int HttpStatus = 200);
@@ -63,23 +64,22 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
     private static string Hint(string? key) => key is { Length: >= 4 } ? "••••" + key[^4..] : "";
     internal async Task InitializeAsync(CancellationToken ct)
     {
-        await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var row = await Row(store, "metadata", ct);
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var row = await db.Settings.SingleAsync(s => s.Id == "metadata", ct);
         var metadata = SettingsCatalog.Read<MetadataSettings>(row);
         var sources = metadata.Sources;
         var missing = SourceSettingsContract.MetadataDefaults(metadata.EnabledProviders)
             .Where(s => !sources.Any(existing => existing.Id == s.Id)).ToArray();
-        if (missing.Length > 0) await Save(store, row, metadata with { Sources = sources.AddRange(missing) }, ct);
+        if (missing.Length > 0) await Save(db, row, metadata with { Sources = sources.AddRange(missing) }, ct);
     }
-    private async Task<SettingRow> Row(IStore store, string section, CancellationToken ct) =>
-        (await store.ReadAsync<SettingRow>(AccessState.Query(section), ct)).Single();
-    private static async Task Save<T>(IStore store, SettingRow row, T value, CancellationToken ct)
+    private static async Task Save<T>(TorrentFlowDbContext db, SettingRow row, T value, CancellationToken ct)
     {
         var next = row with { Value = JsonSerializer.SerializeToElement(value, Json),
             Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-        if (!(await AccessState.CommitAsync(store, next, row.Revision, null, ct)).Applied)
-            throw new InvalidOperationException("Settings changed. Try again.");
+        SettingsCatalog.Validate(next);
+        db.Entry(row).CurrentValues.SetValues(next);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
     }
 
     internal async Task<object> TmdbAsync(string? key, bool remove, CancellationToken ct)
@@ -87,9 +87,8 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         await gate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var row = await Row(store, "metadata", ct);
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            var row = await db.Settings.SingleAsync(s => s.Id == "metadata", ct);
             var settings = SettingsCatalog.Read<MetadataSettings>(row);
             if (key is not null || remove)
             {
@@ -99,7 +98,7 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
                     TmdbCredential = remove ? null : SecretFiles.Save(dataDirectory, TmdbCredentialSettings.Normalize(key)),
                     Sources = remove ? settings.Sources : settings.Sources.Select(s => s.Id == "tmdb" ? s with { Enabled = true } : s).ToImmutableArray(),
                 };
-                await Save(store, row, settings, ct);
+                await Save(db, row, settings, ct);
             }
             var saved = SecretFiles.Read(dataDirectory, settings.TmdbCredential);
             var effective = saved ?? Environment.GetEnvironmentVariable("TMDB_API_KEY")?.Trim();
@@ -114,9 +113,9 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
     {
         if (key is null)
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var settings = SettingsCatalog.Read<MetadataSettings>(await Row(store, "metadata", ct));
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            var settings = SettingsCatalog.Read<MetadataSettings>(
+                await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "metadata", ct));
             key = SecretFiles.Read(dataDirectory, settings.TmdbCredential) ?? Environment.GetEnvironmentVariable("TMDB_API_KEY");
             if (settings.Sources.FirstOrDefault(s => s.Id == "tmdb") is { Enabled: false }) key = null;
         }
@@ -143,11 +142,10 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
         await gate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var row = await Row(store, "sources", ct);
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            var row = await db.Settings.SingleAsync(s => s.Id == "sources", ct);
             var settings = SettingsCatalog.Read<ImmutableArray<SourceSettings>>(row);
-            var metadataRow = await Row(store, "metadata", ct);
+            var metadataRow = await db.Settings.SingleAsync(s => s.Id == "metadata", ct);
             var metadata = SettingsCatalog.Read<MetadataSettings>(metadataRow);
             settings = settings.AddRange(metadata.Sources);
             if (id is not null)
@@ -183,10 +181,10 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
                     settings = [.. settings.Where(s => s.Id != id), updated];
                 }
                 if (metadata.Sources.Any(s => s.Id == id))
-                    await Save(store, metadataRow, metadata with
+                    await Save(db, metadataRow, metadata with
                         { Sources = [.. settings.Where(s => s.Kind == "metadata")] }, ct);
                 else
-                    await Save(store, row, settings.Where(s => s.Kind != "metadata").ToImmutableArray(), ct);
+                    await Save(db, row, settings.Where(s => s.Kind != "metadata").ToImmutableArray(), ct);
             }
             return new { sources = settings.OrderBy(s => s.Priority).Select(s => new
             {
@@ -206,10 +204,11 @@ internal sealed class SettingsApi(IServiceScopeFactory scopes, string dataDirect
 
     internal async Task<IResult> TestSourceAsync(string id, CancellationToken ct)
     {
-        await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var settings = SettingsCatalog.Read<ImmutableArray<SourceSettings>>(await Row(store, "sources", ct));
-        var metadata = SettingsCatalog.Read<MetadataSettings>(await Row(store, "metadata", ct));
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var settings = SettingsCatalog.Read<ImmutableArray<SourceSettings>>(
+            await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "sources", ct));
+        var metadata = SettingsCatalog.Read<MetadataSettings>(
+            await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "metadata", ct));
         settings = settings.AddRange(metadata.Sources);
         var source = settings.FirstOrDefault(s => s.Id == id);
         if (source is null) return Results.NotFound(new { error = "Source not found." });
