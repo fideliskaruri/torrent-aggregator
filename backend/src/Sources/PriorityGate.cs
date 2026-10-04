@@ -18,8 +18,6 @@ internal sealed class PriorityGate
     private int concurrency = 2;
     private int spacing = 250;
     private readonly int backgroundLimit;
-    private readonly Dictionary<string, (int Concurrency, int Spacing)> policies = new(StringComparer.Ordinal);
-    private readonly HashSet<string> promoted = new(StringComparer.Ordinal);
 
     internal PriorityGate(int backgroundLimit = int.MaxValue) => this.backgroundLimit = backgroundLimit;
 
@@ -56,40 +54,15 @@ internal sealed class PriorityGate
         }
     }
 
-    internal void Promote(string flightId)
+    internal async Task<IDisposable> EnterAsync(PriorityLane lane, int max, int spacingMs, CancellationToken ct)
     {
+        var waiter = new Waiter(lane);
         lock (sync)
         {
-            promoted.Add(flightId);
-            for (var node = background.First; node is not null;)
-            {
-                var next = node.Next;
-                if (node.Value.FlightId == flightId)
-                {
-                    background.Remove(node);
-                    node.Value.Lane = PriorityLane.Owner;
-                    node.Value.Node = owners.AddLast(node.Value);
-                }
-                node = next;
-            }
-            Wake();
-        }
-    }
-
-    internal void Forget(string flightId) { lock (sync) promoted.Remove(flightId); }
-
-    internal async Task<IDisposable> EnterAsync(PriorityLane lane, string policyId, int max, int spacingMs,
-        CancellationToken ct, string? flightId = null)
-    {
-        var waiter = new Waiter(lane, flightId);
-        lock (sync)
-        {
-            if (flightId is not null && promoted.Contains(flightId)) waiter.Lane = PriorityLane.Owner;
             if (Stopwatch.GetTimestamp() < coolingEnd)
                 throw new SourceException("CoolingDown", "The site is cooling down.", coolingUntil);
-            policies[policyId] = (Math.Clamp(max, 1, 24), Math.Max(0, spacingMs));
-            concurrency = policies.Values.Min(p => p.Concurrency);
-            spacing = policies.Values.Max(p => p.Spacing);
+            concurrency = Math.Clamp(max, 1, 24);
+            spacing = Math.Max(0, spacingMs);
             waiter.Node = (waiter.Lane == PriorityLane.Owner ? owners : background).AddLast(waiter);
             Wake();
         }
@@ -142,10 +115,9 @@ internal sealed class PriorityGate
         }
     }
 
-    private sealed class Waiter(PriorityLane lane, string? flightId)
+    private sealed class Waiter(PriorityLane lane)
     {
-        internal PriorityLane Lane { get; set; } = lane;
-        internal string? FlightId { get; } = flightId;
+        internal PriorityLane Lane { get; } = lane;
         internal TaskCompletionSource<IDisposable> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal LinkedListNode<Waiter>? Node { get; set; }
     }

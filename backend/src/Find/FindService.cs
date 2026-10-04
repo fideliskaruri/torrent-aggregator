@@ -5,19 +5,16 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
 
 namespace TorrentFlow.Find;
 
-internal sealed partial class FindService(IParser parser, SourceFlights flights, SearchBudget budget,
+internal sealed partial class FindService(IParser parser, ISources sources, SourceSearches searches,
+    ReleaseFacts facts, IHostApplicationLifetime hostLifetime,
     IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration) : IFind
 {
-    private readonly object cacheSync = new();
-    private readonly Dictionary<string, ScopeAnswer> answers = new(StringComparer.Ordinal);
-    private sealed record ScopeAnswer(CandidateBatch Batch, DateTimeOffset ExpiresAt, long RetryRevision,
-        SourceRequestBudget Budget);
-
     public async IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,
         IAsyncEnumerable<SearchFeedback> feedback, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -26,113 +23,18 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
         var limit = configuration.GetValue<int?>($"TorrentFlow:Find:{(request.Lane == PriorityLane.Owner
             ? "OwnerRequestLimit" : "BackgroundRequestLimit")}") ?? (request.Lane == PriorityLane.Owner ? 12 : 6);
         if (limit is < 1 or > 64) throw new InvalidOperationException("Find request limits must be between 1 and 64.");
-        var requestBudget = new SourceRequestBudget(limit);
-        var windowBudget = requestBudget;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var settings = await SettingsAsync(lifetime.Token);
-        var scopePoolKey = JsonSerializer.Serialize(new
-        {
-            work = request.Work.Work.Id,
-            seasons = request.Work.Episodes.Where(e => request.Scope.EpisodeIds.Contains(e.Id))
-                .Select(e => e.SeasonId).Distinct().Order(StringComparer.Ordinal).ToArray(),
-            request.Scope.Film,
-            request.Work.Work.NumberingVersion
-        });
-        var answerKey = JsonSerializer.Serialize(new
-        {
-            request.Work.Work.Id,
-            request.Work.Work.Year,
-            request.Work.Work.Kind,
-            request.Work.Work.Format,
-            request.Work.Work.Anime,
-            request.Work.Work.NumberingVersion,
-            names = request.Work.Names.Select(n => new
-                { Value = SearchQueries.Fold(n.Value), n.Label, n.LinkId, n.Ordinal, n.Authoritative }),
-            episodeIds = request.Scope.EpisodeIds.Order(StringComparer.Ordinal),
-            request.Scope.Film,
-            request.SourceIds,
-            request.SourceRevision,
-            request.CredentialRevision,
-            request.ProvisionalGood,
-            request.Exhaust,
-            limit,
-            settings
-        });
-        ScopeAnswer? cached;
-        CandidateBatch? resumed = null;
-        lock (cacheSync) answers.TryGetValue(answerKey, out cached);
-        if (cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow &&
-            (cached.Batch.ProvisionalStopped || cached.Batch.EarlyStopped ||
-                cached.RetryRevision == flights.RetryRevision(scopePoolKey)))
-        {
-            var replay = cached.Batch with
-            {
-                SessionId = request.SessionId,
-                PoolRevision = 1,
-                CachedPool = true,
-                SourceRequests = 0,
-                WindowSourceRequests = cached.Budget.Used,
-                RequestBudgetExhausted = cached.Budget.Used >= limit,
-                FirstCandidateAt = cached.Batch.Candidates.IsEmpty ? null : timer.Elapsed,
-                Elapsed = timer.Elapsed,
-                Queries = [.. cached.Batch.Queries.Select(q => q with { CacheHit = true, SharedInFlight = false })]
-            };
-            if (request.ProvisionalGood || request.Exhaust || !cached.Batch.EarlyStopped)
-            {
-                requestBudget.Finish();
-                yield return replay;
-                yield break;
-            }
-            // A cached early-stop pool is not proof for another quality/ownership policy.
-            // Replay the pool first; the caller re-runs Check + Plan before any new HTTP.
-            yield return replay with { Complete = false, EarlyStopped = false };
-            var approved = false;
-            using (var revalidation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token))
-            {
-                revalidation.CancelAfter(TimeSpan.FromSeconds(20));
-                await using var reader = feedback.GetAsyncEnumerator(revalidation.Token);
-                try
-                {
-                    while (await reader.MoveNextAsync())
-                    {
-                        var answer = reader.Current;
-                        if (answer.PoolRevision != 1) continue;
-                        approved = answer.Stop && (request.Scope.Film ? answer.FilmCovered :
-                            request.Scope.EpisodeIds.All(answer.CoveredEpisodeIds.Contains));
-                        if (approved || answer.NeedFallbackTier) break;
-                    }
-                }
-                catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { }
-            }
-            if (approved || cached.Budget.Used >= limit)
-            {
-                requestBudget.Finish();
-                yield return replay with { Complete = true, EarlyStopped = approved, Elapsed = timer.Elapsed };
-                yield break;
-            }
-            requestBudget.Finish();
-            requestBudget = new SourceRequestBudget(limit, cached.Budget);
-            windowBudget = cached.Budget;
-            resumed = replay;
-        }
-        using var admission = await budget.EnterAsync(request.Lane, lifetime.Token);
-        var retryRevision = flights.RetryRevision(scopePoolKey);
         var signals = Channel.CreateUnbounded<SearchFeedback>(new() { SingleReader = true, SingleWriter = true });
         var feedbackTask = ListenAsync(feedback, signals.Writer, lifetime.Token);
         var pool = new CandidatePool(parser, request.Work, request.Scope);
         var traces = new Dictionary<string, FindQueryTrace>(StringComparer.Ordinal);
-        if (resumed is not null)
-            foreach (var trace in resumed.Queries)
-            {
-                pool.Add(trace.Result, trace.Query);
-                traces[trace.NamePhase + "\0" + trace.SourceId + "\0" + trace.Query] = trace;
-            }
         var covered = new HashSet<string>(StringComparer.Ordinal);
         var filmCovered = false;
         var early = false;
         var provisional = false;
-        long revision = resumed is null ? 0 : 1;
-        TimeSpan? first = resumed?.FirstCandidateAt;
+        long revision = 0;
+        TimeSpan? first = null;
         var phase = SearchNamePhase.English;
         var tier = SourceTier.Core;
         var lastFeedbackRevision = -1L;
@@ -168,10 +70,9 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
             Elapsed = timer.Elapsed,
             EarlyStopped = early,
             ProvisionalStopped = provisional,
-            SourceRequests = requestBudget.Used,
+            SourceRequests = traces.Values.Sum(t => t.Result.Diagnostics?.Requests ?? 0),
             RequestLimit = limit,
-            WindowSourceRequests = windowBudget.Used,
-            RequestBudgetExhausted = windowBudget.Used >= limit,
+            WindowSourceRequests = traces.Values.Sum(t => t.Result.Diagnostics?.Requests ?? 0),
             EnglishLabelMissing = !request.Work.Names.Any(n => n.Label == NameLabel.English)
         };
         try
@@ -182,7 +83,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                 foreach (var currentTier in new[] { SourceTier.Core, SourceTier.Fallback })
                 {
                     Feedback();
-                    if (early || provisional || windowBudget.Used >= limit) break;
+                    if (early || provisional) break;
                     tier = currentTier;
                     var selected = settings.Where(s => s.Enabled && s.Tier == tier && Supports(s, request.Work))
                         .Where(s => request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id))
@@ -203,13 +104,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                     using var tierCancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                     var results = Channel.CreateUnbounded<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)>(
                         new() { SingleReader = true, SingleWriter = false });
-                    var fallbackSources = settings.Count(s => s.Enabled && s.Tier == SourceTier.Fallback &&
-                        Supports(s, request.Work) && (request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id)));
-                    var reserve = fallbackSources == 0 ? 0 :
-                        Math.Min(fallbackSources + 1, request.Lane == PriorityLane.Owner ? limit / 2 : limit / 3);
-                    var tierBudget = tier == SourceTier.Core && reserve > 0
-                        ? new SourceRequestBudget(limit - reserve, requestBudget) : requestBudget;
-                    var producers = ProduceTierAsync(request, phase, plans, tierBudget, scopePoolKey,
+                    var producers = ProduceTierAsync(request, phase, plans,
                         results.Writer, tierCancel.Token);
                     try
                     {
@@ -242,7 +137,6 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                     {
                         await tierCancel.CancelAsync();
                         await producers;
-                        if (!ReferenceEquals(tierBudget, requestBudget)) tierBudget.Finish();
                     }
                     yield return Snapshot(false, true);
                     Feedback();
@@ -260,29 +154,20 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                         }
                     }
                 }
-                if (early || provisional || windowBudget.Used >= limit || englishHealthy) break;
+                if (early || provisional || englishHealthy) break;
             }
             var final = Snapshot(true);
-            lock (cacheSync)
-            {
-                var expiry = traces.Values.Where(t => t.Result.CacheExpiresAt is not null)
-                    .Select(t => t.Result.CacheExpiresAt!.Value)
-                    .Append(DateTimeOffset.UtcNow.AddMinutes(30)).Min();
-                answers[answerKey] = new(final, expiry, retryRevision, windowBudget);
-                while (answers.Count > 200) answers.Remove(answers.MinBy(pair => pair.Value.ExpiresAt).Key);
-            }
             yield return final;
         }
         finally
         {
             await lifetime.CancelAsync();
-            requestBudget.Finish();
             await feedbackTask;
         }
     }
 
     private async Task ProduceTierAsync(SearchRequest request, SearchNamePhase phase,
-        (SourceSettings Source, string Query)[] plans, SourceRequestBudget requestBudget, string poolKey,
+        (SourceSettings Source, string Query)[] plans,
         ChannelWriter<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)> output,
         CancellationToken ct)
     {
@@ -294,8 +179,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
             var imdb = request.Work.Links.FirstOrDefault(l => l.Provider == "imdb" && l.Status == LinkStatus.Verified);
             var call = new SourceQuery(query, category,
                 imdb is null ? null : new("imdb", imdb.ExternalId, request.Scope.Film ? "movie" : "series"),
-                request.Lane, 80, DateTimeOffset.UtcNow.AddSeconds(6), request.SourceRevision, request.CredentialRevision)
-            { RequestBudget = requestBudget };
+                request.Lane, 80, DateTimeOffset.UtcNow.AddSeconds(6), request.SourceRevision, request.CredentialRevision);
             var seasonIds = request.Work.Episodes.Where(e => request.Scope.EpisodeIds.Contains(e.Id))
                 .Select(e => e.SeasonId).Distinct().Order(StringComparer.Ordinal).ToArray();
             var key = JsonSerializer.Serialize(new
@@ -318,19 +202,22 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
             });
             try
             {
-                for (var attempt = 0; attempt < 2; attempt++)
+                var answer = await searches.GetAsync(key, async stopping =>
                 {
-                    var refusedSharedBudget = false;
-                    await foreach (var answer in flights.ReadAsync(poolKey, key, settings, call, ct))
-                    {
-                        output.TryWrite((query, source, answer.Result, answer.Cached, answer.Shared));
-                        refusedSharedBudget |= answer.Shared && request.Lane == PriorityLane.Owner &&
-                            answer.Result.Diagnostics is { Code: "RequestBudget", Requests: 0 };
-                    }
-                    if (!refusedSharedBudget || requestBudget.Used >= requestBudget.Limit) break;
-                }
+                    var sourceQuery = call with { DeadlineAt = DateTimeOffset.UtcNow.AddSeconds(6) };
+                    var result = await sources.SearchAsync(settings, sourceQuery, stopping);
+                    await facts.SaveAsync(source, sourceQuery, result, stopping);
+                    return result;
+                }, hostLifetime.ApplicationStopping, ct);
+                output.TryWrite((query, source, answer.Result, answer.Cached, answer.Shared));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
+            {
+                var failed = new SourceResult(source, SourceOutcome.Failed, [],
+                    null, "The source search failed. Retry this source later.", TimeSpan.Zero);
+                output.TryWrite((query, source, failed, false, false));
+            }
         }
         try { await Task.WhenAll(plans.Select(plan => Produce(plan.Source, plan.Query))); }
         finally { output.TryComplete(); }
@@ -392,18 +279,21 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
         var descriptors = settings.Where(s => s.Enabled).Select(s => new SourceDescriptor(s.Id, s.Id, s.Categories)).ToImmutableArray();
         if (string.IsNullOrWhiteSpace(query.Query))
             return new([], [], descriptors, 0, page, size, null);
-        using var admission = await budget.EnterAsync(PriorityLane.Owner, ct);
         var pool = new CandidatePool(parser, null, null);
         var selected = settings.Where(s => s.Enabled && (query.SourceIds.IsEmpty || query.SourceIds.Contains(s.Id))).ToArray();
         var results = await Task.WhenAll(selected.Select(async source =>
         {
-            SourceResult? result = null;
             var call = new SourceQuery(query.Query.Trim(), query.Category, null, PriorityLane.Owner,
                 80, DateTimeOffset.UtcNow.AddSeconds(6), 0, 0);
-            var poolKey = JsonSerializer.Serialize(new { raw = SearchQueries.Fold(query.Query), query.Category });
             var key = JsonSerializer.Serialize(new { raw = SearchQueries.Fold(query.Query), query.Category, source });
-            await foreach (var answer in flights.ReadAsync(poolKey, key, source, call, ct, query.Refresh)) result = answer.Result;
-            return result!;
+            var answer = await searches.GetAsync(key, async stopping =>
+            {
+                var sourceQuery = call with { DeadlineAt = DateTimeOffset.UtcNow.AddSeconds(6) };
+                var sourceResult = await sources.SearchAsync(source, sourceQuery, stopping);
+                await facts.SaveAsync(source.Id, sourceQuery, sourceResult, stopping);
+                return sourceResult;
+            }, hostLifetime.ApplicationStopping, ct, query.Refresh);
+            return answer.Result;
         }));
         foreach (var result in results) pool.Add(result, query.Query);
         var rows = pool.Candidates.Where(c => Matches(c, query.Filters))

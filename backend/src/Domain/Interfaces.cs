@@ -31,12 +31,8 @@ public interface IMetadata
 /// <summary>In: source settings, raw query/category/identity, lane and deadline. Out: source listings and explicit outcome. Never: episode parsing, health, ranking, tracker scraping or inline retries.</summary>
 public interface ISources
 {
-    void PromoteSearch(string flightId);
-    void ForgetSearch(string flightId);
     Task<SourceResult> SearchAsync(SourceSettings source, SourceQuery query, CancellationToken cancellationToken);
     Task<SourceResult> TestAsync(SourceSettings source, CancellationToken cancellationToken);
-    IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
-        CancellationToken cancellationToken);
 }
 
 /// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: judge swarm health, pick releases, call Engine or own Target state.</summary>

@@ -95,7 +95,7 @@ public static class SettingsCatalog
             ("archive", SourceTier.OptIn, ["all"], 2, 250),
             ("torznab", SourceTier.OptIn, ["all"], 2, 250),
         };
-        return definitions.Select((s, priority) => new SourceSettings(s.Id, s.Tier != SourceTier.OptIn,
+        return definitions.Select((s, priority) => new SourceSettings(s.Id, s.Tier == SourceTier.Core,
             s.Tier, priority, "public", s.Id, null, [], [.. s.Categories], 6000, s.Concurrency, s.Spacing,
             ImmutableDictionary<string, string>.Empty, null)).ToImmutableArray();
     }
