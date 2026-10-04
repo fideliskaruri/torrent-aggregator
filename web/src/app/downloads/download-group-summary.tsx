@@ -12,6 +12,8 @@ import {
 import { TransferProgress, transferBarTone } from "./transfer-progress";
 import { transferTitleParts } from "./download-transfer-title";
 import type { ClientTorrent } from "./types";
+import { SearchingBadge } from "./searching-badge";
+import type { WantedGroup } from "./wanted-groups";
 
 export function DownloadGroupSummary({
   group,
@@ -19,12 +21,14 @@ export function DownloadGroupSummary({
   posterUrl,
   heading = false,
   children,
+  wantedGroups = [],
 }: {
   group: SeriesGroup<ClientTorrent>;
   titleHref: string | null;
   posterUrl?: string | null;
   heading?: boolean;
   children?: ReactNode;
+  wantedGroups?: readonly WantedGroup[];
 }) {
   const pct = progressPercent(group.progress);
   const chip = rollupChip(group);
@@ -42,6 +46,7 @@ export function DownloadGroupSummary({
         {title.text}
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={chip.variant} data-group-state>{chip.label}</Badge>
+          <SearchingBadge groups={wantedGroups} />
           {missingFiles > 0 ? (
             <Badge variant="danger" title={`${missingFiles} download files are no longer on disk`} data-files-missing>
               Files missing

@@ -26,21 +26,26 @@ export function IconMenuButton({
   label,
   triggerProps,
   children,
+  after,
 }: {
   label: string;
   /** Extra attributes for the trigger, such as `data-*` hooks. */
   triggerProps?: Record<string, string | undefined>;
   children: ReactNode;
+  after?: ReactNode;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={label} {...triggerProps}>
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">{children}</DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={label} {...triggerProps}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+      </DropdownMenu>
+      {after}
+    </>
   );
 }
 

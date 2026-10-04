@@ -9,6 +9,11 @@ import { DownloadGroupSummary } from "./download-group-summary";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
 import { downloadTitleHref } from "./download-links";
 import type { ClientTorrent } from "./types";
+import type { WantedGroup } from "./wanted-groups";
+import { WantedMenuActions } from "./wanted-menu-actions";
+import type { useDownloads } from "./use-downloads";
+
+type WantedState = ReturnType<typeof useDownloads>["wanted"];
 
 export function DownloadGroupRow({
   group,
@@ -17,6 +22,8 @@ export function DownloadGroupRow({
   onOpenDetails,
   onActionMany,
   onDeleteRequest,
+  wantedGroups = [],
+  wantedState,
 }: {
   group: SeriesGroup<ClientTorrent>;
   selected: Set<string>;
@@ -24,6 +31,8 @@ export function DownloadGroupRow({
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
   onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
+  wantedGroups?: readonly WantedGroup[];
+  wantedState?: WantedState;
 }) {
   const head = group.torrents[0];
   const transferIds = group.torrents.map((torrent) => torrent.transferId);
@@ -39,16 +48,24 @@ export function DownloadGroupRow({
       <Checkbox checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
         onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`} className="shrink-0 max-md:z-[1]"/>
-      <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={head.posterUrl}/>
+      <DownloadGroupSummary group={group} titleHref={downloadTitleHref(head)} posterUrl={head.posterUrl}
+        wantedGroups={wantedGroups} />
       <div className="col-start-2 flex items-center justify-end gap-2 sm:col-start-auto lg:gap-1">
         <Button type="button" variant="secondary" size="sm"
           onClick={(event) => onOpenDetails(group.key, event.currentTarget)}
           aria-label={`Open downloads for ${group.title}`} data-group-details>
           Details<ChevronRight className="h-3.5 w-3.5"/>
         </Button>
-        <IconMenuButton label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
-          {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
-        </IconMenuButton>
+        {wantedGroups.length > 0 && wantedState ? (
+          <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
+            label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
+            {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
+          </WantedMenuActions>
+        ) : (
+          <IconMenuButton label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
+            {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
+          </IconMenuButton>
+        )}
       </div>
     </div>
   );

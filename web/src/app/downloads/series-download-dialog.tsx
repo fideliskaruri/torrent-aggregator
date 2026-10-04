@@ -30,6 +30,11 @@ import { DownloadTransferRow } from "./download-transfer-row";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
 import { TransferProgress, transferBarTone } from "./transfer-progress";
 import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
+import { WantedDetails } from "./wanted-details";
+import type { WantedGroup } from "./wanted-groups";
+import type { useDownloads } from "./use-downloads";
+
+type WantedState = ReturnType<typeof useDownloads>["wanted"];
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
   group: SeriesGroup<ClientTorrent> | null;
@@ -55,6 +60,8 @@ export interface SeriesDownloadDialogProps {
   onCopyPath: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
+  wantedGroups?: readonly WantedGroup[];
+  wantedState?: WantedState;
 }
 
 function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "label">) {
@@ -120,6 +127,8 @@ export function SeriesDownloadDialog({
   onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
+  wantedGroups = [],
+  wantedState,
 }: SeriesDownloadDialogProps) {
   const selectedSeason = useMemo(
     () => group?.seasons.find((season) => season.key === selectedSeasonKey) ?? null,
@@ -150,11 +159,7 @@ export function SeriesDownloadDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        // The frame is *fixed*, not content-driven: `sm:h-[...]` (not the
-        // primitive's `sm:h-auto` + `max-h`) so a season holding one episode
-        // renders the same rectangle as a season holding forty, and the
-        // season rail never moves under the pointer. Mobile keeps the
-        // primitive's full-height sheet.
+        // A fixed frame keeps the season rail stable; mobile remains full-height.
         mobileFullscreen
         className="max-h-[100dvh] p-0 sm:h-[min(88dvh,54rem)] sm:max-h-[88dvh] sm:w-[min(100%-2rem,68rem)] sm:max-w-[68rem]"
         data-series-dialog
@@ -169,7 +174,11 @@ export function SeriesDownloadDialog({
         {/* The same summary as the series' row on the page. */}
         <DialogHeader className="shrink-0 border-b border-border px-4 pb-3 pr-14 pt-3 sm:px-5 sm:pr-14 sm:pt-4">
           <div className="flex items-start gap-2">
-            <DownloadGroupSummary group={group} titleHref={titleHref} posterUrl={group.torrents[0].posterUrl} heading>
+            <DownloadGroupSummary group={group} titleHref={titleHref} posterUrl={group.torrents[0].posterUrl}
+              heading wantedGroups={wantedGroups}>
+              {wantedGroups.length > 0 && wantedState ? (
+                <WantedDetails groups={wantedGroups} wanted={wantedState} />
+              ) : null}
               {firstFailed ? (
                 <div className="flex pt-1">
                   <Button
@@ -230,12 +239,6 @@ export function SeriesDownloadDialog({
         >
           {selectedSeason ? (
             <>
-            {/*
-              In the panel, not on the tab: a checkbox inside role="tab" breaks
-              the rail's arrow keys, and phones pick seasons from a Select.
-              -top-3 matches the panel's py-3: sticky offsets count from the
-              padded edge, so top-0 would sit 12px low over the first cards.
-            */}
             <div
               className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
               data-season-select-all-row

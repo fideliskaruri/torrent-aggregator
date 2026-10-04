@@ -24,7 +24,9 @@ export function DownloadDialogs({ page }: { page: Model }) {
           onOpenFolder={(torrent) => void page.openDownloadFolder(torrent)}
           onOpenFile={(torrent, mode) => void page.openFinishedFile(torrent, mode)}
           onCopyPath={page.copyFolderPath} onCopyMagnet={(torrent) => void page.copyMagnet(torrent)}
-          onDeleteRequest={page.openDeleteDialog} />
+          onDeleteRequest={page.openDeleteDialog}
+          wantedGroups={page.wantedByWorkKey.get(page.openGroup.key) ?? []}
+          wantedState={page.wanted} />
       ) : null}
       {page.findAnotherTorrent ? (
         <ConfirmDialog open onOpenChange={(open) => {

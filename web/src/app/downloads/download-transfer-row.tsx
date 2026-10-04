@@ -2,36 +2,42 @@
  * The one download row (a film on the page, an episode in the series dialog)
  * and the one series summary (the page's group row and the dialog's header).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect,useRef,useState } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
-import { useDisplayPath, useFeatures } from "@/lib/features";
+import { formatBytes,formatEta,formatSpeed } from "@/lib/format";
+import { useDisplayPath,useFeatures } from "@/lib/features";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible,CollapsibleTrigger } from "@/components/ui/collapsible";
 import { progressPercent } from "@/components/tf/active-row-state";
-import { isDownloaded, isDownloading, isError, isPaused } from "./grouping";
+import { isDownloaded,isDownloading,isError } from "./grouping";
 import {
-  canOpenFinishedFile,
-  packLabel,
-  releaseDisplayFacts,
-  rowStateBadge,
-  showsProgressBar,
-  transferErrorMessage,
+canOpenFinishedFile,
+packLabel,
+releaseDisplayFacts,
+rowStateBadge,
+showsProgressBar,
+transferErrorMessage,
 } from "./release-display";
 import {
-  IconMenuButton,
-  rowAttr,
-  torrentRowMenuItems,
-  type TorrentRowMenuHandlers,
-  type TransferRowKind,
+IconMenuButton,
+rowAttr,
+torrentRowMenuItems,
+type TorrentRowMenuHandlers,
+type TransferRowKind,
 } from "./row-menu";
-import { TransferProgress, transferBarTone } from "./transfer-progress";
+import { TransferProgress,transferBarTone } from "./transfer-progress";
 import type { ClientTorrent } from "./types";
 import { transferTitleParts } from "./download-transfer-title";
 import { DownloadRowActions } from "./download-row-actions";
+import { SearchingBadge } from "./searching-badge";
+import { WantedMenuActions } from "./wanted-menu-actions";
+import type { WantedGroup } from "./wanted-groups";
+import type { useDownloads } from "./use-downloads";
 export { DownloadGroupSummary } from "./download-group-summary";
+
+type WantedState = ReturnType<typeof useDownloads>["wanted"];
 
 export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
   torrent: ClientTorrent;
@@ -49,6 +55,8 @@ export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
   highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (transferId: string, additive: boolean) => void;
+  wantedGroups?: readonly WantedGroup[];
+  wantedState?: WantedState;
 }
 
 export function DownloadTransferRow({
@@ -63,6 +71,8 @@ export function DownloadTransferRow({
   highlighted,
   openingHash,
   onToggleSelect,
+  wantedGroups = [],
+  wantedState,
   ...handlers
 }: DownloadTransferRowProps) {
   const { onAction, onOpenFile } = handlers;
@@ -90,9 +100,15 @@ export function DownloadTransferRow({
     rowRef.current?.focus({ preventScroll: true });
   }, [highlighted]);
 
-  const menu = (
+  const menuItems = torrentRowMenuItems({ torrent: t, kind, busy, displayPath, handlers });
+  const menu = wantedGroups.length > 0 && wantedState ? (
+    <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
+      label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
+      {menuItems}
+    </WantedMenuActions>
+  ) : (
     <IconMenuButton label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
-      {torrentRowMenuItems({ torrent: t, kind, busy, displayPath, handlers })}
+      {menuItems}
     </IconMenuButton>
   );
 
@@ -168,6 +184,7 @@ export function DownloadTransferRow({
                   {done && !badge.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
                   {badge.label}
                 </Badge>
+                {!card ? <SearchingBadge groups={wantedGroups} /> : null}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {packLabel(t) ? (

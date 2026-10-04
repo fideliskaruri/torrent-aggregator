@@ -23,6 +23,8 @@ import {
 } from "./download-link";
 import { isDownloadRow, type ClientTorrent } from "./types";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { groupWantedRows, groupWantedTitles, wantedSubtitle, wantedTitleKeyForDownload } from "./wanted-groups";
+import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
 import type { useDownloadsPageState } from "./use-downloads-page-state";
 
@@ -60,6 +62,27 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
     [filtered, ui.selected],
   );
   const allGroups = useMemo(() => groupDownloads(downloadable), [downloadable]);
+  const wantedGroups = useMemo(() => groupWantedRows(data.wanted.rows), [data.wanted.rows]);
+  const wantedTitles = useMemo(() => groupWantedTitles(wantedGroups), [wantedGroups]);
+  const wantedByWorkKey = useMemo(
+    () => new Map<string, WantedGroup[]>(wantedTitles.map((title) => [title.workKey, title.groups])),
+    [wantedTitles],
+  );
+  const downloadedWorkKeys = useMemo(() => new Set(allGroups.map((group) =>
+    group.kind === "series"
+      ? group.key
+      : wantedTitleKeyForDownload(group.torrent.groupKey, group.torrent.workKey))), [allGroups]);
+  const wantedOnly = useMemo(() => {
+    if (ui.statusFilter !== "all") return [];
+    const q = ui.filter.trim().toLowerCase();
+    return filterDownloadsByTab(
+      wantedTitles.filter((title) =>
+        !downloadedWorkKeys.has(title.workKey)
+        && (!q || title.title.toLowerCase().includes(q)
+          || wantedSubtitle(title).toLowerCase().includes(q))),
+      ui.mediaTab,
+    );
+  }, [wantedTitles, downloadedWorkKeys, ui.statusFilter, ui.filter, ui.mediaTab]);
   const openGroup = useMemo(
     () => ui.openSeriesKey ? seriesGroupByKey(allGroups, ui.openSeriesKey) : null,
     [allGroups, ui.openSeriesKey],
@@ -152,6 +175,7 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
   const showLoading = useStableLoading(data.loading && !torrents.length && !error);
   return {
     downloadable, filtered, grouped, sortedGroups, allVisibleSelected, allGroups, openGroup,
+    wantedGroups, wantedByWorkKey, wantedOnly, wantedTitleCount: wantedTitles.length,
     stats, selectedTargets, rawSendTrimmed, rawSendInvalid,
     rawSendAnyError: rawSendClientError || ui.rawSendError?.message || null,
     showLoading,

@@ -25,7 +25,6 @@ export function useDownloadsPageState() {
   const [findingAnother, setFindingAnother] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
-  const [lookingCount, setLookingCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [mediaTab, setMediaTab] = useState<DownloadTab>(DEFAULT_DOWNLOAD_TAB);
   const [sort, setSort] = usePersistedState<DownloadSort>(
@@ -62,7 +61,7 @@ export function useDownloadsPageState() {
     displayPath, ensureDownloadSetup, pendingDelete, setPendingDelete,
     openingHash, setOpeningHash, tidying, setTidying,
     findAnotherTorrent, setFindAnotherTorrent, findingAnother, setFindingAnother,
-    selected, setSelected, filter, setFilter, lookingCount, setLookingCount,
+    selected, setSelected, filter, setFilter,
     statusFilter, setStatusFilter, mediaTab, setMediaTab, sort, setSort,
     openSeriesKey, setOpenSeriesKey, selectedSeasonKey, setSelectedSeasonKey,
     rawSendValue, setRawSendValue, sendingRaw, setSendingRaw,
