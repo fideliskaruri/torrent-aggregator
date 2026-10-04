@@ -54,8 +54,7 @@ internal static class NotificationReadModels
         var raw = (await db.AllAsync<RawIntentRow>(ct)).Where(r => r.ActorUserId == "local").Select(r => r.Id).ToHashSet();
         attempts = attempts.Concat((await db.AllAsync<DownloadRow>(ct)).Where(d =>
             d.FinishedAt is not null && !linked.Contains(d.Id) && (d.RawIntentId is null || raw.Contains(d.RawIntentId)))
-            .Select(d => new AttemptRow("download:" + d.Id, null, null, d.Hash, "local", AttemptKind.Fetch,
-                d.AddedAt, d.FinishedAt, "Completed", null, "Download ready", null, null, null, d.Id, null, null)));
+            .Select(d => new AttemptRow { Id = "download:" + d.Id, TargetId = null, WorkId = null, ReleaseHash = d.Hash, ActorUserId = "local", Kind = AttemptKind.Fetch, StartedAt = d.AddedAt, EndedAt = d.FinishedAt, Outcome = "Completed", ReasonCode = null, ReasonText = "Download ready", Decision = null, LegacyContext = null, BatchId = null, DownloadId = d.Id, DeadlineAt = null, Swap = null }));
         foreach (var a in attempts.Where(a =>
             !a.Id.StartsWith("commit:", StringComparison.Ordinal) &&
             (a.ActorUserId is null or "local")))

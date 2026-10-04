@@ -18,7 +18,7 @@ internal sealed class CatalogStore(IServiceScopeFactory scopes)
     internal async Task<ImmutableArray<T>> ReadAsync<T>(StoreQuery query, CancellationToken ct) where T : StoreRow
     {
         await using var scope = scopes.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredKeyedService<IStore>("metadata").ReadAsync<T>(query, ct);
+        return await scope.ServiceProvider.GetRequiredService<IStore>().ReadAsync<T>(query, ct);
     }
 
     internal async Task<ImmutableArray<T>> AllAsync<T>(StoreQuery? query, CancellationToken ct) where T : StoreRow
@@ -39,10 +39,9 @@ internal sealed class CatalogStore(IServiceScopeFactory scopes)
     {
         var key = Guid.CreateVersion7().ToString();
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow("commit:metadata:" + key, null, null, null, null,
-            AttemptKind.LegacyEvent, now, now, "metadata", null, null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = "commit:metadata:" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "metadata", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         await using var scope = scopes.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredKeyedService<IStore>("metadata").CommitAsync(
+        return await scope.ServiceProvider.GetRequiredService<IStore>().CommitAsync(
             new(key, StoreOwner.Metadata, [.. writes, new(receipt, null, null)], [.. deletes ?? []]), ct);
     }
 

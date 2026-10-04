@@ -37,7 +37,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
@@ -88,7 +88,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             }
             try
             {
-                var download = new DownloadRow(id, assignment.Hash, DownloadIntent.Run, root.Id, now, null, token, null, null, 1);
+                var download = new DownloadRow { Id = id, Hash = assignment.Hash, Intent = DownloadIntent.Run, RootId = root.Id, AddedAt = now, FinishedAt = null, AdmissionToken = token, ResumeArtifact = null, RawIntentId = null, Version = 1 };
                 await stateGate.WaitAsync(ct);
                 try
                 {
@@ -100,11 +100,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         .. claimedTargets.Select(t => new RowWrite(t with { State = TargetState.Fetching,
                             ChosenReleaseHash = assignment.Hash, LeaseUntil = null,
                             UpdatedAt = now, Version = t.Version + 1 }, t.Version, null)),
-                        .. claimedTargets.Select(t => new RowWrite(new AttemptRow(Guid.NewGuid().ToString("N"), t.Id,
-                            t.WorkId, assignment.Hash, t.CreatedBy, AttemptKind.Fetch, now, now, "Fetching", null,
-                            null, null, null, t.BatchId, id, null, null), null, null)),
-                        .. claimedTargets.Select(t => new RowWrite(new DownloadTargetRow($"{id}:{t.Id}", id, t.Id,
-                            AssociationRole.Current, now), null, null))], [], ct);
+                        .. claimedTargets.Select(t => new RowWrite(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = t.Id, WorkId = t.WorkId, ReleaseHash = assignment.Hash, ActorUserId = t.CreatedBy, Kind = AttemptKind.Fetch, StartedAt = now, EndedAt = now, Outcome = "Fetching", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = t.BatchId, DownloadId = id, DeadlineAt = null, Swap = null }, null, null)),
+                        .. claimedTargets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null))], [], ct);
                 }
                 finally { stateGate.Release(); }
                 if (!await repository.SavePlacementAsync(files, placement.Folders, ct))
@@ -157,9 +154,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                                     ReasonCode = reason, ReasonText = $"{admissionFailure?.Code ?? "admission_failed"}: {message}",
                                     NextTryAt = retryAt, ResumeState = TargetState.Wanted, LeaseToken = null, LeaseUntil = null,
                                     UpdatedAt = failedAt, Version = t.Version + 1 }, t.Version, null)),
-                                .. failed.Select(t => new RowWrite(new AttemptRow(Guid.NewGuid().ToString("N"), t.Id,
-                                    t.WorkId, assignment.Hash, t.CreatedBy, AttemptKind.Fetch, failedAt, failedAt, "Waiting",
-                                    admissionFailure?.Code ?? "admission_failed", message, null, null, t.BatchId, id, null, null),
+                                .. failed.Select(t => new RowWrite(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = t.Id, WorkId = t.WorkId, ReleaseHash = assignment.Hash, ActorUserId = t.CreatedBy, Kind = AttemptKind.Fetch, StartedAt = failedAt, EndedAt = failedAt, Outcome = "Waiting", ReasonCode = admissionFailure?.Code ?? "admission_failed", ReasonText = message, Decision = null, LegacyContext = null, BatchId = t.BatchId, DownloadId = id, DeadlineAt = null, Swap = null },
                                     null, null))],
                             [.. links.Where(l => l.DownloadId == id).Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
                                 new(StoreTable.Download, id, persisted.Version, null)], CancellationToken.None);
@@ -182,7 +177,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var catalog = new CatalogState(store);
         var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
         var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
@@ -226,7 +221,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
             var targets = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
@@ -350,10 +345,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                             await TargetPipeline.CommitAsync(store, [new(current with
                                 { State = done ? TargetState.Done : TargetState.Filing, UpdatedAt = now,
                                   Version = current.Version + 1 }, current.Version, null),
-                                new(new AttemptRow(Guid.NewGuid().ToString("N"),
-                                    target.Id, target.WorkId, download.Hash, target.CreatedBy, AttemptKind.File,
-                                    now, now, done ? "Done" : "Filed", null, null, null, null, target.BatchId,
-                                    download.Id, null, null), null, null)], [], ct, proposal);
+                                new(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = target.Id, WorkId = target.WorkId, ReleaseHash = download.Hash, ActorUserId = target.CreatedBy, Kind = AttemptKind.File, StartedAt = now, EndedAt = now, Outcome = done ? "Done" : "Filed", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = target.BatchId, DownloadId = download.Id, DeadlineAt = null, Swap = null }, null, null)], [], ct, proposal);
                             committed = true;
                         }
                         finally { stateGate.Release(); }

@@ -113,8 +113,22 @@ public sealed class DownloadFiling
                 file.RelativePath.Split(['/', '\\']).Select(LibraryPaths.SafeLeaf));
             var path = LibraryPaths.Within(unwanted, Path.Combine(file.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 relative + ".partial"));
-            output.Add(new($"{downloadId}:{file.Index}", downloadId, file.Index, false, null, path,
-                null, LibraryPaths.PhysicalKey(path), null, FileRole.Unwanted, file.Bytes, path, false));
+            output.Add(new DownloadFileRow
+            {
+                Id = $"{downloadId}:{file.Index}",
+                DownloadId = downloadId,
+                FileIndex = file.Index,
+                Selected = false,
+                TargetId = null,
+                PartialPath = path,
+                FinalPath = null,
+                PhysicalKey = LibraryPaths.PhysicalKey(path),
+                MediaFileId = null,
+                Role = FileRole.Unwanted,
+                ExpectedBytes = file.Bytes,
+                EnginePath = path,
+                Filed = false,
+            });
         }
         return [.. output.OrderBy(f => f.FileIndex)];
     }
@@ -154,13 +168,41 @@ public sealed class DownloadFiling
         (int? Width, int? Height) dimensions = binding.Role == FileRole.Video ? VideoDimensions.Read(path) : (null, null);
         var physicalKey = LibraryPaths.PhysicalKey(path);
         var identity = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(physicalKey)));
-        return new($"downloaded:{identity}", target.WorkId, target.EpisodeId,
-            context.Download.RootId, path, LibraryPaths.PhysicalKey(path), binding.Role, null,
-            binding.ExpectedBytes, File.GetLastWriteTimeUtc(path),
-            VideoDimensions.Resolution(dimensions.Width, dimensions.Height) ?? context.Resolution, context.Source,
-            Path.GetExtension(path).TrimStart('.'), null, null, dimensions.Width, dimensions.Height, null, null, null, [],
-            MediaOrigin.Downloaded, binding.DownloadId, binding.FileIndex, now, now, null,
-            FilePresence.Present, null, now, null, 1);
+        return new MediaFileRow
+        {
+            Id = $"downloaded:{identity}",
+            WorkId = target.WorkId,
+            EpisodeId = target.EpisodeId,
+            RootId = context.Download.RootId,
+            Path = path,
+            PhysicalKey = LibraryPaths.PhysicalKey(path),
+            Role = binding.Role,
+            ParentMediaFileId = null,
+            Bytes = binding.ExpectedBytes,
+            MtimeUtc = File.GetLastWriteTimeUtc(path),
+            Resolution = VideoDimensions.Resolution(dimensions.Width, dimensions.Height) ?? context.Resolution,
+            Source = context.Source,
+            Container = Path.GetExtension(path).TrimStart('.'),
+            VideoCodec = null,
+            VideoProfile = null,
+            Width = dimensions.Width,
+            Height = dimensions.Height,
+            Hdr = null,
+            RuntimeSeconds = null,
+            BitrateBps = null,
+            Tracks = [],
+            Origin = MediaOrigin.Downloaded,
+            DownloadId = binding.DownloadId,
+            FileIndex = binding.FileIndex,
+            AddedAt = now,
+            LastSeenAt = now,
+            MissingSince = null,
+            Status = FilePresence.Present,
+            MissingConfirmedAt = null,
+            VerifiedAt = now,
+            ContentDigest = null,
+            Version = 1,
+        };
     }
 
     public static async Task DeletePayloadAsync(ImmutableArray<DownloadFileRow> bindings, string itemFolder, string hash,

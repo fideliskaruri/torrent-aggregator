@@ -9,7 +9,7 @@ internal sealed partial class FindService
     public async Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var query = new StoreQuery(hash, null, null, null, null, null, null, null, null, null,
             null, null, null, null, 500, StoreOrder.PrimaryKey);
         var release = (await store.ReadAsync<ReleaseRow>(query, cancellationToken)).SingleOrDefault();

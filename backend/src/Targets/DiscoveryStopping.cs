@@ -77,7 +77,7 @@ internal sealed class DiscoveryStopping(IServiceScopeFactory scopes, ICheck chec
     internal async Task<DiscoveryStop?> ReadAsync(string workId, string scopeKey, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var history = await new CatalogState(store).ReadAsync<AttemptRow>(CatalogState.Query(workId: workId), ct);
         foreach (var attempt in history.Where(a => a.ReasonCode == ReasonCode)
                      .OrderByDescending(a => a.StartedAt))
@@ -112,10 +112,8 @@ internal sealed class DiscoveryStopping(IServiceScopeFactory scopes, ICheck chec
         if (due <= now) return;
         var stop = new DiscoveryStop(scopeKey, PoolKey(batch), VerdictKey(measurements), due, reason);
         await using var serviceScope = scopes.CreateAsyncScope();
-        var store = serviceScope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
-        var attempt = new AttemptRow("discovery-stop:" + Guid.NewGuid().ToString("N"), null,
-            workId, null, null, AttemptKind.Plan, now, now, "Stopped", ReasonCode, reason, null,
-            JsonSerializer.SerializeToElement(stop), null, null, null, null);
+        var store = serviceScope.ServiceProvider.GetRequiredService<IStore>();
+        var attempt = new AttemptRow { Id = "discovery-stop:" + Guid.NewGuid().ToString("N"), TargetId = null, WorkId = workId, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.Plan, StartedAt = now, EndedAt = now, Outcome = "Stopped", ReasonCode = ReasonCode, ReasonText = reason, Decision = null, LegacyContext = JsonSerializer.SerializeToElement(stop), BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         await TargetPipeline.CommitAsync(store, [new(attempt, null, null)], [], ct);
     }
 

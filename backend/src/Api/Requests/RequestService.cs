@@ -19,8 +19,7 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
     {
         var key = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow($"commit:requests:{actor}:{key}", null, null, null, actor,
-            AttemptKind.LegacyEvent, now, now, "Request", null, null, null, null, null, null, null, null);
+        var receipt = new AttemptRow { Id = $"commit:requests:{actor}:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = actor, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "Request", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
         var result = await store.CommitAsync(new(key, StoreOwner.Targets,
             [.. writes, new(receipt, null, null)], [.. deletes ?? []]), ct);
         if (!result.Applied) throw new InvalidOperationException("The request changed. Reload and try again.");
@@ -63,25 +62,19 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
         if (mine.Count(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved && !Fulfilled(r)) >= maximum)
             throw new RequestConflict("too_many_open", $"You have {maximum} open requests. Wait for the owner to handle them.");
         var now = DateTimeOffset.UtcNow;
-        var request = new RequestRow(Guid.NewGuid().ToString("N"), user, work.Work.Id,
-            film ? RequestScope.Film : input.Scope == "series" ? RequestScope.Series : RequestScope.Seasons,
-            new(seasons, input.Scope == "series"), input.Note?.Trim(), RequestDecision.Pending,
-            null, null, null, now, now, 1);
+        var request = new RequestRow { Id = Guid.NewGuid().ToString("N"), UserId = user, WorkId = work.Work.Id, Scope = film ? RequestScope.Film : input.Scope == "series" ? RequestScope.Series : RequestScope.Seasons, ScopeData = new(seasons, input.Scope == "series"), Note = input.Note?.Trim(), Decision = RequestDecision.Pending, DecisionReason = null, DecidedAt = null, DecidedBy = null, CreatedAt = now, UpdatedAt = now, Version = 1 };
         var selected = film ? new string?[] { null } : work.Episodes
             .Where(e => work.Seasons.Any(s => s.Id == e.SeasonId && seasons.Contains(s.Number)))
             .Select(e => (string?)e.Id).ToArray();
         var owned = await catalog.OwnedAsync(work.Work.Id, ct);
-        var items = selected.Select(episode => new RequestItemRow(Guid.NewGuid().ToString("N"), request.Id,
-            episode, null, owned.Any(f => f.EpisodeId == episode && File.Exists(f.Path))
-                ? ItemSettlement.Fulfilled : ItemSettlement.Open,
-            owned.Any(f => f.EpisodeId == episode && File.Exists(f.Path)) ? now : null, now, now)).ToArray();
+        var items = selected.Select(episode => new RequestItemRow { Id = Guid.NewGuid().ToString("N"), RequestId = request.Id, EpisodeId = episode, TargetId = null, Settlement = owned.Any(f => f.EpisodeId == episode && File.Exists(f.Path))
+                ? ItemSettlement.Fulfilled : ItemSettlement.Open, SettledAt = owned.Any(f => f.EpisodeId == episode && File.Exists(f.Path)) ? now : null, CreatedAt = now, UpdatedAt = now }).ToArray();
         if (items.Length > 0 && items.All(i => i.Settlement == ItemSettlement.Fulfilled))
             request = request with { Decision = RequestDecision.Approved, DecidedBy = "local",
                 DecidedAt = now, DecisionReason = "Already in your library" };
         // Target.createdBy is a User FK. A non-login attribution actor lets the public Acquire
         // API name the request while preserving that constraint and the actual requesting user.
-        var attribution = new UserRow(request.Id, null, $"Request {request.Id}", null,
-            UserRole.Requester, now, now);
+        var attribution = new UserRow { Id = request.Id, NormalizedEmail = null, Name = $"Request {request.Id}", Image = null, Role = UserRole.Requester, CreatedAt = now, UpdatedAt = now };
         await Commit(user, [new(attribution, null, null), new(request, null, null),
             .. items.Select(i => new RowWrite(i, null, null))], ct);
         return request;

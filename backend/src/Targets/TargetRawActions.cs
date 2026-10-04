@@ -13,7 +13,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var raw = (await catalog.ReadAsync<RawIntentRow>(CatalogState.Query(id), ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This download no longer exists.");

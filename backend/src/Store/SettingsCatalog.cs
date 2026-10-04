@@ -4,8 +4,6 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
 
-public sealed record MigrationSettings(int SchemaVersion, string State);
-
 public static class SettingsCatalog
 {
     private static readonly IReadOnlyDictionary<string, Type> Types = new Dictionary<string, Type>
@@ -14,7 +12,7 @@ public static class SettingsCatalog
         ["metadata"] = typeof(MetadataSettings), ["remoteAccess"] = typeof(RemoteAccessSettings),
         ["desktop"] = typeof(DesktopSettings), ["quality"] = typeof(QualitySettings),
         ["requests"] = typeof(RequestSettings), ["scheduler"] = typeof(SchedulerSettings),
-        ["jellyfin"] = typeof(JellyfinSettings), ["migration"] = typeof(MigrationSettings),
+        ["jellyfin"] = typeof(JellyfinSettings),
         ["recovery"] = typeof(RecoverySettings),
     };
 
@@ -22,14 +20,14 @@ public static class SettingsCatalog
     {
         Validate(row);
         if (Types[row.Id] != typeof(T)) throw new ArgumentException($"Section '{row.Id}' does not contain {typeof(T).Name}.");
-        return row.Value.Deserialize<T>(Schema.Json)!;
+        return row.Value.Deserialize<T>(StoreJson.Options)!;
     }
 
     internal static void Validate(SettingRow row)
     {
         if (row.SchemaVersion != 1 || !Types.TryGetValue(row.Id, out var type))
             throw new ArgumentException("Unknown settings section or schema version.");
-        var value = row.Value.Deserialize(type, Schema.Json) ?? throw new ArgumentException("Settings must not be null.");
+        var value = row.Value.Deserialize(type, StoreJson.Options) ?? throw new ArgumentException("Settings must not be null.");
         if (value is ImmutableArray<SourceSettings> sources && sources.IsDefault)
             throw new ArgumentException("Sources must be an array.");
         ValidateSecrets(value);
@@ -57,7 +55,7 @@ public static class SettingsCatalog
         return
         [
             Row("engine", new EngineSettings(0, 4, 400, 120, 40, 12, 32 * 1024 * 1024, 40,
-                true, true, true, true, false, ProbeScope.Off, [], TimeZoneInfo.Local.Id,
+                true, true, true, true, ProbeScope.Off, [], TimeZoneInfo.Local.Id,
                 20, 256 * 1024, 64 * 1024, 180, 600, 1024 * 1024, [], false, null)),
             Row("sources", SourceDefaults()),
             Row("metadata", new MetadataSettings(tmdb,
@@ -69,12 +67,11 @@ public static class SettingsCatalog
             Row("requests", new RequestSettings(AutoApproveMode.None, 100)),
             Row("scheduler", new SchedulerSettings(!schedulerDisabled, 1, 8, 2, 8, 10, 2)),
             Row("jellyfin", new JellyfinSettings(null, null, null)),
-            Row("migration", new MigrationSettings(1, "notStarted")),
             Row("recovery", new RecoverySettings()),
         ];
 
         SettingRow Row<T>(string section, T value) =>
-            new(section, 1, JsonSerializer.SerializeToElement(value, Schema.Json), 1, now);
+            new() { Id = section, SchemaVersion = 1, Value = JsonSerializer.SerializeToElement(value, StoreJson.Options), Revision = 1, UpdatedAt = now };
     }
 
     private static ImmutableArray<SourceSettings> SourceDefaults()

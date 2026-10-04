@@ -85,9 +85,19 @@ public sealed class JellyfinWatchState
                     Uri.EscapeDataString(settings.UserId) + "&Fields=ProviderIds,Path&EnableUserData=true&Limit=1000",
                     deadline.Token);
                 var now = DateTimeOffset.UtcNow;
-                snapshot = new("jellyfin-state", CacheKind.JellyfinState, cacheKey,
-                    JsonSerializer.SerializeToElement(new Snapshot([.. items], next.Items)),
-                    now, now.AddSeconds(15), null, null, true, "jellyfin");
+                snapshot = new MetadataCacheRow
+                {
+                    Id = "jellyfin-state",
+                    Kind = CacheKind.JellyfinState,
+                    CacheKey = cacheKey,
+                    Payload = JsonSerializer.SerializeToElement(new Snapshot([.. items], next.Items)),
+                    FetchedAt = now,
+                    ExpiresAt = now.AddSeconds(15),
+                    Etag = null,
+                    LastModified = null,
+                    Complete = true,
+                    Provider = "jellyfin",
+                };
                 cache = snapshot;
             }
             if (!snapshot.Complete) return ImmutableDictionary<string, JellyfinTitleState>.Empty;
@@ -105,9 +115,19 @@ public sealed class JellyfinWatchState
             if (locked && cacheKey is not null && !ct.IsCancellationRequested)
             {
                 var now = DateTimeOffset.UtcNow;
-                cache = new("jellyfin-state", CacheKind.JellyfinState, cacheKey,
-                    JsonSerializer.SerializeToElement(new Snapshot([], [])),
-                    now, now.AddSeconds(5), null, null, false, "jellyfin");
+                cache = new MetadataCacheRow
+                {
+                    Id = "jellyfin-state",
+                    Kind = CacheKind.JellyfinState,
+                    CacheKey = cacheKey,
+                    Payload = JsonSerializer.SerializeToElement(new Snapshot([], [])),
+                    FetchedAt = now,
+                    ExpiresAt = now.AddSeconds(5),
+                    Etag = null,
+                    LastModified = null,
+                    Complete = false,
+                    Provider = "jellyfin",
+                };
             }
             return ImmutableDictionary<string, JellyfinTitleState>.Empty;
         }

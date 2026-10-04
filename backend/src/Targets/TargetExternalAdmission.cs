@@ -20,7 +20,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var hash = MonoTorrentEngine.NormalizeHash(input.Hash);
             var existing = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
@@ -59,12 +59,42 @@ public sealed partial class TargetPipeline
                 if (prior is not null && prior.State != TargetState.Removed)
                     throw new InvalidOperationException("This item already has download intent. Remove it before handing over another transfer.");
                 previous[targetId] = prior;
-                targets.Add(new(targetId, item.WorkId, item.EpisodeId, TargetKind.Acquire,
-                    input.Paused ? TargetState.Paused : TargetState.Fetching,
-                    input.Paused ? TargetState.Fetching : null, null, null, null, null,
-                    null, null, "any", null, true, 0, null, actor, IntentOrigin.Owner,
-                    null, hash, null, null, token, now, 0, null, 0, null,
-                    null, prior?.CreatedAt ?? now, now, (prior?.Version ?? 0) + 1));
+                targets.Add(new TargetRow
+                {
+                    Id = targetId,
+                    WorkId = item.WorkId,
+                    EpisodeId = item.EpisodeId,
+                    Kind = TargetKind.Acquire,
+                    State = input.Paused ? TargetState.Paused : TargetState.Fetching,
+                    ResumeState = input.Paused ? TargetState.Fetching : null,
+                    ReasonCode = null,
+                    ReasonText = null,
+                    NextTryAt = null,
+                    ExpectedAt = null,
+                    ResolutionFloor = null,
+                    PreferredResolution = null,
+                    AudioLanguage = "any",
+                    MaxBytes = null,
+                    OwnerRanked = true,
+                    Rank = 0,
+                    NowAt = null,
+                    CreatedBy = actor,
+                    Origin = IntentOrigin.Owner,
+                    AutoRuleId = null,
+                    ChosenReleaseHash = hash,
+                    ReplaceMediaFileId = null,
+                    ReplacementMode = null,
+                    BatchId = token,
+                    ClickedAt = now,
+                    SubstantiveMisses = 0,
+                    HelpNotifiedAt = null,
+                    PolicyRevision = 0,
+                    LeaseUntil = null,
+                    LeaseToken = null,
+                    CreatedAt = prior?.CreatedAt ?? now,
+                    UpdatedAt = now,
+                    Version = (prior?.Version ?? 0) + 1,
+                });
             }
             var files = metadata.Select(f =>
             {
@@ -73,24 +103,19 @@ public sealed partial class TargetPipeline
                 var item = input.Items.SingleOrDefault(i => i.FileIndex == f.Index);
                 if (item is not null && !MediaImport.IsVideo(path))
                     throw new ArgumentException("Choose a supported video file for each catalog item.");
-                return new DownloadFileRow($"{id}:{f.Index}", id, f.Index, item is not null,
-                    item is null ? null : targets.Single(t => t.WorkId == item.WorkId && t.EpisodeId == item.EpisodeId).Id,
-                    item is null ? null : path, item is null ? null : path, LibraryPaths.PhysicalKey(path),
-                    null, item is null ? FileRole.Unwanted : FileRole.Video, f.Bytes, path, false);
+                return new DownloadFileRow { Id = $"{id}:{f.Index}", DownloadId = id, FileIndex = f.Index, Selected = item is not null, TargetId = item is null ? null : targets.Single(t => t.WorkId == item.WorkId && t.EpisodeId == item.EpisodeId).Id, PartialPath = item is null ? null : path, FinalPath = item is null ? null : path, PhysicalKey = LibraryPaths.PhysicalKey(path), MediaFileId = null, Role = item is null ? FileRole.Unwanted : FileRole.Video, ExpectedBytes = f.Bytes, EnginePath = path, Filed = false };
             }).ToImmutableArray();
             var claim = await engine.ClaimAdmissionAsync(new(token, hash, id, null, now.AddSeconds(90)), ct);
             if (!claim.Accepted) return claim;
-            var download = new DownloadRow(id, hash, input.Paused ? DownloadIntent.Paused : DownloadIntent.Run,
-                null, now, null, token, null, null, 1);
+            var download = new DownloadRow { Id = id, Hash = hash, Intent = input.Paused ? DownloadIntent.Paused : DownloadIntent.Run, RootId = null, AddedAt = now, FinishedAt = null, AdmissionToken = token, ResumeArtifact = null, RawIntentId = null, Version = 1 };
             try
             {
                 var candidate = MonoTorrentEngine.CandidateFor(hash);
-                var find = scope.ServiceProvider.GetRequiredKeyedService<IStore>("find");
+                var find = scope.ServiceProvider.GetRequiredService<IStore>();
                 var oldRelease = (await find.ReadAsync<ReleaseRow>(CatalogState.Query(hash), ct)).SingleOrDefault();
                 var release = candidate.Release with { Name = input.Name, Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes) };
                 var key = Guid.NewGuid().ToString("N");
-                var receipt = new AttemptRow("commit:external:" + key, null, null, null, actor,
-                    AttemptKind.LegacyEvent, now, now, "applied", null, null, null, null, null, null, null, null);
+                var receipt = new AttemptRow { Id = "commit:external:" + key, TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = actor, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
                 var written = await find.CommitAsync(new(key, StoreOwner.Find,
                     [new(release, null, oldRelease), new(receipt, null, null)], []), ct);
                 if (!written.Applied) throw new IOException("The release metadata could not be saved.");
@@ -99,8 +124,7 @@ public sealed partial class TargetPipeline
                     ?? throw new IOException("The original file bindings are already reserved. Scan again.");
                 await CommitAsync(store, [new(download, null, null),
                     .. targets.Select(t => new RowWrite(t, previous[t.Id]?.Version, null)),
-                    .. targets.Select(t => new RowWrite(new DownloadTargetRow($"{id}:{t.Id}", id, t.Id,
-                        AssociationRole.Current, now), null, null))], [], ct, proposal);
+                    .. targets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null))], [], ct, proposal);
                 var result = await external.AdmitExternalAsync(new(download,
                     candidate with { Release = release }, [.. files.Select(f => new FileBinding(f.FileIndex,
                         f.EnginePath!, f.Selected))], token), ct);

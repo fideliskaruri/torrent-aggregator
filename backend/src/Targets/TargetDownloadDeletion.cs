@@ -54,7 +54,7 @@ internal sealed partial class TargetTransfers
     private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var catalog = new CatalogState(store);
         var download = (await catalog.ReadAsync<DownloadRow>(CatalogState.Query(), ct))
             .SingleOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));

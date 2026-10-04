@@ -51,10 +51,10 @@ public enum StoreOrder { PrimaryKey, CreatedNewest, DuePriority, CheckedNewest }
 public enum StoreTable
 {
     Work, WorkName, WorkLink, Season, Episode, MetadataCache, WorkPreference, Target,
-    Request, RequestItem, AutoApproveRule, Follow, WatchItem, AutoRule, Release,
+    Request, RequestItem, Follow, WatchItem, AutoRule, Release,
     ReleaseObservation, Verdict, Attempt, Block, SearchCache, Download, DownloadTarget,
     DownloadFile, StorageRoot, MediaFile, FileOperation, User, Notification,
-    PushSubscription, Setting, ScopeIntent, RawIntent, UpgradeEvidence, WorkFolder, FilePathClaim
+    Setting, ScopeIntent, RawIntent, WorkFolder, FilePathClaim
 }
 public enum TargetAction { Acquire, Pause, Resume, Remove, TryNow, DownloadNow, Rank, Pick }
 public enum RequestAction { Create, Approve, Decline, Cancel, Retry, Pick, DownloadNow }

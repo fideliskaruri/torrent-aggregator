@@ -52,9 +52,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             var existing = (await FilingOperationsAsync(ct)).SingleOrDefault(o => o.Id == id);
             if (existing is not null) return existing.ExpectedDigest == digest;
             var now = DateTimeOffset.UtcNow;
-            var operation = new FileOperationRow(id, FileOperationKind.Rename, binding.TargetId, binding.DownloadId,
-                null, binding.PartialPath, binding.FinalPath, binding.ExpectedBytes, digest,
-                FileOperationState.Pending, false, 0, null, null, now, now, null, null, null, null);
+            var operation = new FileOperationRow { Id = id, Kind = FileOperationKind.Rename, TargetId = binding.TargetId, DownloadId = binding.DownloadId, MediaFileId = null, SourcePath = binding.PartialPath, DestinationPath = binding.FinalPath, ExpectedBytes = binding.ExpectedBytes, ExpectedDigest = digest, State = FileOperationState.Pending, DeleteSource = false, Attempts = 0, NextTryAt = null, LastError = null, CreatedAt = now, UpdatedAt = now, LeaseToken = null, LeaseUntil = null, ResumeStage = null, EnginePermitToken = null };
             if (!await StageAsync(operation, null, ct)) return false;
             var paths = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (label, path) in new[] { ("source", binding.PartialPath!), ("destination", binding.FinalPath!) })
@@ -62,7 +60,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
                 var key = System.IO.Path.GetFullPath(path);
                 if (OperatingSystem.IsWindows()) key = key.ToLowerInvariant();
                 if (!paths.Add(key)) continue;
-                if (!await StageAsync(new FilePathClaimRow(id + ":" + label, id, key, now), null, ct)) return false;
+                if (!await StageAsync(new FilePathClaimRow { Id = id + ":" + label, OperationId = id, PhysicalKey = key, CreatedAt = now }, null, ct)) return false;
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -99,21 +97,17 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            var entity = await db.Set<Dictionary<string, object>>("DownloadFile")
-                .SingleOrDefaultAsync(r => EF.Property<string>(r, "id") == before.Id, ct);
-            if (entity is null || Schema.Table("DownloadFile").ToRow(entity) != before) return false;
+            var entity = await db.DownloadFiles.SingleOrDefaultAsync(row => row.Id == before.Id, ct);
+            if (entity is null || entity != before) return false;
             if (!await StageAsync(media, null, ct)) return false;
-            db.Entry(entity).CurrentValues.SetValues(Schema.Table("DownloadFile").ToEntity(after));
-            var operationEntity = await db.Set<Dictionary<string, object>>("FileOperation")
-                .SingleAsync(r => EF.Property<string>(r, "id") == $"file:{before.Id}", ct);
-            var operation = (FileOperationRow)Schema.Table("FileOperation").ToRow(operationEntity);
-            db.Entry(operationEntity).CurrentValues.SetValues(Schema.Table("FileOperation").ToEntity(operation with
+            db.Entry(entity).CurrentValues.SetValues(after);
+            var operation = await db.FileOperations.SingleAsync(row => row.Id == $"file:{before.Id}", ct);
+            db.Entry(operation).CurrentValues.SetValues(operation with
             {
                 State = FileOperationState.Done, MediaFileId = media.Id, UpdatedAt = DateTimeOffset.UtcNow,
-            }));
-            var claims = await db.Set<Dictionary<string, object>>("FilePathClaim")
-                .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
-            db.Set<Dictionary<string, object>>("FilePathClaim").RemoveRange(claims);
+            });
+            var claims = await db.FilePathClaims.Where(row => row.OperationId == operation.Id).ToListAsync(ct);
+            db.FilePathClaims.RemoveRange(claims);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
@@ -136,8 +130,8 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         var operation = (await FilingOperationsAsync(ct)).SingleOrDefault(o => o.Id == $"file:{before.Id}");
         if (operation is null || operation.State != FileOperationState.Pending ||
             operation.ExpectedDigest != media.ContentDigest) return null;
-        var claims = await db.Set<Dictionary<string, object>>("FilePathClaim").AsNoTracking()
-            .Where(r => EF.Property<string>(r, "operationId") == operation.Id).ToListAsync(ct);
+        var claims = await db.FilePathClaims.AsNoTracking()
+            .Where(row => row.OperationId == operation.Id).ToListAsync(ct);
         var prior = (await MediaAsync(null, ct)).SingleOrDefault(m => m.PhysicalKey == media.PhysicalKey);
         if (prior is not null)
         {
@@ -151,8 +145,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             [new(after, null, before), new(media, prior?.Version, null),
              new(operation with { State = FileOperationState.Done, MediaFileId = media.Id,
                  UpdatedAt = DateTimeOffset.UtcNow }, null, operation)],
-            [.. claims.Select(r => new RowDelete(StoreTable.FilePathClaim, (string)r["id"], null,
-                Schema.Table("FilePathClaim").ToRow(r)))]);
+            [.. claims.Select(row => new RowDelete(StoreTable.FilePathClaim, row.Id, null, row))]);
     }
 
     public async Task<bool> RemoveDownloadFilesAsync(string downloadId, CancellationToken ct)
@@ -160,24 +153,21 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            var operations = await db.Set<Dictionary<string, object>>("FileOperation")
-                .Where(r => EF.Property<string>(r, "downloadId") == downloadId).ToListAsync(ct);
+            var operations = await db.FileOperations
+                .Where(row => row.DownloadId == downloadId).ToListAsync(ct);
             foreach (var operation in operations)
             {
-                var id = (string)operation["id"];
-                var claims = await db.Set<Dictionary<string, object>>("FilePathClaim")
-                    .Where(r => EF.Property<string>(r, "operationId") == id).ToListAsync(ct);
-                db.Set<Dictionary<string, object>>("FilePathClaim").RemoveRange(claims);
+                var claims = await db.FilePathClaims
+                    .Where(row => row.OperationId == operation.Id).ToListAsync(ct);
+                db.FilePathClaims.RemoveRange(claims);
             }
-            db.Set<Dictionary<string, object>>("FileOperation").RemoveRange(operations);
+            db.FileOperations.RemoveRange(operations);
             await db.SaveChangesAsync(ct);
-            var bindings = await db.Set<Dictionary<string, object>>("DownloadFile")
-                .Where(r => EF.Property<string>(r, "downloadId") == downloadId).ToListAsync(ct);
-            db.Set<Dictionary<string, object>>("DownloadFile").RemoveRange(bindings);
+            var bindings = await db.DownloadFiles.Where(row => row.DownloadId == downloadId).ToListAsync(ct);
+            db.DownloadFiles.RemoveRange(bindings);
             await db.SaveChangesAsync(ct);
-            var media = await db.Set<Dictionary<string, object>>("MediaFile")
-                .Where(r => EF.Property<string>(r, "downloadId") == downloadId).ToListAsync(ct);
-            db.Set<Dictionary<string, object>>("MediaFile").RemoveRange(media);
+            var media = await db.MediaFiles.Where(row => row.DownloadId == downloadId).ToListAsync(ct);
+            db.MediaFiles.RemoveRange(media);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;

@@ -14,7 +14,7 @@ public sealed class DesktopSettingsStore(IServiceScopeFactory scopes)
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("access");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var row = (await store.ReadAsync<SettingRow>(AccessState.Query("desktop"), ct)).Single();
         lock (gate) current = SettingsCatalog.Read<DesktopSettings>(row);
     }
@@ -24,7 +24,7 @@ public sealed class DesktopSettingsStore(IServiceScopeFactory scopes)
         lock (gate)
         {
             using var scope = scopes.CreateScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("access");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var row = store.ReadAsync<SettingRow>(AccessState.Query("desktop"), CancellationToken.None).GetAwaiter().GetResult().Single();
             var next = change(SettingsCatalog.Read<DesktopSettings>(row));
             var replacement = row with { Value = JsonSerializer.SerializeToElement(next, AccessState.Json),

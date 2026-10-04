@@ -13,7 +13,7 @@ public static class FolderEndpoints
 
     public static IServiceCollection AddLocalFiles(this IServiceCollection services) =>
         services.AddScoped<ILocalFiles>(sp => new LocalFiles(sp.GetRequiredService<ILibraryRepository>(),
-            sp.GetRequiredKeyedService<IStore>("targets")));
+            sp.GetRequiredService<IStore>()));
 
     public static void MapLocalFiles(this WebApplication app)
     {

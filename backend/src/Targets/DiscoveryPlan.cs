@@ -24,11 +24,7 @@ public sealed class DiscoveryPlan(IFind find, ICheck check, IPlan planner, IPars
         using var checkLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var now = DateTimeOffset.UtcNow;
         var targets = actualTargets ?? (scope.Film ? new string?[] { null } : scope.EpisodeIds.Cast<string?>())
-            .Select(id => new TargetRow("dry:" + (id ?? work.Work.Id), work.Work.Id, id,
-                TargetKind.Acquire, TargetState.Planning, null, null, null, null, null,
-                policy.ResolutionFloor, policy.PreferredResolution, policy.AudioLanguage, policy.MaxBytes,
-                false, 0, null, "dev", IntentOrigin.Owner, null, null, null, null, null, now,
-                0, null, 0, null, null, now, now, 0)).ToImmutableArray();
+            .Select(id => new TargetRow { Id = "dry:" + (id ?? work.Work.Id), WorkId = work.Work.Id, EpisodeId = id, Kind = TargetKind.Acquire, State = TargetState.Planning, ResumeState = null, ReasonCode = null, ReasonText = null, NextTryAt = null, ExpectedAt = null, ResolutionFloor = policy.ResolutionFloor, PreferredResolution = policy.PreferredResolution, AudioLanguage = policy.AudioLanguage, MaxBytes = policy.MaxBytes, OwnerRanked = false, Rank = 0, NowAt = null, CreatedBy = "dev", Origin = IntentOrigin.Owner, AutoRuleId = null, ChosenReleaseHash = null, ReplaceMediaFileId = null, ReplacementMode = null, BatchId = null, ClickedAt = now, SubstantiveMisses = 0, HelpNotifiedAt = null, PolicyRevision = 0, LeaseUntil = null, LeaseToken = null, CreatedAt = now, UpdatedAt = now, Version = 0 }).ToImmutableArray();
         var stopping = new DiscoveryStopping(scopes, check);
         var scopeKey = DiscoveryStopping.ScopeKey(work, scope, policy, lane, exhaust, targets, owned,
             excludedHashes, options, sourceIds);

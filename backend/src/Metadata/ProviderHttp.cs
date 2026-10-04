@@ -179,9 +179,7 @@ internal sealed class ProviderHttp(CatalogStore store) : IDisposable
                     return Failed("provider_failed", "The catalog could not complete this lookup. Try again later.", null);
             }
             gate.Strikes = 0;
-            var row = new MetadataCacheRow(id, kind, provider + ":" + key, payload, now, now + ttl,
-                response.Headers.ETag?.ToString() ?? previous?.Etag,
-                response.Content.Headers.LastModified?.ToString("R") ?? previous?.LastModified, true, provider);
+            var row = new MetadataCacheRow { Id = id, Kind = kind, CacheKey = provider + ":" + key, Payload = payload, FetchedAt = now, ExpiresAt = now + ttl, Etag = response.Headers.ETag?.ToString() ?? previous?.Etag, LastModified = response.Content.Headers.LastModified?.ToString("R") ?? previous?.LastModified, Complete = true, Provider = provider };
             await store.CommitAsync([new(row, null, previous)], null, ct);
             return new(payload, false, true, null);
         }

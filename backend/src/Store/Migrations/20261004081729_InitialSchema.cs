@@ -11,36 +11,17 @@ namespace TorrentFlow.Store.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "AutoApproveRule",
-                columns: table => new
-                {
-                    id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    mode = table.Column<string>(type: "TEXT", nullable: false),
-                    normalizedEmail = table.Column<string>(type: "TEXT", nullable: false),
-                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AutoApproveRule", x => x.id);
-                    table.CheckConstraint("CK_AutoApproveRule_email", "length(normalizedEmail) BETWEEN 1 AND 320");
-                    table.CheckConstraint("CK_AutoApproveRule_mode", "\"mode\" IN ('none','moviesonly','everything')");
-                    table.CheckConstraint("CK_AutoApproveRule_version", "\"version\" >= 0");
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Block",
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     hash = table.Column<string>(type: "TEXT", nullable: false),
-                    origin = table.Column<string>(type: "TEXT", nullable: false),
+                    workKey = table.Column<string>(type: "TEXT", nullable: true),
                     reason = table.Column<string>(type: "TEXT", nullable: false),
+                    origin = table.Column<string>(type: "TEXT", nullable: false),
                     replacedByHash = table.Column<string>(type: "TEXT", nullable: true),
-                    until = table.Column<string>(type: "TEXT", nullable: true),
-                    workKey = table.Column<string>(type: "TEXT", nullable: true)
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    until = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -53,14 +34,14 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    cacheKey = table.Column<string>(type: "TEXT", nullable: false),
-                    complete = table.Column<bool>(type: "INTEGER", nullable: false),
-                    etag = table.Column<string>(type: "TEXT", nullable: true),
-                    expiresAt = table.Column<string>(type: "TEXT", nullable: false),
-                    fetchedAt = table.Column<string>(type: "TEXT", nullable: false),
                     kind = table.Column<string>(type: "TEXT", nullable: false),
-                    lastModified = table.Column<string>(type: "TEXT", nullable: true),
+                    cacheKey = table.Column<string>(type: "TEXT", nullable: false),
                     payloadJson = table.Column<string>(type: "TEXT", nullable: false),
+                    fetchedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    expiresAt = table.Column<string>(type: "TEXT", nullable: false),
+                    etag = table.Column<string>(type: "TEXT", nullable: true),
+                    lastModified = table.Column<string>(type: "TEXT", nullable: true),
+                    complete = table.Column<bool>(type: "INTEGER", nullable: false),
                     provider = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
@@ -76,16 +57,16 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     hash = table.Column<string>(type: "TEXT", nullable: false),
-                    filesJson = table.Column<string>(type: "TEXT", nullable: true),
-                    firstSeenAt = table.Column<string>(type: "TEXT", nullable: false),
-                    lastSeenAt = table.Column<string>(type: "TEXT", nullable: false),
-                    magnet = table.Column<string>(type: "TEXT", nullable: true),
-                    metadataDigest = table.Column<string>(type: "TEXT", nullable: true),
                     name = table.Column<string>(type: "TEXT", nullable: false),
                     parsedJson = table.Column<string>(type: "TEXT", nullable: false),
-                    @private = table.Column<bool>(name: "private", type: "INTEGER", nullable: true),
+                    totalBytes = table.Column<long>(type: "INTEGER", nullable: true),
                     torrentUri = table.Column<string>(type: "TEXT", nullable: true),
-                    totalBytes = table.Column<long>(type: "INTEGER", nullable: true)
+                    magnet = table.Column<string>(type: "TEXT", nullable: true),
+                    filesJson = table.Column<string>(type: "TEXT", nullable: true),
+                    metadataDigest = table.Column<string>(type: "TEXT", nullable: true),
+                    @private = table.Column<bool>(name: "private", type: "INTEGER", nullable: true),
+                    firstSeenAt = table.Column<string>(type: "TEXT", nullable: false),
+                    lastSeenAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -102,16 +83,16 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    complete = table.Column<bool>(type: "INTEGER", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    credentialRevision = table.Column<long>(type: "INTEGER", nullable: false),
-                    expiresAt = table.Column<string>(type: "TEXT", nullable: false),
                     normalizedQuery = table.Column<string>(type: "TEXT", nullable: false),
-                    parserVersion = table.Column<int>(type: "INTEGER", nullable: false),
-                    payloadJson = table.Column<string>(type: "TEXT", nullable: false),
                     scopeKey = table.Column<string>(type: "TEXT", nullable: false),
                     sourceId = table.Column<string>(type: "TEXT", nullable: false),
-                    sourceRevision = table.Column<long>(type: "INTEGER", nullable: false)
+                    sourceRevision = table.Column<long>(type: "INTEGER", nullable: false),
+                    credentialRevision = table.Column<long>(type: "INTEGER", nullable: false),
+                    parserVersion = table.Column<int>(type: "INTEGER", nullable: false),
+                    payloadJson = table.Column<string>(type: "TEXT", nullable: false),
+                    complete = table.Column<bool>(type: "INTEGER", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    expiresAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -128,17 +109,17 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     section = table.Column<string>(type: "TEXT", nullable: false),
-                    revision = table.Column<long>(type: "INTEGER", nullable: false),
                     schemaVersion = table.Column<int>(type: "INTEGER", nullable: false),
-                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    valueJson = table.Column<string>(type: "TEXT", nullable: false)
+                    valueJson = table.Column<string>(type: "TEXT", nullable: false),
+                    revision = table.Column<long>(type: "INTEGER", nullable: false),
+                    updatedAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Setting", x => x.section);
                     table.CheckConstraint("CK_Setting_revision", "\"revision\" >= 0");
                     table.CheckConstraint("CK_Setting_schemaVersion", "\"schemaVersion\" >= 0");
-                    table.CheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','migration') AND schemaVersion=1");
+                    table.CheckConstraint("CK_Setting_section", "section IN ('engine','sources','metadata','remoteAccess','desktop','quality','requests','scheduler','jellyfin','recovery') AND schemaVersion=1");
                     table.CheckConstraint("CK_Setting_valueJson", "json_valid(\"valueJson\")");
                 });
 
@@ -147,22 +128,22 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    enabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    kindsJson = table.Column<string>(type: "TEXT", nullable: false),
-                    lastCheckedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    lastError = table.Column<string>(type: "TEXT", nullable: true),
-                    libraryFoldersJson = table.Column<string>(type: "TEXT", nullable: false),
-                    maxAllocatedBytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    online = table.Column<bool>(type: "INTEGER", nullable: false),
                     path = table.Column<string>(type: "TEXT", nullable: false),
                     physicalKey = table.Column<string>(type: "TEXT", nullable: false),
+                    kindsJson = table.Column<string>(type: "TEXT", nullable: false),
+                    libraryFoldersJson = table.Column<string>(type: "TEXT", nullable: false),
+                    volumeSerial = table.Column<string>(type: "TEXT", nullable: false),
                     priority = table.Column<int>(type: "INTEGER", nullable: false),
                     reserveBytes = table.Column<long>(type: "INTEGER", nullable: false),
+                    maxAllocatedBytes = table.Column<long>(type: "INTEGER", nullable: true),
+                    enabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    online = table.Column<bool>(type: "INTEGER", nullable: false),
                     reviewRequired = table.Column<bool>(type: "INTEGER", nullable: false),
+                    lastCheckedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    lastError = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    volumeSerial = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -182,11 +163,11 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    image = table.Column<string>(type: "TEXT", nullable: true),
-                    name = table.Column<string>(type: "TEXT", nullable: true),
                     normalizedEmail = table.Column<string>(type: "TEXT", nullable: true),
+                    name = table.Column<string>(type: "TEXT", nullable: true),
+                    image = table.Column<string>(type: "TEXT", nullable: true),
                     role = table.Column<string>(type: "TEXT", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -200,29 +181,29 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    anime = table.Column<bool>(type: "INTEGER", nullable: true),
-                    backdropUrl = table.Column<string>(type: "TEXT", nullable: true),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    digitalAt = table.Column<string>(type: "TEXT", nullable: true),
-                    format = table.Column<string>(type: "TEXT", nullable: false),
-                    genresJson = table.Column<string>(type: "TEXT", nullable: false),
+                    workKey = table.Column<string>(type: "TEXT", nullable: false),
                     kind = table.Column<string>(type: "TEXT", nullable: false),
-                    numberingVersion = table.Column<string>(type: "TEXT", nullable: true),
+                    format = table.Column<string>(type: "TEXT", nullable: false),
+                    anime = table.Column<bool>(type: "INTEGER", nullable: true),
+                    year = table.Column<int>(type: "INTEGER", nullable: true),
                     originalLanguage = table.Column<string>(type: "TEXT", nullable: true),
-                    physicalAt = table.Column<string>(type: "TEXT", nullable: true),
+                    runtimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
                     posterUrl = table.Column<string>(type: "TEXT", nullable: true),
-                    providerStatus = table.Column<string>(type: "TEXT", nullable: true),
+                    backdropUrl = table.Column<string>(type: "TEXT", nullable: true),
+                    synopsis = table.Column<string>(type: "TEXT", nullable: true),
                     rating = table.Column<double>(type: "REAL", nullable: true),
                     ratingSource = table.Column<string>(type: "TEXT", nullable: true),
-                    refreshedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    releasePrecision = table.Column<string>(type: "TEXT", nullable: false),
-                    runtimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
-                    synopsis = table.Column<string>(type: "TEXT", nullable: true),
+                    genresJson = table.Column<string>(type: "TEXT", nullable: false),
                     theatricalAt = table.Column<string>(type: "TEXT", nullable: true),
+                    digitalAt = table.Column<string>(type: "TEXT", nullable: true),
+                    physicalAt = table.Column<string>(type: "TEXT", nullable: true),
+                    releasePrecision = table.Column<string>(type: "TEXT", nullable: false),
+                    providerStatus = table.Column<string>(type: "TEXT", nullable: true),
+                    numberingVersion = table.Column<string>(type: "TEXT", nullable: true),
+                    refreshedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workKey = table.Column<string>(type: "TEXT", nullable: false),
-                    year = table.Column<int>(type: "INTEGER", nullable: true)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -244,14 +225,14 @@ namespace TorrentFlow.Store.Migrations
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     hash = table.Column<string>(type: "TEXT", nullable: false),
-                    listedLeechers = table.Column<int>(type: "INTEGER", nullable: true),
-                    listedSeeders = table.Column<int>(type: "INTEGER", nullable: true),
-                    observedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    query = table.Column<string>(type: "TEXT", nullable: false),
                     sourceId = table.Column<string>(type: "TEXT", nullable: false),
                     sourceItemId = table.Column<string>(type: "TEXT", nullable: true),
-                    torrentUri = table.Column<string>(type: "TEXT", nullable: true),
+                    query = table.Column<string>(type: "TEXT", nullable: false),
+                    listedSeeders = table.Column<int>(type: "INTEGER", nullable: true),
+                    listedLeechers = table.Column<int>(type: "INTEGER", nullable: true),
                     uploadedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    observedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    torrentUri = table.Column<string>(type: "TEXT", nullable: true),
                     webSeedsJson = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -274,23 +255,27 @@ namespace TorrentFlow.Store.Migrations
                 {
                     hash = table.Column<string>(type: "TEXT", nullable: false),
                     band = table.Column<string>(type: "TEXT", nullable: false),
-                    bytesDelivered = table.Column<long>(type: "INTEGER", nullable: false),
-                    checkedAt = table.Column<string>(type: "TEXT", nullable: false),
                     connectedPeers = table.Column<int>(type: "INTEGER", nullable: false),
                     connectedSeeders = table.Column<int>(type: "INTEGER", nullable: false),
+                    bytesDelivered = table.Column<long>(type: "INTEGER", nullable: false),
+                    sampleMilliseconds = table.Column<int>(type: "INTEGER", nullable: false),
+                    scrapedSeeders = table.Column<int>(type: "INTEGER", nullable: true),
+                    reason = table.Column<string>(type: "TEXT", nullable: false),
+                    checkedAt = table.Column<string>(type: "TEXT", nullable: false),
                     expiresAt = table.Column<string>(type: "TEXT", nullable: false),
                     probeVersion = table.Column<int>(type: "INTEGER", nullable: false),
-                    reason = table.Column<string>(type: "TEXT", nullable: false),
-                    sampleMilliseconds = table.Column<int>(type: "INTEGER", nullable: false),
-                    scrapedSeeders = table.Column<int>(type: "INTEGER", nullable: true)
+                    byteSendingPeers = table.Column<int>(type: "INTEGER", nullable: false),
+                    probeMetricsJson = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Verdict", x => x.hash);
                     table.CheckConstraint("CK_Verdict_band", "\"band\" IN ('good','weak','dead','unknown')");
                     table.CheckConstraint("CK_Verdict_bytesDelivered", "\"bytesDelivered\" >= 0");
+                    table.CheckConstraint("CK_Verdict_byteSendingPeers", "\"byteSendingPeers\" >= 0");
                     table.CheckConstraint("CK_Verdict_connectedPeers", "\"connectedPeers\" >= 0");
                     table.CheckConstraint("CK_Verdict_connectedSeeders", "\"connectedSeeders\" >= 0");
+                    table.CheckConstraint("CK_Verdict_probeMetricsJson", "json_valid(\"probeMetricsJson\")");
                     table.CheckConstraint("CK_Verdict_probeVersion", "\"probeVersion\" >= 0");
                     table.CheckConstraint("CK_Verdict_sampleMilliseconds", "\"sampleMilliseconds\" >= 0");
                     table.CheckConstraint("CK_Verdict_scrapedSeeders", "\"scrapedSeeders\" >= 0");
@@ -307,20 +292,20 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    category = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    enabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    lastMatchHash = table.Column<string>(type: "TEXT", nullable: true),
-                    lastRunAt = table.Column<string>(type: "TEXT", nullable: true),
-                    matchCount = table.Column<int>(type: "INTEGER", nullable: false),
-                    maxBytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    minListedSeeders = table.Column<int>(type: "INTEGER", nullable: false),
+                    userId = table.Column<string>(type: "TEXT", nullable: false),
                     name = table.Column<string>(type: "TEXT", nullable: false),
                     query = table.Column<string>(type: "TEXT", nullable: false),
+                    category = table.Column<string>(type: "TEXT", nullable: false),
+                    minListedSeeders = table.Column<int>(type: "INTEGER", nullable: false),
+                    maxBytes = table.Column<long>(type: "INTEGER", nullable: true),
                     resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
                     sourceIdsJson = table.Column<string>(type: "TEXT", nullable: false),
+                    enabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    lastRunAt = table.Column<string>(type: "TEXT", nullable: true),
+                    lastMatchHash = table.Column<string>(type: "TEXT", nullable: true),
+                    matchCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    userId = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
@@ -352,17 +337,17 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    body = table.Column<string>(type: "TEXT", nullable: true),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    dedupeKey = table.Column<string>(type: "TEXT", nullable: true),
+                    userId = table.Column<string>(type: "TEXT", nullable: false),
                     kind = table.Column<string>(type: "TEXT", nullable: false),
-                    link = table.Column<string>(type: "TEXT", nullable: true),
-                    pushAttemptAt = table.Column<string>(type: "TEXT", nullable: true),
-                    pushAttempts = table.Column<int>(type: "INTEGER", nullable: false),
-                    pushPending = table.Column<bool>(type: "INTEGER", nullable: false),
-                    readAt = table.Column<string>(type: "TEXT", nullable: true),
                     title = table.Column<string>(type: "TEXT", nullable: false),
-                    userId = table.Column<string>(type: "TEXT", nullable: false)
+                    body = table.Column<string>(type: "TEXT", nullable: true),
+                    link = table.Column<string>(type: "TEXT", nullable: true),
+                    dedupeKey = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    readAt = table.Column<string>(type: "TEXT", nullable: true),
+                    pushPending = table.Column<bool>(type: "INTEGER", nullable: false),
+                    pushAttemptAt = table.Column<string>(type: "TEXT", nullable: true),
+                    pushAttempts = table.Column<int>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -379,44 +364,22 @@ namespace TorrentFlow.Store.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "PushSubscription",
-                columns: table => new
-                {
-                    id = table.Column<string>(type: "TEXT", nullable: false),
-                    auth = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    endpoint = table.Column<string>(type: "TEXT", nullable: false),
-                    p256dh = table.Column<string>(type: "TEXT", nullable: false),
-                    userId = table.Column<string>(type: "TEXT", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PushSubscription", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_PushSubscription_User_userId",
-                        column: x => x.userId,
-                        principalTable: "User",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Request",
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    decidedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    decidedBy = table.Column<string>(type: "TEXT", nullable: true),
-                    decision = table.Column<string>(type: "TEXT", nullable: false),
-                    decisionReason = table.Column<string>(type: "TEXT", nullable: true),
-                    note = table.Column<string>(type: "TEXT", nullable: true),
+                    userId = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     scope = table.Column<string>(type: "TEXT", nullable: false),
                     scopeJson = table.Column<string>(type: "TEXT", nullable: false),
+                    note = table.Column<string>(type: "TEXT", nullable: true),
+                    decision = table.Column<string>(type: "TEXT", nullable: false),
+                    decisionReason = table.Column<string>(type: "TEXT", nullable: true),
+                    decidedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    decidedBy = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    userId = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -451,17 +414,17 @@ namespace TorrentFlow.Store.Migrations
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     actorUserId = table.Column<string>(type: "TEXT", nullable: false),
-                    batchId = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
-                    now = table.Column<bool>(type: "INTEGER", nullable: false),
-                    policyJson = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     scope = table.Column<string>(type: "TEXT", nullable: false),
                     scopeJson = table.Column<string>(type: "TEXT", nullable: false),
+                    policyJson = table.Column<string>(type: "TEXT", nullable: false),
+                    now = table.Column<bool>(type: "INTEGER", nullable: false),
+                    batchId = table.Column<string>(type: "TEXT", nullable: false),
                     state = table.Column<string>(type: "TEXT", nullable: false),
+                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -491,18 +454,18 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    expectedEpisodeCount = table.Column<int>(type: "INTEGER", nullable: true),
-                    mappingStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     number = table.Column<int>(type: "INTEGER", nullable: false),
+                    title = table.Column<string>(type: "TEXT", nullable: true),
                     overview = table.Column<string>(type: "TEXT", nullable: true),
                     posterUrl = table.Column<string>(type: "TEXT", nullable: true),
+                    mappingStatus = table.Column<string>(type: "TEXT", nullable: false),
                     providerEntryId = table.Column<string>(type: "TEXT", nullable: true),
+                    expectedEpisodeCount = table.Column<int>(type: "INTEGER", nullable: true),
                     refreshedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    title = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -524,13 +487,13 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    status = table.Column<string>(type: "TEXT", nullable: false),
-                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    upgradeWatch = table.Column<bool>(type: "INTEGER", nullable: false),
                     userId = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
+                    status = table.Column<string>(type: "TEXT", nullable: false),
+                    upgradeWatch = table.Column<bool>(type: "INTEGER", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -557,13 +520,13 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    externalItemFolder = table.Column<string>(type: "TEXT", nullable: true),
-                    relativeItemFolder = table.Column<string>(type: "TEXT", nullable: true),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     rootId = table.Column<string>(type: "TEXT", nullable: true),
+                    relativeItemFolder = table.Column<string>(type: "TEXT", nullable: true),
+                    externalItemFolder = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -589,14 +552,14 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
+                    resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
+                    preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
                     audioLanguage = table.Column<string>(type: "TEXT", nullable: true),
                     maxBytesPerItem = table.Column<long>(type: "INTEGER", nullable: true),
-                    preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
-                    resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
                     storageRootOverrideId = table.Column<string>(type: "TEXT", nullable: true),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -624,19 +587,19 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    absoluteNumber = table.Column<int>(type: "INTEGER", nullable: true),
-                    airAt = table.Column<string>(type: "TEXT", nullable: true),
-                    airPrecision = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    mappingStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    seasonId = table.Column<string>(type: "TEXT", nullable: false),
                     number = table.Column<int>(type: "INTEGER", nullable: false),
+                    absoluteNumber = table.Column<int>(type: "INTEGER", nullable: true),
                     provider = table.Column<string>(type: "TEXT", nullable: true),
                     providerEpisodeId = table.Column<string>(type: "TEXT", nullable: true),
-                    runtimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
-                    seasonId = table.Column<string>(type: "TEXT", nullable: false),
-                    stillUrl = table.Column<string>(type: "TEXT", nullable: true),
-                    synopsis = table.Column<string>(type: "TEXT", nullable: true),
                     title = table.Column<string>(type: "TEXT", nullable: true),
+                    synopsis = table.Column<string>(type: "TEXT", nullable: true),
+                    stillUrl = table.Column<string>(type: "TEXT", nullable: true),
+                    airAt = table.Column<string>(type: "TEXT", nullable: true),
+                    airPrecision = table.Column<string>(type: "TEXT", nullable: false),
+                    runtimeMinutes = table.Column<int>(type: "INTEGER", nullable: true),
+                    mappingStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
@@ -662,18 +625,18 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    confidence = table.Column<double>(type: "REAL", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    externalId = table.Column<string>(type: "TEXT", nullable: false),
-                    isPrimary = table.Column<bool>(type: "INTEGER", nullable: false),
-                    mappingVersion = table.Column<string>(type: "TEXT", nullable: true),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     provider = table.Column<string>(type: "TEXT", nullable: false),
+                    externalId = table.Column<string>(type: "TEXT", nullable: false),
                     providerKind = table.Column<string>(type: "TEXT", nullable: true),
                     seasonId = table.Column<string>(type: "TEXT", nullable: true),
                     source = table.Column<string>(type: "TEXT", nullable: false),
+                    mappingVersion = table.Column<string>(type: "TEXT", nullable: true),
+                    confidence = table.Column<double>(type: "REAL", nullable: false),
                     status = table.Column<string>(type: "TEXT", nullable: false),
-                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    isPrimary = table.Column<bool>(type: "INTEGER", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    updatedAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -700,14 +663,14 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     enabled = table.Column<bool>(type: "INTEGER", nullable: false),
                     fromEpisodeId = table.Column<string>(type: "TEXT", nullable: true),
-                    lastMaterializedAt = table.Column<string>(type: "TEXT", nullable: true),
                     newEpisodesSince = table.Column<string>(type: "TEXT", nullable: false),
+                    lastMaterializedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -729,54 +692,18 @@ namespace TorrentFlow.Store.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "UpgradeEvidence",
-                columns: table => new
-                {
-                    id = table.Column<string>(type: "TEXT", nullable: false),
-                    candidateHash = table.Column<string>(type: "TEXT", nullable: true),
-                    checkedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    episodeId = table.Column<string>(type: "TEXT", nullable: true),
-                    expiresAt = table.Column<string>(type: "TEXT", nullable: false),
-                    resolution = table.Column<int>(type: "INTEGER", nullable: true),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UpgradeEvidence", x => x.id);
-                    table.CheckConstraint("CK_UpgradeEvidence_resolution", "\"resolution\" >= 0");
-                    table.ForeignKey(
-                        name: "FK_UpgradeEvidence_Episode_episodeId",
-                        column: x => x.episodeId,
-                        principalTable: "Episode",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_UpgradeEvidence_Release_candidateHash",
-                        column: x => x.candidateHash,
-                        principalTable: "Release",
-                        principalColumn: "hash",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_UpgradeEvidence_Work_workId",
-                        column: x => x.workId,
-                        principalTable: "Work",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "WorkName",
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    authoritative = table.Column<bool>(type: "INTEGER", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
+                    value = table.Column<string>(type: "TEXT", nullable: false),
+                    normalizedValue = table.Column<string>(type: "TEXT", nullable: false),
                     label = table.Column<string>(type: "TEXT", nullable: false),
                     linkId = table.Column<string>(type: "TEXT", nullable: true),
-                    normalizedValue = table.Column<string>(type: "TEXT", nullable: false),
                     ordinal = table.Column<int>(type: "INTEGER", nullable: false),
-                    refreshedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    value = table.Column<string>(type: "TEXT", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    authoritative = table.Column<bool>(type: "INTEGER", nullable: false),
+                    refreshedAt = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -804,22 +731,22 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
+                    targetId = table.Column<string>(type: "TEXT", nullable: true),
+                    workId = table.Column<string>(type: "TEXT", nullable: true),
+                    releaseHash = table.Column<string>(type: "TEXT", nullable: true),
                     actorUserId = table.Column<string>(type: "TEXT", nullable: true),
-                    batchId = table.Column<string>(type: "TEXT", nullable: true),
-                    deadlineAt = table.Column<string>(type: "TEXT", nullable: true),
-                    decisionJson = table.Column<string>(type: "TEXT", nullable: true),
-                    downloadId = table.Column<string>(type: "TEXT", nullable: true),
-                    endedAt = table.Column<string>(type: "TEXT", nullable: true),
                     kind = table.Column<string>(type: "TEXT", nullable: false),
-                    legacyContextJson = table.Column<string>(type: "TEXT", nullable: true),
+                    startedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    endedAt = table.Column<string>(type: "TEXT", nullable: true),
                     outcome = table.Column<string>(type: "TEXT", nullable: true),
                     reasonCode = table.Column<string>(type: "TEXT", nullable: true),
                     reasonText = table.Column<string>(type: "TEXT", nullable: true),
-                    releaseHash = table.Column<string>(type: "TEXT", nullable: true),
-                    startedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    swapJson = table.Column<string>(type: "TEXT", nullable: true),
-                    targetId = table.Column<string>(type: "TEXT", nullable: true),
-                    workId = table.Column<string>(type: "TEXT", nullable: true)
+                    decisionJson = table.Column<string>(type: "TEXT", nullable: true),
+                    legacyContextJson = table.Column<string>(type: "TEXT", nullable: true),
+                    batchId = table.Column<string>(type: "TEXT", nullable: true),
+                    downloadId = table.Column<string>(type: "TEXT", nullable: true),
+                    deadlineAt = table.Column<string>(type: "TEXT", nullable: true),
+                    swapJson = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -853,14 +780,14 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    addedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    admissionToken = table.Column<string>(type: "TEXT", nullable: false),
-                    finishedAt = table.Column<string>(type: "TEXT", nullable: true),
                     hash = table.Column<string>(type: "TEXT", nullable: false),
                     intent = table.Column<string>(type: "TEXT", nullable: false),
-                    rawIntentId = table.Column<string>(type: "TEXT", nullable: true),
-                    resumeArtifact = table.Column<string>(type: "TEXT", nullable: true),
                     rootId = table.Column<string>(type: "TEXT", nullable: true),
+                    addedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    finishedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    admissionToken = table.Column<string>(type: "TEXT", nullable: false),
+                    resumeArtifact = table.Column<string>(type: "TEXT", nullable: true),
+                    rawIntentId = table.Column<string>(type: "TEXT", nullable: true),
                     version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
@@ -887,37 +814,37 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    addedAt = table.Column<string>(type: "TEXT", nullable: false),
-                    bitrateBps = table.Column<long>(type: "INTEGER", nullable: true),
-                    bytes = table.Column<long>(type: "INTEGER", nullable: false),
-                    container = table.Column<string>(type: "TEXT", nullable: true),
-                    contentDigest = table.Column<string>(type: "TEXT", nullable: true),
-                    downloadId = table.Column<string>(type: "TEXT", nullable: true),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     episodeId = table.Column<string>(type: "TEXT", nullable: true),
-                    fileIndex = table.Column<int>(type: "INTEGER", nullable: true),
-                    hdr = table.Column<string>(type: "TEXT", nullable: true),
-                    height = table.Column<int>(type: "INTEGER", nullable: true),
-                    lastSeenAt = table.Column<string>(type: "TEXT", nullable: true),
-                    missingConfirmedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    missingSince = table.Column<string>(type: "TEXT", nullable: true),
-                    mtimeUtc = table.Column<string>(type: "TEXT", nullable: false),
-                    origin = table.Column<string>(type: "TEXT", nullable: false),
-                    parentMediaFileId = table.Column<string>(type: "TEXT", nullable: true),
+                    rootId = table.Column<string>(type: "TEXT", nullable: true),
                     path = table.Column<string>(type: "TEXT", nullable: false),
                     physicalKey = table.Column<string>(type: "TEXT", nullable: false),
-                    resolution = table.Column<int>(type: "INTEGER", nullable: true),
                     role = table.Column<string>(type: "TEXT", nullable: false),
-                    rootId = table.Column<string>(type: "TEXT", nullable: true),
-                    runtimeSeconds = table.Column<double>(type: "REAL", nullable: true),
+                    parentMediaFileId = table.Column<string>(type: "TEXT", nullable: true),
+                    bytes = table.Column<long>(type: "INTEGER", nullable: false),
+                    mtimeUtc = table.Column<string>(type: "TEXT", nullable: false),
+                    resolution = table.Column<int>(type: "INTEGER", nullable: true),
                     source = table.Column<string>(type: "TEXT", nullable: true),
-                    status = table.Column<string>(type: "TEXT", nullable: false),
-                    tracksJson = table.Column<string>(type: "TEXT", nullable: false),
-                    verifiedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    version = table.Column<long>(type: "INTEGER", nullable: false),
+                    container = table.Column<string>(type: "TEXT", nullable: true),
                     videoCodec = table.Column<string>(type: "TEXT", nullable: true),
                     videoProfile = table.Column<string>(type: "TEXT", nullable: true),
                     width = table.Column<int>(type: "INTEGER", nullable: true),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    height = table.Column<int>(type: "INTEGER", nullable: true),
+                    hdr = table.Column<string>(type: "TEXT", nullable: true),
+                    runtimeSeconds = table.Column<double>(type: "REAL", nullable: true),
+                    bitrateBps = table.Column<long>(type: "INTEGER", nullable: true),
+                    tracksJson = table.Column<string>(type: "TEXT", nullable: false),
+                    origin = table.Column<string>(type: "TEXT", nullable: false),
+                    downloadId = table.Column<string>(type: "TEXT", nullable: true),
+                    fileIndex = table.Column<int>(type: "INTEGER", nullable: true),
+                    addedAt = table.Column<string>(type: "TEXT", nullable: false),
+                    lastSeenAt = table.Column<string>(type: "TEXT", nullable: true),
+                    missingSince = table.Column<string>(type: "TEXT", nullable: true),
+                    status = table.Column<string>(type: "TEXT", nullable: false),
+                    missingConfirmedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    verifiedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    contentDigest = table.Column<string>(type: "TEXT", nullable: true),
+                    version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -972,24 +899,24 @@ namespace TorrentFlow.Store.Migrations
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     actorUserId = table.Column<string>(type: "TEXT", nullable: false),
-                    batchId = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    releaseHash = table.Column<string>(type: "TEXT", nullable: false),
                     downloadId = table.Column<string>(type: "TEXT", nullable: true),
+                    selectedFilesJson = table.Column<string>(type: "TEXT", nullable: false),
+                    rootId = table.Column<string>(type: "TEXT", nullable: true),
                     explicitDirectory = table.Column<string>(type: "TEXT", nullable: true),
                     explicitKind = table.Column<string>(type: "TEXT", nullable: true),
-                    leaseToken = table.Column<string>(type: "TEXT", nullable: true),
-                    leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
+                    state = table.Column<string>(type: "TEXT", nullable: false),
+                    resumeState = table.Column<string>(type: "TEXT", nullable: true),
+                    reasonCode = table.Column<string>(type: "TEXT", nullable: true),
+                    reasonText = table.Column<string>(type: "TEXT", nullable: true),
                     nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
                     nowAt = table.Column<string>(type: "TEXT", nullable: true),
                     ownerRanked = table.Column<bool>(type: "INTEGER", nullable: false),
                     rank = table.Column<long>(type: "INTEGER", nullable: false),
-                    reasonCode = table.Column<string>(type: "TEXT", nullable: true),
-                    reasonText = table.Column<string>(type: "TEXT", nullable: true),
-                    releaseHash = table.Column<string>(type: "TEXT", nullable: false),
-                    resumeState = table.Column<string>(type: "TEXT", nullable: true),
-                    rootId = table.Column<string>(type: "TEXT", nullable: true),
-                    selectedFilesJson = table.Column<string>(type: "TEXT", nullable: false),
-                    state = table.Column<string>(type: "TEXT", nullable: false),
+                    leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
+                    leaseToken = table.Column<string>(type: "TEXT", nullable: true),
+                    batchId = table.Column<string>(type: "TEXT", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false)
                 },
@@ -1034,48 +961,53 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    audioLanguage = table.Column<string>(type: "TEXT", nullable: true),
-                    autoRuleId = table.Column<string>(type: "TEXT", nullable: true),
-                    batchId = table.Column<string>(type: "TEXT", nullable: true),
-                    chosenReleaseHash = table.Column<string>(type: "TEXT", nullable: true),
-                    clickedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    createdBy = table.Column<string>(type: "TEXT", nullable: false),
+                    workId = table.Column<string>(type: "TEXT", nullable: false),
                     episodeId = table.Column<string>(type: "TEXT", nullable: true),
-                    expectedAt = table.Column<string>(type: "TEXT", nullable: true),
-                    helpNotifiedAt = table.Column<string>(type: "TEXT", nullable: true),
                     kind = table.Column<string>(type: "TEXT", nullable: false),
-                    leaseToken = table.Column<string>(type: "TEXT", nullable: true),
-                    leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
-                    maxBytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
-                    nowAt = table.Column<string>(type: "TEXT", nullable: true),
-                    origin = table.Column<string>(type: "TEXT", nullable: false),
-                    ownerRanked = table.Column<bool>(type: "INTEGER", nullable: false),
-                    policyRevision = table.Column<long>(type: "INTEGER", nullable: false),
-                    preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
-                    rank = table.Column<long>(type: "INTEGER", nullable: false),
+                    state = table.Column<string>(type: "TEXT", nullable: false),
+                    resumeState = table.Column<string>(type: "TEXT", nullable: true),
                     reasonCode = table.Column<string>(type: "TEXT", nullable: true),
                     reasonText = table.Column<string>(type: "TEXT", nullable: true),
+                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
+                    expectedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
+                    preferredResolution = table.Column<int>(type: "INTEGER", nullable: true),
+                    audioLanguage = table.Column<string>(type: "TEXT", nullable: true),
+                    maxBytes = table.Column<long>(type: "INTEGER", nullable: true),
+                    ownerRanked = table.Column<bool>(type: "INTEGER", nullable: false),
+                    rank = table.Column<long>(type: "INTEGER", nullable: false),
+                    nowAt = table.Column<string>(type: "TEXT", nullable: true),
+                    createdBy = table.Column<string>(type: "TEXT", nullable: false),
+                    origin = table.Column<string>(type: "TEXT", nullable: false),
+                    autoRuleId = table.Column<string>(type: "TEXT", nullable: true),
+                    chosenReleaseHash = table.Column<string>(type: "TEXT", nullable: true),
                     replaceMediaFileId = table.Column<string>(type: "TEXT", nullable: true),
                     replacementMode = table.Column<string>(type: "TEXT", nullable: true),
-                    resolutionFloor = table.Column<int>(type: "INTEGER", nullable: true),
-                    resumeState = table.Column<string>(type: "TEXT", nullable: true),
-                    state = table.Column<string>(type: "TEXT", nullable: false),
+                    batchId = table.Column<string>(type: "TEXT", nullable: true),
+                    clickedAt = table.Column<string>(type: "TEXT", nullable: true),
                     substantiveMisses = table.Column<int>(type: "INTEGER", nullable: false),
+                    helpNotifiedAt = table.Column<string>(type: "TEXT", nullable: true),
+                    policyRevision = table.Column<long>(type: "INTEGER", nullable: false),
+                    leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
+                    leaseToken = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false),
-                    workId = table.Column<string>(type: "TEXT", nullable: false)
+                    priority = table.Column<string>(type: "TEXT", nullable: false),
+                    minListedSeeders = table.Column<int>(type: "INTEGER", nullable: true),
+                    pickedReleaseHash = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Target", x => x.id);
                     table.CheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
                     table.CheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
-                    table.CheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade')");
+                    table.CheckConstraint("CK_Target_minListedSeeders", "\"minListedSeeders\" >= 0");
+                    table.CheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade','hunter')");
                     table.CheckConstraint("CK_Target_ownerRanked", "\"ownerRanked\" IN (0,1)");
                     table.CheckConstraint("CK_Target_policyRevision", "\"policyRevision\" >= 0");
                     table.CheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
+                    table.CheckConstraint("CK_Target_priority", "\"priority\" IN ('now','ownerrank','freshrelease','request','backcatalogue','upgradewatch')");
                     table.CheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
                     table.CheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
                     table.CheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
@@ -1127,17 +1059,17 @@ namespace TorrentFlow.Store.Migrations
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     downloadId = table.Column<string>(type: "TEXT", nullable: false),
-                    enginePath = table.Column<string>(type: "TEXT", nullable: true),
-                    expectedBytes = table.Column<long>(type: "INTEGER", nullable: false),
                     fileIndex = table.Column<int>(type: "INTEGER", nullable: false),
-                    filed = table.Column<bool>(type: "INTEGER", nullable: false),
-                    finalPath = table.Column<string>(type: "TEXT", nullable: true),
-                    mediaFileId = table.Column<string>(type: "TEXT", nullable: true),
-                    partialPath = table.Column<string>(type: "TEXT", nullable: true),
-                    physicalKey = table.Column<string>(type: "TEXT", nullable: true),
-                    role = table.Column<string>(type: "TEXT", nullable: false),
                     selected = table.Column<bool>(type: "INTEGER", nullable: false),
-                    targetId = table.Column<string>(type: "TEXT", nullable: true)
+                    targetId = table.Column<string>(type: "TEXT", nullable: true),
+                    partialPath = table.Column<string>(type: "TEXT", nullable: true),
+                    finalPath = table.Column<string>(type: "TEXT", nullable: true),
+                    physicalKey = table.Column<string>(type: "TEXT", nullable: true),
+                    mediaFileId = table.Column<string>(type: "TEXT", nullable: true),
+                    role = table.Column<string>(type: "TEXT", nullable: false),
+                    expectedBytes = table.Column<long>(type: "INTEGER", nullable: false),
+                    enginePath = table.Column<string>(type: "TEXT", nullable: true),
+                    filed = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -1172,10 +1104,10 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     downloadId = table.Column<string>(type: "TEXT", nullable: false),
+                    targetId = table.Column<string>(type: "TEXT", nullable: false),
                     role = table.Column<string>(type: "TEXT", nullable: false),
-                    targetId = table.Column<string>(type: "TEXT", nullable: false)
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -1200,25 +1132,25 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    attempts = table.Column<int>(type: "INTEGER", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    deleteSource = table.Column<bool>(type: "INTEGER", nullable: false),
-                    destinationPath = table.Column<string>(type: "TEXT", nullable: true),
+                    kind = table.Column<string>(type: "TEXT", nullable: false),
+                    targetId = table.Column<string>(type: "TEXT", nullable: true),
                     downloadId = table.Column<string>(type: "TEXT", nullable: true),
-                    enginePermitToken = table.Column<string>(type: "TEXT", nullable: true),
+                    mediaFileId = table.Column<string>(type: "TEXT", nullable: true),
+                    sourcePath = table.Column<string>(type: "TEXT", nullable: true),
+                    destinationPath = table.Column<string>(type: "TEXT", nullable: true),
                     expectedBytes = table.Column<long>(type: "INTEGER", nullable: true),
                     expectedDigest = table.Column<string>(type: "TEXT", nullable: true),
-                    kind = table.Column<string>(type: "TEXT", nullable: false),
+                    state = table.Column<string>(type: "TEXT", nullable: false),
+                    deleteSource = table.Column<bool>(type: "INTEGER", nullable: false),
+                    attempts = table.Column<int>(type: "INTEGER", nullable: false),
+                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
                     lastError = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
+                    updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     leaseToken = table.Column<string>(type: "TEXT", nullable: true),
                     leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
-                    mediaFileId = table.Column<string>(type: "TEXT", nullable: true),
-                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
                     resumeStage = table.Column<string>(type: "TEXT", nullable: true),
-                    sourcePath = table.Column<string>(type: "TEXT", nullable: true),
-                    state = table.Column<string>(type: "TEXT", nullable: false),
-                    targetId = table.Column<string>(type: "TEXT", nullable: true),
-                    updatedAt = table.Column<string>(type: "TEXT", nullable: false)
+                    enginePermitToken = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -1254,12 +1186,12 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
-                    episodeId = table.Column<string>(type: "TEXT", nullable: true),
                     requestId = table.Column<string>(type: "TEXT", nullable: false),
-                    settledAt = table.Column<string>(type: "TEXT", nullable: true),
-                    settlement = table.Column<string>(type: "TEXT", nullable: false),
+                    episodeId = table.Column<string>(type: "TEXT", nullable: true),
                     targetId = table.Column<string>(type: "TEXT", nullable: true),
+                    settlement = table.Column<string>(type: "TEXT", nullable: false),
+                    settledAt = table.Column<string>(type: "TEXT", nullable: true),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -1291,9 +1223,9 @@ namespace TorrentFlow.Store.Migrations
                 columns: table => new
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
-                    createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     operationId = table.Column<string>(type: "TEXT", nullable: false),
-                    physicalKey = table.Column<string>(type: "TEXT", nullable: false)
+                    physicalKey = table.Column<string>(type: "TEXT", nullable: false),
+                    createdAt = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -1337,12 +1269,6 @@ namespace TorrentFlow.Store.Migrations
                 name: "IX_Attempt_workId_startedAt_all",
                 table: "Attempt",
                 columns: new[] { "workId", "startedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AutoApproveRule_normalizedEmail_all",
-                table: "AutoApproveRule",
-                column: "normalizedEmail",
-                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_AutoRule_lastMatchHash",
@@ -1457,10 +1383,11 @@ namespace TorrentFlow.Store.Migrations
                 columns: new[] { "seasonId", "absoluteNumber" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Episode_seasonId_number_all",
+                name: "IX_Episode_seasonId_number_mappingStatusunavailable",
                 table: "Episode",
                 columns: new[] { "seasonId", "number" },
-                unique: true);
+                unique: true,
+                filter: "mappingStatus <> 'unavailable'");
 
             migrationBuilder.CreateIndex(
                 name: "IX_FileOperation_downloadId_all",
@@ -1574,17 +1501,6 @@ namespace TorrentFlow.Store.Migrations
                 columns: new[] { "userId", "dedupeKey" },
                 unique: true,
                 filter: "dedupeKey IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_PushSubscription_endpoint_all",
-                table: "PushSubscription",
-                column: "endpoint",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_PushSubscription_userId_all",
-                table: "PushSubscription",
-                column: "userId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RawIntent_actorUserId",
@@ -1762,26 +1678,6 @@ namespace TorrentFlow.Store.Migrations
                 filter: "episodeId IS NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_UpgradeEvidence_candidateHash",
-                table: "UpgradeEvidence",
-                column: "candidateHash");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UpgradeEvidence_episodeId",
-                table: "UpgradeEvidence",
-                column: "episodeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UpgradeEvidence_expiresAt_all",
-                table: "UpgradeEvidence",
-                column: "expiresAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UpgradeEvidence_workId",
-                table: "UpgradeEvidence",
-                column: "workId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_User_normalizedEmail_normalizedEmailISNOTNULL",
                 table: "User",
                 column: "normalizedEmail",
@@ -1923,13 +1819,12 @@ namespace TorrentFlow.Store.Migrations
                 principalTable: "RawIntent",
                 principalColumn: "id",
                 onDelete: ReferentialAction.Restrict);
-            // EF has no expression-index API. Freeze the NULL-aware identities in this migration.
+
             migrationBuilder.Sql("""
                 CREATE UNIQUE INDEX UX_WorkName_Identity ON WorkName(workId,normalizedValue,label,coalesce(linkId,''));
                 CREATE UNIQUE INDEX UX_WorkLink_Identity ON WorkLink(workId,provider,externalId,coalesce(providerKind,''));
                 CREATE UNIQUE INDEX UX_WorkLink_VerifiedIdentity ON WorkLink(provider,externalId,coalesce(providerKind,'')) WHERE status='verified';
                 CREATE UNIQUE INDEX UX_RequestItem_Identity ON RequestItem(requestId,coalesce(episodeId,''));
-                CREATE UNIQUE INDEX UX_UpgradeEvidence_Identity ON UpgradeEvidence(workId,coalesce(episodeId,''));
                 CREATE UNIQUE INDEX UX_Block_Identity ON Block(hash,coalesce(workKey,''));
                 """);
         }
@@ -1943,9 +1838,6 @@ namespace TorrentFlow.Store.Migrations
 
             migrationBuilder.DropTable(
                 name: "Attempt");
-
-            migrationBuilder.DropTable(
-                name: "AutoApproveRule");
 
             migrationBuilder.DropTable(
                 name: "Block");
@@ -1969,9 +1861,6 @@ namespace TorrentFlow.Store.Migrations
                 name: "Notification");
 
             migrationBuilder.DropTable(
-                name: "PushSubscription");
-
-            migrationBuilder.DropTable(
                 name: "ReleaseObservation");
 
             migrationBuilder.DropTable(
@@ -1985,9 +1874,6 @@ namespace TorrentFlow.Store.Migrations
 
             migrationBuilder.DropTable(
                 name: "Setting");
-
-            migrationBuilder.DropTable(
-                name: "UpgradeEvidence");
 
             migrationBuilder.DropTable(
                 name: "Verdict");

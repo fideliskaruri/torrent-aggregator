@@ -2,7 +2,6 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
-using System.Text.Json;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Store;
@@ -18,10 +17,7 @@ public static class StoreModule
         services.AddDbContext<TorrentFlowDbContext>(options => options.UseSqlite(connection)
             .AddInterceptors(new SqlitePragmas()));
         services.AddScoped(sp => new StoreDatabase(sp.GetRequiredService<TorrentFlowDbContext>()));
-        services.AddKeyedScoped<IStore, MetadataStoreCapability>("metadata");
-        services.AddKeyedScoped<IStore, FindStoreCapability>("find");
-        services.AddKeyedScoped<IStore, TargetsStoreCapability>("targets");
-        services.AddKeyedScoped<IStore, AccessStoreCapability>("access");
+        services.AddScoped<IStore, StoreCapability>();
         services.AddSingleton<ITargetEvents, TargetEvents>();
         services.AddScoped<NotificationRepository>(sp => new NotificationRepository(sp.GetRequiredService<TorrentFlowDbContext>()));
         services.AddSingleton<ICheckRepository, CheckRepository>();
@@ -67,36 +63,34 @@ public sealed class StoreDatabase
                 itemId TEXT NOT NULL, decision TEXT NOT NULL, decidedAt TEXT NOT NULL,
                 PRIMARY KEY(reviewId,itemId));
             """, ct);
-        var settings = db.Set<Dictionary<string, object>>("Setting");
+        var settings = db.Settings;
         foreach (var row in SettingsCatalog.Defaults(tmdb, schedulerDisabled))
         {
-            if (!await settings.AnyAsync(s => EF.Property<string>(s, "section") == row.Id, ct))
-                settings.Add(Schema.Table(typeof(SettingRow)).ToEntity(row));
+            if (!await settings.AnyAsync(s => s.Id == row.Id, ct))
+                settings.Add(row);
         }
         await db.SaveChangesAsync(ct);
         if (tmdb is not null)
         {
-            var entity = await settings.SingleAsync(s => EF.Property<string>(s, "section") == "metadata", ct);
-            var row = (SettingRow)Schema.Table("Setting").ToRow(entity);
+            var row = await settings.SingleAsync(s => s.Id == "metadata", ct);
             var value = SettingsCatalog.Read<MetadataSettings>(row);
             if (value.TmdbCredential != tmdb)
             {
-                var updated = row with { Value = JsonSerializer.SerializeToElement(value with { TmdbCredential = tmdb }, Schema.Json),
+                var updated = row with { Value = System.Text.Json.JsonSerializer.SerializeToElement(value with { TmdbCredential = tmdb }, StoreJson.Options),
                     Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-                db.Entry(entity).CurrentValues.SetValues(Schema.Table("Setting").ToEntity(updated));
+                db.Entry(row).CurrentValues.SetValues(updated);
                 await db.SaveChangesAsync(ct);
             }
         }
         if (schedulerDisabled)
         {
-            var entity = await settings.SingleAsync(s => EF.Property<string>(s, "section") == "scheduler", ct);
-            var row = (SettingRow)Schema.Table("Setting").ToRow(entity);
+            var row = await settings.SingleAsync(s => s.Id == "scheduler", ct);
             var value = SettingsCatalog.Read<SchedulerSettings>(row);
             if (value.Enabled)
             {
-                var updated = row with { Value = JsonSerializer.SerializeToElement(value with { Enabled = false }, Schema.Json),
+                var updated = row with { Value = System.Text.Json.JsonSerializer.SerializeToElement(value with { Enabled = false }, StoreJson.Options),
                     Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-                db.Entry(entity).CurrentValues.SetValues(Schema.Table("Setting").ToEntity(updated));
+                db.Entry(row).CurrentValues.SetValues(updated);
                 await db.SaveChangesAsync(ct);
             }
         }
@@ -109,16 +103,20 @@ public sealed class StoreDatabase
         try
         {
             if ((await db.Database.GetPendingMigrationsAsync(ct)).Any()) return false;
-            foreach (var table in Schema.Tables)
-                _ = await db.Set<Dictionary<string, object>>(table.Name).AnyAsync(ct);
-            var rows = await db.Set<Dictionary<string, object>>("Setting").AsNoTracking().ToListAsync(ct);
+            var existingTables = await db.Database.SqlQueryRaw<string>(
+                "SELECT name AS Value FROM sqlite_master WHERE type='table'").ToListAsync(ct);
+            var requiredTables = db.Model.GetEntityTypes()
+                .Where(entity => !entity.ClrType.IsAbstract && typeof(StoreRow).IsAssignableFrom(entity.ClrType))
+                .Select(entity => entity.GetTableName()).Where(name => name is not null).ToHashSet();
+            if (!requiredTables.IsSubsetOf(existingTables)) return false;
+            var rows = await db.Settings.AsNoTracking().ToListAsync(ct);
             var required = SettingsCatalog.Defaults(null, false).Select(s => s.Id).ToHashSet();
-            var actual = rows.Select(r => ((SettingRow)Schema.Table("Setting").ToRow(r)).Id).ToHashSet();
+            var actual = rows.Select(r => r.Id).ToHashSet();
             if (!actual.SetEquals(required)) return false;
-            foreach (var row in rows) SettingsCatalog.Validate((SettingRow)Schema.Table("Setting").ToRow(row));
+            foreach (var row in rows) SettingsCatalog.Validate(row);
             return true;
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested && ex is SqliteException or InvalidOperationException or JsonException or ArgumentException)
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is SqliteException or InvalidOperationException or System.Text.Json.JsonException or ArgumentException)
         {
             return false;
         }

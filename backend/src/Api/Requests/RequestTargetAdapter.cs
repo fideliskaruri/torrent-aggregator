@@ -19,15 +19,12 @@ internal static class RequestTargetAdapter
             var now = DateTimeOffset.UtcNow;
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
             if (item is null)
-                writes.Add(new(new RequestItemRow(Guid.NewGuid().ToString("N"), request.Id, target.EpisodeId,
-                    id, ItemSettlement.Open, null, now, now), null, null));
+                writes.Add(new(new RequestItemRow { Id = Guid.NewGuid().ToString("N"), RequestId = request.Id, EpisodeId = target.EpisodeId, TargetId = id, Settlement = ItemSettlement.Open, SettledAt = null, CreatedAt = now, UpdatedAt = now }, null, null));
             else if (item.TargetId != id)
                 writes.Add(new(item with { TargetId = id, UpdatedAt = now }, null, item));
             if (writes.Count == 0) break;
             var key = Guid.NewGuid().ToString("N");
-            var receipt = new AttemptRow($"commit:requests:{request.Id}:{key}", null, null, null,
-                request.UserId, AttemptKind.LegacyEvent, now, now, "Attach request", null, null, null,
-                null, null, null, null, null);
+            var receipt = new AttemptRow { Id = $"commit:requests:{request.Id}:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = request.UserId, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "Attach request", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
             var result = await store.CommitAsync(new(key, StoreOwner.Targets,
                 [.. writes, new(receipt, null, null)], []), ct);
             if (result.Applied) break;

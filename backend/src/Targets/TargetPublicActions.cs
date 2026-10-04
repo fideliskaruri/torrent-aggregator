@@ -17,7 +17,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var target = (await catalog.ReadAsync<TargetRow>(CatalogState.Query(targetId), ct)).SingleOrDefault()
                 ?? throw new ArgumentException("This target no longer exists.");
@@ -52,7 +52,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var all = await catalog.ReadAsync<TargetRow>(CatalogState.Query(), ct);
             var target = all.FirstOrDefault(t => t.Id == workOrTargetId);
@@ -67,7 +67,7 @@ public sealed partial class TargetPipeline
             var preference = (await catalog.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: work.Id), ct)).FirstOrDefault();
             var now = DateTimeOffset.UtcNow;
             var nextPreference = preference is null
-                ? new WorkPreferenceRow("preference:" + work.Id, work.Id, quality, quality, null, null, null, now, 1)
+                ? new WorkPreferenceRow { Id = "preference:" + work.Id, WorkId = work.Id, ResolutionFloor = quality, PreferredResolution = quality, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 1 }
                 : preference with { ResolutionFloor = quality, PreferredResolution = quality,
                     UpdatedAt = now, Version = preference.Version + 1 };
             var writes = ImmutableArray.CreateBuilder<RowWrite>();

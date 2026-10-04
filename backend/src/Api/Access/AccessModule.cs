@@ -20,7 +20,7 @@ public static class AccessModule
         app.UseMiddleware<RequesterCatalogGuard>();
         app.MapGet("/api/me", async (HttpContext http, CancellationToken ct) =>
         {
-            var store = http.RequestServices.GetRequiredKeyedService<IStore>("access");
+            var store = http.RequestServices.GetRequiredService<IStore>();
             var requester = AccessIdentity.Role(http) == "requester";
             int? pending = null;
             int? unread = null;

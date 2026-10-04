@@ -19,7 +19,7 @@ public sealed partial class TargetPipeline
     public async Task<RecoverySettings> RecoverySettingsAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+        var store = scope.ServiceProvider.GetRequiredService<IStore>();
         var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("recovery"), ct)).SingleOrDefault();
         return row is null ? new() : SettingsCatalog.Read<RecoverySettings>(row);
     }
@@ -33,7 +33,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var old = (await store.ReadAsync<SettingRow>(CatalogState.Query("recovery"), ct)).SingleOrDefault();
             var engineRow = (await store.ReadAsync<SettingRow>(CatalogState.Query("engine"), ct)).Single();
             var settings = SettingsCatalog.Read<EngineSettings>(engineRow) with
@@ -42,9 +42,7 @@ public sealed partial class TargetPipeline
                 ProgressStallSeconds = value.ProgressStallSeconds,
                 ProgressStallBytes = value.ProgressStallBytes,
             };
-            await CommitAsync(store, [new(new SettingRow("recovery", 1,
-                JsonSerializer.SerializeToElement(value, RecoveryJson),
-                (old?.Revision ?? 0) + 1, DateTimeOffset.UtcNow), old?.Revision, null),
+            await CommitAsync(store, [new(new SettingRow { Id = "recovery", SchemaVersion = 1, Value = JsonSerializer.SerializeToElement(value, RecoveryJson), Revision = (old?.Revision ?? 0) + 1, UpdatedAt = DateTimeOffset.UtcNow }, old?.Revision, null),
                 new(engineRow with { Value = JsonSerializer.SerializeToElement(settings, RecoveryJson),
                     Revision = engineRow.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow },
                     engineRow.Revision, null)], [], ct);
@@ -81,7 +79,7 @@ public sealed partial class TargetPipeline
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
+            var store = scope.ServiceProvider.GetRequiredService<IStore>();
             var catalog = new CatalogState(store);
             var links = await catalog.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
             var targetIds = links.Where(l => l.DownloadId == download.Id && l.Role == AssociationRole.Current)
@@ -94,12 +92,8 @@ public sealed partial class TargetPipeline
             if (work is null) return new(false, 0, 0, [targetId], "The title is no longer available.");
             var now = DateTimeOffset.UtcNow;
             await CommitAsync(store, [
-                new(new AttemptRow(Guid.NewGuid().ToString("N"), target.Id, target.WorkId, download.Hash,
-                    target.CreatedBy, AttemptKind.Swap, now, now, "Searching", stall,
-                    stall is null ? "Looking for another release." : "The release stalled. Looking for another.",
-                    null, null, target.BatchId, download.Id, null, null), null, null),
-                new(new BlockRow(Guid.NewGuid().ToString("N"), download.Hash, work.WorkKey,
-                    "Owner chose another release", BlockOrigin.Owner, null, now, null), null, null),
+                new(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = target.Id, WorkId = target.WorkId, ReleaseHash = download.Hash, ActorUserId = target.CreatedBy, Kind = AttemptKind.Swap, StartedAt = now, EndedAt = now, Outcome = "Searching", ReasonCode = stall, ReasonText = stall is null ? "Looking for another release." : "The release stalled. Looking for another.", Decision = null, LegacyContext = null, BatchId = target.BatchId, DownloadId = download.Id, DeadlineAt = null, Swap = null }, null, null),
+                new(new BlockRow { Id = Guid.NewGuid().ToString("N"), Hash = download.Hash, WorkKey = work.WorkKey, Reason = "Owner chose another release", Origin = BlockOrigin.Owner, ReplacedByHash = null, CreatedAt = now, Until = null }, null, null),
             ], [], ct);
 
             await DeleteDownloadFilesAsync(download.Hash, ct);

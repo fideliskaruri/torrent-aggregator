@@ -13,9 +13,8 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
-        var entity = await db.Set<Dictionary<string, object>>("Setting").AsNoTracking()
-            .SingleAsync(r => EF.Property<string>(r, "section") == "engine", ct);
-        return SettingsCatalog.Read<EngineSettings>((SettingRow)Schema.Table("Setting").ToRow(entity));
+        var row = await db.Settings.AsNoTracking().SingleAsync(row => row.Id == "engine", ct);
+        return SettingsCatalog.Read<EngineSettings>(row);
     }
 
     public async Task<ImmutableArray<SwarmEvidence>> LoadAsync(ImmutableArray<string> hashes, CancellationToken ct)
@@ -24,12 +23,10 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
         var values = hashes.Distinct().ToArray();
-        var verdicts = await db.Set<Dictionary<string, object>>("Verdict").AsNoTracking()
-            .Where(r => values.Contains(EF.Property<string>(r, "hash"))).ToListAsync(ct);
-        var releases = await db.Set<Dictionary<string, object>>("Release").AsNoTracking()
-            .Where(r => values.Contains(EF.Property<string>(r, "hash"))).ToListAsync(ct);
+        var verdicts = await db.Verdicts.AsNoTracking().Where(r => values.Contains(r.Id)).ToListAsync(ct);
+        var releases = await db.Releases.AsNoTracking().Where(r => values.Contains(r.Id)).ToListAsync(ct);
         var evidence = Evidence(verdicts, releases, await SettingsAsync(ct));
-        var files = releases.Select(r => (ReleaseRow)Schema.Table("Release").ToRow(r)).ToDictionary(r => r.Id, r => r.Files);
+        var files = releases.ToDictionary(r => r.Id, r => r.Files);
         return [.. values.Select(hash => evidence.FirstOrDefault(e => e.Hash == hash) ??
             new SwarmEvidence(hash, HealthBand.Unknown, files.GetValueOrDefault(hash), 0, 0, 0, 0,
                 TimeSpan.Zero, null, "No cached swarm measurement.", DateTimeOffset.MinValue,
@@ -41,23 +38,21 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
         if (limit is < 1 or > 500) throw new ArgumentOutOfRangeException(nameof(limit));
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
-        var verdicts = await db.Set<Dictionary<string, object>>("Verdict").AsNoTracking()
-            .OrderByDescending(r => EF.Property<string>(r, "checkedAt")).Take(limit).ToListAsync(ct);
-        var values = verdicts.Select(r => (string)r["hash"]).ToArray();
-        var releases = await db.Set<Dictionary<string, object>>("Release").AsNoTracking()
-            .Where(r => values.Contains(EF.Property<string>(r, "hash"))).ToListAsync(ct);
+        var verdicts = await db.Verdicts.AsNoTracking()
+            .OrderByDescending(r => r.CheckedAt).Take(limit).ToListAsync(ct);
+        var values = verdicts.Select(r => r.Id).ToArray();
+        var releases = await db.Releases.AsNoTracking().Where(r => values.Contains(r.Id)).ToListAsync(ct);
         return Evidence(verdicts, releases, await SettingsAsync(ct));
     }
 
-    private ImmutableArray<SwarmEvidence> Evidence(List<Dictionary<string, object>> verdicts,
-        List<Dictionary<string, object>> releases, EngineSettings settings)
+    private ImmutableArray<SwarmEvidence> Evidence(List<VerdictRow> verdicts,
+        List<ReleaseRow> releases, EngineSettings settings)
     {
-        var files = releases.Select(r => (ReleaseRow)Schema.Table("Release").ToRow(r)).ToDictionary(r => r.Id, r => r.Files);
+        var files = releases.ToDictionary(r => r.Id, r => r.Files);
         var now = DateTimeOffset.UtcNow;
         var version = CheckVersion.For(settings, options);
-        return [.. verdicts.Select(entity =>
+        return [.. verdicts.Select(row =>
         {
-            var row = (VerdictRow)Schema.Table("Verdict").ToRow(entity);
             var valid = row.ExpiresAt > now &&
                 row.ProbeVersion == (row.Band == HealthBand.Unknown ? options.ProbeVersion : version) &&
                 (row.Band != HealthBand.Good || row.ByteSendingPeers > 0 && row.BytesDelivered > 0) &&
@@ -93,25 +88,18 @@ internal sealed class CheckRepository(IServiceScopeFactory scopes, CheckOptions 
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var releases = db.Set<Dictionary<string, object>>("Release");
-        var release = await releases.SingleOrDefaultAsync(r => EF.Property<string>(r, "hash") == evidence.Hash, ct);
-        var current = release is null ? candidate.Release : (ReleaseRow)Schema.Table("Release").ToRow(release);
+        var release = await db.Releases.SingleOrDefaultAsync(r => r.Id == evidence.Hash, ct);
+        var current = release ?? candidate.Release;
         var next = current with { Files = current.Files ?? evidence.Files, LastSeenAt = evidence.CheckedAt };
-        if (release is null) releases.Add(Schema.Table("Release").ToEntity(next));
-        else db.Entry(release).CurrentValues.SetValues(Schema.Table("Release").ToEntity(next));
-        var verdicts = db.Set<Dictionary<string, object>>("Verdict");
-        var existing = await verdicts.SingleOrDefaultAsync(r => EF.Property<string>(r, "hash") == evidence.Hash, ct);
-        var row = new VerdictRow(evidence.Hash, evidence.Band, evidence.ConnectedPeers, evidence.ConnectedSeeders,
-            evidence.BytesDelivered, (int)evidence.Window.TotalMilliseconds, evidence.ScrapedSeeders, evidence.Reason,
-            evidence.CheckedAt, evidence.ExpiresAt, evidence.ProbeVersion)
-        {
-            ByteSendingPeers = evidence.ByteSendingPeers,
+        if (release is null) db.Releases.Add(next);
+        else db.Entry(release).CurrentValues.SetValues(next);
+        var existing = await db.Verdicts.SingleOrDefaultAsync(r => r.Id == evidence.Hash, ct);
+        var row = new VerdictRow { Id = evidence.Hash, Band = evidence.Band, ConnectedPeers = evidence.ConnectedPeers, ConnectedSeeders = evidence.ConnectedSeeders, BytesDelivered = evidence.BytesDelivered, SampleMilliseconds = (int)evidence.Window.TotalMilliseconds, ScrapedSeeders = evidence.ScrapedSeeders, Reason = evidence.Reason, CheckedAt = evidence.CheckedAt, ExpiresAt = evidence.ExpiresAt, ProbeVersion = evidence.ProbeVersion, ByteSendingPeers = evidence.ByteSendingPeers,
             ProbeMetrics = new(evidence.PieceLength, evidence.VerifiedPieceBytes, evidence.VerifiedPieces,
-                evidence.HashFailures, evidence.PeerBytesReceived),
-        };
-        if (existing is null) verdicts.Add(Schema.Table("Verdict").ToEntity(row));
-        else if (((VerdictRow)Schema.Table("Verdict").ToRow(existing)).CheckedAt <= evidence.CheckedAt)
-            db.Entry(existing).CurrentValues.SetValues(Schema.Table("Verdict").ToEntity(row));
+                evidence.HashFailures, evidence.PeerBytesReceived) };
+        if (existing is null) db.Verdicts.Add(row);
+        else if (existing.CheckedAt <= evidence.CheckedAt)
+            db.Entry(existing).CurrentValues.SetValues(row);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }

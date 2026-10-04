@@ -46,9 +46,7 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
             var volume = LibraryPaths.Volume(path);
             await using (var stream = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(id), ct);
-            var root = new StorageRootRow(id, path, LibraryPaths.PhysicalKey(path), input.Kinds, folders,
-                volume, input.Priority, input.ReserveBytes, input.MaxAllocatedBytes,
-                true, true, false, now, null, now, now, 1);
+            var root = new StorageRootRow { Id = id, Path = path, PhysicalKey = LibraryPaths.PhysicalKey(path), Kinds = input.Kinds, LibraryFolders = folders, VolumeSerial = volume, Priority = input.Priority, ReserveBytes = input.ReserveBytes, MaxAllocatedBytes = input.MaxAllocatedBytes, Enabled = true, Online = true, ReviewRequired = false, LastCheckedAt = now, LastError = null, CreatedAt = now, UpdatedAt = now, Version = 1 };
             if (!await repository.SaveRootAsync(root, null, ct))
             {
                 // Remove only our just-created enrollment marker, never a pre-existing file.
@@ -219,9 +217,17 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
                     actual = Path.GetDirectoryName(actual)!;
                 var now = DateTimeOffset.UtcNow;
-                folder = new(Guid.NewGuid().ToString("N"), file.WorkId, file.RootId,
-                    root is null ? null : Path.GetRelativePath(root.Path, actual), root is null ? actual : null,
-                    now, now, 1);
+                folder = new WorkFolderRow
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    WorkId = file.WorkId,
+                    RootId = file.RootId,
+                    RelativeItemFolder = root is null ? null : Path.GetRelativePath(root.Path, actual),
+                    ExternalItemFolder = root is null ? actual : null,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    Version = 1,
+                };
             }
             if (folder is not null && (folder.WorkId != file.WorkId || folder.RootId != file.RootId))
                 return Fail("InvalidMedia", "The title folder and file must belong to the same work and root.");
@@ -344,8 +350,7 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
             if (input.ExplicitDirectory is not null && LibraryPaths.PhysicalKey(input.ExplicitDirectory) != LibraryPaths.PhysicalKey(itemFolder))
                 return Rejected("PlacementRequired", "The explicit folder does not match this title's managed library folder.");
             var now = DateTimeOffset.UtcNow;
-            var proposedPin = pin ?? new WorkFolderRow(Guid.NewGuid().ToString("N"), work.Work.Id, chosen.Id,
-                itemRelative, null, now, now, 1);
+            var proposedPin = pin ?? new WorkFolderRow { Id = Guid.NewGuid().ToString("N"), WorkId = work.Work.Id, RootId = chosen.Id, RelativeItemFolder = itemRelative, ExternalItemFolder = null, CreatedAt = now, UpdatedAt = now, Version = 1 };
             var bindings = await repository.BindingsAsync(ct);
             var used = new HashSet<string>(StringComparer.Ordinal);
             var output = ImmutableArray.CreateBuilder<DownloadFileRow>();
@@ -379,9 +384,22 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                     if (!used.Add(key) || File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".partial") ||
                         bindings.Any(b => b.PhysicalKey == key) || media.Any(m => m.PhysicalKey == key))
                         return Rejected("FileCollision", "A file already uses the destination name. Review the duplicate before downloading.");
-                    output.Add(new($"placement:{input.Assignment.Hash}:{file.Index}", input.Assignment.Hash,
-                        file.Index, true, target.Id, final + ".partial", final, key, null, selection.Role,
-                        file.Bytes, final + ".partial", false));
+                    output.Add(new DownloadFileRow
+                    {
+                        Id = $"placement:{input.Assignment.Hash}:{file.Index}",
+                        DownloadId = input.Assignment.Hash,
+                        FileIndex = file.Index,
+                        Selected = true,
+                        TargetId = target.Id,
+                        PartialPath = final + ".partial",
+                        FinalPath = final,
+                        PhysicalKey = key,
+                        MediaFileId = null,
+                        Role = selection.Role,
+                        ExpectedBytes = file.Bytes,
+                        EnginePath = final + ".partial",
+                        Filed = false,
+                    });
                 }
             }
             return new(output.ToImmutable(), chosen.Id, reserve, [proposedPin], null);

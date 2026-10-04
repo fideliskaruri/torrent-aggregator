@@ -1217,7 +1217,20 @@ public sealed partial class MonoTorrentEngine : IEngine, IEngineFilePublisher, I
         var parsed = new ParsedRelease(name, name, null, [], [], [], [], false, false, null,
             new(null, null, null, null), null, [], false, false, false);
         var now = DateTimeOffset.UtcNow;
-        return new(new(hash, name, parsed, null, torrentUri, magnet, null, null, null, now, now), [], null);
+        return new(new ReleaseRow
+        {
+            Id = hash,
+            Name = name,
+            Parsed = parsed,
+            TotalBytes = null,
+            TorrentUri = torrentUri,
+            Magnet = magnet,
+            Files = null,
+            MetadataDigest = null,
+            Private = null,
+            FirstSeenAt = now,
+            LastSeenAt = now,
+        }, [], null);
     }
 
     private async Task ConfigureTrackersAsync(TorrentManager manager)
