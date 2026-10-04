@@ -246,7 +246,7 @@ public sealed class DownloadFiling
         {
             if (Path.GetFileName(directory) != hash || !LibraryPaths.IsInside(itemFolder, directory))
                 throw new IOException("The unwanted fragments do not belong to this download.");
-            if (Directory.Exists(directory)) DeleteUnwanted(directory);
+            if (Directory.Exists(directory)) DeleteTree(directory);
         }
         var directories = bindings.SelectMany(b => new[] { b.PartialPath, b.FinalPath, b.EnginePath })
             .OfType<string>().Concat(ownedMedia.Select(m => m.Path))
@@ -266,17 +266,35 @@ public sealed class DownloadFiling
                 current = Path.GetDirectoryName(current)!;
             }
         }
+    }
 
-        static void DeleteUnwanted(string directory)
+    public static void RemoveUnwanted(IEnumerable<DownloadFileRow> bindings, string hash)
+    {
+        foreach (var directory in UnwantedFolders(bindings))
         {
-            LibraryPaths.NoLinks(directory);
-            foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+            if (Path.GetFileName(directory) != hash)
+                throw new IOException("The unwanted fragments do not belong to this download.");
+            if (Directory.Exists(directory)) DeleteTree(directory);
+            var parent = Path.GetDirectoryName(directory)!;
+            if (Directory.Exists(parent) &&
+                Directory.EnumerateFileSystemEntries(parent).All(p => Path.GetFileName(p) == ".ignore"))
             {
-                LibraryPaths.NoLinks(path);
-                if (Directory.Exists(path)) DeleteUnwanted(path);
-                else File.Delete(path);
+                LibraryPaths.NoLinks(parent);
+                File.Delete(Path.Combine(parent, ".ignore"));
+                Directory.Delete(parent);
             }
-            Directory.Delete(directory);
         }
+    }
+
+    private static void DeleteTree(string directory)
+    {
+        LibraryPaths.NoLinks(directory);
+        foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+        {
+            LibraryPaths.NoLinks(path);
+            if (Directory.Exists(path)) DeleteTree(path);
+            else File.Delete(path);
+        }
+        Directory.Delete(directory);
     }
 }
