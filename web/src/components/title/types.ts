@@ -16,6 +16,8 @@
 import type { AvailabilityState } from "@/lib/browse";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import type { SeasonGrabReport } from "./season-grab-state";
+import type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
+export type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 
 /** One row in the episode list. */
 export interface TitleEpisode {
@@ -57,18 +59,6 @@ export interface TitleEpisode {
 /** An owned item: the best owned file's resolution, null when the file names none. */
 export interface TitleOwned {
   resolution: number | null;
-}
-
-/** Read-only progress from the owner's Jellyfin server. `inProgress` is 0 to 100. */
-export interface JellyfinWatchState {
-  watched: boolean;
-  inProgress: number | null;
-}
-
-export interface JellyfinNextUp {
-  episodeId: string;
-  season: number;
-  episode: number;
 }
 
 /**
