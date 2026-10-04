@@ -273,8 +273,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             {
                 if (action == TargetAction.Remove) await rawDownloads.RemoveAsync(download.Hash, input.DeleteFiles, ct);
                 else if (action == TargetAction.DownloadNow)
-                    await rawDownloads.OrderAsync(download.Hash, new(Now: true, Paused: false), ct);
-                else await targets.RawActionAsync(download.RawIntentId, action, ct);
+                    await rawDownloads.DownloadNowAsync(download.Hash, ct);
+                else await rawDownloads.PauseAsync(download.RawIntentId, action == TargetAction.Pause, ct);
                 continue;
             }
             if (ids.Length == 0) throw new ArgumentException("This download no longer has an action.");

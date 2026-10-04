@@ -20,7 +20,7 @@ public enum WaitReason
 public enum TargetPriority { Now, OwnerRank, FreshRelease, Request, BackCatalogue, UpgradeWatch }
 public enum ReplacementMode { Upgrade, Replace }
 public enum ScopeIntentState { Pending, Materialized, Cancelled }
-public enum RawDownloadState { Wanted, Checking, Planning, Fetching, Filing, Review, Done, Waiting, Paused, Removed }
+public enum RawDownloadState { Fetching, Paused, Done, Removed }
 public enum IntentOrigin { Owner, Request, Rule, Follow, Upgrade, Hunter }
 public enum PriorityLane { Owner, Background }
 public enum HealthBand { Good, Weak, Dead, Unknown }

@@ -21,7 +21,6 @@ internal static class EngineModule
             message => sp.GetRequiredService<ILogger<MonoTorrentEngine>>().LogInformation("{EngineMessage}", message),
             fileState: new FilingFileState(sp.GetRequiredService<IServiceScopeFactory>())));
         services.AddSingleton<IEngine>(sp => sp.GetRequiredService<MonoTorrentEngine>());
-        services.AddSingleton<RawDownloads>();
         services.AddHostedService<EngineHost>();
         return services;
     }
@@ -36,8 +35,8 @@ internal static class EngineModule
         }
     }
 
-    private sealed class EngineHost(MonoTorrentEngine engine, RawDownloads downloads,
-        IDbContextFactory<TorrentFlowDbContext> contexts, IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
+    private sealed class EngineHost(MonoTorrentEngine engine, IDbContextFactory<TorrentFlowDbContext> contexts,
+        IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
     {
         private bool initialized;
         public override async Task StartAsync(CancellationToken ct)
@@ -61,7 +60,6 @@ internal static class EngineModule
                 }
                 throw new InvalidOperationException("Engine listen port settings changed repeatedly. Restart to retry.");
             }, environment.IsDevelopment(), ct);
-            await downloads.RecoverAsync(ct);
             initialized = true;
             await base.StartAsync(ct);
         }
@@ -75,7 +73,6 @@ internal static class EngineModule
                 while (await timer.WaitForNextTickAsync(stoppingToken))
                     try
                     {
-                        await downloads.TickAsync(stoppingToken);
                         if (++ticks % 20 == 0) await engine.TickAsync(environment.IsDevelopment(), stoppingToken);
                     }
                     catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

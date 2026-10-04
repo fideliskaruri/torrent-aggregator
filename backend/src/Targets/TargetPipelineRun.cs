@@ -30,6 +30,7 @@ public sealed partial class TargetPipeline
 
     internal async Task RecoverAsync(CancellationToken ct)
     {
+        await rawDownloads.RecoverAsync(ct);
         if (!await CanRunAsync(ct)) return;
         var snapshot = await ReadAsync(ct);
         foreach (var row in snapshot.Targets.Where(t => t.State == TargetState.Searching))
@@ -39,6 +40,7 @@ public sealed partial class TargetPipeline
 
     internal async Task TickAsync(CancellationToken ct)
     {
+        await rawDownloads.TickAsync(ct);
         if (!await CanRunAsync(ct)) return;
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct);

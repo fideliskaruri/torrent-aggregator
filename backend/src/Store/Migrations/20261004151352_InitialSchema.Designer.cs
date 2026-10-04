@@ -10,7 +10,7 @@ using TorrentFlow.Store;
 namespace TorrentFlow.Store.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261004145358_InitialSchema")]
+    [Migration("20261004151352_InitialSchema")]
     partial class InitialSchema
     {
         /// <inheritdoc />
@@ -1133,11 +1133,6 @@ namespace TorrentFlow.Store.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("actorUserId");
 
-                    b.Property<string>("BatchId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("batchId");
-
                     b.Property<string>("CreatedAt")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1151,54 +1146,14 @@ namespace TorrentFlow.Store.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("explicitDirectory");
 
-                    b.Property<string>("ExplicitKind")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("explicitKind");
-
-                    b.Property<string>("LeaseToken")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("leaseToken");
-
-                    b.Property<string>("LeaseUntil")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("leaseUntil");
-
-                    b.Property<string>("NextTryAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("nextTryAt");
-
                     b.Property<string>("NowAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("nowAt");
-
-                    b.Property<bool>("OwnerRanked")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ownerRanked");
-
-                    b.Property<long>("Rank")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("rank");
-
-                    b.Property<string>("ReasonCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reasonCode");
-
-                    b.Property<string>("ReasonText")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reasonText");
 
                     b.Property<string>("ReleaseHash")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("releaseHash");
-
-                    b.Property<string>("ResumeState")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("resumeState");
-
-                    b.Property<string>("RootId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("rootId");
 
                     b.Property<string>("SelectedFiles")
                         .IsRequired()
@@ -1224,29 +1179,17 @@ namespace TorrentFlow.Store.Migrations
 
                     b.HasIndex("ActorUserId");
 
-                    b.HasIndex("RootId");
-
                     b.HasIndex(new[] { "DownloadId" }, "IX_RawIntent_downloadId_downloadIdISNOTNULL")
                         .IsUnique()
                         .HasFilter("downloadId IS NOT NULL");
 
                     b.HasIndex(new[] { "ReleaseHash" }, "IX_RawIntent_releaseHash_all");
 
-                    b.HasIndex(new[] { "State", "NextTryAt" }, "IX_RawIntent_state_nextTryAt_all");
-
                     b.ToTable("RawIntent", null, t =>
                         {
-                            t.HasCheckConstraint("CK_RawIntent_explicitKind", "\"explicitKind\" IN ('movies','tv','anime','animemovies')");
-
-                            t.HasCheckConstraint("CK_RawIntent_ownerRanked", "\"ownerRanked\" IN (0,1)");
-
-                            t.HasCheckConstraint("CK_RawIntent_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
-
-                            t.HasCheckConstraint("CK_RawIntent_resumeState", "\"resumeState\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
-
                             t.HasCheckConstraint("CK_RawIntent_selectedFilesJson", "json_valid(\"selectedFilesJson\")");
 
-                            t.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
+                            t.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','done','removed')");
 
                             t.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
 
@@ -2959,12 +2902,6 @@ namespace TorrentFlow.Store.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_RawIntent_Release_releaseHash");
-
-                    b.HasOne("TorrentFlow.Domain.StorageRootRow", null)
-                        .WithMany()
-                        .HasForeignKey("RootId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_RawIntent_StorageRoot_rootId");
                 });
 
             modelBuilder.Entity("TorrentFlow.Domain.ReleaseObservationRow", b =>

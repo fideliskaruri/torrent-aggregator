@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -902,20 +902,9 @@ namespace TorrentFlow.Store.Migrations
                     releaseHash = table.Column<string>(type: "TEXT", nullable: false),
                     downloadId = table.Column<string>(type: "TEXT", nullable: true),
                     selectedFilesJson = table.Column<string>(type: "TEXT", nullable: false),
-                    rootId = table.Column<string>(type: "TEXT", nullable: true),
                     explicitDirectory = table.Column<string>(type: "TEXT", nullable: true),
-                    explicitKind = table.Column<string>(type: "TEXT", nullable: true),
                     state = table.Column<string>(type: "TEXT", nullable: false),
-                    resumeState = table.Column<string>(type: "TEXT", nullable: true),
-                    reasonCode = table.Column<string>(type: "TEXT", nullable: true),
-                    reasonText = table.Column<string>(type: "TEXT", nullable: true),
-                    nextTryAt = table.Column<string>(type: "TEXT", nullable: true),
                     nowAt = table.Column<string>(type: "TEXT", nullable: true),
-                    ownerRanked = table.Column<bool>(type: "INTEGER", nullable: false),
-                    rank = table.Column<long>(type: "INTEGER", nullable: false),
-                    leaseUntil = table.Column<string>(type: "TEXT", nullable: true),
-                    leaseToken = table.Column<string>(type: "TEXT", nullable: true),
-                    batchId = table.Column<string>(type: "TEXT", nullable: false),
                     createdAt = table.Column<string>(type: "TEXT", nullable: false),
                     updatedAt = table.Column<string>(type: "TEXT", nullable: false),
                     version = table.Column<long>(type: "INTEGER", nullable: false)
@@ -923,12 +912,8 @@ namespace TorrentFlow.Store.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RawIntent", x => x.id);
-                    table.CheckConstraint("CK_RawIntent_explicitKind", "\"explicitKind\" IN ('movies','tv','anime','animemovies')");
-                    table.CheckConstraint("CK_RawIntent_ownerRanked", "\"ownerRanked\" IN (0,1)");
-                    table.CheckConstraint("CK_RawIntent_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
-                    table.CheckConstraint("CK_RawIntent_resumeState", "\"resumeState\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
                     table.CheckConstraint("CK_RawIntent_selectedFilesJson", "json_valid(\"selectedFilesJson\")");
-                    table.CheckConstraint("CK_RawIntent_state", "\"state\" IN ('wanted','checking','planning','fetching','filing','review','done','waiting','paused','removed')");
+                    table.CheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','done','removed')");
                     table.CheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
                     table.ForeignKey(
                         name: "FK_RawIntent_Download_downloadId",
@@ -941,12 +926,6 @@ namespace TorrentFlow.Store.Migrations
                         column: x => x.releaseHash,
                         principalTable: "Release",
                         principalColumn: "hash",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_RawIntent_StorageRoot_rootId",
-                        column: x => x.rootId,
-                        principalTable: "StorageRoot",
-                        principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_RawIntent_User_actorUserId",
@@ -1513,16 +1492,6 @@ namespace TorrentFlow.Store.Migrations
                 column: "releaseHash");
 
             migrationBuilder.CreateIndex(
-                name: "IX_RawIntent_rootId",
-                table: "RawIntent",
-                column: "rootId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RawIntent_state_nextTryAt_all",
-                table: "RawIntent",
-                columns: new[] { "state", "nextTryAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_Release_lastSeenAt_all",
                 table: "Release",
                 column: "lastSeenAt");
@@ -1820,7 +1789,6 @@ namespace TorrentFlow.Store.Migrations
                 CREATE UNIQUE INDEX UX_RequestItem_Identity ON RequestItem(requestId,coalesce(episodeId,''));
                 CREATE UNIQUE INDEX UX_Block_Identity ON Block(hash,coalesce(workKey,''));
                 """);
-
         }
 
         /// <inheritdoc />
@@ -1918,10 +1886,10 @@ namespace TorrentFlow.Store.Migrations
                 name: "RawIntent");
 
             migrationBuilder.DropTable(
-                name: "Release");
+                name: "StorageRoot");
 
             migrationBuilder.DropTable(
-                name: "StorageRoot");
+                name: "Release");
 
             migrationBuilder.DropTable(
                 name: "User");
