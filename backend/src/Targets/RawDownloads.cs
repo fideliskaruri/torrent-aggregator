@@ -52,7 +52,7 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
             ProbeHandle? handle = null;
             try
             {
-                if (handle is not null || candidate.Release.TorrentUri is not null)
+                if (metadata is null)
                 {
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     deadline.CancelAfter(TimeSpan.FromSeconds(30));
