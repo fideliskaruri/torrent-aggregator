@@ -43,7 +43,7 @@ public sealed class TargetStore
             foreach (var write in writeRows)
                 if (!await StageAsync(write.Row, write.ExpectedVersion, write.ExpectedRow, ct)) return false;
             foreach (var delete in deleteRows)
-                if (!await StageAsync(delete.Table, delete.Id, null, delete.ExpectedVersion, delete.ExpectedRow, ct)) return false;
+                if (!await StageAsync(delete.Table, delete.Id, delete.ExpectedVersion, delete.ExpectedRow, ct)) return false;
 
             foreach (var delete in deleteRows.Where(d => d.Table == StoreTable.Episode))
                 await db.Database.ExecuteSqlInterpolatedAsync(
@@ -126,12 +126,12 @@ public sealed class TargetStore
         return true;
     }
 
-    private async Task<bool> StageAsync(StoreTable table, string id, StoreRow? replacement,
+    private async Task<bool> StageAsync(StoreTable table, string id,
         long? expectedVersion, StoreRow? expectedRow, CancellationToken ct)
     {
-        var type = replacement?.GetType() ?? EntityType(table);
+        var type = EntityType(table);
         var current = await db.FindAsync(type, [id], ct) as StoreRow;
-        if (current is null || replacement is not null) return false;
+        if (current is null) return false;
         var entry = db.Entry(current);
         var version = VersionProperty(entry);
         if (version is not null)
