@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { TfPageHeader } from "@/components/tf/page-header";
-import { InstallAppCard } from "@/components/pwa/install-app-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -18,8 +17,6 @@ export default function AboutPage() {
         title="About"
         description="TorrentFlow is a self-hosted search UI over public torrent indexers. It does not host files or magnets."
       />
-
-      <InstallAppCard />
 
       <Card className="min-w-0 sm:[--card-spacing:--spacing(5)]">
         <CardHeader>
