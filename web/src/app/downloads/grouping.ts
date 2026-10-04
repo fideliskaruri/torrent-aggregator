@@ -1,4 +1,4 @@
-import { formatEpisodeLabel } from "@/lib/library/cursor";
+import { formatEpisodeLabel, formatSeasonLabel } from "@/lib/library/cursor";
 import type { ClientTorrent, DownloadStatus } from "./types";
 
 export interface StatusCounts {
@@ -167,7 +167,7 @@ export function groupDownloads(rows: readonly ClientTorrent[]): DownloadGroup<Cl
     const seasons = [...seasonMap.entries()]
       .map(([season, entries]) => {
         const sorted = [...entries].sort(compareEntries);
-        const label = season == null ? "Other" : `Season ${String(season).padStart(2, "0")}`;
+        const label = season == null ? "Other" : `Season ${formatSeasonLabel(season).slice(1)}`;
         return {
           season,
           key: `${key}::${label}`,

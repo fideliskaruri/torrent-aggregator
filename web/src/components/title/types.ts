@@ -1,18 +1,4 @@
-/**
- * The title-page contract — everything `/title/[workKey]` renders, in one
- * round trip.
- *
- * Shaped by one rule: **the page must render instantly from what is already
- * known.** Every field below is answerable from the local database — engine
- * rows, library rows, cached catalog metadata — so the server never waits on
- * an indexer to draw a page. Anything that needs the network is an *action*
- * the user takes (see `POST /api/title/[workKey]`), not a precondition for the
- * page appearing.
- *
- * The availability contract is the one from `@/lib/browse`: `null` means *not
- * yet determined* and must render as a neutral, clickable affordance;
- * `unavailable` is a claim, and is only ever set where a real check was made.
- */
+
 import type { AvailabilityState } from "@/lib/browse";
 import type { CatalogCardData } from "@/lib/api/catalog-types";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
@@ -26,15 +12,7 @@ export interface TitleEpisode {
   episode: number;
   /** `S02E05`, ready to print. */
   label: string;
-  /**
-   * Local state only: `ready` / `warm` when a file exists, otherwise `null`.
-   *
-   * Never `unavailable`. Deciding that for a single episode needs its own
-   * indexer search, and the shared search cache is keyed on the *show* title
-   * (episode tokens are normalised away), so one stale row for S05E14 would
-   * otherwise mark every other episode of the season as checked-and-missing.
-   * A claim nobody made is the one thing this contract forbids.
-   */
+
   availability: AvailabilityState | null;
   infoHash: string | null;
   /** File inside the torrent, when the transfer named one. */
@@ -62,14 +40,7 @@ export interface TitleOwned {
   resolution: number | null;
 }
 
-/**
- * `queued` split in four: `looking` (no release found yet), `waiting_english`
- * (releases were found but none has English audio or subtitles),
- * `waiting_season_list` (an anime episode whose show season is not known yet,
- * nothing is searched) and `queued` (a release waits for a download slot).
- */
 export type TitleTransferState = "looking" | "waiting_english" | "waiting_season_list" | "queued" | "downloading" | "downloaded" | "failed";
-
 
 export interface TitleEpisodeTransfer {
   status: "queued" | "downloading" | "downloaded" | "failed";
@@ -104,18 +75,9 @@ export interface TitleSeason {
     infoHash: string;
     downloadFraction: number | null;
   } | null;
-  /**
-   * Exact user acquisition state for a season-scoped grab.
-   *
-   * Stays at season scope. An episode row must not render this as its own
-   * progress: a pack being 60% fetched says nothing about which episodes are
-   * complete, and the episode contract forbids claims nobody made.
-   */
+
   transfer: TitleEpisodeTransfer | null;
-  /**
-   * Distinct episodes of this season with a finished file on disk. Optional:
-   * seasons only the provider knows about carry none.
-   */
+
   downloadedEpisodes?: number;
   /** Distinct episodes queued or transferring, not already downloaded. */
   downloadingEpisodes?: number;
@@ -129,13 +91,7 @@ export interface TitleLibraryState {
   status: string | null;
   cursorSeason: number | null;
   cursorEpisode: number | null;
-  /**
-   * Exactly what `POST /api/watchlist` needs to add this work, prepared
-   * server-side so the client never has to invent a catalog id. `externalId`
-   * reuses the real catalog id when a cached metadata row agrees with this
-   * work, and falls back to `work:<workKey>` — stable, and namespaced so it
-   * can never collide with a TMDB or AniList id.
-   */
+
   addPayload: {
     mediaType: string;
     externalId: string;
@@ -169,12 +125,7 @@ export interface WorkIds {
 export interface TitleDetailPayload {
   workKey: string;
   title: string;
-  /**
-   * Alternate provider names for this work — AniList romaji/native and other
-   * verified aliases. Threaded into the episode grab ladder so anime is
-   * acquirable under the name indexers actually carry, not just its English
-   * label (BUG-010). Empty when the provider offers none.
-   */
+
   aliases: string[];
   /** Every labelled name a grab of this title searches and matches with (the saved work's, else the provider's). */
   names: WorkName[];
@@ -191,42 +142,20 @@ export interface TitleDetailPayload {
   isSeries: boolean;
   overview: string | null;
   rating: number | null;
-  /**
-   * Which provider supplied {@link rating}, from first paint. The hero labels
-   * the payload's score with this and never with the extras' source, which may
-   * describe a different provider's score. Null when nothing records it.
-   */
+
   ratingSource?: TitleExtrasPayload["ratingSource"];
   posterUrl: string | null;
   backdropUrl: string | null;
-  /**
-   * Primary release / first-air date as an ISO string, or null when unknown.
-   * A date strictly in the future gates the page visually (grayed, "Coming
-   * {date}", disabled actions). Unknown dates are never gated.
-   */
+
   releaseDate: string | null;
 
-  /**
-   * Title-level availability.
-   *
-   * Local state always; `fetchable` / `unavailable` only when a cached search
-   * for this exact title exists to justify the claim. `null` otherwise.
-   */
+
   availability: AvailabilityState | null;
   infoHash: string | null;
   /** 0–1 download progress when the title-level torrent is partial. */
   downloadFraction: number | null;
 
-  /**
-   * The user's acquisition state for the *work itself* — a film they sent, or
-   * a whole-series grab. Never a summary of its parts.
-   *
-   * Separate from {@link TitleSeason.transfer} and {@link TitleEpisode.transfer}
-   * because the three answer different questions and only the control that owns
-   * a scope may read it. Merging them is how a season pack at 40% ends up
-   * claiming episode 3 is 40% downloaded, and how a title with one queued
-   * episode starts describing itself as queued.
-   */
+
   transfer: TitleEpisodeTransfer | null;
   /** Present when the film's file is in the library, whatever its origin. */
   owned?: TitleOwned | null;
@@ -245,10 +174,7 @@ export interface TitleDetailPayload {
 
   library: TitleLibraryState;
 
-  /**
-   * Did anything in the database actually know this work, or is the page
-   * running on nothing but the URL? Drives honest copy, not a disabled state.
-   */
+
   known: boolean;
 
   generatedAt: string;
@@ -258,15 +184,6 @@ export interface TitleDetailPayload {
 // Extras — the second round trip
 // ---------------------------------------------------------------------------
 
-/**
- * What an episode *is*, as opposed to whether we hold it.
- *
- * Split from `TitleEpisode` because the two have different costs and different
- * failure modes. Availability is local and instant; a name and a synopsis come
- * from TMDB and may never arrive. Merging them client-side means a slow or
- * missing metadata provider degrades a row from "Nightmares" back to "S02E01"
- * instead of holding the whole page on a spinner.
- */
 export interface TitleEpisodeMeta {
   episode: number;
   name: string | null;
@@ -289,12 +206,6 @@ export interface TitleSimilar extends CatalogCardData {
   rating: number | null;
 }
 
-/**
- * The answer from `GET /api/title/[workKey]/extras`.
- *
- * Every field is optional in spirit: an empty payload is a valid answer and
- * the page must render correctly without any of it.
- */
 export interface TitleExtrasPayload {
   workKey: string;
   /** The season `episodes` describes, or null when this is not a series. */
@@ -303,81 +214,30 @@ export interface TitleExtrasPayload {
   seasonCount: number | null;
   /** Every season number the provider knows about, ascending. */
   seasons: number[];
-  /**
-   * Aired episode count per season number (JSON keys are strings). A season
-   * missing from the map has an unknown aired count.
-   */
+
   airedEpisodes?: Record<string, number>;
   episodes: TitleEpisodeMeta[];
   moreLikeThis: TitleSimilar[];
-  /**
-   * An anime sequel entry's show: its first season's page. This page numbers
-   * its episodes as that show does (Season 2 episode 1). Absent otherwise.
-   */
+
   partOf?: TitleSimilar;
-  /**
-   * Synopsis and score from the resolved provider entity. A fallback for the
-   * base payload, which carries these only from local data it can vouch for and
-   * so leaves them null when the one cached row was a different work.
-   */
+
   overview: string | null;
   rating: number | null;
-  /**
-   * Primary release / first-air date from the resolved provider entity. The
-   * base payload carries one only for works already in the local catalog, so
-   * this is what gates a future title opened straight from search.
-   */
+
   releaseDate: string | null;
-  /**
-   * True when this is a movie that has had a theatrical/premiere release but
-   * no past Digital (4), Physical (5) or TV (6) home release.
-   *
-   * Only set to true when the TMDB release_dates endpoint actually responded
-   * AND the film's primary release date is in the past. The default (false)
-   * means "unknown or not applicable" — the UI must never gate on this flag
-   * unless the server explicitly set it.
-   *
-   * Series are never in a theatrical window; this is always false for them.
-   */
+
   inTheatricalWindow: boolean;
-  /**
-   * The earliest upcoming home release date (YYYY-MM-DD) when the film is in
-   * its theatrical window, or null when none is known. When present, the chip
-   * reads "Digital Aug 2026" rather than the generic "In cinemas".
-   */
+
   nextHomeReleaseAt: string | null;
-  /**
-   * Genre names from the resolved provider entity, e.g.
-   * `["Sci-Fi & Fantasy", "Drama"]`. Empty array when unknown — the hero simply
-   * omits the genre line rather than showing a placeholder.
-   */
+
   genres: string[];
-  /**
-   * TMDB vote count backing {@link rating}. Null when unknown or zero — a score
-   * with no votes behind it is not a rating worth a count.
-   */
+
   voteCount: number | null;
-  /**
-   * Which provider supplied {@link rating}.
-   *
-   * The hero badge prints this verbatim, so it must never be guessed. Without a
-   * TMDB key the score can come from AniList, TVmaze or iTunes instead, and
-   * labelling an AniList score "TMDB" is exactly the kind of confident-but-wrong
-   * attribution this codebase refuses elsewhere. Absent means the TMDB path,
-   * which is the only source that existed when this field was introduced.
-   */
+
   ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | "cinemeta" | null;
-  /**
-   * Content certification for the US audience, e.g. `"TV-MA"` (series) or
-   * `"PG-13"` (film). Falls back to the first available region when TMDB has no
-   * US entry. Null when unknown.
-   */
+
   certification: string | null;
-  /**
-   * TMDB `original_language` as an **uppercased ISO-639-1 code** ready for
-   * display, e.g. `"EN"`, `"JA"`. Uppercased here (not raw) so the hero prints
-   * it as a badge without further transformation. Null when unknown.
-   */
+
   originalLanguage: string | null;
   /** False when there was no usable provider match — drives nothing but copy. */
   resolved: boolean;
@@ -388,11 +248,7 @@ export interface TitleExtrasPayload {
 export interface TitleGrabResponse {
   ok: boolean;
   message: string;
-  /**
-   * The work the download went to. It differs from the page's key when the page
-   * is another work's (`doctor-who-2005` for `doctor-who-2005-tv`); the page
-   * then follows it in place.
-   */
+
   workKey?: string | null;
   retryAfterSeconds?: number;
   /** Set when no release could be chosen: the search we used, for "Pick a release yourself". */
@@ -400,24 +256,11 @@ export interface TitleGrabResponse {
   /** The release that was actually sent, when one was. */
   title?: string | null;
   savePath?: string | null;
-  /**
-   * The release that was sent, addressable.
-   *
-   * Present whenever the pipeline chose something, including
-   * `already_active`.
-   */
+
   infoHash?: string | null;
-  /**
-   * Set only when a storage limit refused the grab. Carries which limit it was,
-   * whether the owner may knowingly override it, the real figures, and where
-   * the setting lives — so the UI can offer a choice instead of a dead end.
-   */
+
   storage?: StorageOverrideFacts | null;
-  /**
-   * The download was admitted into the chronological queue instead of starting
-   * at once, because the active-download cap was already full. Nothing is
-   * transferring for it yet.
-   */
+
   queued?: boolean;
   /** 1-based place in that queue, when known. */
   queuePosition?: number | null;
@@ -426,11 +269,7 @@ export interface TitleGrabResponse {
 /** What a season-level one-click grab answers. */
 interface TitleSeasonEpisodeTransfer {
   episode: number;
-  /**
-   * `queued` means the engine accepted the episode and placed it in the
-   * chronological download queue — admitted, ordered, but not transferring
-   * yet. It is a success, not a slower `downloading`.
-   */
+
   status: "downloading" | "queued" | "failed";
   infoHash: string | null;
   error: string | null;
@@ -445,14 +284,8 @@ export interface TitleSeasonGrabResponse {
   queued?: boolean;
   retryAfterSeconds?: number;
   report?: SeasonGrabReport | null;
-  /**
-   * Exact episode outcomes used by the route to persist card-level transfer
-   * state. The route removes this internal field before returning JSON.
-   */
+
   episodeTransfers?: TitleSeasonEpisodeTransfer[];
-  /**
-   * Set only when a storage limit refused every send. Same shape as a single
-   * episode grab so the title page can reuse the cap-override dialog.
-   */
+
   storage?: StorageOverrideFacts | null;
 }

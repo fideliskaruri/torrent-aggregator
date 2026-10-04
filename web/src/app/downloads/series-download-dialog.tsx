@@ -1,6 +1,3 @@
-/**
- * Season and episode details for one series download.
- */
 import { useId, useMemo } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +30,7 @@ import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
 import { WantedDetails } from "./wanted-details";
 import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
+import { formatEpisodeNumber, formatSeasonLabel } from "@/lib/library/cursor";
 
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
 export interface SeriesDownloadDialogProps {
@@ -65,7 +63,7 @@ export interface SeriesDownloadDialogProps {
 }
 
 function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "label">) {
-  return season.season != null ? `Season ${season.season}` : season.label;
+  return season.season != null ? `Season ${formatSeasonLabel(season.season).slice(1)}` : season.label;
 }
 
 /** The dialog's seasons as switcher options: label, mini bar and failed count. */
@@ -103,7 +101,7 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
 
 function episodeLabel(entry: GroupEntry<ClientTorrent>, season: SeasonBucket<ClientTorrent>) {
   return entry.episode != null
-    ? `E${String(entry.episode).padStart(2, "0")}`
+    ? `E${formatEpisodeNumber(entry.episode)}`
     : entry.isSeasonPack
       ? `${seasonLabelFor(season)} pack`
       : (entry.episodeLabel ?? releaseDisplayFacts(entry.torrent).title);

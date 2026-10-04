@@ -1,3 +1,5 @@
+import { formatEpisodeLabel, formatSeasonLabel } from "@/lib/library/cursor";
+
 export interface EpisodeInfo {
   season?: number;
   episode?: number;
@@ -75,8 +77,8 @@ function parseEpisodeBase(title: string): EpisodeInfo {
         : {}),
       label:
         absoluteEpisode != null && absoluteEpisode !== episode
-          ? `S${pad(season)}E${pad(episode)} · absolute ${absoluteEpisode}`
-          : `S${pad(season)}E${pad(episode)}`,
+          ? `${formatEpisodeLabel(season, episode)} · absolute ${absoluteEpisode}`
+          : formatEpisodeLabel(season, episode),
       isBatch: false,
       isSeasonPack: false,
       isMultiSeason: false,
@@ -96,8 +98,8 @@ function parseEpisodeBase(title: string): EpisodeInfo {
       season: from,
       episode: undefined,
       label: multi
-        ? `S${pad(from)}-S${pad(to)} pack`
-        : `S${pad(from)} pack`,
+        ? `${formatSeasonLabel(from)}-${formatSeasonLabel(to)} pack`
+        : `${formatSeasonLabel(from)} pack`,
       isBatch: true,
       isSeasonPack: true,
       isMultiSeason: multi,
@@ -117,7 +119,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
       return {
         season: from,
         episode: undefined,
-        label: `S${pad(from)}-S${pad(to)} pack`,
+        label: `${formatSeasonLabel(from)}-${formatSeasonLabel(to)} pack`,
         isBatch: true,
         isSeasonPack: true,
         isMultiSeason: true,
@@ -131,7 +133,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
       season: seasonPack ? parseInt(seasonPack[1], 10) : undefined,
       episode: undefined,
       label: seasonPack
-        ? `S${pad(parseInt(seasonPack[1], 10))} pack`
+        ? `${formatSeasonLabel(parseInt(seasonPack[1], 10))} pack`
         : "Batch",
       isBatch: true,
       isSeasonPack: true,
@@ -147,7 +149,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode,
-      label: `S${pad(season)}E${pad(episode)}`,
+      label: formatEpisodeLabel(season, episode),
       isBatch: false,
       isSeasonPack: false,
       isMultiSeason: false,
@@ -162,7 +164,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode,
-      label: `S${pad(season)}E${pad(episode)}`,
+      label: formatEpisodeLabel(season, episode),
       isBatch: false,
       isSeasonPack: false,
       isMultiSeason: false,
@@ -179,7 +181,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode,
-      label: `S${pad(season)} Ep ${episode}`,
+      label: formatEpisodeLabel(season, episode),
       isBatch: false,
       isSeasonPack: false,
       isMultiSeason: false,
@@ -196,7 +198,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode,
-      label: `S${pad(season)} Ep ${episode}`,
+      label: formatEpisodeLabel(season, episode),
       isBatch: false,
       isSeasonPack: false,
       isMultiSeason: false,
@@ -216,7 +218,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
       return {
         season,
         episode,
-        label: `S${pad(season)} Ep ${episode}`,
+        label: formatEpisodeLabel(season, episode),
         isBatch: false,
         isSeasonPack: false,
         isMultiSeason: false,
@@ -248,7 +250,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
         return {
           season,
           episode,
-          label: `S${pad(season)} Ep ${episode}`,
+          label: formatEpisodeLabel(season, episode),
           isBatch: false,
           isSeasonPack: false,
           isMultiSeason: false,
@@ -295,7 +297,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
           return {
             season,
             episode,
-            label: `S${pad(season)} Ep ${episode}`,
+            label: formatEpisodeLabel(season, episode),
             isBatch: false,
             isSeasonPack: false,
             isMultiSeason: false,
@@ -325,7 +327,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode: undefined,
-      label: `S${pad(season)} pack`,
+      label: `${formatSeasonLabel(season)} pack`,
       isBatch: true,
       isSeasonPack: true,
       isMultiSeason: false,
@@ -337,7 +339,7 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     return {
       season,
       episode: undefined,
-      label: `S${pad(season)} pack`,
+      label: `${formatSeasonLabel(season)} pack`,
       isBatch: true,
       isSeasonPack: true,
       isMultiSeason: false,
@@ -382,9 +384,5 @@ export function classifySpecialRelease(
 export function seasonFolderSegment(ep: EpisodeInfo): string | null {
   if (ep.season == null) return null;
   if (ep.isMultiSeason) return null;
-  return `Season ${String(ep.season).padStart(2, "0")}`;
-}
-
-function pad(n: number) {
-  return n.toString().padStart(2, "0");
+  return `Season ${formatSeasonLabel(ep.season).slice(1)}`;
 }

@@ -2,6 +2,7 @@ import type { DownloadStatus, ClientTorrent } from "./types";
 import { isDownloaded, isDownloading, isError } from "./grouping";
 import { summarizeStatus } from "./status-rollup";
 import type { StatusCounts } from "./grouping";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 
 export interface ReleaseDisplayFacts {
   title: string;
@@ -12,7 +13,7 @@ export interface ReleaseDisplayFacts {
 
 export function releaseDisplayFacts(torrent: ClientTorrent): ReleaseDisplayFacts {
   const episodeLabel = torrent.season != null && torrent.episode != null
-    ? `S${String(torrent.season).padStart(2, "0")}E${String(torrent.episode).padStart(2, "0")}`
+    ? formatEpisodeLabel(torrent.season, torrent.episode)
     : null;
   return {
     title: torrent.workTitle?.trim() || torrent.name,

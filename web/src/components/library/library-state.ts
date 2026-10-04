@@ -168,17 +168,14 @@ function newEpisodesOnly(item: LibraryStateItem): boolean {
 
 function nextEpisodeLabel(item: LibraryStateItem): string | null {
   if (item.cursorSeason != null && item.cursorEpisode != null) {
-    return `S${pad(item.cursorSeason)}E${pad(item.cursorEpisode)}`;
+    return formatEpisodeLabel(item.cursorSeason, item.cursorEpisode);
   }
 
   const hint = item.nextEpisodeHint?.replace(item.title, "").trim();
   const match = hint?.match(/S(\d{1,3})E(\d{1,3})/i);
   if (match) {
-    return `S${pad(Number(match[1]))}E${pad(Number(match[2]))}`;
+    return formatEpisodeLabel(Number(match[1]), Number(match[2]));
   }
   return hint || null;
 }
-
-function pad(value: number): string {
-  return String(Math.max(0, Math.trunc(value))).padStart(2, "0");
-}
+import { formatEpisodeLabel } from "@/lib/library/cursor";

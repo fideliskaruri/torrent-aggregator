@@ -56,13 +56,23 @@ export function TitleDetail(props: TitleDetailProps) {
             retrying={refreshing}
           />
         </div>
-      ) : !data ? (
+      ) : data && !data.known ? (
         <div className="container-app py-10">
           <TfEmptyState
             icon={Search}
             title="Nothing to show for this title"
             description="The page loaded but the server returned no details for it."
             actionLabel="Back to browse"
+            actionHref="/"
+          />
+        </div>
+      ) : !data ? (
+        <div className="container-app py-10">
+          <TfEmptyState
+            icon={Search}
+            title="We couldn't find this title"
+            description="Try another search or browse the catalog."
+            actionLabel="Back to Browse"
             actionHref="/"
           />
         </div>

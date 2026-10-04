@@ -38,8 +38,7 @@ function formatEpisode(
 ): string | null {
   if (season == null || episode == null) return null;
   if (!Number.isFinite(season) || !Number.isFinite(episode)) return null;
-  const pad = (n: number) => String(Math.trunc(n)).padStart(2, "0");
-  return `S${pad(season)}E${pad(episode)}`;
+  return formatEpisodeLabel(Math.trunc(season), Math.trunc(episode));
 }
 
 /**
@@ -110,3 +109,4 @@ export function activityLine(row: LibraryCardRow): ActivityLine | null {
 export function needsAttention(row: LibraryCardRow): boolean {
   return activityLine(row)?.kind === "update";
 }
+import { formatEpisodeLabel } from "@/lib/library/cursor";

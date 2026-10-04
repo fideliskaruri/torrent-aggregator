@@ -12,6 +12,7 @@ import { usePreferredQuality } from "./use-preferred-quality";
 import { type TitleAction,type TitleActionStatus } from "./title-actions";
 import { type SeasonGrabStatus } from "./season-grab-state";
 import { openReleasePicker } from "@/components/releases/release-picker-store";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 import type { TitleDetailPayload,TitleExtrasPayload,TitleProgressPayload } from "./types";
 
 const DOWNLOAD_KEY = "download";
@@ -115,8 +116,7 @@ export function useTitleContentState({
   const [removingEpisode, setRemovingEpisode] = useState<{ season: number; episode: number } | null>(null);
   const [removingBusy, setRemovingBusy] = useState(false);
   const episodeName = useCallback(
-    (season: number, episode: number) =>
-      `${title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`,
+    (season: number, episode: number) => `${title} ${formatEpisodeLabel(season, episode)}`,
     [title],
   );
   const handleWantedAction = useCallback(

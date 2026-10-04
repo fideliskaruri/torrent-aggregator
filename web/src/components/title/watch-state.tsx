@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 import type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 
 /** Plain words for Jellyfin progress, or null when there is nothing to say. */
@@ -12,7 +13,7 @@ export function watchStateLabel(state: JellyfinWatchState | null | undefined): s
 }
 
 export function nextUpLabel(next: JellyfinNextUp | null | undefined): string | null {
-  return next ? `Up next: S${String(next.season).padStart(2, "0")}E${String(next.episode).padStart(2, "0")}` : null;
+  return next ? `Up next: ${formatEpisodeLabel(next.season, next.episode)}` : null;
 }
 
 /** One chip for Jellyfin watch progress and next up, used on title rows and library cards. */

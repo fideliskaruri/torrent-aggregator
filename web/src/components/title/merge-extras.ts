@@ -16,6 +16,7 @@
  * aired, or a season tab that shows another season's files.
  */
 import { formatWhen } from "@/lib/format";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 import type {
   TitleEpisode,
   TitleEpisodeMeta,
@@ -112,7 +113,7 @@ function blankEpisode(season: number, episode: number): TitleEpisode {
   return {
     season,
     episode,
-    label: `S${pad(season)}E${pad(episode)}`,
+    label: formatEpisodeLabel(season, episode),
     availability: null,
     infoHash: null,
     filePath: null,
@@ -187,10 +188,6 @@ export function formatAirDate(airDate: string | null): string | null {
   return formatWhen(airDate, { style: "air" });
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
 function episodeKey(season: number, episode: number): string {
-  return `S${pad(season)}E${pad(episode)}`;
+  return formatEpisodeLabel(season, episode);
 }
