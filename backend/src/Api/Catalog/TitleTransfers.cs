@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
@@ -11,129 +12,95 @@ internal sealed record TitleTransfer(string Status, string State, double Progres
 internal sealed record TitleTransferProjection(TitleTransfer? Film,
     Dictionary<string, TitleTransfer> Seasons, Dictionary<string, TitleTransfer> Episodes);
 
+/// The title page's view of its targets, built on the same state rule as the downloads list.
 internal static class TitleTransfers
 {
     internal static async Task<TitleTransferProjection> ReadAsync(string workId, TargetPipeline pipeline,
         TorrentFlowDbContext db, CancellationToken ct)
     {
         var snapshot = await pipeline.ReadAsync(ct);
-        var links = await db.DownloadTargets.AsNoTracking().ToListAsync(ct);
-        var files = await db.DownloadFiles.AsNoTracking().ToListAsync(ct);
-        var media = await db.MediaFiles.AsNoTracking().Where(file => file.WorkId == workId).ToListAsync(ct);
-        var episodes = await db.Episodes.AsNoTracking().ToDictionaryAsync(episode => episode.Id, ct);
-        var seasons = await db.Seasons.AsNoTracking().ToDictionaryAsync(season => season.Id, ct);
-        var downloads = snapshot.Downloads.ToDictionary(download => download.Id);
-        var targets = snapshot.Targets.Where(target => target.WorkId == workId &&
-                target.State != TargetState.Removed)
+        var targets = snapshot.Targets.Where(target => target.WorkId == workId && target.State != TargetState.Removed)
             .GroupBy(target => target.EpisodeId)
-            .Select(group => group.OrderByDescending(target => target.UpdatedAt)
-                .ThenByDescending(target => target.CreatedAt).First())
+            .Select(group => group.OrderByDescending(target => target.UpdatedAt).First())
             .ToArray();
+        var targetIds = targets.Select(target => target.Id).ToArray();
+        var links = await db.DownloadTargets.AsNoTracking().Where(link => targetIds.Contains(link.TargetId))
+            .ToListAsync(ct);
+        var downloadIds = links.Select(link => link.DownloadId).Distinct().ToArray();
+        var files = await db.DownloadFiles.AsNoTracking().Where(file => downloadIds.Contains(file.DownloadId))
+            .ToListAsync(ct);
+        var present = (await db.MediaFiles.AsNoTracking()
+                .Where(file => file.WorkId == workId && file.Status == FilePresence.Present)
+                .Select(file => file.EpisodeId).ToListAsync(ct)).ToHashSet();
+        var seasons = await db.Seasons.AsNoTracking().Where(season => season.WorkId == workId)
+            .ToDictionaryAsync(season => season.Id, season => season.Number, ct);
+        var seasonIds = seasons.Keys.ToArray();
+        var episodes = await db.Episodes.AsNoTracking().Where(episode => seasonIds.Contains(episode.SeasonId))
+            .ToDictionaryAsync(episode => episode.Id, episode => (Season: seasons[episode.SeasonId], episode.Number), ct);
+        var downloads = snapshot.Downloads.ToDictionary(download => download.Id);
         var positions = snapshot.Queue.Where(item => item.Eligible).OrderBy(item => item.Rank)
             .Select((item, index) => (item.DownloadId, Position: index + 1))
             .ToDictionary(item => item.DownloadId, item => item.Position);
 
-        string? DownloadId(TargetRow target)
-        {
-            if (target.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting)
-                return null;
-            var linked = links.Where(link => link.TargetId == target.Id)
-                .Select(link => (Link: link, Download: downloads.GetValueOrDefault(link.DownloadId)))
-                .Where(item => item.Download is not null);
-            return linked.OrderByDescending(item => item.Download!.Hash == target.ChosenReleaseHash)
-                .ThenByDescending(item => item.Link.Role == AssociationRole.Current)
-                .ThenByDescending(item => item.Link.Role == AssociationRole.Replacement)
-                .ThenByDescending(item => item.Link.CreatedAt)
-                .Select(item => item.Download!.Id).FirstOrDefault();
-        }
+        DownloadRow? DownloadFor(TargetRow target) =>
+            target.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting ? null :
+            links.Where(link => link.TargetId == target.Id && downloads.ContainsKey(link.DownloadId))
+                .OrderByDescending(link => downloads[link.DownloadId].Hash == target.ChosenReleaseHash)
+                .ThenByDescending(link => link.Role == AssociationRole.Current)
+                .ThenByDescending(link => link.CreatedAt)
+                .Select(link => downloads[link.DownloadId]).FirstOrDefault();
 
-        TitleTransfer CreateTransfer(IReadOnlyCollection<TargetRow> members, string? downloadId)
+        TitleTransfer Transfer(IReadOnlyCollection<TargetRow> members, DownloadRow? download)
         {
             var member = members.OrderByDescending(target => target.UpdatedAt).First();
-            var episode = member.EpisodeId is null ? null : episodes.GetValueOrDefault(member.EpisodeId);
-            var present = media.Any(file => file.EpisodeId == member.EpisodeId && file.Status == FilePresence.Present);
-            var download = downloadId is null ? null : downloads.GetValueOrDefault(downloadId);
-            var live = download is null ? null : snapshot.Live.FirstOrDefault(item => item.DownloadId == download.Id);
-            var selected = download is null ? [] : files.Where(file => file.DownloadId == download.Id &&
-                file.Selected && file.Role != FileRole.Unwanted && members.Any(target => target.Id == file.TargetId))
-                .ToArray();
-            var failed = live?.Failure is not null ||
-                member.State == TargetState.Waiting && member.ReasonCode == WaitReason.OwnerPickRequired ||
-                member.State == TargetState.Done && !present;
-            var ready = member.State == TargetState.Done && present;
-            var state = ready ? "complete" : failed ? "error" : member.State switch
+            var owned = present.Contains(member.EpisodeId);
+            if (member.State == TargetState.Done)
+                return owned ? new("downloaded", "downloaded", 1, download?.Hash, FinalPath(members, download), null)
+                    : new("failed", "failed", 0, download?.Hash, null, "The downloaded file is missing.");
+            if (download is null)
+                return member.ReasonCode == WaitReason.OwnerPickRequired
+                    ? new("failed", "failed", 0, null, null, member.ReasonText)
+                    : new("queued", WaitingState(member), 0, null, null, null);
+
+            var live = snapshot.Live.FirstOrDefault(item => item.DownloadId == download.Id);
+            var state = DownloadRowView.State(false, member.IsPaused(), member.State == TargetState.Filing, live);
+            if (state == "error")
+                return new("failed", "failed", 0, download.Hash, null, live?.Failure?.Message ?? member.ReasonText);
+            if (state is "queued" or "paused")
             {
-                TargetState.Filing => "finishing",
-                TargetState.Fetching when live?.Active == true && !live.Complete => "downloading",
-                TargetState.Fetching when live?.Intent == DownloadIntent.Queued ||
-                    download is not null && positions.ContainsKey(download.Id) => "queued",
-                TargetState.Fetching => "error",
-                _ => "waiting",
-            };
-            var error = ready ? null : live?.Failure?.Message ??
-                (member.State == TargetState.Done && !present ? "The downloaded file is missing." :
-                    failed ? member.ReasonText : null);
-            int? queuePosition = download is not null && positions.TryGetValue(download.Id, out var position)
-                ? position : null;
-            var label = DownloadRowView.Status(state, download is null ? null :
-                queuePosition, false, member.ReasonText, error);
-            var titleStatus = label.Status switch
-            {
-                "ready" => "downloaded",
-                "downloading" or "finishing" => "downloading",
-                "error" => "failed",
-                _ => "queued",
-            };
-            var titleState = label.Status switch
-            {
-                "ready" => "downloaded",
-                "downloading" or "finishing" => "downloading",
-                "error" => "failed",
-                "queued" when state == "queued" => "queued",
-                _ => WaitingState(member),
-            };
-            var mappedFiles = selected.Where(file => file.TargetId == member.Id).ToArray();
+                int? position = positions.TryGetValue(download.Id, out var value) ? value : null;
+                return new("queued", "queued", 0, download.Hash, null, null, position);
+            }
+            var selected = files.Where(file => file.DownloadId == download.Id && file.Selected &&
+                file.Role != FileRole.Unwanted && members.Any(target => target.Id == file.TargetId)).ToArray();
             var total = selected.Sum(file => Math.Max(0, file.ExpectedBytes));
             var completed = selected.Sum(file => file.Filed ? file.ExpectedBytes :
                 live?.Files.FirstOrDefault(item => item.Index == file.FileIndex)?.CompletedBytes ?? 0);
-            var progress = ready || member.State == TargetState.Filing ? 1d :
-                member.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting ? 0d :
-                total > 0 ? Math.Clamp((double)completed / total, 0, 1) : 0d;
-            return new(titleStatus, titleState, progress, download?.Hash,
-                members.Count == 1 ? mappedFiles.FirstOrDefault()?.FinalPath : null, error,
-                label.Status == "queued" ? queuePosition : null);
+            var progress = state == "finishing" ? 1d : total > 0 ? Math.Clamp((double)completed / total, 0, 1) : 0d;
+            return new("downloading", "downloading", progress, download.Hash, null, null);
         }
 
-        var episodeTransfers = new Dictionary<string, TitleTransfer>();
-        var filmTargets = targets.Where(target => target.EpisodeId is null).ToArray();
-        var film = filmTargets.Length == 0 ? null : CreateTransfer(filmTargets, DownloadId(filmTargets[0]));
-        foreach (var target in targets.Where(target => target.EpisodeId is not null))
-        {
-            if (!episodes.TryGetValue(target.EpisodeId!, out var episode) ||
-                !seasons.TryGetValue(episode.SeasonId, out var season)) continue;
-            var seasonKey = season.Number.ToString("00", System.Globalization.CultureInfo.InvariantCulture);
-            var episodeKey = episode.Number.ToString("00", System.Globalization.CultureInfo.InvariantCulture);
-            var key = $"S{seasonKey}E{episodeKey}";
-            episodeTransfers[key] = CreateTransfer([target], DownloadId(target));
-        }
+        string? FinalPath(IReadOnlyCollection<TargetRow> members, DownloadRow? download) =>
+            members.Count != 1 || download is null ? null :
+            files.FirstOrDefault(file => file.DownloadId == download.Id && file.TargetId == members.First().Id)?.FinalPath;
 
+        var film = targets.FirstOrDefault(target => target.EpisodeId is null);
+        var episodeTargets = targets
+            .Where(target => target.EpisodeId is not null && episodes.ContainsKey(target.EpisodeId))
+            .Select(target => (Target: target, Episode: episodes[target.EpisodeId!], Download: DownloadFor(target)))
+            .ToArray();
+        var episodeTransfers = episodeTargets.ToDictionary(
+            item => $"S{item.Episode.Season.ToString("00", CultureInfo.InvariantCulture)}E{item.Episode.Number.ToString("00", CultureInfo.InvariantCulture)}",
+            item => Transfer([item.Target], item.Download));
         var seasonTransfers = new Dictionary<string, TitleTransfer>();
-        foreach (var group in targets.Where(target => target.EpisodeId is not null)
-                     .Select(target => (Target: target, DownloadId: DownloadId(target)))
-                     .Where(item => item.DownloadId is not null)
-                     .GroupBy(item => item.DownloadId!))
+        foreach (var pack in episodeTargets.Where(item => item.Download is not null).GroupBy(item => item.Download!.Id))
         {
-            var members = group.Select(item => item.Target).Where(target => target.EpisodeId is not null &&
-                episodes.TryGetValue(target.EpisodeId, out var episode) &&
-                seasons.TryGetValue(episode.SeasonId, out _)).ToArray();
-            if (members.Length < 2) continue;
-            var seasonNumbers = members.Select(target => seasons[episodes[target.EpisodeId!].SeasonId].Number)
-                .Distinct().ToArray();
-            if (seasonNumbers.Length != 1) continue;
-            var key = seasonNumbers[0].ToString(System.Globalization.CultureInfo.InvariantCulture);
-            seasonTransfers[key] = CreateTransfer(members, group.Key);
+            var seasonNumbers = pack.Select(item => item.Episode.Season).Distinct().ToArray();
+            if (pack.Count() < 2 || seasonNumbers.Length != 1) continue;
+            seasonTransfers[seasonNumbers[0].ToString(CultureInfo.InvariantCulture)] =
+                Transfer([.. pack.Select(item => item.Target)], pack.First().Download);
         }
-        return new(film, seasonTransfers, episodeTransfers);
+        return new(film is null ? null : Transfer([film], DownloadFor(film)), seasonTransfers, episodeTransfers);
     }
 
     private static string WaitingState(TargetRow target)
@@ -142,9 +109,6 @@ internal static class TitleTransfers
         if (label.Contains("episode list", StringComparison.OrdinalIgnoreCase) ||
             label.Contains("season list", StringComparison.OrdinalIgnoreCase))
             return "waiting_season_list";
-        if (label.Contains("English", StringComparison.OrdinalIgnoreCase) ||
-            label.Contains("non-English", StringComparison.OrdinalIgnoreCase))
-            return "waiting_english";
-        return "looking";
+        return label.Contains("English", StringComparison.OrdinalIgnoreCase) ? "waiting_english" : "looking";
     }
 }

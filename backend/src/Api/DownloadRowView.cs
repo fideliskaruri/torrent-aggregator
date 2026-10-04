@@ -6,6 +6,18 @@ internal sealed record DownloadRowStatus(string Status, string StatusLabel);
 
 internal static class DownloadRowView
 {
+    internal static string State(bool done, bool paused, bool filing, EngineSnapshot? live)
+    {
+        var finishing = !done && !paused && (live?.Complete == true || filing);
+        var failed = !finishing && (live?.Failure is not null || live is null && !done && !paused);
+        return done ? "complete" : paused ? "paused" : finishing ? "finishing" : failed ? "error" :
+            live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
+                live.StalledProgress ? "stalledDL" : "downloading" :
+            live?.Intent == DownloadIntent.Queued ? "queued" :
+            live?.MetadataAvailable == false ? "metaDL" :
+            live?.StalledProgress == true || live?.StalledMetadata == true ? "stalledDL" : "queued";
+    }
+
     internal static DownloadRowStatus Status(string state, int? queuePosition, bool full,
         string? waitingReason, string? error)
     {
