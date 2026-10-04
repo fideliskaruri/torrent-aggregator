@@ -189,14 +189,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 rawIntent?.State == RawDownloadState.Done;
             var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                 live?.Intent == DownloadIntent.Paused;
-            var finishing = !done && !paused && (live?.Complete == true || target?.State == TargetState.Filing);
-            var failed = !finishing && (live?.Failure is not null || live is null && !done && !paused);
-            var state = done ? "complete" : paused ? "paused" : finishing ? "finishing" : failed ? "error" :
-                live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
-                    live.StalledProgress ? "stalledDL" : "downloading" :
-                live?.Intent == DownloadIntent.Queued ? "queued" :
-                live?.MetadataAvailable == false ? "metaDL" :
-                live?.StalledProgress == true || live?.StalledMetadata == true ? "stalledDL" : "queued";
+            var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live);
+            var failed = state == "error";
             var selected = files.Where(f => f.DownloadId == download.Id && f.Role != FileRole.Unwanted).ToArray();
             var size = selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
                 live?.SelectedBytes ?? release?.TotalBytes ?? 0;
