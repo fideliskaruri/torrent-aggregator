@@ -10,7 +10,7 @@ using TorrentFlow.Store;
 namespace TorrentFlow.Store.Migrations
 {
     [DbContext(typeof(TorrentFlowDbContext))]
-    [Migration("20261004081729_InitialSchema")]
+    [Migration("20261004145358_InitialSchema")]
     partial class InitialSchema
     {
         /// <inheritdoc />
@@ -1553,6 +1553,10 @@ namespace TorrentFlow.Store.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("createdAt");
 
+                    b.Property<int?>("Episode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("episode");
+
                     b.Property<string>("NextTryAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("nextTryAt");
@@ -1935,10 +1939,6 @@ namespace TorrentFlow.Store.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AudioLanguage")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("audioLanguage");
-
                     b.Property<string>("AutoRuleId")
                         .HasColumnType("TEXT")
                         .HasColumnName("autoRuleId");
@@ -1964,6 +1964,10 @@ namespace TorrentFlow.Store.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("createdBy");
+
+                    b.Property<bool>("DownloadNow")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("downloadNow");
 
                     b.Property<string>("EpisodeId")
                         .HasColumnType("TEXT")
@@ -2002,39 +2006,18 @@ namespace TorrentFlow.Store.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("nextTryAt");
 
-                    b.Property<string>("NowAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("nowAt");
-
                     b.Property<string>("Origin")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("origin");
 
-                    b.Property<bool>("OwnerRanked")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ownerRanked");
-
                     b.Property<string>("PickedReleaseHash")
                         .HasColumnType("TEXT")
                         .HasColumnName("pickedReleaseHash");
 
-                    b.Property<long>("PolicyRevision")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("policyRevision");
-
                     b.Property<int?>("PreferredResolution")
                         .HasColumnType("INTEGER")
                         .HasColumnName("preferredResolution");
-
-                    b.Property<string>("Priority")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("priority");
-
-                    b.Property<long>("Rank")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("rank");
 
                     b.Property<string>("ReasonCode")
                         .HasColumnType("TEXT")
@@ -2100,7 +2083,7 @@ namespace TorrentFlow.Store.Migrations
                         .IsUnique()
                         .HasFilter("episodeId IS NOT NULL");
 
-                    b.HasIndex(new[] { "State", "NextTryAt", "Rank" }, "IX_Target_state_nextTryAt_rank_all");
+                    b.HasIndex(new[] { "State", "NextTryAt", "CreatedAt" }, "IX_Target_state_nextTryAt_createdAt_all");
 
                     b.HasIndex(new[] { "WorkId" }, "IX_Target_workId_episodeIdISNULL")
                         .IsUnique()
@@ -2108,6 +2091,8 @@ namespace TorrentFlow.Store.Migrations
 
                     b.ToTable("Target", null, t =>
                         {
+                            t.HasCheckConstraint("CK_Target_downloadNow", "\"downloadNow\" IN (0,1)");
+
                             t.HasCheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
 
                             t.HasCheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
@@ -2116,23 +2101,17 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade','hunter')");
 
-                            t.HasCheckConstraint("CK_Target_ownerRanked", "\"ownerRanked\" IN (0,1)");
-
-                            t.HasCheckConstraint("CK_Target_policyRevision", "\"policyRevision\" >= 0");
-
                             t.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
 
-                            t.HasCheckConstraint("CK_Target_priority", "\"priority\" IN ('now','ownerrank','freshrelease','request','backcatalogue','upgradewatch')");
-
-                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
+                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused')");
 
                             t.HasCheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
 
                             t.HasCheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
 
-                            t.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
+                            t.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
 
-                            t.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
+                            t.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
 
                             t.HasCheckConstraint("CK_Target_substantiveMisses", "\"substantiveMisses\" >= 0");
 
@@ -2553,10 +2532,6 @@ namespace TorrentFlow.Store.Migrations
                 {
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
-
-                    b.Property<string>("AudioLanguage")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("audioLanguage");
 
                     b.Property<long?>("MaxBytesPerItem")
                         .HasColumnType("INTEGER")

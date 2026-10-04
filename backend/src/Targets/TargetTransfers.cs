@@ -42,7 +42,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var library = scope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
             var current = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, ct);
-            targets = [.. targets.Where(t => current.Any(c => c.Id == t.Id && c.State == TargetState.Planning &&
+            targets = [.. targets.Where(t => current.Any(c => c.Id == t.Id && c.State == TargetState.Searching &&
                 c.LeaseToken == t.LeaseToken))];
             if (targets.IsEmpty) return;
             var owned = await library.OwnedAsync(new(work.Work.Id,
@@ -94,7 +94,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     current = await store.ListAsync<TargetRow>(row => row.WorkId == work.Work.Id, ct);
                     var claimedTargets = targets.Select(t => current.Single(c => c.Id == t.Id)).ToArray();
-                    if (claimedTargets.Any(t => t.State != TargetState.Planning || targets.All(p => p.Id != t.Id ||
+                    if (claimedTargets.Any(t => t.State != TargetState.Searching || targets.All(p => p.Id != t.Id ||
                         p.LeaseToken != t.LeaseToken))) return;
                     await TargetPipeline.CommitAsync(store, [new(download, null, null),
                         .. claimedTargets.Select(t => new RowWrite(t with { State = TargetState.Fetching,
@@ -111,13 +111,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     throw new IOException("The download intent changed before it could start.");
                 var admission = new EngineAdmission(download, candidate,
                     [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
-                await engine.ApplyQueueAsync(new([])
-                {
-                    Order = TargetScheduling.Queue([.. await store.ListAsync<DownloadRow>(null, ct)],
-                        [.. await store.ListAsync<DownloadTargetRow>(null, ct)],
-                        [.. await store.ListAsync<TargetRow>(null, ct)],
-                        [.. await store.ListAsync<RawIntentRow>(null, ct)]),
-                }, ct);
+                await TargetQueue.ApplyAsync(engine, store, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
                 if (!result.Accepted)
@@ -208,7 +202,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             targets.Any(t => t.ChosenReleaseHash == d.Hash &&
                 links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id) && t.State != TargetState.Removed))
             .Select(d => targets.Where(t => links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id))
-                .All(t => t.State is TargetState.Paused or TargetState.Removed)
+                .All(t => t.IsPaused() || t.State == TargetState.Removed)
                 ? d with { Intent = DownloadIntent.Paused } : d).ToImmutableArray();
         if (resumable.Length > 0) await engine.RecoverAsync(resumable, bindings, ct);
     }
@@ -225,8 +219,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var targets = await store.ListAsync<TargetRow>(null, ct);
                 var associations = await store.ListAsync<DownloadTargetRow>(null, ct);
             var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
-            await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(downloads,
-                [.. associations], [.. targets]) }, ct);
+            await TargetQueue.ApplyAsync(engine, store, ct);
             foreach (var download in downloads)
             {
                 var members = targets.Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
@@ -258,7 +251,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     if (engine is MonoTorrentEngine removedEngine) await removedEngine.SaveDevStateAsync(ct);
                     continue;
                 }
-                foreach (var retry in members.Where(t => t.State == TargetState.Waiting &&
+                foreach (var retry in members.Where(t => t.State == TargetState.Waiting && !t.IsPaused() &&
                     t.ResumeState == TargetState.Fetching && t.NextTryAt <= DateTimeOffset.UtcNow))
                 {
                     if ((await engine.SnapshotAsync(ct)).All(s => s.DownloadId != download.Id))
@@ -271,7 +264,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     t.State == TargetState.Waiting && t.ResumeState == TargetState.Filing).ToArray();
                 var run = runnable.Length > 0 && members.Any(t => t.State == TargetState.Fetching);
                 await engine.SetIntentAsync(download.Id, run, ct);
-                var desired = members.All(t => t.State is TargetState.Paused or TargetState.Removed)
+                var desired = members.All(t => t.IsPaused() || t.State == TargetState.Removed)
                     ? DownloadIntent.Paused : run ? DownloadIntent.Run : DownloadIntent.Stopped;
                 var latestDownload = download;
                 if (download.Intent != desired && download.FinishedAt is null)

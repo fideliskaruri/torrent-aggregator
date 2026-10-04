@@ -40,10 +40,10 @@ public sealed partial class ReleasePlanner : IPlan
             }
             if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other && !raw)
             { Refuse("junk_release", "This release is a sample, camera recording, or non-feature release."); continue; }
-            if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(t, input))))
+            if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(input))))
             {
                 foreach (var target in targets)
-                    Refuse("foreign_language", LanguageRejection(AudioLanguage(target, input)),
+                    Refuse("foreign_language", LanguageRejection(AudioLanguage(input)),
                         target.Id);
                 continue;
             }
@@ -99,7 +99,8 @@ public sealed partial class ReleasePlanner : IPlan
                          v.Status == FilePresence.Missing && v.MissingConfirmedAt is null)).ToArray();
                 if (owned.Length > 0)
                 { Refuse("already_owned", "This item is already in your library.", target.Id); continue; }
-                if (target.State is TargetState.Removed or TargetState.Paused || target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
+                if (target.State == TargetState.Removed || target.IsPaused() ||
+                    target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
                 { Refuse("inactive_target", "This item is not asking for a download.", target.Id); continue; }
                 var episode = input.Work.Episodes.FirstOrDefault(e => e.Id == target.EpisodeId);
                 var season = input.Work.Seasons.FirstOrDefault(s => s.Id == episode?.SeasonId);
@@ -133,7 +134,7 @@ public sealed partial class ReleasePlanner : IPlan
                 var resolution = parsed.Quality.Resolution;
                 if (floor is not null && (resolution is null || resolution < floor))
                 { Refuse("quality_floor", $"This item requires at least {floor}p.", target.Id); continue; }
-                var language = AudioLanguage(target, input);
+                var language = AudioLanguage(input);
                 if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
                 { Refuse("foreign_language", LanguageRejection(language), target.Id); continue; }
                 var runtime = episode?.RuntimeMinutes ?? input.Work.Work.RuntimeMinutes;

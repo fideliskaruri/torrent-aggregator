@@ -26,7 +26,7 @@ public sealed partial class TargetPipeline
             var downloads = await aliasStore.ListAsync<DownloadRow>(null, ct);
             var targets = await aliasStore.ListAsync<TargetRow>(row => row.WorkId == canonical.Id, ct);
             foreach (var target in targets.Where(t =>
-                t.State is TargetState.Wanted or TargetState.Waiting or TargetState.Finding or TargetState.Checking or TargetState.Planning))
+                !t.IsPaused() && t.State is TargetState.Wanted or TargetState.Waiting or TargetState.Searching))
             {
                 var item = episodes.FirstOrDefault(e => e.Id == target.EpisodeId);
                 var itemSeason = seasons.FirstOrDefault(s => s.Id == item?.SeasonId);
@@ -44,8 +44,7 @@ public sealed partial class TargetPipeline
             var pending = (await store.ListAsync<ScopeIntentRow>(row => row.WorkId == canonical.Id, ct))
                 .Where(s => s.State == ScopeIntentState.Pending &&
                     (season is null || s.ScopeData.Seasons.Contains(season.Value)) &&
-                    (episode is null || s.Scope == RequestScope.Episodes &&
-                        int.TryParse(s.Id.Split(':')[^1], out var number) && number == episode)).ToArray();
+                    (episode is null || s.Scope == RequestScope.Episodes && s.Episode == episode)).ToArray();
             var now = DateTimeOffset.UtcNow;
             if (pending.Length > 0)
                 await CommitAsync(store, [.. pending.Select(s => new RowWrite(s with

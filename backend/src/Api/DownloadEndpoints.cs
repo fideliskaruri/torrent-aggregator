@@ -187,7 +187,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             var release = releases.FirstOrDefault(r => r.Id == download.Hash);
             var done = download.FinishedAt is not null || target?.State == TargetState.Done ||
                 rawIntent?.State == RawDownloadState.Done;
-            var paused = target?.State == TargetState.Paused || rawIntent?.State == RawDownloadState.Paused ||
+            var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                 live?.Intent == DownloadIntent.Paused;
             var failed = live?.Failure is not null || live is null && !done && !paused;
             var state = done ? "complete" : paused ? "paused" : failed ? "error" :
@@ -219,7 +219,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                 savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
                 retentionState = "kept", lane = target?.Origin == IntentOrigin.Request ? "request" : "owner",
-                forced = target?.Priority == TargetPriority.Now || rawIntent?.NowAt is not null,
+                forced = target?.DownloadNow == true || rawIntent?.NowAt is not null,
                 queuePosition = state == "queued" ? (int?)++queuePosition : null,
                 waitReason = state == "queued" && full ? "queue-full" : null,
                 waitingReason = target?.ReasonText ?? (state == "queued" ? full ?
@@ -318,8 +318,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var episodes = await db.Episodes.AsNoTracking().ToListAsync(ct);
         var seasons = await db.Seasons.AsNoTracking().ToListAsync(ct);
         var links = await db.DownloadTargets.AsNoTracking().ToListAsync(ct);
-        return snapshot.Targets.Where(t => t.State is TargetState.Wanted or TargetState.Waiting or
-            TargetState.Finding or TargetState.Checking or TargetState.Planning)
+        return snapshot.Targets.Where(t => !t.IsPaused() &&
+            t.State is TargetState.Wanted or TargetState.Waiting or TargetState.Searching)
             .Where(t => !links.Any(l => l.TargetId == t.Id && snapshot.Downloads.Any(d => d.Id == l.DownloadId)))
             .Select(t =>
         {
@@ -339,7 +339,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
             mediaType = r.Work?.Kind == WorkKind.Series ? "tv" : "movie", season = r.Season, episode = r.Episode,
             error = (string?)null, why = r.Target.ReasonText,
-            looking = r.Target.State is TargetState.Wanted or TargetState.Finding or TargetState.Checking or TargetState.Planning,
+            looking = r.Target.State is TargetState.Wanted or TargetState.Searching,
             nextAttemptAt = r.Target.NextTryAt,
         }).ToList();
         var snapshot = await targets.ReadAsync(ct);
@@ -351,8 +351,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             var work = works.FirstOrDefault(w => w.Id == intent.WorkId);
             var title = work is null ? intent.WorkId : CatalogProjection.Title(new(work,
                 [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
-            var episode = intent.Scope == RequestScope.Episodes &&
-                int.TryParse(intent.Id.Split(':')[^1], out var number) ? (int?)number : null;
+            var episode = intent.Scope == RequestScope.Episodes ? intent.Episode : null;
             foreach (var season in intent.ScopeData.Seasons.Distinct())
                 rows.Add(new
                 {

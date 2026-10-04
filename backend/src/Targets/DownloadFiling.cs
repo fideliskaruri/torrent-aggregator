@@ -17,7 +17,8 @@ internal static class DownloadFiling
         if (snapshot?.Complete != true && !retrying) return;
 
         var selected = allFiles.Where(f => f.Selected && !f.Filed && f.TargetId is not null &&
-            members.Any(t => t.Id == f.TargetId && t.State is not (TargetState.Paused or TargetState.Removed or TargetState.Done)))
+            members.Any(t => t.Id == f.TargetId && !t.IsPaused() &&
+                t.State is not (TargetState.Removed or TargetState.Done)))
             .ToArray();
         if (selected.Length == 0) return;
 

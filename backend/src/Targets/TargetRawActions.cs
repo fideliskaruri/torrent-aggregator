@@ -37,11 +37,7 @@ public sealed partial class TargetPipeline
                         Version = download.Version + 1 }, download.Version, null) }], [], ct);
             if (download is not null)
             {
-                await engine.ApplyQueueAsync(new([]) { Order = TargetScheduling.Queue(
-                    [.. await store.ListAsync<DownloadRow>(null, ct)],
-                    [.. await store.ListAsync<DownloadTargetRow>(null, ct)],
-                    [.. await store.ListAsync<TargetRow>(null, ct)],
-                    [.. await store.ListAsync<RawIntentRow>(null, ct)]) }, ct);
+                await TargetQueue.ApplyAsync(engine, store, ct);
                 await engine.SetIntentAsync(download.Id, !pause, ct);
             }
             return new(true, 0, 0, [id], pause ? "Paused" : "Resumed");
@@ -56,8 +52,8 @@ public sealed partial class TargetPipeline
         var snapshot = await ReadAsync(ct);
         var ids = System.Collections.Immutable.ImmutableArray.CreateBuilder<string>();
         foreach (var target in snapshot.Targets.Where(t => action == TargetAction.Pause
-            ? t.State is not (TargetState.Paused or TargetState.Done or TargetState.Removed)
-            : t.State == TargetState.Paused))
+            ? !t.IsPaused() && t.State is not (TargetState.Done or TargetState.Removed)
+            : t.IsPaused()))
         {
             if ((await ActionAsync(target.Id, action, ct)).Accepted) ids.Add(target.Id);
         }

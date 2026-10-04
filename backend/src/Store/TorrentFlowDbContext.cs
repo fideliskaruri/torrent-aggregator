@@ -126,18 +126,16 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<TargetRow>().ToTable("Target", table =>
         {
             table.HasCheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
-            table.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
-            table.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','finding','checking','planning','fetching','filing','done','waiting','paused','removed')");
-            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing')");
+            table.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
+            table.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
+            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused')");
             table.HasCheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
             table.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
             table.HasCheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
-            table.HasCheckConstraint("CK_Target_ownerRanked", "\"ownerRanked\" IN (0,1)");
             table.HasCheckConstraint("CK_Target_origin", "\"origin\" IN ('owner','request','rule','follow','upgrade','hunter')");
             table.HasCheckConstraint("CK_Target_substantiveMisses", "\"substantiveMisses\" >= 0");
-            table.HasCheckConstraint("CK_Target_policyRevision", "\"policyRevision\" >= 0");
             table.HasCheckConstraint("CK_Target_version", "\"version\" >= 0");
-            table.HasCheckConstraint("CK_Target_priority", "\"priority\" IN ('now','ownerrank','freshrelease','request','backcatalogue','upgradewatch')");
+            table.HasCheckConstraint("CK_Target_downloadNow", "\"downloadNow\" IN (0,1)");
             table.HasCheckConstraint("CK_Target_minListedSeeders", "\"minListedSeeders\" >= 0");
             table.HasCheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
         });
@@ -376,7 +374,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<WorkPreferenceRow>().HasIndex(new[] { "WorkId" }, "IX_WorkPreference_workId_all").IsUnique(true);
         modelBuilder.Entity<TargetRow>().HasIndex(new[] { "WorkId" }, "IX_Target_workId_episodeIdISNULL").IsUnique(true).HasFilter("episodeId IS NULL");
         modelBuilder.Entity<TargetRow>().HasIndex(new[] { "EpisodeId" }, "IX_Target_episodeId_episodeIdISNOTNULL").IsUnique(true).HasFilter("episodeId IS NOT NULL");
-        modelBuilder.Entity<TargetRow>().HasIndex(new[] { "State", "NextTryAt", "Rank" }, "IX_Target_state_nextTryAt_rank_all").IsUnique(false);
+        modelBuilder.Entity<TargetRow>().HasIndex(new[] { "State", "NextTryAt", "CreatedAt" }, "IX_Target_state_nextTryAt_createdAt_all").IsUnique(false);
         modelBuilder.Entity<TargetRow>().HasIndex(new[] { "BatchId" }, "IX_Target_batchId_all").IsUnique(false);
         modelBuilder.Entity<TargetRow>().HasIndex(new[] { "ChosenReleaseHash" }, "IX_Target_chosenReleaseHash_all").IsUnique(false);
         modelBuilder.Entity<ScopeIntentRow>().HasIndex(new[] { "State", "NextTryAt" }, "IX_ScopeIntent_state_nextTryAt_all").IsUnique(false);

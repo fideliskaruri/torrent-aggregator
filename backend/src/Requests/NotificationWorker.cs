@@ -17,13 +17,9 @@ internal sealed class NotificationWorker(ITargetEvents events, IServiceScopeFact
             {
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<NotificationRepository>();
-                var requests = scope.ServiceProvider.GetRequiredService<RequestService>();
                 var works = await db.AllAsync<WorkRow>(stoppingToken);
                 foreach (var target in changes.OfType<TargetRow>())
                 {
-                    await RequestService.Gate.WaitAsync(stoppingToken);
-                    try { await requests.ApprovePendingForDownloadNow(target, stoppingToken); }
-                    finally { RequestService.Gate.Release(); }
                     var completed = target.State == TargetState.Done;
                     var failed = target.State == TargetState.Waiting && target.ReasonCode == WaitReason.OwnerPickRequired;
                     if (!completed && !failed) continue;

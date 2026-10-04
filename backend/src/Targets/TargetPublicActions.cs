@@ -36,7 +36,7 @@ public sealed partial class TargetPipeline
             var next = target with { PickedReleaseHash = releaseHash, ChosenReleaseHash = null,
                 State = TargetState.Wanted, ResumeState = null, ReasonCode = null, ReasonText = null,
                 NextTryAt = null, LeaseToken = null, LeaseUntil = null,
-                PolicyRevision = target.PolicyRevision + 1, UpdatedAt = now, Version = target.Version + 1 };
+                UpdatedAt = now, Version = target.Version + 1 };
             await CommitAsync(store, [new(next, target.Version, null)], [], ct);
             if (cancellations.TryGetValue(targetId, out var cancellation)) cancellation.Cancel();
             return new(true, 1, 0, [targetId], "1 queued");
@@ -66,7 +66,7 @@ public sealed partial class TargetPipeline
             var preference = (await store.ListAsync<WorkPreferenceRow>(row => row.WorkId == work.Id, ct)).FirstOrDefault();
             var now = DateTimeOffset.UtcNow;
             var nextPreference = preference is null
-                ? new WorkPreferenceRow { Id = "preference:" + work.Id, WorkId = work.Id, ResolutionFloor = quality, PreferredResolution = quality, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 1 }
+                ? new WorkPreferenceRow { Id = "preference:" + work.Id, WorkId = work.Id, ResolutionFloor = quality, PreferredResolution = quality, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 1 }
                 : preference with { ResolutionFloor = quality, PreferredResolution = quality,
                     UpdatedAt = now, Version = preference.Version + 1 };
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
@@ -75,18 +75,19 @@ public sealed partial class TargetPipeline
                 t.State != TargetState.Removed).ToArray();
             foreach (var row in affected)
             {
-                var replan = row.State is TargetState.Wanted or TargetState.Waiting or TargetState.Finding or TargetState.Checking or TargetState.Planning;
+                var replan = row.State is TargetState.Wanted or TargetState.Searching ||
+                    row.State == TargetState.Waiting && !row.IsPaused();
                 var next = row with { ResolutionFloor = quality, PreferredResolution = quality,
                     State = replan ? TargetState.Wanted : row.State,
                     ReasonCode = replan ? null : row.ReasonCode, ReasonText = replan ? null : row.ReasonText,
                     NextTryAt = replan ? null : row.NextTryAt, ResumeState = replan ? null : row.ResumeState,
                     LeaseToken = replan ? null : row.LeaseToken, LeaseUntil = replan ? null : row.LeaseUntil,
                     ChosenReleaseHash = replan ? null : row.ChosenReleaseHash,
-                    PolicyRevision = row.PolicyRevision + 1, UpdatedAt = now, Version = row.Version + 1 };
+                    UpdatedAt = now, Version = row.Version + 1 };
                 writes.Add(new(next, row.Version, null));
             }
             if (writes.Count > 0) await CommitAsync(store, writes.ToImmutable(), [], ct);
-            foreach (var row in affected.Where(t => t.State is TargetState.Finding or TargetState.Checking or TargetState.Planning))
+            foreach (var row in affected.Where(t => t.State == TargetState.Searching))
                 if (cancellations.TryGetValue(row.Id, out var cancellation)) cancellation.Cancel();
             return new(true, affected.Length, 0, [.. affected.Select(t => t.Id)], "Quality saved");
         }

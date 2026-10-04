@@ -95,7 +95,7 @@ public sealed partial class ReleasePlanner
             return new(candidate.Release.Id, target.Id, "owner_pick", "The owner chose a different release for this item.");
         if (target.MinListedSeeders is { } minimum && (candidate.TrustedSeeders ?? -1) < minimum)
             return new(candidate.Release.Id, target.Id, "minimum_seeders", "This release does not meet the rule's minimum seed count.");
-        if (target.State is TargetState.Removed or TargetState.Paused ||
+        if (target.State == TargetState.Removed || target.IsPaused() ||
             target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
             return new(candidate.Release.Id, target.Id, "inactive_target", "This item is not asking for a download.");
         if (input.Owned.Any(o => o.WorkId == target.WorkId && o.EpisodeId == target.EpisodeId &&
@@ -104,7 +104,7 @@ public sealed partial class ReleasePlanner
                  v.Status == FilePresence.Missing && v.MissingConfirmedAt is null))))
             return new(candidate.Release.Id, target.Id, "already_owned", "This item is already in your library.");
         var parsed = candidate.Release.Parsed;
-        var language = AudioLanguage(target, input);
+        var language = AudioLanguage(input);
         if (!LanguageAllowed(parsed, language))
             return new(candidate.Release.Id, target.Id, "foreign_language", LanguageRejection(language));
         var pack = parsed.Pack || parsed.Kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries;
@@ -222,12 +222,10 @@ public sealed partial class ReleasePlanner
         var minimum = resolution >= 2160 ? 1 : resolution >= 1080 ? .5 : resolution >= 720 ? .3 : .1;
         return mbps >= minimum && mbps <= 100;
     }
-    private static string AudioLanguage(TargetRow target, PlanInput input)
-    {
-        var preference = input.Preference?.WorkId == target.WorkId ? input.Preference : null;
-        return new[] { target.AudioLanguage, preference?.AudioLanguage }.FirstOrDefault(value =>
-            !string.IsNullOrWhiteSpace(value) && !value.Equals("auto", StringComparison.OrdinalIgnoreCase)) ?? "en";
-    }
+    private static string AudioLanguage(PlanInput input) =>
+        !string.IsNullOrWhiteSpace(input.AudioLanguage) &&
+        !input.AudioLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            ? input.AudioLanguage : "en";
 
     private static bool LanguageAllowed(ParsedRelease parsed, string? desired)
     {

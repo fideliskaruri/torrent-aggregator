@@ -38,7 +38,7 @@ internal static class TitleReleases
             (episode is null || row.Number == episode)).Select(row => row.Id).ToImmutableArray();
         var scope = new TargetScope(work.Work.Id, episodes, work.Work.Kind == WorkKind.Film);
         var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope,
-            new(null, null, null, null, null, 0), PriorityLane.Owner, SearchNamePhase.English, [], 0, 0);
+            new(null, null, null, null, null), PriorityLane.Owner, SearchNamePhase.English, [], 0, 0);
         ImmutableArray<Candidate> pool = [];
         if (query.Length > 0)
         {
@@ -128,7 +128,7 @@ internal static class TitleReleases
                 (choice.Episode is null || row.Number == choice.Episode)).Select(row => row.Id).ToImmutableArray();
             var scope = new TargetScope(work.Work.Id, episodes, work.Work.Kind == WorkKind.Film);
             var request = new SearchRequest(Guid.NewGuid().ToString("N"), work, scope,
-                new(null, null, null, null, null, 0), PriorityLane.Owner, SearchNamePhase.English, [], 0, 0);
+                new(null, null, null, null, null), PriorityLane.Owner, SearchNamePhase.English, [], 0, 0);
             var selected = (await find.SelectAsync(request, choice.Hash, ct)).Candidates.FirstOrDefault();
             if (selected is null || selected.Release.Parsed.Unsafe || selected.Release.Parsed.Cam ||
                 selected.Release.Parsed.Sample || selected.Release.Parsed.ClearlyForeign ||

@@ -40,7 +40,7 @@ public sealed class CatalogState(TargetStore store)
             {
                 var preference = (await store.ListAsync<WorkPreferenceRow>(row => row.WorkId == workId, ct)).FirstOrDefault();
                 var next = preference is null
-                    ? new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 }
+                    ? new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 }
                     : preference with { ResolutionFloor = resolution, PreferredResolution = resolution,
                         UpdatedAt = now, Version = preference.Version + 1 };
                 writes.Add(new(next, preference?.Version, null));
