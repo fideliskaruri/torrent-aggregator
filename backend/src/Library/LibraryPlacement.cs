@@ -40,17 +40,21 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
                 return RootFailure("RootOverlap", "This folder overlaps an existing storage root.");
             Directory.CreateDirectory(path);
             var marker = Path.Combine(path, ".torrentflow-root");
-            if (File.Exists(marker)) return RootFailure("RootIdentity", "This folder already belongs to a storage root.");
+            // No saved root covers this folder, so an existing marker was left by an earlier install: keep its identity.
+            var adopted = File.Exists(marker) ? (await File.ReadAllTextAsync(marker, ct)).Trim() : null;
+            if (adopted is not null && (adopted.Length == 0 || roots.Any(r => r.Id == adopted)))
+                return RootFailure("RootIdentity", "This folder already belongs to a storage root.");
             var now = DateTimeOffset.UtcNow;
-            var id = Guid.NewGuid().ToString("N");
+            var id = adopted ?? Guid.NewGuid().ToString("N");
             var volume = LibraryPaths.Volume(path);
-            await using (var stream = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(id), ct);
+            if (adopted is null)
+                await using (var stream = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(id), ct);
             var root = new StorageRootRow { Id = id, Path = path, PhysicalKey = LibraryPaths.PhysicalKey(path), Kinds = input.Kinds, LibraryFolders = folders, VolumeSerial = volume, Priority = input.Priority, ReserveBytes = input.ReserveBytes, MaxAllocatedBytes = input.MaxAllocatedBytes, Enabled = true, Online = true, ReviewRequired = false, LastCheckedAt = now, LastError = null, CreatedAt = now, UpdatedAt = now, Version = 1 };
             if (!await repository.SaveRootAsync(root, null, ct))
             {
                 // Remove only our just-created enrollment marker, never a pre-existing file.
-                if (await File.ReadAllTextAsync(marker, ct) == id) File.Delete(marker);
+                if (adopted is null && await File.ReadAllTextAsync(marker, ct) == id) File.Delete(marker);
                 return RootFailure("RootConflict", "The storage settings changed. Reload them and try again.");
             }
             return new(root, null);
