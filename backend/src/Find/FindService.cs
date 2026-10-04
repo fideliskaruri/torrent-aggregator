@@ -2,23 +2,21 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Find;
 
 internal sealed partial class FindService(IParser parser, SourceFlights flights, SearchBudget budget,
-    IServiceScopeFactory scopes, IConfiguration configuration) : IFind
+    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration) : IFind
 {
     private readonly object cacheSync = new();
     private readonly Dictionary<string, ScopeAnswer> answers = new(StringComparer.Ordinal);
     private sealed record ScopeAnswer(CandidateBatch Batch, DateTimeOffset ExpiresAt, long RetryRevision,
         SourceRequestBudget Budget);
-    private static readonly JsonSerializerOptions SettingsJson = new(JsonSerializerDefaults.Web)
-    { Converters = { new JsonStringEnumConverter() } };
 
     public async IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,
         IAsyncEnumerable<SearchFeedback> feedback, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -323,7 +321,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                 for (var attempt = 0; attempt < 2; attempt++)
                 {
                     var refusedSharedBudget = false;
-                    await foreach (var answer in flights.ReadAsync(poolKey, key, source, call, ct))
+                    await foreach (var answer in flights.ReadAsync(poolKey, key, settings, call, ct))
                     {
                         output.TryWrite((query, source, answer.Result, answer.Cached, answer.Shared));
                         refusedSharedBudget |= answer.Shared && request.Lane == PriorityLane.Owner &&
@@ -351,12 +349,10 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
 
     private async Task<ImmutableArray<SourceSettings>> SettingsAsync(CancellationToken ct)
     {
-        await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var rows = await store.ReadAsync<SettingRow>(new("sources", null, null, null, null, null, null,
-            null, null, null, null, null, null, null, 1, StoreOrder.PrimaryKey), ct);
-        if (rows.IsEmpty) return [];
-        return [.. rows[0].Value.Deserialize<ImmutableArray<SourceSettings>>(SettingsJson).Select(settings =>
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var row = await db.Settings.AsNoTracking().SingleOrDefaultAsync(s => s.Id == "sources", ct);
+        if (row is null) return [];
+        return [.. SettingsCatalog.Read<ImmutableArray<SourceSettings>>(row).Select(settings =>
         {
             var section = configuration.GetSection($"TorrentFlow:Sources:{settings.Id}");
             return settings with
@@ -406,7 +402,7 @@ internal sealed partial class FindService(IParser parser, SourceFlights flights,
                 80, DateTimeOffset.UtcNow.AddSeconds(6), 0, 0);
             var poolKey = JsonSerializer.Serialize(new { raw = SearchQueries.Fold(query.Query), query.Category });
             var key = JsonSerializer.Serialize(new { raw = SearchQueries.Fold(query.Query), query.Category, source });
-            await foreach (var answer in flights.ReadAsync(poolKey, key, source.Id, call, ct, query.Refresh)) result = answer.Result;
+            await foreach (var answer in flights.ReadAsync(poolKey, key, source, call, ct, query.Refresh)) result = answer.Result;
             return result!;
         }));
         foreach (var result in results) pool.Add(result, query.Query);
