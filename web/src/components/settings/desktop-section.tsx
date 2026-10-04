@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
-import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
@@ -13,13 +12,12 @@ import {
   DESKTOP_URL,
   checkForUpdatesNow,
   isBusy,
-  progressPercent,
   saveDesktopSettings,
   startUpdate,
   type DesktopStatus,
-  type DownloadProgress,
 } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
+import { DesktopUpdateStatus } from "./desktop-update-status";
 
 export function DesktopSection() {
   const [open, setOpen] = useState(
@@ -37,13 +35,6 @@ export function DesktopSection() {
       <DesktopPanel />
     </SettingsDisclosure>
   );
-}
-
-function formatChecked(iso: string | null): string {
-  if (!iso) return "Not checked yet";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Not checked yet";
-  return `Last checked ${date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
 }
 
 function DesktopPanel() {
@@ -163,7 +154,7 @@ function DesktopPanel() {
             onChange={(checked) => void save("updates", { checkForUpdates: checked })}
             data-desktop-updates
           />
-          <UpdateStatus
+          <DesktopUpdateStatus
             status={status}
             primary={Boolean(updatePrimary)}
             checking={checking || updates.checking}
@@ -235,117 +226,5 @@ function ToggleRow({
         {...rest}
       />
     </Label>
-  );
-}
-
-function ProgressLine({ progress, label }: { progress: DownloadProgress; label: string }) {
-  const pct = progressPercent(progress);
-  const installing = progress.state === "installing";
-  return (
-    <div className="space-y-1.5" role="status" aria-live="polite">
-      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className="min-w-0 truncate">{installing ? `Installing ${label}…` : `Downloading ${label}…`}</span>
-        {pct !== null && !installing ? <span className="shrink-0 font-mono tabular-nums">{pct}%</span> : null}
-      </div>
-      <Progress value={installing ? 100 : pct ?? 0} aria-label={`${label} download progress`} />
-    </div>
-  );
-}
-
-function UpdateStatus({
-  status,
-  primary,
-  checking,
-  readOnly,
-  onCheck,
-  onUpdate,
-}: {
-  status: DesktopStatus;
-  primary: boolean;
-  checking: boolean;
-  readOnly: boolean;
-  onCheck: () => void;
-  onUpdate: () => void;
-}) {
-  const updates = status.updates;
-  if (!updates.available) {
-    return (
-      <p className="text-xs text-subtle-foreground" data-desktop-update-status="local">
-        This is a local build, so it does not check for updates.
-      </p>
-    );
-  }
-  const install = updates.install;
-  return (
-    <div className="space-y-3 rounded-lg border border-border p-3" data-desktop-update-status>
-      {isBusy(install) ? (
-        <ProgressLine progress={install} label={`TorrentFlow ${updates.latest?.version ?? ""}`.trim()} />
-      ) : (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-0.5">
-            <p className="flex items-center gap-1.5 text-sm text-foreground">
-              {updates.updateAvailable ? (
-                <>
-                  <Download className="h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
-                  TorrentFlow {updates.latest?.version} is available
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-                  {updates.lastError ? "Could not check for updates" : "You're up to date"}
-                </>
-              )}
-            </p>
-            <p className="text-xs text-subtle-foreground">
-              {updates.lastError ?? formatChecked(updates.lastCheckedAt)}
-            </p>
-            {install.state === "failed" && install.error ? (
-              <p className="text-xs text-destructive" role="alert">{install.error}</p>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={onCheck}
-              disabled={readOnly || checking}
-              aria-label="Check for updates now"
-              data-desktop-check
-            >
-              {checking ? <LoadingGlyph className="h-3.5 w-3.5" /> : <RefreshCw />}
-              {checking ? "Checking…" : "Check now"}
-            </Button>
-            {updates.updateAvailable && updates.latest ? (
-              updates.latest.hasInstaller ? (
-                <Button
-                  type="button"
-                  variant={primary ? "default" : "secondary"}
-                  size="sm"
-                  onClick={onUpdate}
-                  disabled={readOnly}
-                  aria-label={`Update to TorrentFlow ${updates.latest.version}`}
-                  data-desktop-update
-                >
-                  <Download />
-                  Update
-                </Button>
-              ) : updates.latest.pageUrl ? (
-                <Button asChild variant="secondary" size="sm">
-                  <a href={updates.latest.pageUrl} target="_blank" rel="noreferrer" data-desktop-release-page>
-                    Release page
-                  </a>
-                </Button>
-              ) : null
-            ) : null}
-          </div>
-        </div>
-      )}
-      {updates.updateAvailable && !isBusy(install) ? (
-        <p className="text-xs text-subtle-foreground">
-          Updating closes TorrentFlow for a moment; downloads resume when it restarts.
-        </p>
-      ) : null}
-    </div>
   );
 }
