@@ -32,7 +32,7 @@ import { openDownload, type OpenDownloadMode } from "@/lib/open-download";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { PosterImage } from "@/components/browse/poster-image";
 import { posterTint } from "@/components/browse/poster";
-import { cleanDisplayTitle } from "@/components/browse/availability";
+import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { headingTitle } from "./heading-title";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";

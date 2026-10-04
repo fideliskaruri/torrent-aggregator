@@ -48,7 +48,7 @@ internal static class CatalogEndpoints
         app.MapDelete("/api/watchlist", RemoveWatch);
     }
 
-    private static async Task<IResult> Search(HttpContext h, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Search(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var q = Param(h, "q")?.Trim() ?? "";
         if (q.Length is 0 or > 200) return Json(new { error = q.Length == 0 ?
@@ -61,13 +61,15 @@ internal static class CatalogEndpoints
             error = "Title search failed", message = "The catalogs are unavailable. Try searching again shortly.",
             results = Array.Empty<object>(), partial = true, failedProviders = result.FailedProviders,
         }, 500);
-        return Json(new { results = result.Works.Where(w => category == "all" || category == "anime" && w.Work.Anime == true ||
-                category != "anime" && w.Work.Anime != true).Select(CatalogProjection.Hit), query = q,
+        var works = result.Works.Where(w => category == "all" || category == "anime" && w.Work.Anime == true ||
+                category != "anime" && w.Work.Anime != true).ToArray();
+        var actions = await CardAction.ResolveAsync(db, works, ActorId(h), CanDownload(h), ct);
+        return Json(new { results = works.Select(w => CatalogProjection.Hit(w, actions[w.Work.Id])), query = q,
             canonicalQuery = Regex.Replace(q, @"\s+", " ").ToLowerInvariant(), category,
             result.Partial, result.FailedProviders, result.Stale });
     }
 
-    private static async Task<IResult> Suggest(HttpContext h, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Suggest(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var q = Param(h, "q")?.Trim() ?? "";
         if (q.Length < 2) return Json(new { suggestions = Array.Empty<object>() });
@@ -78,17 +80,19 @@ internal static class CatalogEndpoints
             error = "Suggest failed", message = "The catalogs are unavailable. Try again shortly.",
             suggestions = Array.Empty<object>(), partial = false, failedProviders = result.FailedProviders,
         }, 502);
+        var actions = await CardAction.ResolveAsync(db, result.Works, ActorId(h), CanDownload(h), ct);
         return Json(new { suggestions = result.Works.Select(w => new
         {
             title = CatalogProjection.Title(w), w.Work.Year, mediaType = CatalogProjection.Type(w),
             w.Work.PosterUrl, w.Work.WorkKey, provider = CatalogProjection.Provider(w),
             providerId = CatalogProjection.Primary(w)?.ExternalId, href = CatalogProjection.Href(w),
+            action = actions[w.Work.Id], searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
             aliases = CatalogProjection.Aliases(w), source = CatalogProjection.Provider(w),
             externalId = CatalogProjection.Primary(w)?.ExternalId,
         }), query = q, canonicalQuery = q.ToLowerInvariant(), result.Partial, result.FailedProviders });
     }
 
-    private static async Task<IResult> Browse(HttpContext h, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Browse(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var type = Param(h, "type") ?? "all";
         var genre = Param(h, "genre");
@@ -97,9 +101,10 @@ internal static class CatalogEndpoints
             genre is { Length: > 0 } && !genres.Any(g => g.Id == genre))
             return Json(new { error = "Home does not have that category. Pick one from the list above." }, 400);
         var result = await metadata.BrowseAsync(new(type, genre, ActorId(h)), ct);
+        var actions = await CardAction.ResolveAsync(db, result.Rails.SelectMany(r => r.Works), ActorId(h), CanDownload(h), ct);
         var rails = result.Rails.Select(r => new
         {
-            r.Id, r.Title, items = r.Works.Select(w => CatalogProjection.Card(w, r.Id == "films-cinemas")),
+            r.Id, r.Title, items = r.Works.Select(w => CatalogProjection.Card(w, actions[w.Work.Id], r.Id == "films-cinemas")),
             kind = r.Id.StartsWith("films-", StringComparison.Ordinal) ? "films" :
                 r.Id.StartsWith("series-", StringComparison.Ordinal) ? "series" :
                     r.Id.StartsWith("anime-", StringComparison.Ordinal) ? "anime" : null,
@@ -115,11 +120,13 @@ internal static class CatalogEndpoints
     private static async Task<IResult> Recommend(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var actor = ActorId(h);
-        var watches = await db.WatchItems.AsNoTracking().Where(w => w.UserId == actor && w.Status == WatchStatus.Watching)
+        var watches = await db.WatchItems.AsNoTracking().Where(w => w.UserId == actor)
             .OrderBy(w => w.Id).ToListAsync(ct);
-        var seeds = watches.OrderByDescending(w => w.UpdatedAt).Select(w => w.WorkId).Take(1).ToImmutableArray();
+        var seeds = watches.Where(w => w.Status == WatchStatus.Watching).OrderByDescending(w => w.UpdatedAt)
+            .Select(w => w.WorkId).Take(1).ToImmutableArray();
         var rail = await metadata.RecommendAsync(seeds, ct);
         var seed = seeds.IsEmpty ? null : (await metadata.GetWorkAsync(seeds[0], false, ct)).Work;
+        var actions = await CardAction.ResolveAsync(db, rail?.Works ?? [], actor, CanDownload(h), ct, watches);
         return Json(new { rail = rail is null ? null : new
         {
             seedTitle = seed is null ? rail.Title : CatalogProjection.Title(seed),
@@ -129,7 +136,8 @@ internal static class CatalogEndpoints
                 mediaType = CatalogProjection.TitleType(w), titleMediaType = CatalogProjection.TitleType(w),
                 externalId = CatalogProjection.Primary(w)?.ExternalId, title = CatalogProjection.Title(w),
                 w.Work.PosterUrl, w.Work.Year, w.Work.Rating, format = CatalogProjection.Format(w),
-                isSeries = CatalogProjection.Series(w),
+                isSeries = CatalogProjection.Series(w), href = CatalogProjection.Href(w),
+                action = actions[w.Work.Id], searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
             }),
         } });
     }
@@ -258,7 +266,7 @@ internal static class CatalogEndpoints
         });
     }
 
-    private static async Task<IResult> Extras(string workKey, HttpContext h, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Extras(string workKey, HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
         var result = await Resolve(workKey, h, metadata, ct);
         var w = result.Work;
@@ -267,6 +275,10 @@ internal static class CatalogEndpoints
         var extras = w is null ? null : await metadata.ExtrasAsync(new(link is null ? null :
             new(link.Provider, link.ExternalId, link.ProviderKind), CatalogProjection.Title(w), w.Work.Year, w.Work.Kind), season, ct);
         w = extras?.Work ?? w;
+        var similarWorks = extras?.Similar ?? [];
+        var relatedWorks = similarWorks.AsEnumerable();
+        if (extras?.PartOf is { } partOf) relatedWorks = relatedWorks.Append(partOf);
+        var actions = await CardAction.ResolveAsync(db, relatedWorks, ActorId(h), CanDownload(h), ct);
         var seasonId = w?.Seasons.FirstOrDefault(s => s.Number == season)?.Id;
         var payload = new
         {
@@ -280,8 +292,8 @@ internal static class CatalogEndpoints
                 episode = e.Number, name = e.Title, overview = e.Synopsis, airDate = e.AirAt?.ToString("yyyy-MM-dd"),
                 runtimeMin = e.RuntimeMinutes, e.StillUrl, airStamp = e.AirAt,
             }).ToArray() ?? [],
-            moreLikeThis = extras?.Similar.Select(Similar).ToArray() ?? [],
-            partOf = extras?.PartOf is { } parent ? Similar(parent) : null,
+            moreLikeThis = similarWorks.Select(item => Similar(item, actions[item.Work.Id])).ToArray(),
+            partOf = extras?.PartOf is { } parent ? Similar(parent, actions[parent.Work.Id]) : null,
             overview = w?.Work.Synopsis, rating = w?.Work.Rating, releaseDate = w is null ? null : CatalogProjection.Release(w),
             inTheatricalWindow = extras?.InTheatricalWindow ?? false,
             nextHomeReleaseAt = extras?.NextHomeReleaseAt?.ToString("yyyy-MM-dd"),
@@ -296,8 +308,14 @@ internal static class CatalogEndpoints
             if (episode!["airStamp"] is null) episode.AsObject().Remove("airStamp");
         return Json(node);
     }
-    private static object Similar(WorkSnapshot w) => new { w.Work.WorkKey, href = CatalogProjection.Href(w),
-        title = CatalogProjection.Title(w), w.Work.Year, mediaType = CatalogProjection.TitleType(w), w.Work.PosterUrl, w.Work.Rating };
+    private static object Similar(WorkSnapshot w, CatalogCardAction action) => new
+    {
+        w.Work.WorkKey, href = CatalogProjection.Href(w), title = CatalogProjection.Title(w),
+        w.Work.Year, mediaType = CatalogProjection.TitleType(w), w.Work.PosterUrl, w.Work.Rating,
+        action, searchHref = CardAction.SearchHref(CatalogProjection.Title(w), CatalogProjection.TitleType(w)),
+    };
+
+    private static bool CanDownload(HttpContext http) => AccessIdentity.Role(http) != "requester";
 
     private static async Task<IResult> Links(string workKey, HttpContext h, IMetadata metadata, CancellationToken ct)
     {

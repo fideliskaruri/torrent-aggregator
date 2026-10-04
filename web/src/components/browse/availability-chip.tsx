@@ -2,11 +2,41 @@ import { AlertCircle, Check, Download, Zap } from "lucide-react";
 import type { AvailabilityState } from "@/lib/browse";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import {
-  availabilityMeta,
-  type AvailabilityTone,
-  type Unresolved,
-} from "./availability";
+type Unresolved = null;
+type AvailabilityTone = "success" | "accent" | "secondary" | "tertiary" | "info";
+type AvailabilityMeta = { label: string; tone: AvailabilityTone; description: string | null };
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled availability state: ${String(value)}`);
+}
+
+function availabilityMeta(state: AvailabilityState | Unresolved): AvailabilityMeta {
+  if (state === null) return { label: "Not checked", tone: "info", description: null };
+  switch (state) {
+    case "ready":
+      return { label: "Ready", tone: "success", description: "Downloaded in full." };
+    case "warm":
+      return {
+        label: "Partial",
+        tone: "accent",
+        description: "Partly downloaded. The rest is on its way.",
+      };
+    case "fetchable":
+      return {
+        label: "Can get",
+        tone: "secondary",
+        description: "Not on disk yet, but a viable release exists.",
+      };
+    case "unavailable":
+      return {
+        label: "Unavailable",
+        tone: "tertiary",
+        description: "Searched, and nothing viable came back.",
+      };
+    default:
+      return assertNever(state);
+  }
+}
 
 /**
  * The state of a title, in one word and a glyph.

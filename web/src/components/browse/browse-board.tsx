@@ -1,15 +1,12 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { send } from "@/lib/api";
+import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
+import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
 import { browseHref } from "@/lib/browse/views";
 import { useDownloadSetup } from "@/components/setup/download-setup";
-import {
-  cleanDisplayTitle,
-  type ActionStatus,
-  type CardAction,
-} from "./availability";
 import { RAIL_PREVIEWS, missingRailPreviews } from "./first-run";
 import { HeroBanner } from "./hero-banner";
 import { pickHeroItem } from "./hero";
@@ -47,7 +44,7 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
   );
 
   const runAction = useCallback(
-    async (item: RailItem, action: CardAction) => {
+    async (item: RailItem, action: CatalogCardAction) => {
       if (action.kind !== "get") return;
       if (statuses[item.id] === "pending") return;
       if (!(await ensureDownloadSetup())) return;

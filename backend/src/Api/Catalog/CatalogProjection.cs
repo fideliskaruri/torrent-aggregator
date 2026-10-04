@@ -36,22 +36,24 @@ internal static class CatalogProjection
             + (link is null ? "" : "&provider=" + Uri.EscapeDataString(Provider(w)!)
                 + "&providerId=" + Uri.EscapeDataString(link.ExternalId));
     }
-    internal static object Hit(WorkSnapshot w) => new
+    internal static object Hit(WorkSnapshot w, CatalogCardAction action) => new
     {
         w.Work.WorkKey, title = Title(w), w.Work.Year,
         category = w.Work.Anime == true ? "anime" : Series(w) ? "series" : "movies",
         provider = Provider(w), providerId = Primary(w)?.ExternalId, aliases = Aliases(w),
         mediaType = Type(w), titleMediaType = TitleType(w), isSeries = Series(w), format = w.ProviderFormat,
         w.Work.PosterUrl, overview = w.Work.Synopsis, releaseDate = Release(w), href = Href(w),
+        action, searchHref = CardAction.SearchHref(Title(w), TitleType(w)),
         externalIds = w.Links.Where(l => l.Status == LinkStatus.Verified).DistinctBy(l => l.Provider)
             .ToDictionary(l => l.Provider, l => l.ExternalId),
     };
-    internal static object Card(WorkSnapshot w, bool inCinemas = false) => new
+    internal static object Card(WorkSnapshot w, CatalogCardAction action, bool inCinemas = false) => new
     {
         id = w.Work.Id, workId = w.Work.Id, w.Work.WorkKey, title = Title(w), w.Work.Year,
         subtitle = w.Work.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture),
         w.Work.PosterUrl, w.Work.BackdropUrl, availability = (string?)null,
         infoHash = (string?)null, filePath = (string?)null, watchListItemId = (string?)null, mediaType = TitleType(w),
+        href = Href(w), searchHref = CardAction.SearchHref(Title(w), TitleType(w)), action,
         releaseDate = Release(w), overview = w.Work.Synopsis, season = (int?)null, episode = (int?)null,
         provider = Provider(w), providerId = Primary(w)?.ExternalId,
         inTheatricalWindow = inCinemas,

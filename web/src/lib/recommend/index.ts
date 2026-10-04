@@ -14,8 +14,9 @@
  * provenance is the only thing that makes a suggestion explicable.
  */
 import type { MediaMetadata } from "@/lib/torrents/types";
+import type { CatalogCardData } from "@/lib/api/catalog-types";
 
-type Recommendation = {
+type Recommendation = CatalogCardData & {
   provider: "anilist" | "tmdb";
   sourceMediaType: "anime" | "movie" | "tv";
   /** Provider/library family. AniList movies remain anime identities. */

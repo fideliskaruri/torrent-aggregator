@@ -25,7 +25,7 @@
  * imports it into the client bundle (nothing here reaches Node APIs).
  */
 import type { RailItem } from "@/lib/browse";
-import { cleanDisplayTitle } from "@/components/browse/availability";
+import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { isSeriesMediaType, normalizeMediaType } from "@/lib/metadata/media-type";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
