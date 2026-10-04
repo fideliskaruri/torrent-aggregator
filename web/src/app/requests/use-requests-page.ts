@@ -13,7 +13,7 @@ import {
 import type { OwnerRequest } from "@/lib/requests";
 import { toast } from "@/lib/toast";
 
-export function useRequestsPage(ownerSession: boolean, reviewing: boolean, previewing: boolean) {
+export function useRequestsPage(ownerSession: boolean, reviewing: boolean) {
   const session = useSessionInfo();
   const ownerList = useApiQuery(ownerSession ? "/api/requests" : null, {
     select: parseOwnerRequests,
@@ -68,10 +68,6 @@ export function useRequestsPage(ownerSession: boolean, reviewing: boolean, previ
   }
 
   async function cancel(request: OwnerRequest) {
-    if (previewing) {
-      toast.error("Requests aren't cancelled while previewing.", { description: "Exit preview to go back to your own view." });
-      return;
-    }
     const error = await cancelRequest(request.id);
     if (error) toast.error(error);
     else toast.success(`Cancelled ${request.title}`);

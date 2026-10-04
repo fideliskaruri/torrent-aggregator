@@ -1,4 +1,5 @@
-import { NotificationsView } from "@/app/notifications/page";
+import { ActivityColumn } from "@/components/notifications/activity-view-toggle";
+import { ActivityContent } from "@/app/notifications/activity-content";
 
 /**
  * The download log: Notifications filtered to what was sent.
@@ -8,5 +9,9 @@ import { NotificationsView } from "@/app/notifications/page";
  * you can bookmark. It has no nav entry; it is reached from Notifications.
  */
 export default function HistoryPage() {
-  return <NotificationsView sentOnly />;
+  return (
+    <ActivityColumn view="log">
+      <ActivityContent />
+    </ActivityColumn>
+  );
 }

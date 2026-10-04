@@ -59,45 +59,38 @@ export function NotificationsList({
       />
     </div>
   );
+  async function run(action: () => Promise<void>, fallbackMessage: string, rethrow = false) {
+    setOperationError(null);
+    try {
+      await action();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : fallbackMessage);
+      if (rethrow) throw error;
+    }
+  }
 
   async function markSelected() {
-    setOperationError(null);
     const selected = [...selection.selected];
     selection.clear();
-    try {
-      await onReadMany(selected.filter((item) => item.unread));
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "Could not mark notifications read. Try again.");
-    }
+    await run(
+      () => onReadMany(selected.filter((item) => item.unread)),
+      "Could not mark notifications read. Try again.",
+    );
   }
 
   async function markEveryUnread() {
-    setOperationError(null);
-    try {
-      await onReadAll();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "Could not mark notifications read. Try again.");
-    }
+    await run(onReadAll, "Could not mark notifications read. Try again.");
   }
 
   async function clearNotifications() {
-    setOperationError(null);
-    try {
-      await onClearAll();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not clear notifications. Try again.";
-      setOperationError(message);
-      throw error;
-    }
+    await run(onClearAll, "Could not clear notifications. Try again.", true);
   }
 
   async function markOne(item: NotificationItem) {
-    setOperationError(null);
-    try {
-      await onRead(item);
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "Could not mark this notification read. Try again.");
-    }
+    await run(
+      () => onRead(item),
+      "Could not mark this notification read. Try again.",
+    );
   }
 
   return (
@@ -143,9 +136,9 @@ export function NotificationsList({
                 items={filtered}
                 getKey={KEY}
                 selection={selection}
+                empty={empty}
                 noResults={Boolean(items.length && activeCount)}
                 onClearFilters={clearFilters}
-                empty={empty}
                 className="divide-y divide-border space-y-0"
                 renderRow={(item) => (
                   <div
