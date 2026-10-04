@@ -35,13 +35,11 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
                 files.Any(f => f.Selected && !review.Items.Any(i => reviewItemIds.Contains(i.Id) && i.Path == f.EnginePath)))
                 throw new ArgumentException("The confirmed Import files no longer match this transfer. Review it again.");
         }
-        return new PlacementWriteProposal(files[0].DownloadId,
-            [.. files.Where(f => f.Selected).Select(f => f.TargetId!).Distinct()],
-            [.. files.Select(f => new RowWrite(f, null, null))], reviewId, reviewItemIds);
+        return new PlacementWriteProposal([.. files.Select(f => new RowWrite(f, null, null))], reviewId, reviewItemIds);
     }
 
-    public Task<ImmutableArray<FileOperationRow>> FilingOperationsAsync(CancellationToken ct) =>
-        ReadAsync<FileOperationRow>(null, ct);
+    public async Task<ImmutableArray<FileOperationRow>> FilingOperationsAsync(CancellationToken ct) =>
+        [.. await db.FileOperations.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
 
     public async Task<bool> BeginFilingAsync(DownloadFileRow binding, string digest, CancellationToken ct)
     {
@@ -49,18 +47,17 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         try
         {
             var id = $"file:{binding.Id}";
-            var existing = (await FilingOperationsAsync(ct)).SingleOrDefault(o => o.Id == id);
+            var existing = await db.FileOperations.AsNoTracking().SingleOrDefaultAsync(row => row.Id == id, ct);
             if (existing is not null) return existing.ExpectedDigest == digest;
             var now = DateTimeOffset.UtcNow;
-            var operation = new FileOperationRow { Id = id, Kind = FileOperationKind.Rename, TargetId = binding.TargetId, DownloadId = binding.DownloadId, MediaFileId = null, SourcePath = binding.PartialPath, DestinationPath = binding.FinalPath, ExpectedBytes = binding.ExpectedBytes, ExpectedDigest = digest, State = FileOperationState.Pending, DeleteSource = false, Attempts = 0, NextTryAt = null, LastError = null, CreatedAt = now, UpdatedAt = now, LeaseToken = null, LeaseUntil = null, ResumeStage = null, EnginePermitToken = null };
-            if (!await StageAsync(operation, null, ct)) return false;
+            db.FileOperations.Add(new FileOperationRow { Id = id, Kind = FileOperationKind.Rename, TargetId = binding.TargetId, DownloadId = binding.DownloadId, MediaFileId = null, SourcePath = binding.PartialPath, DestinationPath = binding.FinalPath, ExpectedBytes = binding.ExpectedBytes, ExpectedDigest = digest, State = FileOperationState.Pending, DeleteSource = false, Attempts = 0, NextTryAt = null, LastError = null, CreatedAt = now, UpdatedAt = now, LeaseToken = null, LeaseUntil = null, ResumeStage = null, EnginePermitToken = null });
             var paths = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (label, path) in new[] { ("source", binding.PartialPath!), ("destination", binding.FinalPath!) })
             {
                 var key = System.IO.Path.GetFullPath(path);
                 if (OperatingSystem.IsWindows()) key = key.ToLowerInvariant();
                 if (!paths.Add(key)) continue;
-                if (!await StageAsync(new FilePathClaimRow { Id = id + ":" + label, OperationId = id, PhysicalKey = key, CreatedAt = now }, null, ct)) return false;
+                db.FilePathClaims.Add(new FilePathClaimRow { Id = id + ":" + label, OperationId = id, PhysicalKey = key, CreatedAt = now });
             }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -77,11 +74,9 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         try
         {
-            foreach (var file in files)
-                if (!await StageAsync(file, null, ct)) return false;
+            db.DownloadFiles.AddRange(files);
             foreach (var folder in folders)
-                if (!(await FoldersAsync(ct)).Any(f => f.Id == folder.Id) &&
-                    !await StageAsync(folder, null, ct)) return false;
+                if (!await db.WorkFolders.AnyAsync(row => row.Id == folder.Id, ct)) db.WorkFolders.Add(folder);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
@@ -99,7 +94,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         {
             var entity = await db.DownloadFiles.SingleOrDefaultAsync(row => row.Id == before.Id, ct);
             if (entity is null || entity != before) return false;
-            if (!await StageAsync(media, null, ct)) return false;
+            db.MediaFiles.Add(media);
             db.Entry(entity).CurrentValues.SetValues(after);
             var operation = await db.FileOperations.SingleAsync(row => row.Id == $"file:{before.Id}", ct);
             db.Entry(operation).CurrentValues.SetValues(operation with
@@ -126,22 +121,24 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             before.ExpectedBytes != media.Bytes || after != before with
             { EnginePath = before.FinalPath, PartialPath = null, Selected = false, Filed = true, MediaFileId = media.Id })
             throw new ArgumentException("The filing result does not match its reserved file.");
-        if (!(await BindingsAsync(ct)).Contains(before)) return null;
-        var operation = (await FilingOperationsAsync(ct)).SingleOrDefault(o => o.Id == $"file:{before.Id}");
+        var current = await db.DownloadFiles.AsNoTracking().SingleOrDefaultAsync(row => row.Id == before.Id, ct);
+        if (current != before) return null;
+        var operation = await db.FileOperations.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.Id == $"file:{before.Id}", ct);
         if (operation is null || operation.State != FileOperationState.Pending ||
             operation.ExpectedDigest != media.ContentDigest) return null;
         var claims = await db.FilePathClaims.AsNoTracking()
             .Where(row => row.OperationId == operation.Id).ToListAsync(ct);
-        var prior = (await MediaAsync(null, ct)).SingleOrDefault(m => m.PhysicalKey == media.PhysicalKey);
+        var prior = await db.MediaFiles.AsNoTracking().SingleOrDefaultAsync(row => row.PhysicalKey == media.PhysicalKey, ct);
         if (prior is not null)
         {
-            if (prior.PhysicalKey != media.PhysicalKey || prior.ContentDigest != media.ContentDigest ||
+            if (prior.ContentDigest != media.ContentDigest ||
                 prior.WorkId != media.WorkId || prior.EpisodeId != media.EpisodeId)
                 throw new IOException("The previous library file differs from this download. Review the existing file.");
             media = media with { Id = prior.Id, Version = prior.Version + 1 };
             after = after with { MediaFileId = prior.Id };
         }
-        return new FilingWriteProposal(before.TargetId,
+        return new FilingWriteProposal(
             [new(after, null, before), new(media, prior?.Version, null),
              new(operation with { State = FileOperationState.Done, MediaFileId = media.Id,
                  UpdatedAt = DateTimeOffset.UtcNow }, null, operation)],
@@ -185,18 +182,13 @@ internal abstract class LibraryTransactionProposal(ImmutableArray<RowWrite> writ
     internal ImmutableArray<RowDelete> Deletes { get; } = deletes;
 }
 
-internal sealed class FilingWriteProposal(string? targetId, ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
-    : LibraryTransactionProposal(writes, deletes)
-{
-    internal string? TargetId { get; } = targetId;
-}
+internal sealed class FilingWriteProposal(ImmutableArray<RowWrite> writes, ImmutableArray<RowDelete> deletes)
+    : LibraryTransactionProposal(writes, deletes);
 
-internal sealed class PlacementWriteProposal(string downloadId, ImmutableArray<string> targetIds, ImmutableArray<RowWrite> writes,
-    string? reviewId, ImmutableArray<string> reviewItemIds)
+internal sealed class PlacementWriteProposal(ImmutableArray<RowWrite> writes, string? reviewId,
+    ImmutableArray<string> reviewItemIds)
     : LibraryTransactionProposal(writes, [])
 {
-    internal string DownloadId { get; } = downloadId;
-    internal ImmutableArray<string> TargetIds { get; } = targetIds;
     internal string? ReviewId { get; } = reviewId;
     internal ImmutableArray<string> ReviewItemIds { get; } = reviewItemIds;
 }
