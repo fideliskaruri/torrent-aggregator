@@ -148,7 +148,7 @@ internal static class DownloadEndpoints
 }
 
 internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownloads, IEngine engine,
-    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration)
+    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration, IParser parser)
 {
     private readonly SemaphoreSlim settingsGate = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -189,9 +189,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 rawIntent?.State == RawDownloadState.Done;
             var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                 live?.Intent == DownloadIntent.Paused;
-            var failed = live?.Failure is not null || live is null && !done && !paused;
-            var state = done ? "complete" : paused ? "paused" : failed ? "error" :
-                live?.Complete == true || target?.State == TargetState.Filing ? "finishing" :
+            var finishing = !done && !paused && (live?.Complete == true || target?.State == TargetState.Filing);
+            var failed = !finishing && (live?.Failure is not null || live is null && !done && !paused);
+            var state = done ? "complete" : paused ? "paused" : finishing ? "finishing" : failed ? "error" :
                 live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
                     live.StalledProgress ? "stalledDL" : "downloading" :
                 live?.Intent == DownloadIntent.Queued ? "queued" :
@@ -207,35 +207,52 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 live?.CompletedSelectedBytes ?? 0;
             var title = work is null ? null : CatalogProjection.Title(new(work,
                 [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
+            var releaseName = release?.Name ?? title ?? download.Hash;
+            var parsed = parser.Parse(releaseName);
+            var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
+            var waitingReason = target?.ReasonText ?? (state == "queued" ? full ?
+                "Waiting for a download slot." : "Waiting to start." :
+                live?.StalledProgress == true ? "Waiting for peers to send data." :
+                live?.StalledMetadata == true ? "Waiting for peers to share the torrent's file list." : null);
+            var position = state == "queued" ? (int?)++queuePosition : null;
+            var rowStatus = DownloadRowView.Status(state, position, full, waitingReason, rowError);
             rows.Add(new
             {
-                hash = download.Hash, name = release?.Name ?? title ?? download.Hash,
+                hash = download.Hash, name = releaseName,
                 progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
                 sizeBytes = size, dlspeed = live?.BytesPerSecond ?? 0, upspeed = 0,
                 state, eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
                 health = new { connectedPeers = live?.Peers ?? 0, downloadBytesPerSecond = live?.BytesPerSecond ?? 0,
                     stalledForSeconds = 0, state },
-                error = live?.Failure?.Message ?? (failed ? target?.ReasonText : null),
+                error = rowError,
+                status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
                 category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                 savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
                 retentionState = "kept", lane = target?.Origin == IntentOrigin.Request ? "request" : "owner",
                 forced = target?.DownloadNow == true || rawIntent?.NowAt is not null,
-                queuePosition = state == "queued" ? (int?)++queuePosition : null,
+                queuePosition = position,
                 waitReason = state == "queued" && full ? "queue-full" : null,
-                waitingReason = target?.ReasonText ?? (state == "queued" ? full ?
-                    "Waiting for a download slot." : "Waiting to start." :
-                    live?.StalledProgress == true ? "Waiting for peers to send data." :
-                    live?.StalledMetadata == true ? "Waiting for peers to share the torrent's file list." : null),
+                waitingReason,
                 verified = done, provenance = rawIntent is null ? "automatic" : "hand",
                 magnet = release?.Magnet, imported = false, addedAt = download.AddedAt,
                 filesMissing = done && selected.Any(f => media.Any(m => m.Id == f.MediaFileId && m.MissingSince is not null)),
                 ownerClientType = "builtin", ownerClientLabel = "Built-in", transferId = "builtin:" + download.Hash,
-                workId = work?.Id, workKey = work?.WorkKey, workTitle = title, workYear = work?.Year,
+                workId = work?.Id, workKey = work?.WorkKey,
+                workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
                 workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
                 posterUrl = work?.PosterUrl, targetScope = episode is null ? "movie" :
                     items.Length > 1 ? "season" : "episode",
-                season = season?.Number, episode = items.Length > 1 ? null : episode?.Number,
+                season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
+                episode = items.Length > 1 ? null : episode?.Number ??
+                    (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),
                 packEpisodes = items.Length > 1 ? (int?)items.Count(t => t.State != TargetState.Removed) : null,
+                quality = DownloadRowView.Quality(parsed.Quality),
+                mediaKind = DownloadRowView.MediaKind(work, parsed),
+                groupKey = work?.WorkKey ?? "raw:" + download.Hash,
+                actions = DownloadRowView.Actions(rowStatus.Status, target?.DownloadNow == true ||
+                    rawIntent?.NowAt is not null, target is not null,
+                    selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
+                        media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null))),
             });
         }
         var body = JsonSerializer.SerializeToNode(new { torrents = rows, clientType = "builtin", host = "",
@@ -336,6 +353,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     {
         var rows = (await WantedRows(ct)).Select(r => (object)new
         {
+            status = "waiting", statusLabel = DownloadRowView.WantedStatusLabel(r.Target.State, r.Target.ReasonText),
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
             mediaType = r.Work?.Kind == WorkKind.Series ? "tv" : "movie", season = r.Season, episode = r.Episode,
             error = (string?)null, why = r.Target.ReasonText,
@@ -355,6 +373,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             foreach (var season in intent.ScopeData.Seasons.Distinct())
                 rows.Add(new
                 {
+                    status = "waiting", statusLabel = "Waiting for the episode list",
                     workKey = work?.WorkKey ?? intent.WorkId, title, year = work?.Year,
                     mediaType = "tv", season = (int?)season, episode,
                     error = "Waiting for the show's season list", why = "Waiting for the episode list. Trying again soon.",
