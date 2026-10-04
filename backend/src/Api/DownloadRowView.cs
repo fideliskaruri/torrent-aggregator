@@ -19,7 +19,7 @@ internal static class DownloadRowView
     }
 
     internal static DownloadRowStatus Status(string state, int? queuePosition, bool full,
-        string? waitingReason, string? error)
+        bool stalledMetadata, string? error)
     {
         var status = state switch
         {
@@ -29,22 +29,19 @@ internal static class DownloadRowView
             "finishing" => "finishing",
             "downloading" => "downloading",
             "queued" => "queued",
+            "metaDL" or "stalledDL" => "waiting",
             _ => "waiting",
         };
-        var label = status switch
-        {
-            "ready" => "Ready",
-            "paused" => "Paused",
-            "error" => ShortError(error),
-            "finishing" => "Finishing",
-            "downloading" => "Downloading",
-            "queued" => queuePosition is { } position ? $"Queued ({position})" :
-                full ? "Waiting for a download slot" : "Queued",
-            "waiting" => state == "metaDL" || waitingReason?.Contains("file list", StringComparison.OrdinalIgnoreCase) == true
-                ? "Getting file list"
-                : "Waiting for peers",
-            _ => "Waiting for peers",
-        };
+        string label;
+        if (status == "ready") label = "Ready";
+        else if (status == "paused") label = "Paused";
+        else if (status == "error") label = ShortError(error);
+        else if (status == "finishing") label = "Finishing";
+        else if (status == "downloading") label = "Downloading";
+        else if (status == "queued")
+            label = queuePosition is { } position ? $"Queued ({position})" :
+                full ? "Waiting for a download slot" : "Queued";
+        else label = state == "metaDL" || stalledMetadata ? "Getting file list" : "Waiting for peers";
         return new(status, label);
     }
 
@@ -53,18 +50,23 @@ internal static class DownloadRowView
         : parsed.Seasons.Length > 0 || parsed.Episodes.Length > 0 || parsed.AbsoluteNumbers.Length > 0 ||
             parsed.EpisodeRanges.Length > 0 || parsed.AbsoluteRanges.Length > 0 ? "series" : "movie";
 
+    internal static bool IsSeries(WorkRow? work, ParsedRelease parsed) => work is not null
+        ? work.Kind == WorkKind.Series
+        : parsed.Seasons.Length > 0 || parsed.Episodes.Length > 0 || parsed.AbsoluteNumbers.Length > 0 ||
+            parsed.EpisodeRanges.Length > 0 || parsed.AbsoluteRanges.Length > 0;
+
     internal static object Quality(Quality quality)
     {
         var resolution = quality.Resolution switch
         {
-            2160 => "2160p", 1080 => "1080p", 720 => "720p", 480 => "480p", _ => null,
+            2160 => 2160, 1080 => 1080, 720 => 720, 480 => 480, _ => (int?)null,
         };
         var sourceLabel = quality.Source switch
         {
             "web" => "WEB-DL", "bluray" => "BluRay", "hdtv" => "HDTV", "dvd" => "DVD",
             "cam" => "CAM", "ts" => "TS", _ => null,
         };
-        var label = string.Join(" ", new[] { resolution, sourceLabel }.Where(value => value is not null));
+        var label = string.Join(" ", new[] { resolution?.ToString(), sourceLabel }.Where(value => value is not null));
         return new { resolution, source = quality.Source, label = label.Length == 0 ? null : label };
     }
 

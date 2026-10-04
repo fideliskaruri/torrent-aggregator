@@ -3,7 +3,6 @@ import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdow
 import { LoadingGlyph } from "@/components/ui/loading";
 import { useFeatures } from "@/lib/features";
 import type { OpenDownloadMode } from "@/lib/open-download";
-import { canOpenFinishedFile } from "./release-display";
 import type { ClientTorrent } from "./types";
 
 /**
@@ -28,7 +27,7 @@ export function FolderMenuItem({
 }) {
   const { openFolder } = useFeatures();
   if (openFolder) {
-    const reveal = canOpenFinishedFile(t);
+    const reveal = t.actions.open;
     return (
       <>
         <DropdownMenuSeparator />

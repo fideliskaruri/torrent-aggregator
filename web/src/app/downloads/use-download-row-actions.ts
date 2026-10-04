@@ -6,15 +6,12 @@ import {
   TORRENT_SOURCE_INPUT_HINT,
 } from "@/lib/torrents/magnet-input";
 import type { ClientTorrent, TorrentRowAction } from "./types";
-import { isError } from "./grouping";
 import { transferLabel, transfersLabel } from "./release-display";
 import type { useDownloads } from "./use-downloads";
 import type { useDownloadsPageState } from "./use-downloads-page-state";
-import type { useDownloadsPageView } from "./use-downloads-page-view";
 
 type Ui = ReturnType<typeof useDownloadsPageState>;
 type Data = ReturnType<typeof useDownloads>;
-type View = ReturnType<typeof useDownloadsPageView>;
 type Selection = {
   openDeleteDialog: (rows: ClientTorrent[]) => void;
 };
@@ -30,7 +27,6 @@ async function postRowAction(
     body: JSON.stringify({
       action: act,
       hash: torrent.hash,
-      ownerClientType: torrent.ownerClientType,
     }),
   }).catch(() => null);
   if (!response) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
@@ -50,7 +46,6 @@ function plural(count: number, word: string) {
 export function useDownloadRowActions(
   ui: Ui,
   data: Data,
-  view: View,
   selection: Selection,
 ) {
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
@@ -60,7 +55,7 @@ export function useDownloadRowActions(
     }
     data.invalidateInFlight();
     const label = transferLabel(torrent);
-    const verb = act === "force" ? "start" : act === "resume" && isError(torrent.status) ? "retry" : act;
+    const verb = act === "force" ? "start" : act;
     const outcome = await postRowAction(act, torrent);
     void data.load();
     if (!outcome.ok) {
@@ -73,7 +68,7 @@ export function useDownloadRowActions(
       ui.setAnnouncement(`Started ${label}.`);
       return;
     }
-    ui.setAnnouncement(`${act === "pause" ? "Paused" : verb === "retry" ? "Retrying" : "Resumed"} ${label}.`);
+    ui.setAnnouncement(`${act === "pause" ? "Paused" : "Resumed"} ${label}.`);
   }
 
   async function confirmFindAnother() {
@@ -147,9 +142,36 @@ export function useDownloadRowActions(
     }
   }
 
-  async function actionMany(act: "pause" | "resume", transfers: ClientTorrent[]) {
+  async function actionMany(act: "pause" | "resume" | "delete", transfers: ClientTorrent[], deleteFiles = false) {
     if (!transfers.length) return;
     data.invalidateInFlight();
+    if (act === "delete") {
+      const what = transfersLabel(transfers);
+      try {
+        const response = await send("/api/client/torrents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", hashes: transfers.map((torrent) => torrent.hash), deleteFiles }),
+        });
+        const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
+        if (!response.ok || body?.ok !== true) {
+          toast.error(`Couldn't remove ${what}`, {
+            description: body?.message?.trim() || body?.error?.trim() ||
+              `TorrentFlow answered HTTP ${response.status}. Try again.`,
+          });
+          return;
+        }
+        const summary = deleteFiles ? `Removed ${what} and its files` : `Removed ${what} but kept its files`;
+        toast.success(summary);
+        ui.setAnnouncement(`${summary}.`);
+        ui.setSelected(new Set());
+        ui.setPendingDelete(null);
+        void data.load();
+      } catch {
+        toast.error(`Couldn't remove ${what}`, { description: "Couldn't reach TorrentFlow. Try again." });
+      }
+      return;
+    }
     const outcomes = await Promise.all(transfers.map((torrent) => postRowAction(act, torrent)));
     void data.load();
     const reasons = outcomes.flatMap((outcome) => outcome.ok ? [] : [outcome.reason]);
@@ -169,13 +191,9 @@ export function useDownloadRowActions(
     }
   }
 
-  async function bulkAction(act: "pause" | "resume") {
-    await actionMany(act, view.selectedTargets[act]);
-  }
-
   function openBulkDelete() {
     selection.openDeleteDialog(data.torrents.filter((torrent) => ui.selected.has(torrent.transferId)));
   }
 
-  return { action, confirmFindAnother, sendRawTorrent, actionMany, bulkAction, openBulkDelete };
+  return { action, confirmFindAnother, sendRawTorrent, actionMany, openBulkDelete };
 }

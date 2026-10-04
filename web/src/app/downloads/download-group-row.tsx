@@ -3,10 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { SeriesGroup } from "./grouping";
-import { isError } from "./grouping";
 import { rollupChip } from "./release-display";
 import { DownloadGroupSummary } from "./download-group-summary";
-import { IconMenuButton, groupMenuItems } from "./row-menu";
+import { groupMenuItems } from "./row-menu";
 import { downloadTitleHref } from "./download-links";
 import type { ClientTorrent } from "./types";
 import type { WantedGroup } from "./wanted-groups";
@@ -31,8 +30,8 @@ export function DownloadGroupRow({
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
   onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
-  wantedGroups?: readonly WantedGroup[];
-  wantedState?: WantedState;
+  wantedGroups: readonly WantedGroup[];
+  wantedState: WantedState;
 }) {
   const head = group.torrents[0];
   const transferIds = group.torrents.map((torrent) => torrent.transferId);
@@ -44,7 +43,7 @@ export function DownloadGroupRow({
       "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 px-3 py-2.5 transition-colors max-md:pl-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3",
       allSelected ? "bg-brand-dim" : "hover:bg-muted/60",
     )} data-download-group data-group-key={group.key}
-      data-group-error={isError(group.status) || chip.failing ? "true" : undefined}>
+      data-group-error={group.status === "error" || chip.failing ? "true" : undefined}>
       <Checkbox checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
         onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`} className="shrink-0 max-md:z-[1]"/>
@@ -56,16 +55,10 @@ export function DownloadGroupRow({
           aria-label={`Open downloads for ${group.title}`} data-group-details>
           Details<ChevronRight className="h-3.5 w-3.5"/>
         </Button>
-        {wantedGroups.length > 0 && wantedState ? (
-          <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
-            label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
-            {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
-          </WantedMenuActions>
-        ) : (
-          <IconMenuButton label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
-            {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
-          </IconMenuButton>
-        )}
+        <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
+          label={`More actions for ${group.title}`} triggerProps={{ "data-group-more": "" }}>
+          {groupMenuItems({ torrents: group.torrents, onActionMany, onDeleteRequest })}
+        </WantedMenuActions>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Magnet, MoreHorizontal, Pause, Play, Search, Trash2, Zap } from "lucide-react";
+import { Magnet, MoreHorizontal, Search, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,15 +9,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { OpenDownloadMode } from "@/lib/open-download";
-import { isError } from "./grouping";
 import {
-  canDownloadNow,
   pauseResumeAction,
   pauseResumeTargets,
-  sourceChip,
-  canFindAnotherSourceFor,
 } from "./release-display";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
+import { DownloadLifecycleActions } from "./download-lifecycle-actions";
 import { FolderMenuItem } from "./folder-menu-item";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 
@@ -86,12 +83,10 @@ export function torrentRowMenuItems({
 }): ReactNode {
   const pauseResume = pauseResumeAction(t);
   const facts = [
-    sourceChip(t),
-    t.ownerClientLabel,
     t.category,
     t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
   ].filter(Boolean);
-  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherSourceFor(t) || pauseResume !== null;
+  const hasLifecycleItems = t.actions.downloadNow || t.actions.findAnother || pauseResume !== null;
   return (
     <>
       <div
@@ -106,7 +101,6 @@ export function torrentRowMenuItems({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => handlers.onCopyMagnet(t)}
-        disabled={t.imported}
         data-copy-magnet
       >
         <Magnet />
@@ -120,42 +114,27 @@ export function torrentRowMenuItems({
         onCopyPath={handlers.onCopyPath}
       />
       <DropdownMenuSeparator />
-      {canDownloadNow(t) ? (
+      {t.actions.downloadNow ? (
         <DropdownMenuItem onClick={() => handlers.onAction("force", t)} {...rowAttr(kind, "force")}>
           <Zap />
           Download now
         </DropdownMenuItem>
       ) : null}
-      {canFindAnotherSourceFor(t) ? (
+      {t.actions.findAnother ? (
         <DropdownMenuItem onClick={() => handlers.onAction("find-another-release", t)} data-find-release>
           <Search />
           {FIND_ANOTHER_SOURCE_LABEL}
         </DropdownMenuItem>
       ) : null}
-      {pauseResume === "pause" ? (
-        <DropdownMenuItem onClick={() => handlers.onAction("pause", t)}>
-          <Pause />
-          Pause
-        </DropdownMenuItem>
-      ) : pauseResume === "resume" ? (
-        <DropdownMenuItem
-          onClick={() => handlers.onAction("resume", t)}
-          {...(isError(t.status) ? rowAttr(kind, "menu-retry", "true") : {})}
-        >
-          <Play />
-          {isError(t.status) ? "Retry" : "Resume"}
-        </DropdownMenuItem>
-      ) : null}
       {hasLifecycleItems ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuItem
-        variant="destructive"
-        onClick={() => handlers.onDeleteRequest([t])}
-        {...rowAttr(kind, "delete")}
-        {...(kind === "torrent" ? { "data-delete-torrent": "" } : {})}
-      >
-        <Trash2 />
-        Delete…
-      </DropdownMenuItem>
+      <DownloadLifecycleActions mode="menu"
+        onPause={pauseResume === "pause" ? () => handlers.onAction("pause", t) : undefined}
+        onResume={pauseResume === "resume" ? () => handlers.onAction("resume", t) : undefined}
+        onDelete={() => handlers.onDeleteRequest([t])}
+        showPause={pauseResume === "pause"}
+        showResume={pauseResume === "resume"}
+        deleteLabel="Delete…"
+        deleteData={{ ...rowAttr(kind, "delete"), ...(kind === "torrent" ? { "data-delete-torrent": "" } : {}) }} />
     </>
   );
 }
@@ -173,27 +152,16 @@ export function groupMenuItems({
   const targets = pauseResumeTargets(torrents);
   return (
     <>
-      {targets.pause.length ? (
-        <DropdownMenuItem onClick={() => onActionMany("pause", targets.pause)}>
-          <Pause />
-          Pause all
-        </DropdownMenuItem>
-      ) : null}
-      {targets.resume.length ? (
-        <DropdownMenuItem onClick={() => onActionMany("resume", targets.resume)}>
-          <Play />
-          Resume all
-        </DropdownMenuItem>
-      ) : null}
-      {targets.pause.length || targets.resume.length ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuItem
-        variant="destructive"
-        onClick={() => onDeleteRequest([...torrents])}
-        data-group-delete
-      >
-        <Trash2 />
-        Delete all…
-      </DropdownMenuItem>
+      <DownloadLifecycleActions mode="menu"
+        onPause={() => onActionMany("pause", targets.pause)}
+        onResume={() => onActionMany("resume", targets.resume)}
+        onDelete={() => onDeleteRequest([...torrents])}
+        showPause={targets.pause.length > 0}
+        showResume={targets.resume.length > 0}
+        pauseLabel="Pause all"
+        resumeLabel="Resume all"
+        deleteLabel="Delete all…"
+        deleteData={{ "data-group-delete": "" }} />
     </>
   );
 }

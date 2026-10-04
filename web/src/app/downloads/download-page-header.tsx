@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { FolderTree, MoreHorizontal, RefreshCw } from "lucide-react";
+import { MoreHorizontal, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MaxActiveDownloadsControl } from "@/components/settings/max-active-downloads";
@@ -12,15 +12,7 @@ import type { useDownloadsPage } from "./use-downloads-page";
 
 type Model = ReturnType<typeof useDownloadsPage>;
 
-function clientLabel(type: string) {
-  if (type === "transmission") return "Transmission";
-  if (type === "qbittorrent") return "qBittorrent";
-  return "your torrent client";
-}
-
 export function DownloadPageHeader({ page }: { page: Model }) {
-  const isBuiltin = page.clientType === "builtin";
-  const clientUnavailable = page.offline && !isBuiltin;
   const stats = page.stats;
   const summaryParts: { id: StatusFilter; label: string; hook: string }[] = [
     { id: "all" as const, label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" },
@@ -40,20 +32,9 @@ export function DownloadPageHeader({ page }: { page: Model }) {
   return (
     <TfPageHeader
       title="Downloads"
-      meta={clientUnavailable ? (
-        <p className="flex items-center gap-2 text-[13px] text-destructive" data-client-status="offline">
-          <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
-          Can&apos;t reach {clientLabel(page.clientType)}. Retrying automatically.
-        </p>
-      ) : (
+      meta={
         <div className="flex flex-wrap items-center gap-x-3 text-[13px] tabular-nums text-muted-foreground lg:gap-x-1"
-          data-client-status="connected" data-downloads-summary>
-          <span className="inline-flex items-center gap-2 text-foreground"
-            title={!isBuiltin && page.clientHost ? `${clientLabel(page.clientType)} at ${page.clientHost}` : undefined}
-            data-client-connection>
-            <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
-            {isBuiltin ? "Connected" : `Connected to ${clientLabel(page.clientType)}`}
-          </span>
+          data-downloads-summary>
           {summaryParts.map((part) => (
             <span key={part.hook} className="inline-flex items-center">
               <span aria-hidden className="hidden px-1 text-subtle-foreground lg:inline">·</span>
@@ -74,7 +55,7 @@ export function DownloadPageHeader({ page }: { page: Model }) {
               <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground lg:inline">·</span>↓ {liveSpeed}
             </span>
           ) : null}
-          {isBuiltin && ((page.maxActive.limits && page.maxActive.value != null) || !page.maxActive.settled) ? (
+          {((page.maxActive.limits && page.maxActive.value != null) || !page.maxActive.settled) ? (
             <span className={cn("inline-flex items-center whitespace-nowrap", !page.maxActive.settled && "invisible")}
               aria-hidden={!page.maxActive.settled || undefined} inert={!page.maxActive.settled}
               data-max-active-inline={page.maxActive.limits?.source ?? "pending"}>
@@ -93,7 +74,7 @@ export function DownloadPageHeader({ page }: { page: Model }) {
             </span>
           ) : null}
         </div>
-      )}
+      }
       actions={
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Button type="button" variant="secondary" size="sm" onClick={() => void page.load()}
@@ -107,12 +88,6 @@ export function DownloadPageHeader({ page }: { page: Model }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[12rem]">
-              {isBuiltin ? (
-                <DropdownMenuItem disabled={page.tidying} onClick={() => void page.tidyFolders()} data-tidy-folders>
-                  <FolderTree className={cn("h-3.5 w-3.5", page.tidying && "animate-pulse")} />
-                  {page.tidying ? "Tidying…" : "Tidy folders"}
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuItem asChild><Link to="/settings?tab=connection">Settings</Link></DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

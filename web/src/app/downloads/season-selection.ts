@@ -19,7 +19,6 @@
  * Pure and DOM-free, driven as a table by `season-selection.test.ts`.
  */
 import {
-  isDownloading,
   type DownloadGroup,
   type SeasonBucket,
   type SeriesGroup,
@@ -31,7 +30,8 @@ export function defaultSeasonKey<T>(
 ): string | null {
   if (!seasons.length) return null;
   const active = seasons.find(
-    (season) => isDownloading(season.status) || season.progress < 1,
+    (season) => season.status === "downloading" || season.status === "finishing" ||
+      season.status === "waiting" || season.progress < 1,
   );
   return (active ?? seasons[0]).key;
 }

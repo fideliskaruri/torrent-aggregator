@@ -10,14 +10,15 @@ import { cn } from "@/lib/utils";
 
 /** One target from GET /api/wanted that has no release yet. */
 export interface WantedRow {
+  status: string;
+  statusLabel: string;
   workKey: string;
   title?: string | null;
   year?: number | null;
   mediaType?: string | null;
+  mediaKind?: "movie" | "series" | "anime";
   season?: number | null;
   episode?: number | null;
-  error?: string | null;
-  why?: string | null;
   looking: boolean;
   nextAttemptAt?: string | null;
   /** "Pick a release yourself" for this film or episode. */

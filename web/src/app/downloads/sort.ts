@@ -44,9 +44,7 @@ function addedAtMs(group: Group): number | null {
 function bestResolution(group: Group): number | null {
   let best: number | null = null;
   for (const torrent of members(group)) {
-    const resolution = torrent.quality.resolution
-      ? Number.parseInt(torrent.quality.resolution, 10)
-      : null;
+    const resolution = torrent.quality.resolution;
     if (resolution != null && (best == null || resolution > best)) best = resolution;
   }
   return best;

@@ -5,13 +5,11 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { DownloadGroupRow } from "./download-group-row";
 import { DownloadFilmRow } from "./download-film-row";
 import { WantedOnlyRow } from "./wanted-only-row";
-import { wantedTitleKeyForDownload } from "./wanted-groups";
 import type { useDownloadsPage } from "./use-downloads-page";
 
 type Model = ReturnType<typeof useDownloadsPage>;
 
 export function DownloadTransferList({ page }: { page: Model }) {
-  const isBuiltin = page.clientType === "builtin";
   const hasRows = page.sortedGroups.length > 0 || page.wantedOnly.length > 0;
   const hasNoDownloadsOrWanted = page.downloadable.length === 0 && page.wantedGroups.length === 0;
   return (
@@ -19,15 +17,13 @@ export function DownloadTransferList({ page }: { page: Model }) {
       {hasNoDownloadsOrWanted && !page.loading ? (
         <div className="space-y-4">
           <TfEmptyState icon={HardDriveDownload} title="No downloads yet"
-            description={isBuiltin
-              ? "Find a title and choose Download to see it here."
-              : "Find a title and choose Download to send it to your connected client."}
+            description="Find a title and choose Download to see it here."
             actionLabel="Open search" actionHref="/" />
-          {isBuiltin && <DownloadRecovery mode="empty" onImported={() => void page.load()} />}
+          <DownloadRecovery mode="empty" onImported={() => void page.load()} />
         </div>
       ) : (
         <>
-          {isBuiltin && page.torrents.length > 0 && page.torrents.every(
+          {page.torrents.length > 0 && page.torrents.every(
             (torrent) => torrent.progress < 0.01 && (torrent.status === "waiting" || torrent.status === "queued"),
           ) ? (
             <p className="mb-2 px-1 text-[12px] text-subtle-foreground">
@@ -60,10 +56,7 @@ export function DownloadTransferList({ page }: { page: Model }) {
                   onOpenFile={(torrent, mode) => void page.openFinishedFile(torrent, mode)}
                   onCopyPath={page.copyFolderPath} onCopyMagnet={(torrent) => void page.copyMagnet(torrent)}
                   onDeleteRequest={page.openDeleteDialog}
-                  wantedGroups={page.wantedByWorkKey.get(wantedTitleKeyForDownload(
-                    group.torrent.groupKey,
-                    group.torrent.workKey,
-                  )) ?? []}
+                  wantedGroups={page.wantedByWorkKey.get(group.torrent.groupKey) ?? []}
                   wantedState={page.wanted} />
               ))}
               {page.wantedOnly.map((title) => (

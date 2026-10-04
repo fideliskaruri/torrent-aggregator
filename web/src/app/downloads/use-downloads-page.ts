@@ -10,7 +10,7 @@ export function useDownloadsPage() {
   const data = useDownloads(Boolean(ui.pendingDelete));
   const view = useDownloadsPageView(ui, data);
   const selection = useDownloadsSelection(ui, data, view);
-  const rowActions = useDownloadRowActions(ui, data, view, selection);
-  const management = useDownloadManagementActions(ui, data);
+  const rowActions = useDownloadRowActions(ui, data, selection);
+  const management = useDownloadManagementActions(ui, rowActions.actionMany);
   return { ...ui, ...data, ...view, ...selection, ...rowActions, ...management };
 }

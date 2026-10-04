@@ -11,17 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible,CollapsibleTrigger } from "@/components/ui/collapsible";
 import { progressPercent } from "@/components/tf/active-row-state";
-import { isDownloaded,isDownloading,isError } from "./grouping";
+import { packLabel, rowStateBadge, showsProgressBar } from "./release-display";
 import {
-canOpenFinishedFile,
-packLabel,
-releaseDisplayFacts,
-rowStateBadge,
-showsProgressBar,
-transferErrorMessage,
-} from "./release-display";
-import {
-IconMenuButton,
 rowAttr,
 torrentRowMenuItems,
 type TorrentRowMenuHandlers,
@@ -35,8 +26,6 @@ import { SearchingBadge } from "./searching-badge";
 import { WantedMenuActions } from "./wanted-menu-actions";
 import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
-export { DownloadGroupSummary } from "./download-group-summary";
-
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
 
 export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
@@ -49,14 +38,12 @@ export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
   titleHref?: string | null;
   posterUrl?: string | null;
   showThumb?: boolean;
-  /** A season pack is many episodes, so it never offers Open. */
-  isSeasonPack?: boolean;
   isSelected: boolean;
   highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (transferId: string, additive: boolean) => void;
   wantedGroups?: readonly WantedGroup[];
-  wantedState?: WantedState;
+  wantedState: WantedState;
 }
 
 export function DownloadTransferRow({
@@ -66,7 +53,6 @@ export function DownloadTransferRow({
   titleHref = null,
   posterUrl,
   showThumb = false,
-  isSeasonPack = false,
   isSelected,
   highlighted,
   openingHash,
@@ -83,13 +69,13 @@ export function DownloadTransferRow({
   const badge = rowStateBadge(t);
   const busy = openingHash === t.transferId;
   // A pack's largest file is one episode of many, so a pack only gets Show in folder.
-  const canOpen = openFolder && canOpenFinishedFile(t) && !isSeasonPack && !t.packEpisodes;
-  const errorMessage = transferErrorMessage(t);
+  const canOpen = openFolder && t.actions.open;
+  const errorMessage = t.status === "error" ? t.statusLabel : null;
   const [errorExpanded, setErrorExpanded] = useState(false);
-  const showEta = isDownloading(t.status) && t.eta != null && t.eta > 0;
-  const speed = isDownloading(t.status) ? formatSpeed(t.dlspeed) : null;
-  const done = isDownloaded(t.status);
-  const quality = releaseDisplayFacts(t).qualityChip;
+  const showEta = ["downloading", "finishing", "waiting"].includes(t.status) && t.eta != null && t.eta > 0;
+  const speed = showEta ? formatSpeed(t.dlspeed) : null;
+  const done = t.status === "ready";
+  const quality = t.quality.label;
   const heading = transferTitleParts({ title, href: titleHref, posterUrl });
   const rowRef = useRef<HTMLDivElement>(null);
   // Bring the linked row into view and give it focus, so the keyboard and a
@@ -101,15 +87,11 @@ export function DownloadTransferRow({
   }, [highlighted]);
 
   const menuItems = torrentRowMenuItems({ torrent: t, kind, busy, displayPath, handlers });
-  const menu = wantedGroups.length > 0 && wantedState ? (
+  const menu = (
     <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
       label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
       {menuItems}
     </WantedMenuActions>
-  ) : (
-    <IconMenuButton label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
-      {menuItems}
-    </IconMenuButton>
   );
 
   return (
@@ -130,8 +112,7 @@ export function DownloadTransferRow({
       aria-pressed={isSelected}
       aria-label={`${isSelected ? "Deselect" : "Select"} ${title}`}
       data-hash={t.hash}
-      data-owner-client={t.ownerClientType}
-      data-torrent-error={isError(t.status) ? "true" : undefined}
+      data-torrent-error={t.status === "error" ? "true" : undefined}
       title={t.name}
       onClick={(e) => {
         if (
@@ -177,16 +158,14 @@ export function DownloadTransferRow({
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
                   variant={badge.variant}
-                  title={badge.filesMissing ? "The downloaded files are no longer on disk" : undefined}
+                  title={t.filesMissing ? "The downloaded files are no longer on disk" : undefined}
                   {...rowAttr(kind, "state")}
-                  data-files-missing={badge.filesMissing || undefined}
+                  data-files-missing={t.filesMissing || undefined}
                 >
-                  {done && !badge.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
+                  {done && !t.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
                   {badge.label}
                 </Badge>
                 {!card ? <SearchingBadge groups={wantedGroups} /> : null}
-                {t.imported && <Badge variant="outline">Imported</Badge>}
-                {t.imported && <Badge variant="outline">Imported</Badge>}
                 {packLabel(t) ? (
                   <span className="text-[12px] text-muted-foreground" data-season-pack>
                     {packLabel(t)}

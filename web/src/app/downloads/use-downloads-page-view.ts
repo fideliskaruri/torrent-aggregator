@@ -4,11 +4,6 @@ import { toast } from "@/lib/toast";
 import {
   groupDownloads,
   statusCounts,
-  isDownloading,
-  isError,
-  isPaused,
-  isQueued,
-  isDownloaded,
   type SeriesGroup,
 } from "./grouping";
 import { releaseDisplayFacts, pauseResumeTargets, transferLabel } from "./release-display";
@@ -21,9 +16,9 @@ import {
   findLinkedDownload,
   withoutDownloadLink,
 } from "./download-link";
-import { isDownloadRow, type ClientTorrent } from "./types";
+import type { ClientTorrent } from "./types";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
-import { groupWantedRows, groupWantedTitles, wantedSubtitle, wantedTitleKeyForDownload } from "./wanted-groups";
+import { groupWantedRows, groupWantedTitles, wantedSubtitle } from "./wanted-groups";
 import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
 import type { useDownloadsPageState } from "./use-downloads-page-state";
@@ -33,23 +28,24 @@ type Data = ReturnType<typeof useDownloads>;
 
 export function useDownloadsPageView(ui: Ui, data: Data) {
   const { torrents, error, authoritative } = data;
-  const downloadable = useMemo(() => torrents.filter(isDownloadRow), [torrents]);
+  const downloadable = torrents;
   const filtered = useMemo(() => {
     const q = ui.filter.trim().toLowerCase();
     const byStatus = downloadable.filter((torrent) => {
       const display = releaseDisplayFacts(torrent);
+      const moving = ["downloading", "finishing", "waiting"].includes(torrent.status);
       if (
         q &&
         !torrent.name.toLowerCase().includes(q) &&
         !display.title.toLowerCase().includes(q) &&
         !(display.episodeLabel?.toLowerCase().includes(q) ?? false)
       ) return false;
-      if (ui.statusFilter === "downloading") return torrent.status === "downloading" || torrent.status === "finishing" || torrent.status === "waiting";
-      if (ui.statusFilter === "queued") return isQueued(torrent.status);
-      if (ui.statusFilter === "ready") return isDownloaded(torrent.status);
-      if (ui.statusFilter === "paused") return isPaused(torrent.status);
-      if (ui.statusFilter === "attention") return isError(torrent.status);
-      if (ui.statusFilter === "active") return isDownloading(torrent.status) || isQueued(torrent.status);
+      if (ui.statusFilter === "downloading") return moving;
+      if (ui.statusFilter === "queued") return torrent.status === "queued";
+      if (ui.statusFilter === "ready") return torrent.status === "ready";
+      if (ui.statusFilter === "paused") return torrent.status === "paused";
+      if (ui.statusFilter === "attention") return torrent.status === "error";
+      if (ui.statusFilter === "active") return moving || torrent.status === "queued";
       return true;
     });
     return filterDownloadsByTab(byStatus, ui.mediaTab);
@@ -69,9 +65,7 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
     [wantedTitles],
   );
   const downloadedWorkKeys = useMemo(() => new Set(allGroups.map((group) =>
-    group.kind === "series"
-      ? group.key
-      : wantedTitleKeyForDownload(group.torrent.groupKey, group.torrent.workKey))), [allGroups]);
+    group.kind === "series" ? group.key : group.torrent.groupKey)), [allGroups]);
   const wantedOnly = useMemo(() => {
     if (ui.statusFilter !== "all") return [];
     const q = ui.filter.trim().toLowerCase();
@@ -134,7 +128,7 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
       ui.seriesDialogOpenerRef.current = null;
       ui.setOpenSeriesKey(series.key);
       ui.setSelectedSeasonKey(
-        series.seasons.find((season) => season.entries.some((entry) => entry.torrent === target))?.key ?? null,
+        series.seasons.find((season) => season.entries.includes(target))?.key ?? null,
       );
     }
   }, [

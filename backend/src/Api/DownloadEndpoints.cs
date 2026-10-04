@@ -34,8 +34,6 @@ internal static class DownloadEndpoints
             Reply(await api.ListAsync(ct)));
         group.MapPost("/client/torrents", async (DownloadAction input, DownloadsApi api, CancellationToken ct) =>
             Reply(await api.ActionAsync(input, ct)));
-        group.MapPost("/client/torrents/tidy", async (DownloadsApi api, CancellationToken ct) =>
-            Reply(await api.TidyAsync(ct)));
         group.MapPost("/downloads/{transferId}/keep", async (string transferId, DownloadsApi api, CancellationToken ct) =>
             await api.KeepAsync(transferId, ct));
         group.MapPost("/title/{workKey}", async (string workKey, TitleDownload input, HttpContext http,
@@ -204,38 +202,27 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             var releaseName = release?.Name ?? title ?? download.Hash;
             var parsed = parser.Parse(releaseName);
             var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
-            var waitingReason = target?.ReasonText ?? (state == "queued" ? full ?
-                "Waiting for a download slot." : "Waiting to start." :
-                live?.StalledProgress == true ? "Waiting for peers to send data." :
-                live?.StalledMetadata == true ? "Waiting for peers to share the torrent's file list." : null);
             var position = state == "queued" ? (int?)++queuePosition : null;
-            var rowStatus = DownloadRowView.Status(state, position, full, waitingReason, rowError);
+            var rowStatus = DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
+            var forced = target?.DownloadNow == true || rawIntent?.NowAt is not null;
+            var filesExist = selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
+                media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null));
+            var filesMissing = done && selected.Length > 0 && !filesExist;
             rows.Add(new
             {
                 hash = download.Hash, name = releaseName,
                 progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
                 sizeBytes = size, dlspeed = live?.BytesPerSecond ?? 0, upspeed = 0,
-                state, eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
-                health = new { connectedPeers = live?.Peers ?? 0, downloadBytesPerSecond = live?.BytesPerSecond ?? 0,
-                    stalledForSeconds = 0, state },
-                error = rowError,
+                eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
                 status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
                 category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                 savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
-                retentionState = "kept", lane = target?.Origin == IntentOrigin.Request ? "request" : "owner",
-                forced = target?.DownloadNow == true || rawIntent?.NowAt is not null,
-                queuePosition = position,
-                waitReason = state == "queued" && full ? "queue-full" : null,
-                waitingReason,
-                verified = done, provenance = rawIntent is null ? "automatic" : "hand",
-                magnet = release?.Magnet, imported = false, addedAt = download.AddedAt,
-                filesMissing = done && selected.Any(f => media.Any(m => m.Id == f.MediaFileId && m.MissingSince is not null)),
-                ownerClientType = "builtin", ownerClientLabel = "Built-in", transferId = "builtin:" + download.Hash,
+                magnet = release?.Magnet, addedAt = download.AddedAt, filesMissing,
+                transferId = "builtin:" + download.Hash,
                 workId = work?.Id, workKey = work?.WorkKey,
                 workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
                 workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
-                posterUrl = work?.PosterUrl, targetScope = episode is null ? "movie" :
-                    items.Length > 1 ? "season" : "episode",
+                posterUrl = work?.PosterUrl,
                 season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
                 episode = items.Length > 1 ? null : episode?.Number ??
                     (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),
@@ -243,19 +230,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 quality = DownloadRowView.Quality(parsed.Quality),
                 mediaKind = DownloadRowView.MediaKind(work, parsed),
                 groupKey = work?.WorkKey ?? "raw:" + download.Hash,
-                actions = DownloadRowView.Actions(rowStatus.Status, target?.DownloadNow == true ||
-                    rawIntent?.NowAt is not null, target is not null,
-                    selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
-                        media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null))),
+                isSeries = DownloadRowView.IsSeries(work, parsed),
+                actions = DownloadRowView.Actions(rowStatus.Status, forced, target is not null, filesExist),
             });
         }
-        var body = JsonSerializer.SerializeToNode(new { torrents = rows, clientType = "builtin", host = "",
-            offline = false, hasExternal = false, externalClientType = (string?)null,
-            partial = false, clientIssues = Array.Empty<object>() }, Json)!;
-        foreach (var row in body["torrents"]!.AsArray())
-            foreach (var key in new[] { "eta", "queuePosition" })
-                if (row![key] is null) row.AsObject().Remove(key);
-        return body;
+        return new { torrents = rows };
     }
 
     internal async Task<object> ActionAsync(DownloadEndpoints.DownloadAction input, CancellationToken ct)
@@ -293,14 +272,6 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             foreach (var id in ids) await targets.ActionAsync(id, action, ct);
         }
         return new { ok = true };
-    }
-
-    internal async Task<object> TidyAsync(CancellationToken ct)
-    {
-        var downloads = (await targets.ReadAsync(ct)).Downloads;
-        // Library reserves the final layout before admission; there are no legacy nested moves.
-        return new { @checked = downloads.Length, tidied = 0, filesMoved = 0, stillNested = 0,
-            skipped = downloads.Count(d => d.FinishedAt is null) };
     }
 
     internal async Task<IResult> KeepAsync(string transferId, CancellationToken ct)
@@ -350,7 +321,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             status = "waiting", statusLabel = DownloadRowView.WantedStatusLabel(r.Target.State, r.Target.ReasonText),
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
             mediaType = r.Work?.Kind == WorkKind.Series ? "tv" : "movie", season = r.Season, episode = r.Episode,
-            error = (string?)null, why = r.Target.ReasonText,
+            mediaKind = r.Work?.Anime == true ? "anime" : r.Work?.Kind == WorkKind.Series ? "series" : "movie",
             looking = r.Target.State is TargetState.Wanted or TargetState.Searching,
             nextAttemptAt = r.Target.NextTryAt,
         }).ToList();
@@ -369,8 +340,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 {
                     status = "waiting", statusLabel = "Waiting for the episode list",
                     workKey = work?.WorkKey ?? intent.WorkId, title, year = work?.Year,
-                    mediaType = "tv", season = (int?)season, episode,
-                    error = "Waiting for the show's season list", why = "Waiting for the episode list. Trying again soon.",
+                    mediaType = "tv", mediaKind = work?.Anime == true ? "anime" : "series",
+                    season = (int?)season, episode,
                     looking = false, nextAttemptAt = intent.NextTryAt,
                 });
         }

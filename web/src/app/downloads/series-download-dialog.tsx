@@ -13,12 +13,10 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { SeasonSwitcher, type SeasonOption } from "@/components/tf/season-switcher";
 import { progressPercent } from "@/components/tf/active-row-state";
 import {
-  isError,
-  type GroupEntry,
   type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
-import { canFindAnotherSourceFor, releaseDisplayFacts, rollupChip } from "./release-display";
+import { releaseDisplayFacts, rollupChip } from "./release-display";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import type { OpenDownloadMode } from "@/lib/open-download";
@@ -30,7 +28,7 @@ import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
 import { WantedDetails } from "./wanted-details";
 import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
-import { formatEpisodeNumber, formatSeasonLabel } from "@/lib/library/cursor";
+import { formatEpisodeNumber } from "@/lib/library/cursor";
 
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
 export interface SeriesDownloadDialogProps {
@@ -58,12 +56,8 @@ export interface SeriesDownloadDialogProps {
   onCopyPath: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[]) => void;
-  wantedGroups?: readonly WantedGroup[];
-  wantedState?: WantedState;
-}
-
-function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "label">) {
-  return season.season != null ? `Season ${formatSeasonLabel(season.season).slice(1)}` : season.label;
+  wantedGroups: readonly WantedGroup[];
+  wantedState: WantedState;
 }
 
 /** The dialog's seasons as switcher options: label, mini bar and failed count. */
@@ -71,7 +65,7 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
   return group.seasons.map((season) => {
     const pct = progressPercent(season.progress);
     const failed = season.counts.error;
-    const label = seasonLabelFor(season);
+    const label = season.label;
     return {
       value: season.key,
       label,
@@ -99,12 +93,12 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
   });
 }
 
-function episodeLabel(entry: GroupEntry<ClientTorrent>, season: SeasonBucket<ClientTorrent>) {
-  return entry.episode != null
-    ? `E${formatEpisodeNumber(entry.episode)}`
-    : entry.isSeasonPack
-      ? `${seasonLabelFor(season)} pack`
-      : (entry.episodeLabel ?? releaseDisplayFacts(entry.torrent).title);
+function episodeLabel(torrent: ClientTorrent, season: SeasonBucket<ClientTorrent>) {
+  return torrent.episode != null
+    ? `E${formatEpisodeNumber(torrent.episode)}`
+    : torrent.packEpisodes
+      ? `${season.label} pack`
+      : releaseDisplayFacts(torrent).title;
 }
 export function SeriesDownloadDialog({
   group,
@@ -125,7 +119,7 @@ export function SeriesDownloadDialog({
   onCopyPath,
   onCopyMagnet,
   onDeleteRequest,
-  wantedGroups = [],
+  wantedGroups,
   wantedState,
 }: SeriesDownloadDialogProps) {
   const selectedSeason = useMemo(
@@ -137,7 +131,7 @@ export function SeriesDownloadDialog({
   if (!group) return null;
 
   const seasons = seasonOptions(group);
-  const seasonIds = selectedSeason?.entries.map((entry) => entry.torrent.transferId) ?? [];
+  const seasonIds = selectedSeason?.entries.map((torrent) => torrent.transferId) ?? [];
   const seasonCheckedCount = seasonIds.filter((transferId) => selected.has(transferId)).length;
   const seasonChecked =
     seasonIds.length > 0 && seasonCheckedCount === seasonIds.length
@@ -149,9 +143,11 @@ export function SeriesDownloadDialog({
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
     .flatMap((season) => season.entries)
-    .find((entry) => isError(entry.torrent.status) && canFindAnotherSourceFor(entry.torrent));
+    .find((torrent) => torrent.status === "error" && torrent.actions.findAnother);
   const firstFailedLabel = firstFailed
-    ? (firstFailed.episodeLabel ?? releaseDisplayFacts(firstFailed.torrent).title)
+    ? (firstFailed.episode != null
+      ? `E${formatEpisodeNumber(firstFailed.episode)}`
+      : releaseDisplayFacts(firstFailed).title)
     : null;
 
   return (
@@ -183,7 +179,7 @@ export function SeriesDownloadDialog({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => onAction("find-another-release", firstFailed.torrent)}
+                    onClick={() => onAction("find-another-release", firstFailed)}
                     data-group-find-release
                   >
                     <Search className="h-3.5 w-3.5" />
@@ -232,7 +228,7 @@ export function SeriesDownloadDialog({
           className="min-h-0 overflow-y-auto px-4 py-3 sm:px-5"
           data-season-panel
           aria-label={
-            selectedSeason ? `${seasonLabelFor(selectedSeason)} downloads` : "Season downloads"
+            selectedSeason ? `${selectedSeason.label} downloads` : "Season downloads"
           }
         >
           {selectedSeason ? (
@@ -245,7 +241,7 @@ export function SeriesDownloadDialog({
                 id={selectAllId}
                 checked={seasonChecked}
                 onCheckedChange={() => onToggleManySelect(seasonIds)}
-                aria-label={`Select all episodes in ${seasonLabelFor(selectedSeason)}`}
+                aria-label={`Select all episodes in ${selectedSeason.label}`}
                 data-season-select-all={
                   seasonChecked === "indeterminate" ? "some" : seasonChecked ? "all" : "none"
                 }
@@ -258,15 +254,14 @@ export function SeriesDownloadDialog({
               </label>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {selectedSeason.entries.map((entry) => (
+              {selectedSeason.entries.map((torrent) => (
                 <DownloadTransferRow
-                  key={entry.torrent.transferId}
-                  torrent={entry.torrent}
+                  key={torrent.transferId}
+                  torrent={torrent}
                   kind="episode"
-                  title={episodeLabel(entry, selectedSeason)}
-                  isSeasonPack={entry.isSeasonPack}
-                  isSelected={selected.has(entry.torrent.transferId)}
-                  highlighted={entry.torrent.transferId === highlightedTransferId}
+                  title={episodeLabel(torrent, selectedSeason)}
+                  isSelected={selected.has(torrent.transferId)}
+                  highlighted={torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
                   onAction={onAction}
@@ -275,6 +270,8 @@ export function SeriesDownloadDialog({
                   onCopyPath={onCopyPath}
                   onCopyMagnet={onCopyMagnet}
                   onDeleteRequest={onDeleteRequest}
+                  wantedGroups={[]}
+                  wantedState={wantedState}
                 />
               ))}
             </div>
