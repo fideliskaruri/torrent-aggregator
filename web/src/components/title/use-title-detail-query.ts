@@ -152,7 +152,7 @@ export function useTitleDetailQuery(props: TitleDetailProps) {
   ]);
   const activeSeason = season ?? data?.season ?? null;
   const extrasUrl = useMemo(
-    () => (data ? buildExtrasUrl(props, data, activeSeason) : null),
+    () => (data?.known ? buildExtrasUrl(props, data, activeSeason) : null),
     [
       props.workKey,
       props.title,

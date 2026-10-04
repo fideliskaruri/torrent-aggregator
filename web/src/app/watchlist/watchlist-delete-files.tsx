@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getDeletePlan, deleteLibraryFiles } from "@/lib/api/watchlist";
 import type { DeletePlan, WatchlistItem } from "@/lib/api/watchlist-types";
 import { toast } from "@/lib/toast";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 
 type DeleteScope = { kind: "show" } | { kind: "season"; season: number } | { kind: "episode"; season: number; episode: number };
 
@@ -45,7 +46,7 @@ export function WatchlistDeleteFiles({ item, onDeleted, iconOnly = false }: { it
   const season = held ? Number(held[1]) : item.cursorSeason ?? item.fromSeason;
   const scopes: Array<{ value: string; label: string; scope: DeleteScope }> = [{ value: "show", label: "Everything", scope: { kind: "show" } }];
   if (season != null) scopes.push({ value: "season", label: `Season ${season}`, scope: { kind: "season", season } });
-  if (held) scopes.push({ value: "episode", label: item.lastEpisode ?? `S${held[1]}E${held[2]}`, scope: { kind: "episode", season: Number(held[1]), episode: Number(held[2]) } });
+  if (held) scopes.push({ value: "episode", label: item.lastEpisode ?? formatEpisodeLabel(Number(held[1]), Number(held[2])), scope: { kind: "episode", season: Number(held[1]), episode: Number(held[2]) } });
 
   async function confirm() {
     if (!plan || plan.outcome !== "deletes") return;
