@@ -124,7 +124,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Mobile fixes, 22 of 23 verified by QA.
 - AniList anime episode lists.
 - Lowering the download cap re-queues running downloads.
-- PWA, auto-approve, timeline, notifications.
+- PWA installation and in-app notifications.
 
 ## Architecture rethink (2026-10-03): whole backend rebuild
 - [x] Phase 0 (2026-10-03, commits bf36395..ceefb12): connectivity control, benchmark harness, baseline (main and Next.js 5824ed5~1), API contract capture.

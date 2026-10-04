@@ -3,7 +3,6 @@ import { Link, useLocation } from "react-router";
 import {
   Activity,
   Boxes,
-  CalendarClock,
   Circle,
   CircleUser,
   Clapperboard,
@@ -60,7 +59,6 @@ const NAV_ICONS: Record<string, typeof Search> = {
   "/rules": Zap,
   "/about": Info,
   [REQUESTS_HREF]: Inbox,
-  "/upcoming": CalendarClock,
 };
 
 /**

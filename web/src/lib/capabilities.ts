@@ -18,10 +18,8 @@ export interface Capabilities {
   canSeeTransfers: boolean;
   /** Ask the owner for a title (Request button). */
   canRequest: boolean;
-  /** The owner's inbox: approve, decline, auto-approve. */
+  /** The owner's inbox: approve and decline. */
   canReviewRequests: boolean;
-  /** Upcoming calendar: the owner's timeline, or a requester's own requests read-only. */
-  canSeeUpcoming: boolean;
 }
 
 export type Capability = keyof Capabilities;
@@ -35,7 +33,6 @@ export function capabilitiesFor(role: SessionRole): Capabilities {
     canSeeTransfers: owner,
     canRequest: !owner,
     canReviewRequests: owner,
-    canSeeUpcoming: true,
   };
 }
 

@@ -1,7 +1,5 @@
-using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
@@ -18,35 +16,6 @@ internal static class RequestEndpoints
         services.AddScoped(sp => new RequestService(sp.GetRequiredKeyedService<IStore>("targets"),
             sp.GetRequiredService<IMetadata>(), sp.GetRequiredService<TargetPipeline>()));
         services.AddHostedService<RequestReconciler>();
-    }
-
-    /// <summary>Open requests on the calendar; null userId reads every requester's (the owner's preview).</summary>
-    private static async Task<IResult> Calendar(RequestService service, string? userId, CancellationToken ct)
-    {
-        var rows = await service.Read<RequestRow>(CatalogState.Query(userId: userId), ct);
-        var results = new List<object>();
-        var entries = new List<object>();
-        var open = rows.Where(r => r.Decision is RequestDecision.Pending or RequestDecision.Approved).ToArray();
-        var targets = open.Length == 0 ? [] : await service.Read<TargetRow>(CatalogState.Query(), ct);
-        var episodes = open.Length == 0 ? [] : await service.Read<EpisodeRow>(CatalogState.Query(), ct);
-        foreach (var row in open)
-        {
-            results.Add(await service.Project(row, false, ct));
-            var work = (await service.Read<WorkRow>(CatalogState.Query(row.WorkId), ct)).Single();
-            var name = (await service.Read<WorkNameRow>(CatalogState.Query(workId: work.Id), ct))
-                .OrderBy(n => n.Ordinal).FirstOrDefault()?.Value ?? work.WorkKey;
-            var mine = targets.Where(t => t.WorkId == work.Id && t.Origin == IntentOrigin.Request).ToArray();
-            var expected = mine.Select(t => TorrentFlow.Api.Notifications.CalendarDates.Expected(t, episodes.FirstOrDefault(e => e.Id == t.EpisodeId), work))
-                .Where(d => d is not null).Min() ?? work.DigitalAt ?? work.PhysicalAt ?? work.TheatricalAt;
-            var state = row.Decision == RequestDecision.Pending ? "pending" :
-                mine.Length > 0 && mine.All(t => t.State == TargetState.Done) ? "in_library" :
-                mine.Any(t => t.State is TargetState.Fetching or TargetState.Filing) ? "downloading" :
-                mine.Any(t => t.ChosenReleaseHash is not null) ? "found" :
-                expected > DateTimeOffset.UtcNow ? "expected" : "searching";
-            entries.Add(new { id = row.Id, title = name, posterUrl = work.PosterUrl, at = expected, state, release = TorrentFlow.Api.Notifications.CalendarDates.Release(work.Kind != WorkKind.Film, expected, work),
-                mediaType = work.Kind == WorkKind.Film ? "movie" : "tv" });
-        }
-        return Reply(new { items = results, entries });
     }
 
     internal static void MapRequests(this WebApplication app)
@@ -93,10 +62,6 @@ internal static class RequestEndpoints
             foreach (var row in rows) results.Add(await service.Project(row, false, ct));
             return Reply(new { requests = results });
         });
-        requester.MapGet("/calendar", (HttpContext http, RequestService service, CancellationToken ct) =>
-            Calendar(service, AccessIdentity.UserId(http), ct));
-        // The owner's View as requester preview: the same calendar over every open request, read-only.
-        owner.MapGet("/calendar", (RequestService service, CancellationToken ct) => Calendar(service, null, ct));
         requester.MapPost("/requests", async (HttpContext http, RequestService service, CancellationToken ct) =>
         {
             if (http.Request.ContentLength is > 16384) return Results.StatusCode(413);
@@ -156,39 +121,6 @@ internal static class RequestEndpoints
                 finally { RequestService.Gate.Release(); }
             });
         }
-        owner.MapGet("/auto-approve", async (RequestService service, CancellationToken ct) => Reply(await AutoConfig(service, ct)));
-        owner.MapPut("/auto-approve", async (RequestService service, HttpContext http, CancellationToken ct) =>
-        {
-            if (http.Request.ContentLength is > 65536) return Results.StatusCode(413);
-            var input = await http.Request.ReadFromJsonAsync<AutoConfigInput>(ct) ??
-                throw new ArgumentException("Send an auto-approve rule list.");
-            if (input.Rules.IsDefault || input.Rules.Length > 200) throw new ArgumentException("Provide at most 200 auto-approve rules.");
-            if (input.Rules.Any(r => r is null || string.IsNullOrWhiteSpace(r.Email)))
-                throw new ArgumentException("Provide an email for each auto-approve rule.");
-            var normalized = input.Rules.Select(r => r with { Email = r.Email.Trim().ToLowerInvariant() }).ToArray();
-            if (normalized.Any(r => r.Email.Length > 320 || !r.Email.Contains('@') ||
-                r.Mode is not ("none" or "moviesOnly" or "everything")) ||
-                normalized.Select(r => r.Email).Distinct().Count() != normalized.Length)
-                throw new ArgumentException("Use one valid email and mode per rule.");
-            await RequestService.Gate.WaitAsync(ct);
-            try
-            {
-                var existing = await service.Read<AutoApproveRuleRow>(CatalogState.Query(), ct);
-                var now = DateTimeOffset.UtcNow;
-                var writes = normalized.Where(r => r.Mode != "none").Select(r =>
-                {
-                    var old = existing.FirstOrDefault(e => e.NormalizedEmail == r.Email);
-                    var mode = r.Mode == "moviesOnly" ? AutoApproveMode.MoviesOnly : AutoApproveMode.Everything;
-                    return new RowWrite(new AutoApproveRuleRow(old?.Id ?? Guid.NewGuid().ToString("N"),
-                        r.Email, mode, old?.CreatedAt ?? now, now, old is null ? 1 : old.Version + 1), old?.Version, null);
-                }).ToArray();
-                var deletes = existing.Where(e => normalized.All(r => r.Email != e.NormalizedEmail || r.Mode == "none"))
-                    .Select(e => new RowDelete(StoreTable.AutoApproveRule, e.Id, e.Version, null));
-                await service.Commit(AccessIdentity.UserId(http), writes, ct, deletes);
-                return Reply(await AutoConfig(service, ct));
-            }
-            finally { RequestService.Gate.Release(); }
-        });
         // Requesters have no mutation actions after creation, including the legacy cancel route.
         requester.MapPost("/requests/{id}/cancel", () => Results.Json(
             new { error = "Request details are read-only. Ask the owner to change this request.", code = "read_only" }, statusCode: 403));
@@ -258,20 +190,4 @@ internal static class RequestEndpoints
         catch (InvalidOperationException ex) { return Results.Json(new { error = ex.Message, code = "conflict" }, statusCode: 409); }
     }
 
-    private static async Task<object> AutoConfig(RequestService service, CancellationToken ct)
-    {
-        var rules = await service.Read<AutoApproveRuleRow>(CatalogState.Query(), ct);
-        var users = await service.Read<UserRow>(CatalogState.Query(), ct);
-        return new
-        {
-            rules = rules.Select(r => new { email = r.NormalizedEmail,
-                mode = r.Mode == AutoApproveMode.MoviesOnly ? "moviesOnly" : r.Mode == AutoApproveMode.Everything ? "everything" : "none" }),
-            knownEmails = users.Select(u => u.NormalizedEmail).Concat(rules.Select(r => r.NormalizedEmail))
-                .Where(e => e is not null).Distinct().Order(),
-        };
-    }
-    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-    internal sealed record AutoConfigInput(ImmutableArray<AutoRuleInput> Rules);
-    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-    internal sealed record AutoRuleInput(string Email, string Mode);
 }

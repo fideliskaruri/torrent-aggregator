@@ -207,8 +207,8 @@ Goal: the web app runs on the new server for everything that doesn't download.
 - Removal leaves nothing behind.
 
 ## Phase 6: Everything else (Sol low, one agent each)
-- **6.1** Requests: requester, approve, decline, retry, pick and auto-approve, all through the same targets.
-- **6.2** Notifications, push, activity and timeline.
+- **6.1** Requests: requester, approve, decline, retry and pick, all through the same targets.
+- **6.2** In-app notifications and activity.
 - **6.3** AutoRules and the scheduled hunter, on the background budget.
 - **6.4** Desktop shell, updates, open folder and browse folders.
 

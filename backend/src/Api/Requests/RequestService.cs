@@ -84,12 +84,6 @@ internal sealed class RequestService(IStore store, IMetadata metadata, TargetPip
             UserRole.Requester, now, now);
         await Commit(user, [new(attribution, null, null), new(request, null, null),
             .. items.Select(i => new RowWrite(i, null, null))], ct);
-        var email = (await Read<UserRow>(CatalogState.Query(user), ct)).SingleOrDefault()?.NormalizedEmail;
-        var rule = (await Read<AutoApproveRuleRow>(CatalogState.Query(), ct))
-            .FirstOrDefault(r => r.NormalizedEmail == email);
-        if (request.Decision == RequestDecision.Pending && rule is not null &&
-            (rule.Mode == AutoApproveMode.Everything || film && rule.Mode == AutoApproveMode.MoviesOnly))
-            request = await Decide(request.Id, "local", "approve", "Automatically approved.", ct);
         return request;
 
     }

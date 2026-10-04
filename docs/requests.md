@@ -19,12 +19,11 @@ unreleased or still in cinemas.
 | `canManage` (Settings, Rules, automation, delete, Add to library) | yes | no |
 | `canSeePaths` (file paths, Open, Show in folder, raw release names) | yes | no |
 | `canSeeTransfers` (speed, peers, per-episode progress) | yes | no |
-| `canReviewRequests` (approve, decline, auto-approve) | yes | no |
-| `canSeeUpcoming` | yes | no |
+| `canReviewRequests` (approve, decline) | yes | no |
 | `canRequest` (Request button) | no | yes |
 
 - **Navigation** (`web/src/lib/navigation.ts`): each entry names the capability it needs. Requesters see
-  Browse, Library, Notifications (Alerts on mobile), Requests and the search box. Downloads, Upcoming,
+  Browse, Library, Notifications (Alerts on mobile), Requests and the search box. Downloads,
   Settings and the share target are hidden, and opening one of those routes directly shows
   "Not available" with a way back to Browse (one guard in the router).
 - **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season,
@@ -136,11 +135,7 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
   - 409 `duplicate` when the caller already has an open request for the same work with an overlapping
     scope: two movie requests, anything against `series`, or season lists sharing a season.
   - 409 `too_many_open` when the caller already has `MaxOpenPerUser` open requests.
-  - 201 `{ request }` on success. Status is normally `pending`. When the owner has an auto-approve rule
-    for the requester's email that matches the request (`moviesOnly` for films, `everything` for any
-    scope), the create path runs the same approve + request-lane grab as a manual approval before the
-    response. The returned request then has status `approved`, `decisionReason` `"Auto-approved"`, and
-    `decidedAt` set.
+  - 201 `{ request }` on success. Status is `pending` until the owner approves or declines.
 - `GET /library` — `{ titles }`: `key`, `title`, `year`, `mediaType`, `posterUrl` for the titles on the owner's
   Downloaded rail (finished, files on disk; at most 500). Nothing else.
 - `POST /requests/{id}/cancel` — only the caller's own request; 404 `not_found` otherwise. 409
@@ -161,21 +156,13 @@ title-search box still has its own 60/minute per-client guard against keystroke 
   one release for a film; one exact release per aired episode of the chosen seasons (the whole series is
   every catalog season, at most 30). The hashes are stored; if nothing starts, the request becomes `failed`
   with a generic reason (the indexer detail stays in the owner's log); if the asked seasons have not started
-  airing it stays `approved` with "Downloads when it airs.". Auto-approve reuses this same path
-  with reason `"Auto-approved"`. Approval, decline and cancellation atomically claim the pending state:
+  airing it stays `approved` with "Downloads when it airs.". Approval, decline and cancellation atomically claim the pending state:
   concurrent retries cannot start a second grab or overwrite a winning decision. Request grabs persist one
   canonical work identity before sending any releases; they do not add a monitored watch-list item.
   Downloads uses that identity across release-name variations. Older request downloads are also grouped
   using the request's stored hashes, without moving or downloading their files again.
 - `POST /api/requests/{id}/decline` — optional body `{ reason }` (at most 500 characters, shown to the
   requester). Pending only.
-- `GET /api/requests/auto-approve` — owner only. `{ rules, knownEmails }`. Each rule is
-  `{ email, mode }` where `mode` is `moviesOnly` or `everything` (rows with `none` are not stored).
-  `knownEmails` is the lowercased union of emails seen on past requests and current rules, for the inbox UI.
-- `PUT /api/requests/auto-approve` — owner only. Body `{ rules: [{ email, mode }] }` (at most 200 rules).
-  Replaces the full set. Valid modes: `none`, `moviesOnly`, `everything`. `none` (or empty mode) drops that
-  email. Emails are normalized lowercased; invalid email/mode or unknown fields are 400. Returns the same
-  shape as GET.
 - One episode is grabbed once whichever path gets there first (request approval, the hunter, a season
   download or an on-demand grab): `GrabService` keys in-flight grabs by work and episode (not resolution)
   and skips an episode that already has a healthy transfer or is covered by a season pack. A transfer that
@@ -247,8 +234,6 @@ title-search box still has its own 60/minute per-client guard against keystroke 
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).
-  An **Auto-approve** section on the same page lists known requester emails, lets the owner set each to
-  Off / Movies only / Everything, and add emails that have not requested yet.
 - Remove on a "Looking for a release" row (`DELETE /api/wanted`, a film, a season or one episode) settles every
   request covering it, each on its own, by what is still being looked for in its scope. Transfers the Remove undid
   leave every request that named them. A request that names no transfer and has nothing left to look for becomes
@@ -288,6 +273,5 @@ requester role on or off.
 tricks, requester JWT flows, search flags and leak checks, duplicate/overlap, in-library, cap, cancel,
 validation), `RequestDecisionTests.cs` (approve/decline, request-lane grab seam, fulfilment
 for films and multi-transfer series, safe failure reason, requester library leak checks),
-`RequestAutoApproveTests.cs` (rule matching, owner-only CRUD, movies-only vs everything on create, none leaves
-pending) and `(removed; see docs/test-audit.md) (role-aware shell, requester views and library, inbox ordering,
-badge count, auto-approve parse/rows/labels).
+`(removed; see docs/test-audit.md)` covers role-aware shell, requester views and library, inbox ordering and
+badge count.

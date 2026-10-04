@@ -34,23 +34,6 @@ public sealed class NotificationRepository
         return true;
     }
 
-    public async Task SubscribeAsync(PushSubscriptionRow row, CancellationToken ct)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "PushSubscription" ("id","userId","endpoint","p256dh","auth","createdAt")
-            VALUES ({row.Id},{row.UserId},{row.Endpoint},{row.P256dh},{row.Auth},{row.CreatedAt.ToString("O")})
-            ON CONFLICT("endpoint") DO UPDATE SET "userId"=excluded."userId",
-                "p256dh"=excluded."p256dh", "auth"=excluded."auth";
-            """, ct);
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-            DELETE FROM "PushSubscription" WHERE "id" IN (
-                SELECT "id" FROM "PushSubscription" WHERE "userId"={row.UserId}
-                ORDER BY "createdAt" DESC, "id" DESC LIMIT -1 OFFSET 10);
-            """, ct);
-        await transaction.CommitAsync(ct);
-    }
-
     public async Task DeleteAsync(StoreRow row, CancellationToken ct)
     {
         var table = Schema.Table(row.GetType());
@@ -73,10 +56,4 @@ public sealed class NotificationRepository
             .Where(x => EF.Property<string>(x, "userId") == user && EF.Property<string>(x, "id") == id)
             .ExecuteUpdateAsync(s => s.SetProperty(x => EF.Property<string>(x, "readAt"), (string)null!), ct);
 
-    public async Task CompletePushAsync(string id, bool pending, CancellationToken ct) =>
-        await db.Set<Dictionary<string, object>>("Notification")
-            .Where(x => EF.Property<string>(x, "id") == id)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => EF.Property<bool>(x, "pushPending"), pending)
-                .SetProperty(x => EF.Property<string>(x, "pushAttemptAt"), DateTimeOffset.UtcNow.ToString("O"))
-                .SetProperty(x => EF.Property<int>(x, "pushAttempts"), x => EF.Property<int>(x, "pushAttempts") + 1), ct);
 }

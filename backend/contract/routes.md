@@ -101,9 +101,6 @@ No EventSource, Hono/RPC, axios or React Query query-key callers were found in w
 | GET | /api/notifications | limit?:number | {items:NotificationItem[],unreadCount:number} (web\src\components\notifications\notification-feed.tsx:14) | Notifications; bell | False | captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:17 |
 | POST | /api/notifications/read/{id} | none | ignored; HTTP success required (web\src\components\notifications\notification-feed.tsx:14) | Notifications mark read | True | from source, not captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:23 |
 | POST | /api/notifications/read-all | none | ignored; HTTP success required (web\src\components\notifications\notification-feed.tsx:14) | Notifications mark all read | True | from source, not captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:26 |
-| GET | /api/notifications/push/public-key | none | {publicKey:string} (web\src\components\notifications\notification-feed.tsx:14) | Browser push toggle | False | captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:31 |
-| POST | /api/notifications/push/subscription | body: {endpoint,p256dh,auth} | ignored; HTTP success required (web\src\components\notifications\notification-feed.tsx:14) | Browser push enable | True | from source, not captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:32 |
-| DELETE | /api/notifications/push/subscription | body: {endpoint} | ignored; HTTP success required (web\src\components\notifications\notification-feed.tsx:14) | Browser push disable | True | from source, not captured | ;  | server\TorrentFlow.Api\Notifications\NotificationEndpoints.cs:39 |
 
 ## recommendations
 
@@ -131,8 +128,6 @@ No EventSource, Hono/RPC, axios or React Query query-key callers were found in w
 | POST | /api/requests/{id}/pick | body: {token} | {ok:boolean,message?:string,status?:string} (web\src\components\releases\release-picker-dialog.tsx:6) | Release picker for approved request | True | from source, not captured | ;  | server\TorrentFlow.Api\Requests\RequestEndpoints.cs:126 |
 | POST | /api/requests/{id}/decline | body: {reason?} for decline; otherwise none | {ok?:boolean,message?:string,...} (web\src\app\requests\page.tsx:24) | Requests decline | True | from source, not captured | ;  | server\TorrentFlow.Api\Requests\RequestEndpoints.cs:145 |
 | GET | /api/requests | status?:string (web omits) | {requests:OwnerRequest[]} (web\src\lib\requests.ts:7) | Requests owner view | False | captured | ;  | server\TorrentFlow.Api\Requests\RequestEndpoints.cs:178 |
-| GET | /api/requests/auto-approve | none | AutoApproveConfig (web\src\lib\requests.ts:168) | Requests auto-approve panel | False | captured | ;  | server\TorrentFlow.Api\Requests\RequestEndpoints.cs:188 |
-| PUT | /api/requests/auto-approve | body: {mode,rules:AutoApproveRule[]} | AutoApproveConfig (web\src\lib\requests.ts:168) | Requests auto-approve panel | True | from source, not captured | ;  | server\TorrentFlow.Api\Requests\RequestEndpoints.cs:195 |
 
 ## rules
 
@@ -182,12 +177,6 @@ No EventSource, Hono/RPC, axios or React Query query-key callers were found in w
 |---|---|---|---|---|---|---|
 | GET | /api/suggest | See server handler and source-contracts.json | No web consumer (server response source) () | server only | False | captured | ;  | server\TorrentFlow.Metadata\Controllers\TitleSearchController.cs:55 |
 
-## timeline
-
-| Method | Path | Query/body | Expected TypeScript response (source) | Consumer | Mutates | Evidence |
-|---|---|---|---|---|---|---|
-| GET | /api/timeline | none | TimelineResponse (web\src\app\upcoming\timeline.ts:19) | Upcoming | False | captured | ;  | server\TorrentFlow.Api\Timeline\TimelineService.cs:115 |
-
 ## title
 
 | Method | Path | Query/body | Expected TypeScript response (source) | Consumer | Mutates | Evidence |
@@ -224,4 +213,3 @@ No EventSource, Hono/RPC, axios or React Query query-key callers were found in w
 | PATCH | /api/watchlist | body: {id,status?,monitored?,monitorMode?,fromSeason?,fromEpisode?,preferredResolution?,...} | {item?:WatchItem,error?:string,...} (web\src\app\watchlist\page.tsx:56) | Library edit; title monitor | True | from source, not captured | ;  | server\TorrentFlow.Library\Features\Watchlist\WatchlistController.cs:50 |
 | DELETE | /api/watchlist | id; deleteFiles? (web omits) | {ok?:boolean,error?:string} (web\src\app\watchlist\page.tsx:56) | Library remove; title remove | True | from source, not captured | ;  | server\TorrentFlow.Library\Features\Watchlist\WatchlistController.cs:348 |
 | POST | /api/watchlist/check | See server handler and source-contracts.json | No web consumer (server response source) () | server only | True | from source, not captured | ;  | server\TorrentFlow.Library\Features\Watchlist\WatchlistController.cs:363 |
-

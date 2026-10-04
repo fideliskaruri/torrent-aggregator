@@ -135,50 +135,6 @@
   },
   {
     "method": "GET",
-    "path": "/api/notifications/push/public-key",
-    "family": "notifications",
-    "parameters": "none",
-    "expectedType": "{publicKey:string}",
-    "typeSource": "web\\src\\components\\notifications\\notification-feed.tsx:14",
-    "consumer": "Browser push toggle",
-    "scope": "web",
-    "mutates": false,
-    "serverSource": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs:31",
-    "evidence": "captured",
-    "captures": [
-      "captures\\notifications\\push-key.json"
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/notifications/push/subscription",
-    "family": "notifications",
-    "parameters": "body: {endpoint,p256dh,auth}",
-    "expectedType": "ignored; HTTP success required",
-    "typeSource": "web\\src\\components\\notifications\\notification-feed.tsx:14",
-    "consumer": "Browser push enable",
-    "scope": "web",
-    "mutates": true,
-    "serverSource": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs:32",
-    "evidence": "from source, not captured",
-    "captures": []
-  },
-  {
-    "method": "DELETE",
-    "path": "/api/notifications/push/subscription",
-    "family": "notifications",
-    "parameters": "body: {endpoint}",
-    "expectedType": "ignored; HTTP success required",
-    "typeSource": "web\\src\\components\\notifications\\notification-feed.tsx:14",
-    "consumer": "Browser push disable",
-    "scope": "web",
-    "mutates": true,
-    "serverSource": "server\\TorrentFlow.Api\\Notifications\\NotificationEndpoints.cs:39",
-    "evidence": "from source, not captured",
-    "captures": []
-  },
-  {
-    "method": "GET",
     "path": "/api/me",
     "family": "me",
     "parameters": "none",
@@ -401,52 +357,6 @@
     "evidence": "captured",
     "captures": [
       "captures\\requests\\owner.json"
-    ]
-  },
-  {
-    "method": "GET",
-    "path": "/api/requests/auto-approve",
-    "family": "requests",
-    "parameters": "none",
-    "expectedType": "AutoApproveConfig",
-    "typeSource": "web\\src\\lib\\requests.ts:168",
-    "consumer": "Requests auto-approve panel",
-    "scope": "web",
-    "mutates": false,
-    "serverSource": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs:188",
-    "evidence": "captured",
-    "captures": [
-      "captures\\requests\\auto-approve.json"
-    ]
-  },
-  {
-    "method": "PUT",
-    "path": "/api/requests/auto-approve",
-    "family": "requests",
-    "parameters": "body: {mode,rules:AutoApproveRule[]}",
-    "expectedType": "AutoApproveConfig",
-    "typeSource": "web\\src\\lib\\requests.ts:168",
-    "consumer": "Requests auto-approve panel",
-    "scope": "web",
-    "mutates": true,
-    "serverSource": "server\\TorrentFlow.Api\\Requests\\RequestEndpoints.cs:195",
-    "evidence": "from source, not captured",
-    "captures": []
-  },
-  {
-    "method": "GET",
-    "path": "/api/timeline",
-    "family": "timeline",
-    "parameters": "none",
-    "expectedType": "TimelineResponse",
-    "typeSource": "web\\src\\app\\upcoming\\timeline.ts:19",
-    "consumer": "Upcoming",
-    "scope": "web",
-    "mutates": false,
-    "serverSource": "server\\TorrentFlow.Api\\Timeline\\TimelineService.cs:115",
-    "evidence": "captured",
-    "captures": [
-      "captures\\timeline\\all.json"
     ]
   },
   {
@@ -1416,24 +1326,5 @@
       "web\\src\\components\\library\\storage-roots.tsx"
     ],
     "serverSource": "backend\\src\\Api\\ImportEndpoints.cs"
-  },
-  {
-    "method": "GET",
-    "path": "/api/requester/calendar",
-    "scope": "web",
-    "family": "requester",
-    "parameters": "none",
-    "expectedType": "{entries:unknown[]}",
-    "typeSource": "web\\src\\app\\upcoming\\page.tsx",
-    "consumer": "calendar-owner-denied",
-    "mutates": false,
-    "evidence": "captured (isolated rebuild, not legacy)",
-    "captures": [
-      "captures\\requester\\calendar-owner-denied.json"
-    ],
-    "webSources": [
-      "web\\src\\app\\upcoming\\page.tsx"
-    ],
-    "serverSource": "backend\\src\\Api\\Requests\\RequestEndpoints.cs"
   }
 ]

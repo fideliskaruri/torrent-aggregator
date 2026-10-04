@@ -305,7 +305,7 @@ Unchecked boxes are future port verification, not failures. New module ownership
 - [ ] Back off substantive failures indefinitely and ask the owner after repeated genuine misses — server\TorrentFlow.Library\Features\Grabs\WantedQueue.cs:Reschedule — main — change (persist next attempt/why and dynamic reprioritization; rebuild-plan.md)
 - [ ] Do not count busy sources or unknown season lists as substantive misses — server\TorrentFlow.Library\Features\Grabs\WantedQueue.cs:Reschedule — main — keep
 - [ ] Ask for help only after extended unresolved anime season-list waiting — server\TorrentFlow.Library\Features\Grabs\WantedQueue.cs:SeasonListPatience — main — keep
-- [ ] Update one run-summary notification as later episodes settle rather than pushing duplicates — server\TorrentFlow.Library\Features\Grabs\WantedQueue.cs:ReportRunsAsync — main — keep
+- [ ] Update one run-summary notification as later episodes settle rather than creating duplicates — server\TorrentFlow.Library\Features\Grabs\WantedQueue.cs:ReportRunsAsync — main — keep
 - [ ] Reuse an episode already covered by a healthy single or selected pack transfer — server\TorrentFlow.Library\Features\Grabs\GrabService.cs:GrabCore — main — keep
 - [ ] Coalesce same-work/episode grabs regardless of requested quality and first caller cancellation — server\TorrentFlow.Library\Features\Grabs\GrabService.cs:Grab — main — change (share target intent without losing quality/caller-independent lifetime; rebuild-plan.md)
 - [ ] Claim only still-queued missing pack episodes and release claims on admission failure — server\TorrentFlow.Library\Features\Grabs\GrabService.Pack.cs:GrabService — main — keep
@@ -350,18 +350,11 @@ Unchecked boxes are future port verification, not failures. New module ownership
 - [ ] Reopen fulfilled airing-season requests only for newly aired episodes above their mark — server\TorrentFlow.Api\Requests\RequestDecisionService.cs:ReconcileAiringAsync — main — keep
 - [ ] Settle transfer stops once per newly stopped hash-set and keep owner removals quiet — server\TorrentFlow.Api\Requests\RequestDecisionService.cs:SettleDeadAsync — main — keep
 - [ ] Sweep missed completions and backfill covered marks before restart reconciliation — server\TorrentFlow.Api\Requests\RequestDecisionService.cs:RequestFulfillmentWatcher — main — keep
-- [ ] Persist per-email none/moviesOnly/everything auto-approval and reuse the owner's approve path — server\TorrentFlow.Api\Requests\RequestAutoApprove.cs:TryAutoApproveAsync — main — keep
-- [ ] Validate email/mode/list bounds and reject unknown auto-approval fields — server\TorrentFlow.Api\Requests\RequestAutoApprove.cs:ParsePutBody — main — keep
 - [ ] Write user-scoped feed notifications without letting publication failure break acquisition/decisions — server\TorrentFlow.Api\Notifications\NotificationService.cs:TryPublishAsync — main — keep
-- [ ] Update a run notification in place without changing read state/time or pushing again — server\TorrentFlow.Api\Notifications\NotificationService.cs:UpsertAsync — main — keep
+- [ ] Update a run notification in place without changing read state/time or creating a duplicate — server\TorrentFlow.Api\Notifications\NotificationService.cs:UpsertAsync — main — keep
 - [ ] List/count/mark-read only the recipient's own notifications — server\TorrentFlow.Api\Notifications\NotificationService.cs:MarkReadAsync — main — keep
-- [ ] Persist bounded browser push subscriptions and transfer endpoint ownership to its latest subscriber — server\TorrentFlow.Api\Notifications\NotificationService.cs:SubscribeAsync — main — keep
-- [ ] Queue push delivery, delete expired subscriptions and never include filesystem paths in payloads — server\TorrentFlow.Api\Notifications\NotificationService.cs:DeliverAsync — main — keep
-- [ ] Persist VAPID keys and send encrypted Web Push with endpoint/redirect protections — server\TorrentFlow.Api\Notifications\WebPush.cs:WebPushSender — main — keep
 - [ ] Notify only user-origin download completion/failure, with clean labels and hash-specific links — server\TorrentFlow.Api\Notifications\DownloadNotificationWatcher.cs:DownloadNotificationWatcher — main — keep
 - [ ] Relabel legacy raw-release notifications once without republishing them — server\TorrentFlow.Api\Notifications\DownloadNotificationWatcher.cs:RelabelLegacyAsync — main — keep
-- [ ] Expose airing/check/queued timeline entries with structured wait reason and queue position — server\TorrentFlow.Api\Timeline\TimelineService.cs:Get — main — keep
-- [ ] Bound timeline metadata work and mark unavailable air times rather than blocking the endpoint — server\TorrentFlow.Api\Timeline\TimelineService.cs:Get — main — keep
 - [ ] Persist automation rules and execute category/source/seed/size/resolution constraints — server\TorrentFlow.Library\Features\Rules\RulesController.cs:RulesController — main — keep
 - [ ] Prevent resending a rule's last matching magnet and record each rule outcome — server\TorrentFlow.Library\Features\Automation\AutomationService.cs:Rules — main — keep
 - [ ] Send episode-shaped automation matches through the shared grab path, not raw engine add — server\TorrentFlow.Library\Features\Automation\AutomationService.cs:Rules — main — change (all acquisition through Targets; rebuild-plan.md)
@@ -489,7 +482,7 @@ Current tuning, not automatic approval to preserve obsolete player/language thre
 | Request history limits | Requester 200; owner 500; catalog search 20 | server\TorrentFlow.Api\Requests\MediaRequestService.cs:86,163,178 |
 | Request upkeep | Health 1min; airing 30min; fulfilled airing window 365days | server\TorrentFlow.Api\Requests\RequestDecisionService.cs:52,826-828 |
 | Auto-approve input | 200 rules; 320-character email | server\TorrentFlow.Api\Requests\RequestAutoApprove.cs:40-41 |
-| Notification/push bounds | List 100; 10 subscriptions/user; title 200; body 500 | server\TorrentFlow.Api\Notifications\NotificationService.cs:43-46 |
+| In-app notification bounds | List 100; title 200; body 500 | server\TorrentFlow.Api\Notifications\NotificationService.cs:43-46 |
 | Access key cache | 1h fresh; 5min unknown-kid refetch; 30s failed fetch; 24h max stale | server\TorrentFlow.Api\RemoteAccess\AccessTokenValidator.cs:98-103 |
 | Access JWT bounds | 16KiB token; 60s clock skew | server\TorrentFlow.Api\RemoteAccess\AccessTokenValidator.cs:171-172 |
 | Desktop update cadence | 1day | server\TorrentFlow.Api\Desktop\UpdateChecker.cs:74 |

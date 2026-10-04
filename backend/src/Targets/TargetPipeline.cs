@@ -151,8 +151,6 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
                     MinListedSeeders = minSeeders ?? row.MinListedSeeders };
                 writes.Add(new(row, old?.Version, null));
                 queued++;
-                writes.Add(new(new AttemptRow(Guid.NewGuid().ToString("N"), id, work.Id, null, actor,
-                    AttemptKind.LegacyEvent, now, now, "Wanted", null, null, null, null, batch, null, null, null), null, null));
             }
             if (writes.Count > 0) await CommitAsync(store, writes.ToImmutable(), [], ct);
             var message = queued == 0 && ownedCount > 0 ? "Already in your library" :

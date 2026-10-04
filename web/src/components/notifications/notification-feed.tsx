@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Bell } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { Badge } from "@/components/ui/badge";
@@ -6,21 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { keepFocusNear } from "@/components/ui/focus-return";
-import { Label } from "@/components/ui/label";
 import { PageSkeletonFrame } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { formatWhen } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { withTimeout } from "@/lib/with-timeout";
 import { isReleasePickLink, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
-
-const PUSH_ENABLE_TIMEOUT_MS = 15_000;
-const PUSH_ENABLE_FAIL = "Couldn't enable push. Check the browser's notification permission.";
 
 export const NOTIFICATIONS_CHANGED = "tf:notifications-read";
 
@@ -92,7 +86,6 @@ export function NotificationFeed() {
         <Button variant="outline" aria-disabled={busy || nothingUnread || undefined} onClick={() => { if (!nothingUnread) void read(); }}
           aria-label="Mark all notifications read" data-notifications-read-all className="min-h-11">Mark all read</Button>
       </div>
-      <PushToggle />
       {actionError && (
         <Alert variant="destructive">
           <AlertTriangle aria-hidden />
@@ -168,83 +161,4 @@ function NotificationFeedSkeleton() {
       </Card>
     </PageSkeletonFrame>
   );
-}
-function PushToggle() {
-  const supported = typeof window !== "undefined" && window.isSecureContext
-    && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-  const [enabled, setEnabled] = useState(false);
-  const [checking, setChecking] = useState(supported);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!supported) return;
-    let disposed = false;
-    navigator.serviceWorker.getRegistration("/").then(async registration => {
-      const subscription = await registration?.pushManager.getSubscription();
-      if (!disposed) setEnabled(Boolean(subscription));
-    }).catch(() => { if (!disposed) setError("Could not check push settings. Try again."); })
-      .finally(() => { if (!disposed) setChecking(false); });
-    return () => { disposed = true; };
-  }, [supported]);
-  async function toggle() {
-    setBusy(true);
-    setError(null);
-    try {
-      if (enabled) {
-        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-        const registration = await withTimeout(
-          navigator.serviceWorker.ready,
-          10_000,
-          "Service worker is not ready. Reload and try again.",
-        );
-        const existing = await registration.pushManager.getSubscription();
-        if (existing) {
-          await mutate("push/subscription", "DELETE", { endpoint: existing.endpoint });
-          if (!await existing.unsubscribe()) throw new Error("Browser could not disable push. Try again.");
-        }
-        setEnabled(false);
-      } else {
-        await withTimeout(enablePush(), PUSH_ENABLE_TIMEOUT_MS, PUSH_ENABLE_FAIL);
-        setEnabled(true);
-      }
-    } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
-  }
-
-  async function enablePush() {
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") throw new Error(PUSH_ENABLE_FAIL);
-    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    const response = await sessionAwareFetch("/api/notifications/push/public-key", { cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load push settings. Try again.");
-    const { publicKey } = await response.json() as { publicKey: string };
-    const key = publicKey.replace(/-/g, "+").replace(/_/g, "/");
-    const bytes = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, "=")), c => c.charCodeAt(0));
-    const subscription = existing ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
-    const json = subscription.toJSON();
-    try {
-      await mutate("push/subscription", "POST", { endpoint: subscription.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth });
-    } catch (e) {
-      if (!existing) await subscription.unsubscribe();
-      throw e;
-    }
-  }
-  const stateLabel = busy ? "Saving…" : checking ? "Checking…" : enabled ? "On" : "Off";
-  return <Card size="sm" className="gap-2 px-4 py-3">
-    <div className="flex min-h-11 items-center justify-between gap-3">
-      <div className="min-w-0">
-        <Label htmlFor="push-toggle" className="text-sm font-medium text-foreground">Browser notifications</Label>
-        <p className="text-xs text-subtle-foreground">{supported ? "Optional alerts on this device, even when the app is closed." : "Push needs a supported browser and HTTPS (or localhost). On iOS, install the app first."}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2.5">
-        <span className="text-xs tabular-nums text-muted-foreground" aria-hidden>{stateLabel}</span>
-        <Switch id="push-toggle" checked={enabled} aria-label="Browser push notifications" data-push-toggle
-          aria-busy={busy || checking || undefined}
-          disabled={!supported || checking || busy} onCheckedChange={() => void toggle()} />
-      </div>
-    </div>
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-  </Card>;
 }
