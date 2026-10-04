@@ -1,11 +1,11 @@
 import { useEffect, useMemo } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { WAITING_FOR_ENGLISH_LABEL, WAITING_FOR_SEASON_LIST_LABEL } from "@/components/title/title-actions";
 import {
   WantedActions,
-  useWantedRows,
   wantedRowMatches,
   type WantedRow,
 } from "@/components/wanted/wanted-actions";
@@ -90,9 +90,15 @@ function groupName(g: LookingGroup): string {
  * "Looking for a release" and moves to the list below when a release is found.
  * Every row has a way out: pick a release yourself, try now, or remove it.
  */
-export function LookingSection({ onCount }: { onCount?: (count: number) => void } = {}) {
+export function LookingSection({
+  onCount,
+  wanted,
+}: {
+  onCount?: (count: number) => void;
+  wanted: { rows: WantedRow[]; setRows: Dispatch<SetStateAction<WantedRow[]>>; reload: () => Promise<void> };
+}) {
   const { canManage } = useCapabilities();
-  const { rows, setRows, reload } = useWantedRows();
+  const { rows, setRows, reload } = wanted;
 
   const groups = useMemo(
     () => groupRows(rows).sort((a, b) => Number(b.looking) - Number(a.looking)),

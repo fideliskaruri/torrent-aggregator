@@ -4,7 +4,6 @@
  * using its members' combined figures; the series dialog keeps its own season
  * and episode order whatever is picked here.
  */
-import { parseResolution } from "@/lib/torrents/quality";
 import type { DownloadGroup } from "./grouping";
 import type { ClientTorrent } from "./types";
 
@@ -41,11 +40,13 @@ function addedAtMs(group: Group): number | null {
   return latest;
 }
 
-/** The best resolution among the members, from the release names. */
+/** The best resolution among the members, from the server-resolved quality. */
 function bestResolution(group: Group): number | null {
   let best: number | null = null;
   for (const torrent of members(group)) {
-    const resolution = parseResolution(torrent.name);
+    const resolution = torrent.quality.resolution
+      ? Number.parseInt(torrent.quality.resolution, 10)
+      : null;
     if (resolution != null && (best == null || resolution > best)) best = resolution;
   }
   return best;

@@ -31,7 +31,7 @@ export function defaultSeasonKey<T>(
 ): string | null {
   if (!seasons.length) return null;
   const active = seasons.find(
-    (season) => isDownloading(season.state) || season.progress < 1,
+    (season) => isDownloading(season.status) || season.progress < 1,
   );
   return (active ?? seasons[0]).key;
 }
