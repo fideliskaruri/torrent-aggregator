@@ -109,6 +109,19 @@ TorrentDownloads RSS tolerates bare ampersands in plain title text only, leaving
 CDATA, valid XML entities and all other XML validation unchanged. Invalid feeds
 still report source failure rather than a successful empty answer.
 
+## Downloads row contract
+
+`GET /api/client/torrents` keeps its existing fields and adds:
+
+- `status` and `statusLabel`: server-resolved row state and display text.
+- `quality`: parsed `resolution`, `source` and display `label`.
+- `mediaKind`: `movie`, `series` or `anime`; unmatched raw rows use parser evidence.
+- `workTitle`, `season` and `episode`: parser-resolved values for rows without a work.
+- `groupKey`: the work key, or `raw:<hash>` when no work is linked.
+- `actions`: booleans for pause, resume, downloadNow, findAnother, open and remove.
+
+`GET /api/wanted` also returns `status` and `statusLabel`.
+
 ```powershell
 curl.exe -i http://127.0.0.1:3940/api/health
 curl.exe -i http://127.0.0.1:3940/
