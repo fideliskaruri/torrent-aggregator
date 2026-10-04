@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { Rail as RailModel, RailItem } from "@/lib/browse";
+import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
 import { cn } from "@/lib/utils";
-import type { ActionStatus, CardAction } from "./availability";
 import { nextFocusIndex, pageScrollDelta, railEdges } from "./rail-scroll";
 import { TitleCard, TitleCardSkeleton } from "./title-card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ export interface RailProps {
   /** Position on the page — drives the entrance stagger and image priority. */
   index?: number;
   statuses?: Record<string, ActionStatus>;
-  onAction: (item: RailItem, action: CardAction) => void;
+  onAction: (item: RailItem, action: CatalogCardAction) => void;
   /** Where "See all" goes: the page that lists this rail in full. None when absent. */
   seeAllHref?: string;
 }

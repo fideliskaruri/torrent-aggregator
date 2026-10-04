@@ -6,6 +6,7 @@
  * release names to render a rail.
  */
 import type { RequestProvider } from "@/lib/requests";
+import type { CatalogCardData } from "@/lib/api/catalog-types";
 
 /**
  * A title at a metadata provider, when the catalog knows it. Rail cards and the
@@ -43,7 +44,7 @@ export type AvailabilityState = "ready" | "warm" | "fetchable" | "unavailable";
 // ---------------------------------------------------------------------------
 
 /** A single card in a rail. Carries everything the UI needs to render. */
-export interface RailItem extends CatalogIdentity {
+export interface RailItem extends CatalogIdentity, CatalogCardData {
   /** Stable identifier (EngineTorrent id, WatchListItem id, etc.). */
   id: string;
   /** Canonical logical parent. Null only for legacy/unresolved rows. */

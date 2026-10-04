@@ -14,6 +14,7 @@
  * `unavailable` is a claim, and is only ever set where a real check was made.
  */
 import type { AvailabilityState } from "@/lib/browse";
+import type { CatalogCardData } from "@/lib/api/catalog-types";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import type { SeasonGrabReport } from "./season-grab-state";
 
@@ -287,7 +288,7 @@ export interface TitleEpisodeMeta {
 }
 
 /** One neighbour of this work, for the rail under the hero. */
-export interface TitleSimilar {
+export interface TitleSimilar extends CatalogCardData {
   workKey: string;
   /** Ready-made `/title/...` link, with the identity hints already attached. */
   href: string;

@@ -1,20 +1,13 @@
 import { Link } from "react-router";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
+import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
+import { cleanDisplayTitle } from "@/lib/title/display-title";
 import { Button } from "@/components/ui/button";
 import { cn, factsLine } from "@/lib/utils";
-import {
-  actionLabel,
-  cleanDisplayTitle,
-  viewerCardAction,
-  type ActionStatus,
-  type CardAction,
-} from "./availability";
 import { heroFacts, type HeroPick } from "./hero";
 import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
-import { titleHrefForItem } from "@/components/title/work-key";
-import { useCapabilities } from "@/lib/capabilities";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import { browseReleaseGate } from "@/lib/browse/release-status";
@@ -23,7 +16,7 @@ import { ReleaseGateChip } from "./release-gate-chip";
 export interface HeroBannerProps {
   pick: HeroPick;
   status?: ActionStatus;
-  onAction: (item: RailItem, action: CardAction) => void;
+  onAction: (item: RailItem, action: CatalogCardAction) => void;
 }
 
 /**
@@ -34,25 +27,26 @@ export interface HeroBannerProps {
  * panel washed with the title's own tint — the same tint its cards use, so a
  * library with no artwork still looks composed instead of unfinished.
  *
- * The primary action is whatever {@link resolveCardAction} allows. When there
- * is nothing to offer, the button is disabled and the reason is printed next to
- * it — a greyed control with no explanation is the thing users file bugs about.
- * A title we already hold has nothing to start, so the hero offers its page.
+ * The primary action is the one returned with the catalog item. A disabled
+ * action carries the server's reason beside it.
  */
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
   const { item, eyebrow } = pick;
-  const { canDownload } = useCapabilities();
-  const titleHref = titleHrefForItem(item);
-  const action = viewerCardAction(item, canDownload, titleHref);
+  const titleHref = item.href;
+  const action = item.action;
   const releaseGate = browseReleaseGate(item);
   const title = cleanDisplayTitle(item.title);
   const facts = heroFacts(item);
   const factsText = factsLine(facts);
   const label = releaseGate.gated
     ? (releaseGate.label ?? "Coming soon")
-    : actionLabel(action, status);
-  // One Details button. A Download here would point at a file we already hold
-  // and lead to the same page as the Details beside it.
+    : action.kind === "get" && status === "pending"
+      ? "Starting…"
+      : action.kind === "get" && status === "error"
+        ? "Try again"
+        : action.kind === "get" && status === "done"
+          ? "Downloading"
+          : action.label;
   const pageOnly = !releaseGate.gated && action.kind === "local";
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();
@@ -135,7 +129,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           <div className="mt-5 flex flex-wrap items-center gap-2">
             {pageOnly ? (
               <Button asChild size="lg" data-hero-primary>
-                <Link to={titleHref ?? "/downloads"}>{titleHref ? "Details" : "Downloads"}</Link>
+                <Link to={action.href}>{action.label}</Link>
               </Button>
             ) : releaseGate.gated ? (
               titleHref ? (
@@ -143,9 +137,9 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                   <Link to={titleHref}>Details</Link>
                 </Button>
               ) : null
-            ) : action.kind === "search" ? (
+            ) : action.kind === "search" || action.kind === "request" ? (
               <Button asChild size="lg" data-hero-primary>
-                <Link to={titleHref ?? action.href}>{action.label === "Request" ? "Request" : "Details"}</Link>
+                <Link to={action.href}>{action.label}</Link>
               </Button>
             ) : action.kind === "get" && status === "done" ? (
               <Button asChild size="lg" variant="secondary">
@@ -162,7 +156,8 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                 {label}
               </Button>
             )}
-            {!releaseGate.gated && !pageOnly && titleHref && action.kind !== "search" ? (
+            {!releaseGate.gated && !pageOnly && titleHref &&
+            action.kind !== "search" && action.kind !== "request" ? (
               <Button asChild size="lg" variant="secondary">
                 <Link to={titleHref} data-hero-details>
                   Details

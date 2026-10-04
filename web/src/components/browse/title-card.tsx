@@ -1,21 +1,14 @@
 import { useId } from "react";
 import { Link } from "react-router";
 import { Search } from "lucide-react";
+import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
+import { cleanDisplayTitle } from "@/lib/title/display-title";
 import type { RailItem } from "@/lib/browse";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 import { cn } from "@/lib/utils";
-import {
-  actionLabel,
-  cleanDisplayTitle,
-  viewerCardAction,
-  searchAction,
-  type ActionStatus,
-  type CardAction,
-} from "./availability";
 import { AvailabilityChip } from "./availability-chip";
 import { MediaPoster, MediaPosterCaption, MediaPosterSkeleton, RAIL_CARD_WIDTH } from "./media-poster-card";
 import { ReleaseGateChip } from "./release-gate-chip";
-import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,7 +24,7 @@ export interface TitleCardProps {
   item: RailItem;
   status?: ActionStatus;
   /** Runs the card's primary action. The board owns what that means. */
-  onAction: (item: RailItem, action: CardAction) => void;
+  onAction: (item: RailItem, action: CatalogCardAction) => void;
   /** Eager-load the first screenful; everything else is lazy. */
   priority?: boolean;
   /** `rail` is a fixed-width card in a scrolling row; `grid` fills its grid column. */
@@ -52,9 +45,8 @@ export interface TitleCardProps {
  * poster, never nested inside the link: interactive content inside an `<a>` is
  * invalid HTML and behaves differently in every browser. Being a sibling also
  * means a click on it never reaches the link, so pressing Get gets and
- * clicking anywhere else opens the page. The action comes from
- * {@link resolveCardAction}, so a card can never offer an action that cannot
- * succeed.
+ * clicking anywhere else opens the page. The server supplies the allowed
+ * action, so the card never re-derives whether an action can succeed.
  *
  * The action row is visible by default and hover-revealed only from `md` up:
  * touch devices have no hover, and a control that only appears on a state they
@@ -72,35 +64,34 @@ export function TitleCard({
   const releaseGate = browseReleaseGate(item);
   const unreleased = releaseGate.gated;
 
-  const { canDownload, canSeeTransfers } = useCapabilities();
-  const titleHref = titleHrefForItem(item);
-  const action = viewerCardAction(item, canDownload, titleHref);
+  const { canSeeTransfers } = useCapabilities();
+  const titleHref = item.href;
+  const action = item.action;
   // Search fallback is for unavailable library rows, not unreleased catalog
   // cards — a "find it" affordance on something that does not exist yet is a
   // dead end.
   const fallbackSearch =
-    !unreleased && action.kind === "blocked" ? searchAction(item) : null;
+    !unreleased && action.kind === "blocked" ? item.searchHref : null;
   const title = cleanDisplayTitle(item.title);
   // Theatrical-window films show "In cinemas" (or "Digital Aug 2026");
   // future-dated films show "Coming {date}". Both take priority over actions.
   const label = unreleased
     ? (releaseGate.label ?? "Coming soon")
-    : actionLabel(action, status);
+    : action.kind === "get" && status === "pending"
+      ? "Starting…"
+      : action.kind === "get" && status === "error"
+        ? "Try again"
+        : action.kind === "get" && status === "done"
+          ? "Downloading"
+          : action.label;
   const blocked = action.disabled;
   // Downloading is disabled but not a dead end: the card stays at full
   // strength and its badge keeps the accent.
   const arriving = action.kind === "downloading";
 
-  // Every card goes to the same place: the page about this work. Null only
-  // when the row has no usable title — then the card falls back to being the
-  // action itself, because a title page with nothing to name is worse.
-  // Unreleased cards keep the link: the title page is the library surface
-  // (overview, track) — only Get/Download are withheld.
+  // Unreleased cards keep their title-page link; only their action is withheld.
 
-  // Only `get` is *performed*. `local`, `search` and `blocked` describe where
-  // the card already goes, so they render as a caption rather than a second
-  // control competing with the link underneath them. Unreleased never runs
-  // either.
+  // Only `get` is performed; navigation actions stay links.
   const runnable = !unreleased && !blocked && action.kind === "get";
 
   // A row id is not unique across every surface on the page, and two elements
@@ -209,18 +200,28 @@ export function TitleCard({
         </Badge>
       </Button>
     </span>
-  ) : action.kind === "blocked" || arriving ? (
+  ) : action.kind === "search" || action.kind === "request" ? (
+    <span className={actionRowClass}>
+      <Button
+        asChild
+        variant="ghost"
+        data-card-action={action.kind}
+        className="pointer-events-auto h-auto min-h-11 min-w-0 max-w-full items-end justify-start rounded-md p-0 hover:bg-transparent dark:hover:bg-transparent lg:min-h-0"
+      >
+        <Link to={action.href} aria-label={accessibleName}>
+          <Badge variant={quietBadge ? "default" : "solid"} className={badgeClass}>
+            {badgeInner}
+          </Badge>
+        </Link>
+      </Button>
+    </span>
+  ) : action.kind === "blocked" || arriving || action.kind === "local" ? (
     <span className={actionRowClass} aria-hidden>
       <Badge variant={quietBadge ? "default" : "solid"} className={badgeClass}>
         {badgeInner}
       </Badge>
     </span>
-  ) : (
-    // `search` needs no caption: the whole card is already a link to the title
-    // page, so a "Find it" badge would just repeat what the card does. The
-    // availability chip carries the visual state on its own.
-    null
-  );
+  ) : null;
 
   // The ring is offset against the page background so it reads as a ring and
   // not as a border on the poster; the rail's vertical padding exists to keep
@@ -300,7 +301,7 @@ export function TitleCard({
             className="absolute right-1.5 top-1.5 z-[4] size-11 bg-card text-muted-foreground hover:text-foreground lg:size-7 dark:bg-card"
           >
             <Link
-              to={fallbackSearch.href}
+              to={fallbackSearch}
               title={`Search releases for ${title}`}
               aria-label={`Search releases for ${title}`}
             >
