@@ -135,11 +135,12 @@ public sealed class LibraryPlacement(ILibraryRepository repository) : ILibraryPl
         var root = (await RootsAsync(ct)).SingleOrDefault(r => r.Id == id);
         if (root is null) return RootFailure("RootNotFound", "This storage root no longer exists.");
         if (input.ExpectedVersion != root.Version || input.ReserveBytes < 0 || input.Kinds.IsDefaultOrEmpty ||
-            input.Kinds.Any(k => !Enum.IsDefined(k)) ||
+            input.Kinds.Any(k => !Enum.IsDefined(k)) || input.MaxAllocatedBytes is <= 0 ||
             input.Kinds.Distinct().Count() != input.Kinds.Length)
             return RootFailure("InvalidRoot", "Reload the storage settings and choose a non-negative reserve and accepted kinds.");
         var updated = root with { Priority = input.Priority, ReserveBytes = input.ReserveBytes,
-            Enabled = input.Enabled, Kinds = input.Kinds, UpdatedAt = DateTimeOffset.UtcNow, Version = root.Version + 1 };
+            Enabled = input.Enabled, Kinds = input.Kinds, MaxAllocatedBytes = input.MaxAllocatedBytes ?? root.MaxAllocatedBytes,
+            UpdatedAt = DateTimeOffset.UtcNow, Version = root.Version + 1 };
         if (input.ConfirmIdentity)
         {
             try

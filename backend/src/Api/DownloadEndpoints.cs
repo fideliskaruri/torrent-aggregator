@@ -39,11 +39,16 @@ internal static class DownloadEndpoints
         group.MapPost("/downloads/{transferId}/keep", async (string transferId, DownloadsApi api, CancellationToken ct) =>
             await api.KeepAsync(transferId, ct));
         group.MapPost("/title/{workKey}", async (string workKey, TitleDownload input, HttpContext http,
-            TargetPipeline targets, IMetadata metadata, CancellationToken ct) =>
+            TargetPipeline targets, IMetadata metadata, ILibraryPlacement library, CancellationToken ct) =>
         {
             if (input.Season is < 0 or > 999 || input.Episode is < 1 or > 99999 ||
                 input.PreferredResolution is < 1 or > 4320)
                 return Results.BadRequest(new { message = "Choose a valid season, episode and quality." });
+            if (!DownloadsApi.SetupComplete(await library.RootsAsync(ct)))
+            {
+                const string message = "Choose a download folder and a space limit first.";
+                return Results.Conflict(new { ok = false, message, storage = new { limit = "setup", message } });
+            }
             var work = (await metadata.GetWorkAsync(workKey, false, ct)).Work;
             if (work is null && input.Provider is { } provider && input.ProviderId is { } providerId)
             {
@@ -385,6 +390,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             {
                 if (body.ValueKind != JsonValueKind.Object)
                     throw new ArgumentException("Send a settings object.");
+                await SaveRootAsync(scope.ServiceProvider.GetRequiredService<ILibraryPlacement>(), body, ct);
                 if (body.TryGetProperty("preferredResolution", out var resolution))
                 {
                     if (resolution.ValueKind != JsonValueKind.Number || !resolution.TryGetInt32(out var pixels) ||
@@ -404,8 +410,6 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                         throw new ArgumentException("Downloads at once must be a whole number from 1 to 20.");
                     value = value with { MaxActiveDownloads = count };
                 }
-                if (body.TryGetProperty("setupComplete", out var setup))
-                    value = value with { SetupComplete = setup.GetBoolean() };
                 if (body.TryGetProperty("verboseDiagnostics", out var verbose))
                     value = value with { VerboseDiagnostics = verbose.GetBoolean() };
                 var next = row with { Value = JsonSerializer.SerializeToElement(value, Json),
@@ -427,6 +431,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             var media = await Rows<MediaFileRow>(ct);
             var maximum = roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes;
             var rootPath = roots.FirstOrDefault(r => r.Enabled)?.Path;
+            var setupComplete = SetupComplete(roots);
             var categories = new[] { "Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other" };
             // The write contract is the editable form, not the richer read-only settings view.
             if (input is not null)
@@ -438,7 +443,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     maxStorageGb = (maximum / 1_000_000_000d ?? 0).ToString(CultureInfo.InvariantCulture),
                     preferredResolution = quality.PreferredResolution, audioLanguage = quality.AudioLanguage ?? "auto",
                     automationIntervalMinutes = scheduler.Enabled ? scheduler.IntervalMinutes : 0,
-                    maxActiveDownloads = value.MaxActiveDownloads,
+                    maxActiveDownloads = value.MaxActiveDownloads, setupComplete,
                     downloadWindows = Array.Empty<object>(), categories, pathRules = new { },
                 }, testResult = (object?)null, retentionWarning = (string?)null };
             return new { settings = new
@@ -448,7 +453,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 savePath = (string?)null, baseDownloadPath = rootPath,
                 maxStorageBytes = maximum, maxStorageGb = maximum / 1_000_000_000d ?? 0,
                 storageCapConfigured = maximum is not null,
-                setupComplete = value.SetupComplete, verboseDiagnostics = value.VerboseDiagnostics,
+                setupComplete, verboseDiagnostics = value.VerboseDiagnostics,
                 preferredResolution = quality.PreferredResolution, audioLanguage = quality.AudioLanguage ?? "auto",
                 automationIntervalMinutes = scheduler.Enabled ? scheduler.IntervalMinutes : 0,
                 maxActiveDownloads = value.MaxActiveDownloads, maxActiveDownloadsDefault = 4,
@@ -476,6 +481,47 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             } };
         }
         finally { settingsGate.Release(); }
+    }
+
+    internal static bool SetupComplete(IEnumerable<StorageRootRow> roots) =>
+        roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes > 0;
+
+    // v1 keeps one storage root: the download folder and space limit both live on it.
+    private static async Task SaveRootAsync(ILibraryPlacement library, JsonElement body, CancellationToken ct)
+    {
+        var path = body.TryGetProperty("baseDownloadPath", out var p) && p.ValueKind == JsonValueKind.String &&
+            p.GetString() is { Length: > 0 } text ? text.Trim() : null;
+        long? cap = null;
+        if (body.TryGetProperty("maxStorageGb", out var g) && g.ValueKind != JsonValueKind.Null)
+        {
+            var gb = g.ValueKind == JsonValueKind.Number ? g.GetDouble() :
+                double.TryParse(g.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : -1;
+            if (gb <= 0) throw new ArgumentException("Set a space limit above 0 GB.");
+            cap = (long)(gb * 1_000_000_000d);
+        }
+        if (path is not null && !Path.IsPathFullyQualified(path))
+            throw new ArgumentException("Enter the full folder path, for example D:\\Media.");
+        if (path is null && cap is null) return;
+        var current = (await library.RootsAsync(ct)).FirstOrDefault(r => r.Enabled);
+        if (current is not null && (path is null || string.Equals(Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar),
+                current.Path, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (cap is null || cap == current.MaxAllocatedBytes) return;
+            Check(await library.ConfigureRootAsync(current.Id, new(current.Priority, current.ReserveBytes, true,
+                current.Kinds, current.Version, MaxAllocatedBytes: cap), ct));
+            return;
+        }
+        if (path is null) throw new ArgumentException("Choose a download folder.");
+        var added = Check(await library.AddRootAsync(new(path, [.. Enum.GetValues<LibraryKind>()], 0, 0, null,
+            cap ?? current?.MaxAllocatedBytes, true), ct));
+        if (current is null) return;
+        var removed = await library.RemoveRootAsync(current.Id, ct);
+        if (removed.Failure is null) return;
+        await library.RemoveRootAsync(added.Id, ct);
+        throw new ArgumentException(removed.Failure.Message);
+
+        static StorageRootRow Check(LibraryRootResult result) =>
+            result.Root ?? throw new ArgumentException(result.Failure?.Message ?? "Could not save the download folder.");
     }
 
     internal async Task<object> RecoveryAsync(bool restore, CancellationToken ct)
