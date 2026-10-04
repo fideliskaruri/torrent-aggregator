@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { Rail as RailModel, RailItem } from "@/lib/browse";
 import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
 import { cn } from "@/lib/utils";
 import { nextFocusIndex, pageScrollDelta, railEdges } from "./rail-scroll";
-import { TitleCard, TitleCardSkeleton } from "./title-card";
-import { Button } from "@/components/ui/button";
+import { TitleCard } from "./title-card";
+import { RailArrow } from "./rail-arrow";
+import { GRID, RAIL_HEADING } from "./rail-layout";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
+
+export { RailGridSkeleton, RailSkeleton } from "./rail-skeletons";
 
 export interface RailProps {
   rail: RailModel;
@@ -20,13 +21,6 @@ export interface RailProps {
   /** Where "See all" goes: the page that lists this rail in full. None when absent. */
   seeAllHref?: string;
 }
-
-/** Rail and grid headings share one look, so a genre page reads as the rail it came from. */
-const RAIL_HEADING = "text-[13px] font-medium text-muted-foreground";
-
-/** 3 across at 390 px, then as many 140 / 160 px columns as fit. */
-const GRID =
-  "grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-2.5 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-x-3 lg:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]";
 
 /**
  * One horizontally scrolling row of titles.
@@ -251,55 +245,6 @@ export function RailStrip({
 }
 
 /**
- * Desktop-only edge control — Netflix-style fade + chevron, not a tall pill.
- *
- * The old bordered box sat beside the item-count and read as broken chrome
- * ("24" stacked over a chevron). Touch devices swipe the row; arrows stay out
- * of the tab order because cards already handle Left/Right.
- */
-function RailArrow({
-  direction,
-  hidden,
-  onClick,
-}: {
-  direction: "left" | "right";
-  hidden: boolean;
-  onClick: () => void;
-}) {
-  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
-  return (
-    <div
-      aria-hidden
-      data-rail-arrow={direction}
-      className={cn(
-        "pointer-events-none absolute inset-y-0 z-[1] hidden w-12 items-center md:flex",
-        "transition-opacity duration-150",
-        direction === "left"
-          ? "left-0 justify-start bg-gradient-to-r from-background via-background/80 to-transparent pl-1"
-          : "right-0 justify-end bg-gradient-to-l from-background via-background/80 to-transparent pr-1",
-        hidden
-          ? "opacity-0"
-          : "opacity-0 group-hover/rail:opacity-100 group-focus-within/rail:opacity-100",
-      )}
-    >
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        tabIndex={-1}
-        onClick={onClick}
-        className={cn(
-          "rounded-full bg-card/90 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground dark:bg-card/90",
-          !hidden && "pointer-events-auto",
-        )}
-      >
-        <Icon aria-hidden />
-      </Button>
-    </div>
-  );
-}
-
-/**
  * One rail's titles as a wrapping grid: a genre page, where the point is to
  * see the whole list rather than a row of it. Cards are the tab stops in
  * reading order, so no arrow-key handling is needed.
@@ -330,34 +275,6 @@ export function RailGrid({
             onAction={onAction}
             priority={i < 6}
           />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** A rail-shaped placeholder, used while the payload loads. */
-export function RailSkeleton({ cards = 6 }: { cards?: number }) {
-  return (
-    <section className="py-4 sm:py-5" aria-hidden>
-      <Skeleton className="mb-2.5 h-3.5 w-40 rounded" />
-      <ul className="flex gap-2.5 overflow-hidden sm:gap-3">
-        {Array.from({ length: cards }, (_, i) => (
-          <TitleCardSkeleton key={i} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** A genre page's placeholder: the grid's own geometry, so the titles land in place. */
-export function RailGridSkeleton({ cards = 12 }: { cards?: number }) {
-  return (
-    <section className="py-4 sm:py-5" aria-hidden>
-      <Skeleton className="mb-3 h-3.5 w-40 rounded" />
-      <ul className={cn(GRID, "overflow-hidden")}>
-        {Array.from({ length: cards }, (_, i) => (
-          <TitleCardSkeleton key={i} layout="grid" />
         ))}
       </ul>
     </section>
