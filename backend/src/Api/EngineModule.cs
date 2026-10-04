@@ -10,12 +10,12 @@ using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
-internal static class DevEngine
+internal static class EngineModule
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
 
-    internal static IServiceCollection AddDevEngine(this IServiceCollection services, string directory)
+    internal static IServiceCollection AddEngine(this IServiceCollection services, string directory)
     {
         services.AddSingleton(sp => new MonoTorrentEngine(directory,
             message => sp.GetRequiredService<ILogger<MonoTorrentEngine>>().LogInformation("{EngineMessage}", message),

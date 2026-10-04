@@ -3,13 +3,13 @@ using TorrentFlow.Library;
 
 namespace TorrentFlow.Api;
 
-internal static class DevLibrary
+internal static class LibraryModule
 {
-    internal static IServiceCollection AddDevLibrary(this IServiceCollection services) =>
+    internal static IServiceCollection AddLibrary(this IServiceCollection services) =>
         services.AddScoped<ILibraryPlacement, LibraryPlacement>()
             .AddScoped<MediaImport>().AddSingleton<ImportJobs>();
 
-    internal static Task MapDevLibraryAsync(this WebApplication app)
+    internal static Task MapLibraryAsync(this WebApplication app)
     {
         app.MapImports();
         app.MapLibraryActions();

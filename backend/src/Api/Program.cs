@@ -49,17 +49,17 @@ builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
 builder.Services.AddNotifications();
-builder.Services.AddDevSources();
+builder.Services.AddSources();
 builder.Services.AddCatalog();
 builder.Services.AddRequests();
 builder.Services.AddAutomation();
-builder.Services.AddDevEngine(dataDirectory);
+builder.Services.AddEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
     builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<DownloadsApi>();
-builder.Services.AddDevLibrary();
+builder.Services.AddLibrary();
 builder.Services.AddScoped(sp =>
 {
     var repository = sp.GetRequiredService<ImportReviewRepository>();
@@ -88,7 +88,7 @@ try
     app.MapAutomation();
     app.MapTargets();
     app.MapDownloads();
-    await app.MapDevLibraryAsync();
+    await app.MapLibraryAsync();
     using var files = HostPaths.WebFiles(builder.Configuration, builder.Environment.ContentRootPath);
     // API paths cannot be served from static files, even if a web build accidentally contains an api folder.
     app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase), branch =>
