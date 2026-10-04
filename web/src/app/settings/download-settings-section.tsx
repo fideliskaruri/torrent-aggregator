@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useDisplayPath, useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
@@ -11,7 +11,7 @@ import type { SettingsPatch } from "./settings-types";
 
 interface DownloadSettings {
   baseDownloadPath: string;
-  maxStorageGb: string;
+  maxStorageGb: string | number;
   maxActiveDownloads: number;
 }
 
@@ -25,18 +25,12 @@ export function DownloadSettingsSection({
   onSave: (patch: SettingsPatch) => Promise<boolean>;
 }) {
   const [path, setPath] = useState(settings.baseDownloadPath);
-  const [cap, setCap] = useState(settings.maxStorageGb);
+  const [cap, setCap] = useState(String(settings.maxStorageGb));
   const [maxActive, setMaxActive] = useState(settings.maxActiveDownloads);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [open, setOpen] = useState(true);
   const { runningInContainer } = useFeatures();
   const displayPath = useDisplayPath();
-
-  useEffect(() => {
-    setPath(settings.baseDownloadPath);
-    setCap(settings.maxStorageGb);
-    setMaxActive(settings.maxActiveDownloads);
-  }, [settings.baseDownloadPath, settings.maxStorageGb, settings.maxActiveDownloads]);
 
   async function save() {
     await onSave({

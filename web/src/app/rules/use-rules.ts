@@ -4,9 +4,7 @@ import { send } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import {
   buildRuleCreatePayload,
-  buildRuleFilterPayload,
   type RuleFormState,
-  type RuleFilterFormState,
 } from "@/lib/rules/form";
 import type { Rule } from "./rule-types";
 
@@ -21,10 +19,10 @@ export function useRules() {
   const [running, setRunning] = useState(false);
   const [mutating, setMutating] = useState(false);
 
-  const mutate = useCallback(async (body: unknown, method = "PATCH") => {
+  const mutate = useCallback(async (body: unknown, method = "PATCH", path = "/api/rules") => {
     setMutating(true);
     try {
-      const response = await send("/api/rules", { method, body });
+      const response = await send(path, { method, body });
       if (!response.ok) throw response.error ?? new Error("Could not update rule.");
       query.refetch();
       return true;
@@ -54,34 +52,27 @@ export function useRules() {
   const retarget = useCallback((id: string, category: string) =>
     mutate({ id, category }), [mutate]);
 
-  const saveFilters = useCallback((id: string, filters: RuleFilterFormState) =>
-    mutate(buildRuleFilterPayload(id, filters)), [mutate]);
-
   const remove = useCallback(async (id: string) => {
+    return mutate(undefined, "DELETE", `/api/rules?id=${encodeURIComponent(id)}`);
+  }, [mutate]);
+
+  const removeMany = useCallback(async (ids: string[]) => {
     setMutating(true);
     try {
-      const response = await send(`/api/rules?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw response.error ?? new Error("Could not delete rule.");
+      const results = await Promise.allSettled(ids.map(async (id) => {
+        const response = await send(`/api/rules?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        return response.ok;
+      }));
       query.refetch();
-      return true;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not delete rule.");
-      return false;
+      const deleted = results.filter((result) => result.status === "fulfilled" && result.value).length;
+      if (deleted !== ids.length) {
+        throw new Error(`Could not delete ${ids.length - deleted} rules. The list has been refreshed.`);
+      }
+      if (deleted) toast.success(`${deleted} ${deleted === 1 ? "rule" : "rules"} deleted`);
     } finally {
       setMutating(false);
     }
   }, [query.refetch]);
-
-  const removeMany = useCallback(async (ids: string[]) => {
-    const results = await Promise.all(ids.map(remove));
-    const deleted = results.filter(Boolean).length;
-    if (deleted) toast.success(`${deleted} ${deleted === 1 ? "rule" : "rules"} deleted`);
-    if (deleted !== ids.length) {
-      throw new Error(`Could not delete ${ids.length - deleted} rules. The list has been refreshed.`);
-    }
-  }, [remove]);
 
   const run = useCallback(async () => {
     setRunning(true);
@@ -115,7 +106,6 @@ export function useRules() {
     update,
     toggle,
     retarget,
-    saveFilters,
     remove,
     removeMany,
     run,

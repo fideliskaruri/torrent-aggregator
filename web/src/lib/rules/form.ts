@@ -27,11 +27,6 @@ export interface RuleFormState {
   maxSizeGb: string;
 }
 
-export interface RuleFilterFormState {
-  sources: string[];
-  maxSizeGb: string;
-}
-
 export function parseRuleSources(
   stored: string | null | undefined,
 ): TorrentSourceId[] {
@@ -84,16 +79,5 @@ export function buildRuleCreatePayload(form: RuleFormState) {
     resolution: form.resolution || null,
     sources: serializeRuleSources(form.sources),
     maxSizeBytes: maxSizeGbToBytes(form.maxSizeGb),
-  };
-}
-
-export function buildRuleFilterPayload(
-  id: string,
-  filters: RuleFilterFormState,
-) {
-  return {
-    id,
-    sources: serializeRuleSources(filters.sources),
-    maxSizeBytes: maxSizeGbToBytes(filters.maxSizeGb),
   };
 }

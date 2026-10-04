@@ -15,9 +15,8 @@ export function getDeletePlan(query: string) {
 
 export function deleteLibraryFiles(body: {
   watchListItemId: string;
-  scope: "show" | "season" | "episode";
+  scope: "show" | "season";
   season?: number;
-  episode?: number;
   confirm: true;
 }) {
   return send<{

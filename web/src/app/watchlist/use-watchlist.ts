@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { parseLibrary } from "@/lib/requests";
@@ -9,15 +8,25 @@ import type { WatchlistItem, WatchlistResponse } from "@/lib/api/watchlist-types
 type LibraryRow = {
   key?: string;
   id?: string;
+  workKey?: string | null;
   title: string;
   mediaType: string;
   posterUrl: string | null;
   year?: number | null;
 };
 
+type WatchlistPatch = {
+  id: string;
+  status?: string;
+  monitored?: boolean;
+  fromSeason?: number;
+  fromEpisode?: number;
+};
+
 function readOnlyItem(row: LibraryRow): WatchlistItem {
   return {
     id: row.key ?? row.id ?? row.title,
+    workKey: row.workKey ?? row.key,
     mediaType: row.mediaType,
     externalId: "",
     title: row.title,
@@ -25,20 +34,9 @@ function readOnlyItem(row: LibraryRow): WatchlistItem {
     synopsis: null,
     rating: null,
     status: "available",
-    lastEpisode: null,
-    latestReleaseTitle: null,
-    latestReleaseAt: null,
-    latestReleaseMagnet: null,
-    nextEpisodeHint: null,
     updatedAt: "",
   };
 }
-
-export type WatchlistState =
-  | { status: "loading"; items: WatchlistItem[] }
-  | { status: "error"; items: WatchlistItem[]; message: string; retry: () => void }
-  | { status: "empty"; items: WatchlistItem[]; refresh: () => void }
-  | { status: "ready"; items: WatchlistItem[]; refresh: () => void };
 
 export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
   const owner = useApiQuery<WatchlistResponse>(
@@ -61,48 +59,38 @@ export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
       ? { items: ownerItems.map(readOnlyItem) }
       : owner.data;
   const items = data?.items ?? [];
-  const patch = useApiMutation<{
-    id: string;
-    status?: string;
-    monitored?: boolean;
-    fromSeason?: number;
-    fromEpisode?: number;
-  }, { item?: WatchlistItem }>("/api/watchlist", "PATCH");
-  const state: WatchlistState = source.loading
-    ? { status: "loading", items }
-    : source.error
-      ? { status: "error", items, message: source.error, retry: source.refetch }
-      : items.length
-        ? { status: "ready", items, refresh: source.refetch }
-        : { status: "empty", items, refresh: source.refetch };
+  const patch = useApiMutation<WatchlistPatch, { item?: WatchlistItem }>("/api/watchlist", "PATCH");
 
-  const update = useCallback(async (body: {
-    id: string;
-    status?: string;
-    monitored?: boolean;
-    fromSeason?: number;
-    fromEpisode?: number;
-  }) => {
+  async function update(body: WatchlistPatch) {
     try {
       await patch.run(body);
       source.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update this title. Try again.");
     }
-  }, [patch, source]);
+  }
 
-  const remove = useCallback(async (id: string) => {
+  async function remove(id: string) {
     const response = await removeWatchlistItem(id);
     if (!response.ok) throw response.error;
     source.refetch();
-  }, [source]);
+  }
+
+  async function removeMany(ids: string[]) {
+    const responses = await Promise.allSettled(ids.map(removeWatchlistItem));
+    source.refetch();
+    const failed = responses.find((result) =>
+      result.status === "rejected" || !result.value.ok,
+    );
+    if (failed) throw failed.status === "rejected" ? failed.reason : failed.value.error;
+  }
 
   return {
-    state,
+    items,
     query: source,
     update,
     remove,
-    pending: patch.pending,
+    removeMany,
     refresh: source.refetch,
   };
 }

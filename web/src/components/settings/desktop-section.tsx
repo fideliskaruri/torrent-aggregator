@@ -182,7 +182,7 @@ function DesktopPanel() {
   );
 }
 
-function ToggleRow({
+export function ToggleRow({
   id,
   label,
   description,

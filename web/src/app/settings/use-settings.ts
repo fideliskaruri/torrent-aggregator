@@ -1,89 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
-import { get, send } from "@/lib/api";
+import { useApiMutation } from "@/hooks/use-api-mutation";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { toast } from "@/lib/toast";
-import type {
-  AudioLanguage,
-  SettingsData,
-  SettingsPatch,
-  SettingsState,
-} from "./settings-types";
+import type { SettingsData, SettingsPatch } from "./settings-types";
 
 interface SettingsResponse {
-  settings?: Partial<SettingsData> | null;
-}
-
-const DEFAULT_SETTINGS: SettingsData = {
-  baseDownloadPath: "",
-  maxStorageGb: "0",
-  maxActiveDownloads: 4,
-  preferredResolution: 1080,
-  audioLanguage: "auto",
-  setupComplete: false,
-};
-
-function audioLanguage(value: unknown): AudioLanguage {
-  return value === "english" || value === "any" ? value : "auto";
-}
-
-function normalize(settings?: Partial<SettingsData> | null): SettingsData {
-  return {
-    ...DEFAULT_SETTINGS,
-    ...settings,
-    baseDownloadPath: settings?.baseDownloadPath ?? "",
-    maxStorageGb:
-      settings?.maxStorageGb != null && Number(settings.maxStorageGb) > 0
-        ? String(settings.maxStorageGb)
-        : "0",
-    audioLanguage: audioLanguage(settings?.audioLanguage),
-    setupComplete: settings?.setupComplete === true,
-  };
+  settings?: SettingsData | null;
 }
 
 export function useSettings() {
-  const [state, setState] = useState<SettingsState>({ status: "loading" });
-  const [reloadKey, setReloadKey] = useState(0);
+  const query = useApiQuery<SettingsData>("/api/settings/client", {
+    emptyOnUnauthorized: false,
+    select: (json) => {
+      const settings = (json as SettingsResponse | null)?.settings;
+      if (!settings) throw new Error("Could not load settings.");
+      return settings;
+    },
+  });
+  const mutation = useApiMutation<SettingsPatch, SettingsResponse>("/api/settings/client", "PUT");
 
-  const load = useCallback(async () => {
-    setState({ status: "loading" });
+  async function save(patch: SettingsPatch) {
     try {
-      const response = await get<SettingsResponse>("/api/settings/client", {
-        cache: "no-store",
-      });
-      if (!response.ok) throw response.error ?? new Error("Could not load settings.");
-      setState({ status: "ready", settings: normalize(response.data?.settings), saving: false });
-    } catch (error) {
-      setState({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not load settings.",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load, reloadKey]);
-
-  const retry = useCallback(() => setReloadKey((key) => key + 1), []);
-
-  const save = useCallback(async (patch: SettingsPatch) => {
-    if (state.status !== "ready") return false;
-    setState({ ...state, saving: true });
-    try {
-      const response = await send<SettingsResponse>("/api/settings/client", {
-        method: "PUT",
-        body: patch,
-      });
-      if (!response.ok) throw response.error ?? new Error("Could not save settings.");
-      const settings = normalize(response.data?.settings);
-      setState({ status: "ready", settings, saving: false });
+      await mutation.run(patch);
+      query.refetch();
       toast.success("Changes saved");
       return true;
     } catch (error) {
-      setState({ ...state, saving: false });
       toast.error(error instanceof Error ? error.message : "Could not save settings.");
       return false;
     }
-  }, [state]);
+  }
 
-  return { state, retry, save };
+  return { query, save, saving: mutation.pending };
 }

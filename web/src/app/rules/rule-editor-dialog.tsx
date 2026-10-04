@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -58,10 +58,9 @@ export function RuleEditorDialog({
   onOpenChange: (open: boolean) => void;
   onSave: (form: RuleFormState, rule: Rule | null) => Promise<boolean>;
 }) {
-  const [form, setForm] = useState<RuleFormState>(EMPTY_FORM);
-  useEffect(() => {
-    if (open) setForm(rule ? formFromRule(rule) : EMPTY_FORM);
-  }, [open, rule]);
+  const [form, setForm] = useState<RuleFormState>(() =>
+    open && rule ? formFromRule(rule) : EMPTY_FORM,
+  );
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
