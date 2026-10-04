@@ -49,6 +49,14 @@ public sealed partial class LibraryPlacement(ILibraryRepository repository) : IL
                 return Reject("PlacementRequired", "The selected folder does not match the title's library folder.");
             var bytes = selected.Sum(s => input.Files.Single(f => f.Index == s.FileIndex).Bytes);
             if (bytes > LibraryPaths.FreeBytes(root.Path)) return Wait(WaitReason.NoDriveSpace, "No drive has space");
+            if (root.MaxAllocatedBytes is { } limit)
+            {
+                var stored = (await repository.MediaAsync(null, ct))
+                    .Where(m => m.RootId == root.Id && m.Status != FilePresence.Missing).Sum(m => m.Bytes);
+                var reserved = (await repository.ReservationsAsync(ct)).GetValueOrDefault(root.Id);
+                if (stored + reserved + bytes > limit)
+                    return Wait(WaitReason.NoDriveSpace, "Your space limit is full. Raise it in Settings or remove a title.");
+            }
 
             var placed = await BuildFilesAsync(input, work, itemFolder, film, ct);
             if (placed.Failure is not null) return placed;
