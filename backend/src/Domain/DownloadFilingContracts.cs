@@ -6,6 +6,8 @@ public interface ILibraryDownloadRepository : ILibraryRepository
 {
     Task<bool> SavePlacementAsync(ImmutableArray<DownloadFileRow> files,
         ImmutableArray<WorkFolderRow> folders, CancellationToken cancellationToken);
+    Task<bool> UpdateBindingsAsync(ImmutableArray<(DownloadFileRow Before, DownloadFileRow After)> files,
+        ImmutableArray<WorkFolderRow> folders, CancellationToken cancellationToken);
     Task<ImmutableArray<RowWrite>?> ProposeFiledAsync(
         ImmutableArray<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)> files,
         CancellationToken cancellationToken);

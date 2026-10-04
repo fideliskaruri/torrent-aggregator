@@ -58,10 +58,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 .SingleOrDefault(d => d.Hash == assignment.Hash);
             if (oldDownload is not null)
             {
-                // A shared hash must never be reinserted, nor silently bind a second target's files.
-                foreach (var target in targets)
-                    await change(target.Id, TargetState.Waiting, WaitReason.DownloadCap,
-                        "This release is already downloading. Trying again after it finishes.");
+                await JoinExistingAsync(store, library, repository, work, targets, assignment, metadata,
+                    owned, oldDownload, change, stateGate, ct);
                 return;
             }
             var placement = await library.PlaceAsync(new(work, targets, assignment, metadata,
@@ -273,6 +271,11 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     await TargetPipeline.CommitAsync(store, [new(latestDownload, download.Version, null)], [], ct);
                 }
                 var live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
+                if (live is null && members.Any(t => t.State == TargetState.Fetching))
+                {
+                    await engine.RecoverAsync([latestDownload], files, ct);
+                    live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
+                }
                 var selected = files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected &&
                     !f.Filed && members.Any(t => t.Id == f.TargetId && t.State == TargetState.Fetching))).ToImmutableArray();
                 if (live is not null && selected.Any(f => live.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.Selected != f.Selected))
