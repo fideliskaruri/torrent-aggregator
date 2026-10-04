@@ -174,7 +174,6 @@ export function navFor(items: readonly NavItem[], caps: Capabilities = capabilit
 const ROUTE_REQUIREMENTS: readonly (readonly [string, Capability])[] = [
   [DOWNLOADS_HREF, "canDownload"],
   ["/client", "canDownload"],
-  ["/share", "canDownload"],
   ["/settings", "canManage"],
   ["/rules", "canManage"],
   ["/history", "canSeeTransfers"],
@@ -257,7 +256,6 @@ export function titleForRoute(pathname: string): string | null {
   if (navActive(pathname, "/title")) return null;
   if (navActive(pathname, HISTORY_HREF)) return "Download log";
   if (navActive(pathname, "/about")) return "About";
-  if (navActive(pathname, "/share")) return "Share";
   if (navActive(pathname, "/rules")) return "Rules";
   if (navActive(pathname, SEARCH_HREF)) return "Search";
   if (navActive(pathname, EVERYTHING_HREF)) return "Search";

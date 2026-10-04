@@ -8,11 +8,7 @@ import {
 } from "@/lib/connection-watch";
 import { isSessionExpired, subscribeSessionExpired } from "@/lib/session-expiry";
 
-/**
- * "You're offline — reconnecting…" strip for the installed app. Sits where the
- * session-expired prompt sits and yields to it: a sign-in problem is not fixed
- * by waiting, so that message wins.
- */
+/** Shows generic server connection status, unless the session-expired prompt is active. */
 export function ConnectionBanner() {
   const state = useSyncExternalStore(subscribeConnection, connectionState, () => "online" as const);
   const expired = useSyncExternalStore(subscribeSessionExpired, isSessionExpired, () => false);

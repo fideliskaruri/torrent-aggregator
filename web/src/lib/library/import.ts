@@ -1,29 +1,5 @@
 import { send } from "@/lib/api";
 
-/** Library kinds a drive accepts, in the server's enum order. */
-export const LIBRARY_KINDS = [
-  { value: "Movies", label: "Movies" },
-  { value: "TV", label: "TV" },
-  { value: "Anime", label: "Anime" },
-  { value: "AnimeMovies", label: "Anime movies" },
-] as const;
-export type LibraryKind = (typeof LIBRARY_KINDS)[number]["value"];
-
-export interface StorageRoot {
-  id: string;
-  path: string;
-  kinds: LibraryKind[];
-  priority: number;
-  reserveBytes: number;
-  enabled: boolean;
-  online: boolean;
-  reviewRequired: boolean;
-  lastCheckedAt: string | null;
-  lastError: string | null;
-  version: number;
-  freeBytes: number | null;
-}
-
 export interface ImportCandidate {
   workId: string;
   title: string;
