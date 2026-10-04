@@ -1,10 +1,10 @@
-import type { TitleContentModel } from "./use-title-content-model";
+import type { TitleContentViewModel } from "./use-title-content-view-model";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { GenreChips,HeroMetaList } from "./title-hero-meta";
 
 
-export function TitleHeroDetails({ model }: { model: TitleContentModel }) {
+export function TitleHeroDetails({ model }: { model: TitleContentViewModel }) {
   const { payload, extras, heroExtrasPending, genres, metaListPresent, releaseDate } = model;
   return (
             <div className="min-w-0 flex flex-col gap-4 md:col-start-2 md:flex-row md:gap-8">

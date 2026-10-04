@@ -4,10 +4,9 @@ import { EpisodeList } from "./episode-list";
 import { MoreLikeThis } from "./more-like-this";
 import { LinkedRecords } from "./linked-records";
 import { wantedRemoveDescription } from "@/components/wanted/wanted-actions";
-import type { TitleContentModel } from "./use-title-content-model";
+import type { TitleContentViewModel } from "./use-title-content-view-model";
 
-
-export function TitleSections({ model }: { model: TitleContentModel }) {
+export function TitleSections({ model }: { model: TitleContentViewModel }) {
   const { nothingBelowHero, payload, seasons, seasonProgress, activeSeason, rows, allRows, truncated, episodeListState, refreshing, season, statusFor, activeSeasonGrabStatus, gated, onSeasonChange, requestSeasonGrab, handleEpisodeListAction, caps, handleFindEpisodeSource, handlePickEpisodeRelease, handleWantedAction, removingEpisode, setRemovingEpisode, episodeName, workKey, removingBusy, confirmRemoveEpisode, similar, similarLoading, hint } = model;
   return (
     <>

@@ -9,14 +9,12 @@ import { OwnedQuality } from "./owned-quality";
 import { RequestAction } from "@/components/requests/request-action";
 import { WantedActions } from "@/components/wanted/wanted-actions";
 import { parseRequestState } from "@/lib/requests";
-import { shouldAskForQuality } from "./quality-picker-state";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
-import type { TitleContentModel } from "./use-title-content-model";
+import { DOWNLOAD_KEY } from "./title-actions";
+import type { TitleContentViewModel } from "./use-title-content-view-model";
 
-const DOWNLOAD_KEY = "download";
-
-export function TitleHeroActions({ model }: { model: TitleContentModel }) {
-  const { payload, title, caps, ownedFilm, gated, discoverEpisodes, discoveryPending, refetchExtras, canOpenFile, openingFile, openTitleFile, showDownload, downloadControl, titleTransfer, downloadLabel, downloadStatus, downloadCanRun, alwaysPreferred, setHeroPicker, onAction, downloadAction, downloadLabelTarget, preferredResolution, titleLooking, titleWanted, titleWantedRow, metaYear, canFindSource, findSourceHash, onFindAnother, seasons, onLibraryChanged } = model;
+export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
+  const { payload, title, caps, ownedFilm, gated, discoverEpisodes, discoveryPending, refetchExtras, canOpenFile, openingFile, openTitleFile, showDownload, downloadControl, titleTransfer, downloadLabel, downloadStatus, downloadCanRun, onAction, downloadAction, titleLooking, titleWanted, titleWantedRow, metaYear, canFindSource, findSourceHash, onFindAnother, seasons, onLibraryChanged } = model;
   return (
               <div
                 className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 empty:hidden md:mt-5 md:flex md:flex-wrap md:items-center"
@@ -113,16 +111,7 @@ export function TitleHeroActions({ model }: { model: TitleContentModel }) {
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
                     onClick={() => {
-                      if (shouldAskForQuality(alwaysPreferred)) {
-                        setHeroPicker(true);
-                      } else {
-                        onAction(
-                          downloadAction,
-                          DOWNLOAD_KEY,
-                          downloadLabelTarget,
-                          preferredResolution,
-                        );
-                      }
+                      onAction(downloadAction, DOWNLOAD_KEY, title);
                     }}
                     className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
                   >

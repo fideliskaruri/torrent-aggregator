@@ -7,18 +7,15 @@ import { cn } from "@/lib/utils";
 import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
 import { WatchStateChip } from "./watch-state";
 import { SeasonProgressMeter } from "./season-progress-meter";
-import { QualityPicker } from "./quality-picker";
 import { RatingMetaLine } from "./title-hero-meta";
 
 
 import { TitleHeroActions } from "./title-hero-actions";
 import { TitleHeroDetails } from "./title-hero-details";
-import type { TitleContentModel } from "./use-title-content-model";
+import type { TitleContentViewModel } from "./use-title-content-view-model";
 
-const DOWNLOAD_KEY = "download";
-
-export function TitleHero({ model }: { model: TitleContentModel }) {
-  const { payload, title, nothingBelowHero, caps, heroPicker, setHeroPicker, preferredResolution, alwaysPreferred, setAlwaysPreferred, onAction, downloadAction, downloadLabelTarget, backdrop, gated, titlePending, heroExtrasPending, releaseGate, metaScore, metaYear, extras, seasonCount, showProgress, showProgressText } = model;
+export function TitleHero({ model }: { model: TitleContentViewModel }) {
+  const { payload, title, nothingBelowHero, backdrop, gated, titlePending, heroExtrasPending, releaseGate, metaScore, metaYear, extras, seasonCount, showProgress, showProgressText } = model;
   return (
     <>
       <header
@@ -168,26 +165,6 @@ export function TitleHero({ model }: { model: TitleContentModel }) {
           </div>
         </div>
       </header>
-
-
-      {caps.canDownload ? (
-      <QualityPicker
-        open={heroPicker}
-        onOpenChange={setHeroPicker}
-        preferredResolution={preferredResolution}
-        alwaysPreferred={alwaysPreferred}
-        onAlwaysPreferredChange={setAlwaysPreferred}
-        onConfirm={(resolution) => {
-          setHeroPicker(false);
-          onAction(
-            downloadAction,
-            DOWNLOAD_KEY,
-            downloadLabelTarget,
-            resolution,
-          );
-        }}
-      />
-      ) : null}
 
 
     </>

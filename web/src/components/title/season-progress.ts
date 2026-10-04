@@ -24,6 +24,7 @@
  */
 import { isUnaired, type EpisodeRowModel } from "./merge-extras";
 import type { TitleSeason } from "./types";
+import { isTitleOnDisk } from "./title-download-state";
 
 export interface SeasonProgress {
   downloaded: number;
@@ -34,7 +35,11 @@ export interface SeasonProgress {
 }
 
 export function isRowDownloaded(row: EpisodeRowModel): boolean {
-  return row.availability === "ready" || row.transfer?.status === "downloaded";
+  return isTitleOnDisk({
+    available: row.available,
+    owned: row.owned,
+    transfer: row.transfer,
+  });
 }
 
 function isRowDownloading(row: EpisodeRowModel): boolean {

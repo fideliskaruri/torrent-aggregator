@@ -1,4 +1,3 @@
-import { useCallback,useEffect,useRef,useState } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SeasonSwitcher } from "@/components/tf/season-switcher";
@@ -7,10 +6,7 @@ import type { WantedAction } from "@/components/wanted/wanted-actions";
 import { type EpisodeRowModel } from "./merge-extras";
 import { episodeListView,episodeSeasonCountLabel,type EpisodeListLoadState } from "./episode-list-state";
 import { type TitleAction,type TitleActionStatus } from "./title-actions";
-import { canOfferSeasonGrab,shouldRunSeasonGrab,type SeasonGrabStatus,} from "./season-grab-state";
-import { QualityPicker } from "./quality-picker";
-import { shouldAskForQuality } from "./quality-picker-state";
-import { usePreferredQuality } from "./use-preferred-quality";
+import { canOfferSeasonGrab,type SeasonGrabStatus,} from "./season-grab-state";
 import type { TitleSeason } from "./types";
 import { seasonProgressLabel,type SeasonProgress } from "./season-progress";
 import { SeasonProgressMeter } from "./season-progress-meter";
@@ -32,7 +28,7 @@ export interface EpisodeListProps {
   seasonGrabStatus: SeasonGrabStatus;
     gated?: boolean;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[], resolution?: number) => void;
+  onSeasonGrab: (season: number) => void;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
     onFindAnother?: (hash: string, episodeLabel: string) => void;
     onPickRelease?: (season: number, episode: number) => void;
@@ -59,82 +55,11 @@ export function EpisodeList({
   onWantedAction,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
-  const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
-  type PendingDownload =
-    | { kind: "episode"; action: TitleAction; label: string }
-    | { kind: "season"; targetSeason: number; episodeNums: number[] };
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const stripViewport = useCallback(
-    () =>
-      stripRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      ) ?? null,
-    [],
-  );
-  const [edges, setEdges] = useState({ start: false, end: false });
-  const updateEdges = useCallback(() => {
-    const el = stripViewport();
-    if (!el) return;
-    const start = el.scrollLeft > 4;
-    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
-    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
-  }, [stripViewport]);
-  useEffect(() => {
-    const el = stripViewport();
-    if (!el || typeof ResizeObserver === "undefined") return;
-    updateEdges();
-    el.addEventListener("scroll", updateEdges, { passive: true });
-    const observer = new ResizeObserver(updateEdges);
-    observer.observe(el);
-    return () => {
-      el.removeEventListener("scroll", updateEdges);
-      observer.disconnect();
-    };
-  }, [stripViewport, updateEdges, episodes.length, loadState.status, busy]);
-
-  const openPickerFor = useCallback((pending: PendingDownload) => {
-    setPendingDownload(pending);
-    setPickerOpen(true);
-  }, []);
-  const handleCardAction = useCallback(
-    (action: TitleAction, label: string) => {
-      if (shouldAskForQuality(alwaysPreferred)) {
-        openPickerFor({ kind: "episode", action, label });
-      } else {
-        onAction(action, label, preferredResolution);
-      }
-    },
-    [alwaysPreferred, preferredResolution, onAction, openPickerFor],
-  );
-
-  function handlePickerConfirm(resolution: number) {
-    setPickerOpen(false);
-    if (!pendingDownload) return;
-    if (pendingDownload.kind === "episode") {
-      onAction(pendingDownload.action, pendingDownload.label, resolution);
-    } else {
-      onSeasonGrab(pendingDownload.targetSeason, pendingDownload.episodeNums, resolution);
-    }
-    setPendingDownload(null);
-  }
-
-  function handlePickerOpenChange(open: boolean) {
-    setPickerOpen(open);
-    if (!open) setPendingDownload(null);
-  }
-
-  function scrollStrip(direction: -1 | 1) {
-    const el = stripViewport();
-    if (!el) return;
-    el.scrollBy({ left: direction * Math.round(el.clientWidth * 0.9), behavior: "smooth" });
-  }
 
   const view = episodeListView(loadState, episodes.length);
-  const showSeasonGrab = !gated && canOfferSeasonGrab(season, episodes.length);
+  const showSeasonGrab = !gated && canOfferSeasonGrab(season);
   const seasonDownloadCanRun =
-    showSeasonGrab && shouldRunSeasonGrab(seasonGrabStatus);
+    showSeasonGrab && seasonGrabStatus.status !== "pending" && seasonGrabStatus.status !== "done";
   const seasonCountLabel =
     season != null
       ? episodeSeasonCountLabel(Math.max(episodeTotal ?? 0, episodes.length), loadState, season)
@@ -209,13 +134,7 @@ export function EpisodeList({
                 aria-busy={seasonGrabStatus.status === "pending" || undefined}
                 disabled={!seasonDownloadCanRun}
                 onClick={() => {
-                  if (season == null) return;
-                  const episodeNums = episodes.map((e) => e.episode);
-                  if (shouldAskForQuality(alwaysPreferred)) {
-                    openPickerFor({ kind: "season", targetSeason: season, episodeNums });
-                  } else {
-                    onSeasonGrab(season, episodeNums, preferredResolution);
-                  }
+                  if (season != null) onSeasonGrab(season);
                 }}
                 className="relative min-h-[44px] w-auto lg:min-h-0"
               >
@@ -237,28 +156,17 @@ export function EpisodeList({
       <EpisodeStrip
         episodes={episodes}
         truncated={truncated}
-        loadState={loadState}
+        view={view}
         busy={busy}
         season={season}
-        stripRef={stripRef}
-        edges={edges}
-        scrollStrip={scrollStrip}
         statusFor={statusFor}
         gated={gated}
-        onAction={handleCardAction}
+        onAction={onAction}
         onFindAnother={onFindAnother}
         onPickRelease={onPickRelease}
         onWantedAction={onWantedAction}
       />
 
-      <QualityPicker
-        open={pickerOpen}
-        onOpenChange={handlePickerOpenChange}
-        preferredResolution={preferredResolution}
-        alwaysPreferred={alwaysPreferred}
-        onAlwaysPreferredChange={setAlwaysPreferred}
-        onConfirm={handlePickerConfirm}
-      />
     </section>
   );
 }

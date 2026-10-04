@@ -1,5 +1,4 @@
-import { memo,useState } from "react";
-import { areEpisodeCardsEqual } from "./episode-card-memo";
+import { useState } from "react";
 import { EpisodeStillImage } from "./episode-card-image";
 import { Tv,X } from "lucide-react";
 import { canFindAnotherSource } from "@/components/releases/find-another-source";
@@ -17,10 +16,10 @@ import { useFeatures } from "@/lib/features";
 import { openDownload } from "@/lib/open-download";
 import type { WantedAction } from "@/components/wanted/wanted-actions";
 import { formatAirDate,isUnaired,type EpisodeRowModel,} from "./merge-extras";
-import { shouldRunTitleAction,transferStateLabel,type TitleAction,type TitleActionStatus,} from "./title-actions";
+import { transferStateLabel,type TitleAction,type TitleActionStatus,} from "./title-actions";
 import { EpisodeCardActions } from "./episode-card-actions";
-import { formatTransferProgress } from "./episode-card-progress";
 import { CARD_WIDTH } from "./episode-card-layout";
+import { titleDownloadPresentation } from "./title-download-state";
 function progressPercent(fraction: number | null | undefined): number {
   if (fraction == null || !Number.isFinite(fraction)) return 0;
   return Math.round(Math.min(1, Math.max(0, fraction)) * 100);
@@ -52,30 +51,22 @@ function EpisodeCardImpl({
     episode: episode.episode,
     infoHash: episode.infoHash,
   };
-  const held =
-    transfer?.status === "downloaded" ||
-    (episode.availability === "ready" && !episode.fromPack);
+  const presentation = titleDownloadPresentation({
+    available: episode.available,
+    owned: episode.owned,
+    transfer,
+    fromPack: episode.fromPack,
+    actionStatus: downloadStatus,
+  });
+  const onDisk = presentation.onDisk;
+  const held = presentation.held;
   const ownedText = ownedLabel(episode.owned);
-  const downloadDisplayLabel = transfer?.status === "failed"
-    ? "Retry download"
-    : transfer?.status === "queued"
-      ? transferStateLabel(transfer.state, transfer.queuePosition) ?? "Queued"
-      : transfer?.status === "downloading"
-        ? `Downloading ${formatTransferProgress(transfer.progress)}`
-        : held
-          ? "Downloaded"
-          : downloadStatus === "done"
-            ? "Queued"
-          : downloadStatus === "error"
-            ? "Retry download"
-            : downloadAction.label;
+  const downloadDisplayLabel = presentation.label;
   const waitingForEnglish = transfer?.state === "waiting_english" && onPickRelease != null;
   const waitingForSeasonList = transfer?.state === "waiting_season_list";
   const downloadCanRun =
     !held &&
-    transfer?.status !== "queued" &&
-    transfer?.status !== "downloading" &&
-    shouldRunTitleAction(downloadStatus);
+    (presentation.state === "download" || presentation.state === "retry");
   const openHash = held && !episode.fromPack ? (transfer?.infoHash ?? episode.infoHash) : null;
   const canOpen = canSeePaths && openFolder && Boolean(openHash);
   const [opening, setOpening] = useState(false);
@@ -101,10 +92,6 @@ function EpisodeCardImpl({
     });
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
-  const onDisk =
-    (transfer?.status === "downloaded" && Boolean(transfer.infoHash)) ||
-    ((episode.availability === "ready" || episode.availability === "warm") &&
-      Boolean(episode.infoHash?.trim()));
   const unaired = !onDisk && (gated || isUnaired(meta?.airDate ?? null));
   const downloadingProgress =
     transfer?.status === "downloading" ? transfer.progress : null;
@@ -152,7 +139,7 @@ function EpisodeCardImpl({
     </MediaPoster>
   );
 
-  const available = episode.available ?? (episode.availability === "ready" || episode.availability === "warm");
+  const available = presentation.onDisk;
   const requesterLabel = available ? "Ready" : transferStateLabel(episode.state);
   const mobileMeta = [
     airDate,
@@ -268,7 +255,30 @@ function EpisodeCardImpl({
           <div className="flex min-h-[96px] w-full items-stretch text-left sm:block sm:min-h-0">
             <span className="relative block shrink-0">{still}</span>{caption}
           </div>
-          <EpisodeCardActions model={{ episode, canDownload, canOpen, opening, openEpisodeFile, offerFindSource, sourceHash, onFindAnother, waitingForSeasonList, onWantedAction, waitingForEnglish, onPickRelease, ownedText, downloadDisplayLabel, downloadAction, downloadStatus, downloadCanRun, transfer, held, onAction, available, requesterLabel }} />
+          <EpisodeCardActions
+            episode={episode}
+            canDownload={canDownload}
+            canOpen={canOpen}
+            opening={opening}
+            openEpisodeFile={openEpisodeFile}
+            offerFindSource={offerFindSource}
+            sourceHash={sourceHash}
+            onFindAnother={onFindAnother}
+            waitingForSeasonList={waitingForSeasonList}
+            onWantedAction={onWantedAction}
+            waitingForEnglish={waitingForEnglish}
+            onPickRelease={onPickRelease}
+            ownedText={ownedText}
+            downloadDisplayLabel={downloadDisplayLabel}
+            downloadAction={downloadAction}
+            downloadStatus={downloadStatus}
+            downloadCanRun={downloadCanRun}
+            transfer={transfer}
+            onAction={onAction}
+            available={available}
+            requesterLabel={requesterLabel}
+            presentation={presentation}
+          />
         </>
       )}
       {synopsis}
@@ -278,4 +288,4 @@ function EpisodeCardImpl({
 
 export type EpisodeCardProps = Parameters<typeof EpisodeCardImpl>[0];
 
-export const EpisodeCard = memo(EpisodeCardImpl, areEpisodeCardsEqual);
+export const EpisodeCard = EpisodeCardImpl;
