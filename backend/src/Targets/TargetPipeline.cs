@@ -542,7 +542,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         var store = scope.ServiceProvider.GetRequiredKeyedService<IStore>("targets");
         var row = (await store.ReadAsync<SettingRow>(CatalogState.Query("scheduler"), ct)).SingleOrDefault();
         var settings = row is null ? null : TorrentFlow.Store.SettingsCatalog.Read<SchedulerSettings>(row);
-        return settings is { Enabled: true, FirstFullRootScanComplete: true };
+        return settings is { Enabled: true };
     }
 
     private sealed class PipelineWorker(TargetPipeline pipeline, ILogger<PipelineWorker> logger) : BackgroundService

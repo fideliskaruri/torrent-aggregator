@@ -67,7 +67,7 @@ public static class SettingsCatalog
             Row("desktop", new DesktopSettings(false, true, null, null)),
             Row("quality", new QualitySettings(1080, "en", null)),
             Row("requests", new RequestSettings(AutoApproveMode.None, 100)),
-            Row("scheduler", new SchedulerSettings(!schedulerDisabled, 1, 8, 2, 8, 10, 2, false, false)),
+            Row("scheduler", new SchedulerSettings(!schedulerDisabled, 1, 8, 2, 8, 10, 2)),
             Row("jellyfin", new JellyfinSettings(null, null, null)),
             Row("migration", new MigrationSettings(1, "notStarted")),
             Row("recovery", new RecoverySettings()),

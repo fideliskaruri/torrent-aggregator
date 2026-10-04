@@ -470,6 +470,5 @@ public sealed partial record DesktopSettings(bool StartWithWindows, bool CheckFo
 public sealed record QualitySettings(int? PreferredResolution, string? AudioLanguage, long? MaxBytesPerItem);
 public sealed record RequestSettings(AutoApproveMode AutoApproveMode, int MaxOpenPerRequester);
 public sealed record SchedulerSettings(bool Enabled, int IntervalMinutes, int ActiveScopes,
-    int BackgroundScopes, int BackgroundAdapters, int ProbeConcurrency, int BackgroundProbes,
-    bool FirstFullRootScanComplete, bool ImportReviewComplete);
+    int BackgroundScopes, int BackgroundAdapters, int ProbeConcurrency, int BackgroundProbes);
 public sealed record JellyfinSettings(string? ServerUrl, SecretReference? Credential, string? UserId);
