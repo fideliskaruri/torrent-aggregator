@@ -23,9 +23,10 @@ export function DownloadPageHeader({ page }: { page: Model }) {
   const clientUnavailable = page.offline && !isBuiltin;
   const stats = page.stats;
   const summaryParts: { id: StatusFilter; label: string; hook: string }[] = [
-    ...(stats.total > 0 || page.lookingCount === 0
-      ? [{ id: "all" as const, label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" }]
-      : [{ id: "all" as const, label: `${page.lookingCount} looking for a release`, hook: "looking" }]),
+    { id: "all" as const, label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" },
+    ...(page.wantedTitleCount > 0
+      ? [{ id: "all" as const, label: `${page.wantedTitleCount} searching`, hook: "searching" }]
+      : []),
     ...(stats.downloading > 0 ? [{ id: "downloading" as const, label: `${stats.downloading} downloading`, hook: "downloading" }] : []),
     ...(stats.queued > 0 ? [{ id: "queued" as const, label: `${stats.queued} queued`, hook: "queued" }] : []),
     ...(stats.done > 0 ? [{ id: "ready" as const, label: `${stats.done} ready`, hook: "ready" }] : []),
@@ -54,13 +55,13 @@ export function DownloadPageHeader({ page }: { page: Model }) {
             {isBuiltin ? "Connected" : `Connected to ${clientLabel(page.clientType)}`}
           </span>
           {summaryParts.map((part) => (
-            <span key={part.id} className="inline-flex items-center">
+            <span key={part.hook} className="inline-flex items-center">
               <span aria-hidden className="hidden px-1 text-subtle-foreground lg:inline">·</span>
               <Button type="button" variant="link" size="sm"
                 className={cn("h-auto px-0 text-[13px] font-normal tabular-nums max-md:min-h-11 pointer-coarse:min-h-11",
                   part.id === "attention" ? "text-destructive" : "text-muted-foreground",
                   page.statusFilter === part.id && part.id !== "all" && "font-medium text-foreground underline")}
-                aria-pressed={page.statusFilter === part.id}
+                aria-pressed={part.hook !== "searching" && page.statusFilter === part.id}
                 onClick={() => page.setStatusFilter(part.id)}
                 data-summary-part={part.hook}
                 data-stat-value={part.hook === "downloading" ? stats.downloading : part.hook === "queued" ? stats.queued : undefined}>

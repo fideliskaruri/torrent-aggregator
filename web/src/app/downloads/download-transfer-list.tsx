@@ -5,17 +5,19 @@ import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { DownloadGroupRow } from "./download-group-row";
 import { DownloadFilmRow } from "./download-film-row";
-import { LookingSection } from "./looking-section";
+import { WantedOnlyRow } from "./wanted-only-row";
+import { wantedTitleKeyForDownload } from "./wanted-groups";
 import type { useDownloadsPage } from "./use-downloads-page";
 
 type Model = ReturnType<typeof useDownloadsPage>;
 
 export function DownloadTransferList({ page }: { page: Model }) {
   const isBuiltin = page.clientType === "builtin";
+  const hasRows = page.sortedGroups.length > 0 || page.wantedOnly.length > 0;
+  const hasNoDownloadsOrWanted = page.downloadable.length === 0 && page.wantedGroups.length === 0;
   return (
     <>
-      <LookingSection onCount={page.setLookingCount} wanted={page.wanted} />
-      {!page.torrents.length && !page.loading && page.lookingCount === 0 ? (
+      {hasNoDownloadsOrWanted && !page.loading ? (
         <div className="space-y-4">
           <TfEmptyState icon={HardDriveDownload} title="No downloads yet"
             description={isBuiltin
@@ -24,7 +26,7 @@ export function DownloadTransferList({ page }: { page: Model }) {
             actionLabel="Open search" actionHref="/" />
           {isBuiltin && <DownloadRecovery mode="empty" onImported={() => void page.load()} />}
         </div>
-      ) : !page.torrents.length && page.lookingCount > 0 ? null : (
+      ) : (
         <>
           {isBuiltin && page.torrents.length > 0 && page.torrents.every(
             (torrent) => torrent.progress < 0.01 && (torrent.status === "waiting" || torrent.status === "queued"),
@@ -35,8 +37,10 @@ export function DownloadTransferList({ page }: { page: Model }) {
           ) : null}
           <div className="surface overflow-hidden" data-client-table>
             <div className="hidden items-center gap-3 border-b border-border px-3 py-2 text-[12px] font-medium uppercase tracking-wide text-subtle-foreground sm:grid sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-              <Checkbox checked={page.allVisibleSelected} onCheckedChange={page.toggleSelectAll}
-                aria-label="Select all" data-select-all />
+              {page.filtered.length > 0 ? (
+                <Checkbox checked={page.allVisibleSelected} onCheckedChange={page.toggleSelectAll}
+                  aria-label="Select all" data-select-all />
+              ) : <span aria-hidden className="size-4" />}
               <span>Name</span>
               <span className="pr-1 text-right">Actions</span>
             </div>
@@ -45,7 +49,8 @@ export function DownloadTransferList({ page }: { page: Model }) {
                 <DownloadGroupRow key={group.key} group={group} selected={page.selected}
                   onToggleGroupSelect={page.toggleGroupSelect} onOpenDetails={page.openSeriesDialog}
                   onActionMany={(act, rows) => void page.actionMany(act, rows)}
-                  onDeleteRequest={page.openDeleteDialog} />
+                  onDeleteRequest={page.openDeleteDialog}
+                  wantedGroups={page.wantedByWorkKey.get(group.key) ?? []} wantedState={page.wanted} />
               ) : (
                 <DownloadFilmRow key={group.torrent.transferId} torrent={group.torrent}
                   isSelected={page.selected.has(group.torrent.transferId)}
@@ -55,10 +60,18 @@ export function DownloadTransferList({ page }: { page: Model }) {
                   onOpenFolder={(torrent) => void page.openDownloadFolder(torrent)}
                   onOpenFile={(torrent, mode) => void page.openFinishedFile(torrent, mode)}
                   onCopyPath={page.copyFolderPath} onCopyMagnet={(torrent) => void page.copyMagnet(torrent)}
-                  onDeleteRequest={page.openDeleteDialog} />
+                  onDeleteRequest={page.openDeleteDialog}
+                  wantedGroups={page.wantedByWorkKey.get(wantedTitleKeyForDownload(
+                    group.torrent.groupKey,
+                    group.torrent.workKey,
+                  )) ?? []}
+                  wantedState={page.wanted} />
+              ))}
+              {page.wantedOnly.map((title) => (
+                <WantedOnlyRow key={title.workKey} title={title} wanted={page.wanted} />
               ))}
             </div>
-            {page.filtered.length === 0 && page.torrents.length > 0 ? (
+            {!hasRows && (page.downloadable.length > 0 || page.wantedGroups.length > 0) ? (
               <p className="px-4 py-8 text-center text-[13px] text-subtle-foreground">No torrents match this filter.</p>
             ) : null}
           </div>

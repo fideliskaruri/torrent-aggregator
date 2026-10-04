@@ -19,7 +19,7 @@ export default function DownloadsPage() {
       <DownloadPageHeader page={page} />
       <DownloadAddPanel page={page} />
       <DownloadClientError page={page} />
-      {page.error && !page.torrents.length ? null : (
+      {page.error && !page.torrents.length && page.wantedGroups.length === 0 ? null : (
         <DownloadFilters page={page}>
           <DownloadBulkActions page={page} />
           <DownloadTransferList page={page} />

@@ -31,7 +31,13 @@ import { TransferProgress, transferBarTone } from "./transfer-progress";
 import type { ClientTorrent } from "./types";
 import { transferTitleParts } from "./download-transfer-title";
 import { DownloadRowActions } from "./download-row-actions";
+import { SearchingBadge } from "./searching-badge";
+import { WantedMenuActions } from "./wanted-menu-actions";
+import type { WantedGroup } from "./wanted-groups";
+import type { useDownloads } from "./use-downloads";
 export { DownloadGroupSummary } from "./download-group-summary";
+
+type WantedState = ReturnType<typeof useDownloads>["wanted"];
 
 export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
   torrent: ClientTorrent;
@@ -49,6 +55,8 @@ export interface DownloadTransferRowProps extends TorrentRowMenuHandlers {
   highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (transferId: string, additive: boolean) => void;
+  wantedGroups?: readonly WantedGroup[];
+  wantedState?: WantedState;
 }
 
 export function DownloadTransferRow({
@@ -63,6 +71,8 @@ export function DownloadTransferRow({
   highlighted,
   openingHash,
   onToggleSelect,
+  wantedGroups = [],
+  wantedState,
   ...handlers
 }: DownloadTransferRowProps) {
   const { onAction, onOpenFile } = handlers;
@@ -90,9 +100,15 @@ export function DownloadTransferRow({
     rowRef.current?.focus({ preventScroll: true });
   }, [highlighted]);
 
-  const menu = (
+  const menuItems = torrentRowMenuItems({ torrent: t, kind, busy, displayPath, handlers });
+  const menu = wantedGroups.length > 0 && wantedState ? (
+    <WantedMenuActions groups={wantedGroups} onChanged={wantedState.reload} setRows={wantedState.setRows}
+      label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
+      {menuItems}
+    </WantedMenuActions>
+  ) : (
     <IconMenuButton label={`More actions for ${title}`} triggerProps={rowAttr(kind, "more")}>
-      {torrentRowMenuItems({ torrent: t, kind, busy, displayPath, handlers })}
+      {menuItems}
     </IconMenuButton>
   );
 
@@ -168,6 +184,7 @@ export function DownloadTransferRow({
                   {done && !badge.filesMissing ? <Check className="h-3 w-3" aria-hidden /> : null}
                   {badge.label}
                 </Badge>
+                {!card ? <SearchingBadge groups={wantedGroups} /> : null}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {packLabel(t) ? (
