@@ -1,9 +1,9 @@
 # Metadata
 
 Register `services.AddMetadata(dataDirectory)` after Store registration. Metadata references
-only Domain (plus the shared .NET framework for composition). `IMetadata` is implemented
-through Domain ports and snapshots. No old server reference, database/ORM access, torrent parsing,
-payload file writes, or additional hosted service.
+Domain and Store (plus the shared .NET framework for composition). `IMetadata` is implemented
+through Domain ports and snapshots; catalog persistence uses `TorrentFlowDbContext` directly.
+No old server reference, torrent parsing, payload file writes, or additional hosted service.
 
 ## Catalog facts and storage
 
@@ -36,8 +36,8 @@ payload file writes, or additional hosted service.
   Provider-confirmed cross-links also reconcile an unreferenced duplicate catalog
   shell into the existing referenced work, preserving that work's public key,
   episode IDs and all inventory/intent references. The obsolete shell's catalog
-  rows are removed in the same CAS commit; Store vacates deleted verified-link
-  and provider-episode uniqueness slots inside that transaction. Conflicting
+  rows are removed in the same transaction, which first vacates deleted verified-link
+  and provider-episode uniqueness slots. Conflicting
   kinds, years, provider IDs, or two referenced works are refused, not guessed.
   A cached provider-reported conflicting link forces this reconciliation instead
   of returning a fresh but disconnected shell. Name-only suggested links never
@@ -48,7 +48,7 @@ payload file writes, or additional hosted service.
   work. Refresh reserves provider episode identities before matching legacy
   coordinates, so a renumbering permutation never reuses a referenced row twice
   or changes an established identity to another episode from the same provider.
-  Store atomically vacates moving coordinate slots before writing their final
+  The same transaction moves those episodes to temporary numbers before writing their final
   permutation; episode IDs and their file/target references remain unchanged.
   An obsolete referenced identity is retained as unavailable, outside the active
   coordinate uniqueness slot, rather than rewritten to mean its replacement.
@@ -63,9 +63,11 @@ payload file writes, or additional hosted service.
   Western presentation and numbering prefer verified TMDB, with keyless fallbacks.
   Premiere dates are read from provider detail caches into `WorkSnapshot.PremiereAt`,
   not inferred from airing schedules or copied into a second persisted fact.
-- All catalog and raw provider/Fribb cache persistence uses the keyed Metadata `IStore`
-  capability, CAS writes and durable commit receipts. Fribb's last-good map therefore
-  lives in the database in the supplied data directory, not a second JSON truth store.
+- All catalog and raw provider/Fribb cache persistence uses EF Core against
+  `TorrentFlowDbContext` (via `IDbContextFactory`); versioned catalog rows are written with
+  their `Version` concurrency check, and a conflict is reported rather than overwritten.
+  Fribb's last-good map therefore lives in the database in the supplied data directory,
+  not a second JSON truth store.
   It loads before resolution and refreshes conditionally in the background; failures,
   invalid responses and the 64 MiB limit leave the previous map intact. Refresh is
   weekly, with at most one maintenance check per six hours.

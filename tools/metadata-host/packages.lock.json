@@ -96,7 +96,8 @@
       "TorrentFlow.Metadata": {
         "type": "Project",
         "dependencies": {
-          "TorrentFlow.Domain": "[1.0.0, )"
+          "TorrentFlow.Domain": "[1.0.0, )",
+          "TorrentFlow.Store": "[1.0.0, )"
         }
       },
       "TorrentFlow.Store": {
