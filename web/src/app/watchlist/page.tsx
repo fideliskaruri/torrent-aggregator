@@ -39,7 +39,6 @@ export default function WatchlistPage() {
           <WatchlistList
             items={watchlist.state.items}
             readOnly={readOnly}
-            artFor={(item) => watchlist.artwork.artFor({ name: item.title, workTitle: item.title, workMediaType: item.mediaType })?.posterUrl ?? null}
             onUpdate={watchlist.update}
             onRemove={watchlist.remove}
             onRefresh={watchlist.refresh}

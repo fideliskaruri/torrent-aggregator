@@ -18,7 +18,7 @@ import { send } from "@/lib/api";
 import type { OnDemandResponse, WatchlistItem } from "@/lib/api/watchlist-types";
 import { SEARCH_HREF } from "@/lib/navigation";
 import { isSeriesMediaType, searchCategoryForMediaType } from "@/lib/metadata/media-type";
-import { titleHrefForName, titlePath } from "@/components/title/work-key";
+import { titlePath } from "@/components/title/work-key";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "@/lib/toast";
 import { libraryItemState } from "@/components/library/library-state";
@@ -31,7 +31,6 @@ import { toastDownloadOutcome } from "@/components/releases/download-outcome-toa
 export function WatchlistItemCard({
   item,
   readOnly,
-  art,
   onUpdate,
   onRemove,
   onRefresh,
@@ -39,7 +38,6 @@ export function WatchlistItemCard({
 }: {
   item: WatchlistItem;
   readOnly: boolean;
-  art: string | null;
   onUpdate: (body: { id: string; status?: string; monitored?: boolean; fromSeason?: number; fromEpisode?: number }) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onRefresh: () => void;
@@ -57,9 +55,9 @@ export function WatchlistItemCard({
     episode: number;
   }, OnDemandResponse>("/api/library/ondemand");
   const series = isSeriesMediaType(item.mediaType);
-  const titleHref = item.workKey
+  const titleHref = item.workKey?.trim()
     ? titlePath(item.workKey, { title: item.title, mediaType: item.mediaType, season: item.cursorSeason ?? item.fromSeason })
-    : titleHrefForName(item.title, { mediaType: item.mediaType, season: item.cursorSeason ?? item.fromSeason });
+    : null;
   const category = searchCategoryForMediaType(item.mediaType) ?? "tv";
   const state = libraryItemState(item, { sending });
   const activity = activityLine(item);
@@ -154,7 +152,7 @@ export function WatchlistItemCard({
 
   return (
     <article className="surface flex min-w-0 items-start gap-3 overflow-hidden p-3.5" data-library-card>
-      <MediaPoster variant="library" src={item.posterUrl ?? art} title={item.title}>
+      <MediaPoster variant="library" src={item.posterUrl} title={item.title}>
         {titleHref ? <Link to={titleHref} data-library-card-link aria-label={`Open ${item.title}`} className="absolute inset-0 z-[1] rounded-sm" /> : null}
       </MediaPoster>
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">

@@ -8,21 +8,7 @@ import { MediaPoster, MediaPosterCaption, RAIL_CARD_WIDTH } from "@/components/b
 import { RailStrip } from "@/components/browse/rail";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { titlePath, workKeyFor } from "@/components/title/work-key";
-import { useWorkArtwork } from "@/hooks/use-work-artwork";
-
-type RailItem = RecommendationRail["items"][number];
-
-/** The payload poster when the server sent one, otherwise the shared lookup by title. */
-function artSource(item: RailItem) {
-  return {
-    name: item.title,
-    workTitle: item.title,
-    workYear: item.isSeries ? null : (item.year ?? null),
-    workMediaType: item.titleMediaType ?? null,
-    posterUrl: item.posterUrl,
-  };
-}
+import { titlePath } from "@/components/title/work-key";
 
 /**
  * One rail of suggestions, headed with the library title that explains it.
@@ -74,7 +60,7 @@ export function RecommendationRailSection({
             externalId: item.externalId,
             format: item.format,
             // The catalog work it is, so its hunts know its provider (and whether it is anime).
-            workKey: workKeyFor(item.title, item.isSeries ? null : item.year),
+            workKey: item.workKey,
             provider: item.provider,
             providerId: item.externalId,
             title: item.title,
@@ -104,8 +90,6 @@ export function RecommendationRailSection({
     () => rail?.items.filter((i) => !added.has(`${i.provider}:${i.externalId}`)) ?? [],
     [rail, added],
   );
-  const artSources = useMemo(() => visible.map(artSource), [visible]);
-  const artwork = useWorkArtwork(artSources);
   if (!rail || !visible.length) return null;
 
   return (
@@ -122,7 +106,7 @@ export function RecommendationRailSection({
     >
       {visible.map((item) => {
         const key = `${item.provider}:${item.externalId}`;
-        const workKey = workKeyFor(item.title, item.isSeries ? null : item.year);
+        const workKey = item.workKey.trim();
         const titleHref = workKey
           ? titlePath(workKey, {
               title: item.title,
@@ -139,7 +123,7 @@ export function RecommendationRailSection({
           <>
             <MediaPoster
               variant="rail"
-              src={artwork.artFor(artSource(item))?.posterUrl}
+              src={item.posterUrl}
               title={item.title}
               sizes="(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px"
               className="transition-[border-color] duration-150 group-hover:border-input"

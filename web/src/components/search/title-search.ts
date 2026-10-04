@@ -6,7 +6,7 @@
  */
 import type { TitleResult } from "./group-titles";
 import { releaseStatus } from "@/lib/browse/release-status";
-import { titlePath, workKeyFor } from "@/components/title/work-key";
+import { titlePath } from "@/components/title/work-key";
 import type { WorkSearchHit } from "@/lib/search/work-search";
 import { parseRequestState } from "@/lib/requests";
 
@@ -20,9 +20,7 @@ export function titlesFromSearchHits(
     const mediaType = (hit.mediaType || "movie").toLowerCase();
     const isSeries = hit.isSeries;
     const year = hit.year ?? null;
-    const workKey =
-      hit.workKey ||
-      workKeyFor(hit.title, isSeries ? null : year);
+    const workKey = hit.workKey?.trim();
     if (!workKey || !hit.title?.trim()) continue;
 
     const href =

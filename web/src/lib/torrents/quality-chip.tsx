@@ -14,7 +14,7 @@ export function QualityChip({
   className,
 }: {
   resolution?: number | null;
-  /** A label from `qualityChipLabel`, for callers that already hold one. */
+  /** A label already supplied by the server. */
   label?: string | null;
   className?: string;
 }) {

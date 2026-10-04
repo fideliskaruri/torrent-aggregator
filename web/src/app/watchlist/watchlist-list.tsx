@@ -28,7 +28,6 @@ const FILTER_FIELDS: readonly FilterField<WatchlistItem>[] = [
 export function WatchlistList({
   items,
   readOnly,
-  artFor,
   onUpdate,
   onRemove,
   onRefresh,
@@ -36,7 +35,6 @@ export function WatchlistList({
 }: {
   items: WatchlistItem[];
   readOnly: boolean;
-  artFor: (item: WatchlistItem) => string | null;
   onUpdate: (body: { id: string; status?: string; monitored?: boolean; fromSeason?: number; fromEpisode?: number }) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onRefresh: () => void;
@@ -92,7 +90,7 @@ export function WatchlistList({
                   onClearFilters={clearFilters}
                   empty={empty}
                   className="grid gap-3 sm:grid-cols-2"
-                  renderRow={(item) => <WatchlistItemCard item={item} readOnly={readOnly} art={artFor(item)} onUpdate={onUpdate} onRemove={onRemove} onRefresh={onRefresh} automationEnabled={automationEnabled} />}
+                  renderRow={(item) => <WatchlistItemCard item={item} readOnly={readOnly} onUpdate={onUpdate} onRemove={onRemove} onRefresh={onRefresh} automationEnabled={automationEnabled} />}
                 />
                 {!readOnly ? <BulkBar
                   count={selection.selected.length}
