@@ -1,21 +1,23 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Catalog;
 
 internal static class CatalogEndpoints
 {
-    internal static void AddCatalog(this IServiceCollection services)
-    {
-        services.AddScoped(sp => new CatalogState(sp.GetRequiredService<IStore>()));
+    internal static void AddCatalog(this IServiceCollection services) =>
         services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
-    }
     private static IResult Json(object body, int status = 200) =>
         Results.Json(body, CatalogProjection.Json, statusCode: status);
     private static string? Param(HttpContext h, string key) => h.Request.Query[key].FirstOrDefault();
@@ -110,11 +112,12 @@ internal static class CatalogEndpoints
     private static (string Id, string Label)[] Genres(string type) =>
         [.. TorrentFlow.Metadata.CatalogViews.Genres(type).Select(g => (g.Id, g.Label))];
 
-    private static async Task<IResult> Recommend(HttpContext h, CatalogState state, IMetadata metadata, CancellationToken ct)
+    private static async Task<IResult> Recommend(HttpContext h, TorrentFlowDbContext db, IMetadata metadata, CancellationToken ct)
     {
-        var watches = await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct);
-        var seeds = watches.Where(w => w.Status == WatchStatus.Watching).OrderByDescending(w => w.UpdatedAt)
-            .Select(w => w.WorkId).Take(1).ToImmutableArray();
+        var actor = ActorId(h);
+        var watches = await db.WatchItems.AsNoTracking().Where(w => w.UserId == actor && w.Status == WatchStatus.Watching)
+            .OrderBy(w => w.Id).ToListAsync(ct);
+        var seeds = watches.OrderByDescending(w => w.UpdatedAt).Select(w => w.WorkId).Take(1).ToImmutableArray();
         var rail = await metadata.RecommendAsync(seeds, ct);
         var seed = seeds.IsEmpty ? null : (await metadata.GetWorkAsync(seeds[0], false, ct)).Work;
         return Json(new { rail = rail is null ? null : new
@@ -164,7 +167,7 @@ internal static class CatalogEndpoints
             CatalogProjection.TitleSeasons(w).FirstOrDefault()?.Number;
 
     private static async Task<IResult> Detail(string workKey, HttpContext h, IMetadata metadata,
-        CatalogState state, ILibraryPlacement library, TargetPipeline pipeline, CancellationToken ct)
+        TorrentFlowDbContext db, ILibraryPlacement library, TargetPipeline pipeline, CancellationToken ct)
     {
         var provider = Param(h, "provider");
         var external = Param(h, "providerId") ?? Param(h, "externalId");
@@ -175,13 +178,14 @@ internal static class CatalogEndpoints
         var result = await Resolve(workKey, h, metadata, ct);
         if (result.Work is not { } w) return UnknownTitle(workKey, h);
         var season = Season(w, h);
-        var watch = (await state.ReadAsync<WatchItemRow>(CatalogState.Query(workId: w.Work.Id, userId: ActorId(h)), ct)).FirstOrDefault();
-        var follow = (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault();
+        var actor = ActorId(h);
+        var watch = await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.WorkId == w.Work.Id && i.UserId == actor, ct);
+        var follow = await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == w.Work.Id, ct);
         var coordinate = CatalogProjection.Coordinate(w, follow);
         var ownedItems = await library.OwnedAsync(new(w.Work.Id, [], false), ct);
         var owned = ownedItems.SelectMany(i => i.Videos).ToImmutableArray();
-        watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(ActorId(h), w.Work.Id, owned);
-        var jellyfin = await JellyfinEndpoints.ReadTitle(h, w, owned, ct);
+        watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(actor, w.Work.Id, owned);
+        var jellyfin = await JellyfinEndpoints.ReadTitle(h, db, w, owned, ct);
         var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
             w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
         int? Id(string provider) => Number(w.Links.FirstOrDefault(l => l.Provider == provider && l.Status == LinkStatus.Verified)?.ExternalId);
@@ -364,7 +368,7 @@ internal static class CatalogEndpoints
     private static string? Text(JsonElement body, string key) => body.TryGetProperty(key, out var value) ?
         value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.ToString() : null : null;
 
-    private static async Task<IResult> SaveWatch(HttpContext h, CatalogState state, IMetadata metadata,
+    private static async Task<IResult> SaveWatch(HttpContext h, TorrentFlowDbContext db, IMetadata metadata,
         ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
         JsonElement body;
@@ -377,7 +381,7 @@ internal static class CatalogEndpoints
         if (h.Request.Method == "PATCH")
         {
             prior = (await LibraryRead.ItemsAsync(actor,
-                await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct),
+                [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
                 inventory, library, ct)).FirstOrDefault(i => i.Id == Text(body, "id"));
             if (prior is null) return Json(new { error = "Not found" }, 404);
             w = (await metadata.GetWorkAsync(prior.WorkId, false, ct)).Work;
@@ -403,6 +407,7 @@ internal static class CatalogEndpoints
                 title, null, type is "tv" or "series" or "anime" ? WorkKind.Series : WorkKind.Film), ct)).Work;
         }
         if (w is null) return Json(new { error = "The catalog could not identify this title. Try again shortly." }, 502);
+        var workId = w.Work.Id;
         WatchStatus? status = null;
         if (Text(body, "status") is { } raw)
         {
@@ -421,7 +426,7 @@ internal static class CatalogEndpoints
         string? fromId = null;
         if (changeStart)
         {
-            var follow = (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault();
+            var follow = await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == workId, ct);
             var start = CatalogProjection.Coordinate(w, follow);
             var fromSeason = Number(Text(body, "fromSeason")) ?? start?.Season ?? 1;
             var fromEpisode = Number(Text(body, "fromEpisode")) ?? start?.Episode ?? 1;
@@ -438,24 +443,58 @@ internal static class CatalogEndpoints
             (resolutionValue.ValueKind != JsonValueKind.Number || !resolutionValue.TryGetInt32(out _) ||
                 resolution is not (480 or 720 or 1080 or 2160)))
             return Json(new { error = "preferredResolution must be 480, 720, 1080 or 2160." }, 400);
-        prior ??= (await state.ReadAsync<WatchItemRow>(CatalogState.Query(workId: w.Work.Id, userId: actor), ct)).FirstOrDefault();
-        var item = await state.SaveAsync(actor, w.Work.Id, status, monitored, fromId, changeStart, mode,
-            resolution, changeResolution, ct);
-        return item is null ? Json(new { error = "The item changed. Try saving again." }, 409) :
-            Json(new { item = await WatchProjection(item, w, state, library, ct), existed = prior is not null });
+        prior ??= await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.WorkId == workId && i.UserId == actor, ct);
+        for (var retry = 0; retry < 6; retry++)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var current = await db.WatchItems.SingleOrDefaultAsync(i => i.WorkId == workId && i.UserId == actor, ct);
+            var item = current is null
+                ? new WatchItemRow { Id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(actor + ":" + workId))), UserId = actor, WorkId = workId, Status = status ?? WatchStatus.Planned, UpgradeWatch = false, CreatedAt = now, UpdatedAt = now, Version = 0 }
+                : current with { Status = status ?? current.Status, UpdatedAt = now, Version = current.Version + 1 };
+            if (current is null) db.WatchItems.Add(item);
+            else db.Entry(current).CurrentValues.SetValues(item);
+            if (monitored is not null || changeStart || mode is not null)
+            {
+                var follow = await db.Follows.SingleOrDefaultAsync(f => f.WorkId == workId, ct);
+                var (start, since) = FollowPolicy.Configure(follow, fromId, changeStart, mode, now);
+                if (follow is null)
+                    db.Follows.Add(new FollowRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, Enabled = monitored ?? false, FromEpisodeId = start, NewEpisodesSince = since, LastMaterializedAt = null, CreatedAt = now, UpdatedAt = now, Version = 0 });
+                else
+                    db.Entry(follow).CurrentValues.SetValues(follow with { Enabled = monitored ?? follow.Enabled,
+                        FromEpisodeId = start, NewEpisodesSince = since, UpdatedAt = now, Version = follow.Version + 1 });
+            }
+            if (changeResolution)
+            {
+                var preference = await db.WorkPreferences.SingleOrDefaultAsync(p => p.WorkId == workId, ct);
+                if (preference is null)
+                    db.WorkPreferences.Add(new WorkPreferenceRow { Id = Guid.CreateVersion7().ToString(), WorkId = workId, ResolutionFloor = resolution, PreferredResolution = resolution, AudioLanguage = null, MaxBytesPerItem = null, StorageRootOverrideId = null, UpdatedAt = now, Version = 0 });
+                else
+                    db.Entry(preference).CurrentValues.SetValues(preference with { ResolutionFloor = resolution,
+                        PreferredResolution = resolution, UpdatedAt = now, Version = preference.Version + 1 });
+            }
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException ex) when (ex is DbUpdateConcurrencyException || ex.InnerException is SqliteException { SqliteErrorCode: 19 })
+            {
+                db.ChangeTracker.Clear();
+                continue;
+            }
+            return Json(new { item = await WatchProjection(item, w, db, library, ct), existed = prior is not null });
+        }
+        return Json(new { error = "The item changed. Try saving again." }, 409);
     }
-    internal static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, CatalogState state,
+    internal static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, TorrentFlowDbContext db,
         ILibraryPlacement library, CancellationToken ct) =>
         CatalogProjection.Watch(item, w, !(await library.OwnedAsync(new(w.Work.Id, [], false), ct)).IsEmpty,
-            (await state.ReadAsync<FollowRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault(),
-            (await state.ReadAsync<WorkPreferenceRow>(CatalogState.Query(workId: w.Work.Id), ct)).FirstOrDefault());
-    private static async Task<IResult> RemoveWatch(HttpContext h, CatalogState state,
+            await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == w.Work.Id, ct),
+            await db.WorkPreferences.AsNoTracking().SingleOrDefaultAsync(p => p.WorkId == w.Work.Id, ct));
+    private static async Task<IResult> RemoveWatch(HttpContext h, TorrentFlowDbContext db,
         ILibraryRepository inventory, ILibraryPlacement library, TargetPipeline targets,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(Param(h, "id"))) return Json(new { error = "Provide the item's id." }, 400);
-        var item = (await LibraryRead.ItemsAsync(ActorId(h),
-            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: ActorId(h)), ct),
+        var actor = ActorId(h);
+        var item = (await LibraryRead.ItemsAsync(actor,
+            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
             inventory, library, ct)).FirstOrDefault(i => i.Id == Param(h, "id"));
         if (item is not null && !(await inventory.MediaAsync(item.WorkId, ct)).IsEmpty)
         {
@@ -465,16 +504,39 @@ internal static class CatalogEndpoints
                 return Json(new { error = "This title has files. Review and confirm their deletion before removing it.",
                     requiresFileDeletion = true }, 409);
             var preview = LibraryRemoval.Preview(new("show", null, null), item.WorkId, [],
-                await state.ReadAsync<TargetRow>(CatalogState.Query(workId: item.WorkId), ct),
-                await state.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct),
-                await state.ReadAsync<DownloadRow>(CatalogState.Query(), ct),
+                await db.Targets.AsNoTracking().Where(t => t.WorkId == item.WorkId).OrderBy(t => t.Id).ToListAsync(ct),
+                await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct),
+                await db.Downloads.AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct),
                 await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
             var deleted = await targets.DeleteLibraryAsync(preview, ct);
             if (!deleted.Ok) return Json(deleted, 409);
-            var work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).Single();
-            await targets.ScopeActionAsync(work.WorkKey, null, null, TargetAction.Remove, ct);
+            var workKey = await db.Works.Where(x => x.Id == item.WorkId).Select(x => x.WorkKey).SingleAsync(ct);
+            await targets.ScopeActionAsync(workKey, null, null, TargetAction.Remove, ct);
         }
-        return await state.RemoveAsync(ActorId(h), Param(h, "id")!, ct) ? Json(new { ok = true }) :
+        return await RemoveWatchAsync(db, actor, Param(h, "id")!, ct) ? Json(new { ok = true }) :
             Json(new { error = "The item changed. Try removing it again." }, 409);
+    }
+    internal static async Task<bool> RemoveWatchAsync(TorrentFlowDbContext db, string actor, string id, CancellationToken ct)
+    {
+        for (var retry = 0; retry < 6; retry++)
+        {
+            var item = await db.WatchItems.SingleOrDefaultAsync(i => i.Id == id && i.UserId == actor, ct);
+            if (item is null) return true;
+            var follow = await db.Follows.SingleOrDefaultAsync(f => f.WorkId == item.WorkId, ct);
+            if (follow is not null)
+                db.Entry(follow).CurrentValues.SetValues(follow with
+                    { Enabled = false, UpdatedAt = DateTimeOffset.UtcNow, Version = follow.Version + 1 });
+            db.WatchItems.Remove(item);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return true;
+            }
+            catch (DbUpdateException ex) when (ex is DbUpdateConcurrencyException || ex.InnerException is SqliteException { SqliteErrorCode: 19 })
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
+        return false;
     }
 }

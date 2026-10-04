@@ -1,32 +1,33 @@
-using System.Collections.Immutable;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
 internal static class LibraryEndpoints
 {
-    internal static async Task<IResult> List(HttpContext h, CatalogState state, IMetadata metadata,
+    internal static async Task<IResult> List(HttpContext h, TorrentFlowDbContext db, IMetadata metadata,
         ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
         var actor = AccessIdentity.UserId(h);
         var rows = await LibraryRead.ItemsAsync(actor,
-            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct), inventory, library, ct);
+            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)], inventory, library, ct);
         var works = new List<(WatchItemRow Item, WorkSnapshot Work)>();
         foreach (var item in rows)
             if ((await metadata.GetWorkAsync(item.WorkId, false, ct)).Work is { } work)
                 works.Add((item, work));
-        var watch = await JellyfinEndpoints.ReadLibrary(h,
+        var watch = await JellyfinEndpoints.ReadLibrary(h, db,
             works.Select(w => w.Work), inventory, ct);
         var items = new System.Text.Json.Nodes.JsonArray();
         foreach (var (item, work) in works)
         {
             var node = JsonSerializer.SerializeToNode(
-                await CatalogEndpoints.WatchProjection(item, work, state, library, ct),
+                await CatalogEndpoints.WatchProjection(item, work, db, library, ct),
                 CatalogProjection.Json)!.AsObject();
             if (watch.GetValueOrDefault(work.Work.Id) is { } jellyfin)
             {
@@ -56,7 +57,7 @@ internal static class LibraryEndpoints
 
     private sealed record DeleteInput(string? WatchListItemId, string? Scope, int? Season, int? Episode, bool Confirm = false);
 
-    private static async Task<IResult> Delete(HttpContext http, CatalogState state,
+    private static async Task<IResult> Delete(HttpContext http, TorrentFlowDbContext db,
         ILibraryRepository library, ILibraryPlacement placement, TargetPipeline targets, CancellationToken ct)
     {
         var mutate = HttpMethods.IsPost(http.Request.Method);
@@ -74,24 +75,23 @@ internal static class LibraryEndpoints
                 message = "Choose a title, season or episode to delete.", reason = "bad-scope" });
         var actor = AccessIdentity.UserId(http);
         var item = (await LibraryRead.ItemsAsync(actor,
-            await state.ReadAsync<WatchItemRow>(CatalogState.Query(userId: actor), ct),
+            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
             library, placement, ct)).SingleOrDefault(i => i.Id == input.WatchListItemId);
         if (item is null) return Results.NotFound(new { error = "Not found" });
-        var work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).Single();
-        var names = await state.ReadAsync<WorkNameRow>(CatalogState.Query(workId: item.WorkId), ct);
-        var title = CatalogProjection.Title(new(work, names, [], [], []));
-        var seasons = await state.ReadAsync<SeasonRow>(CatalogState.Query(workId: item.WorkId), ct);
-        var episodeIds = new HashSet<string>();
-        foreach (var season in seasons.Where(s => input.Scope == "show" || s.Number == input.Season))
-            foreach (var episode in await state.ReadAsync<EpisodeRow>(CatalogState.Query() with { SeasonId = season.Id }, ct))
-                if (input.Scope != "episode" || episode.Number == input.Episode) episodeIds.Add(episode.Id);
+        var work = await db.Works.AsNoTracking().SingleAsync(w => w.Id == item.WorkId, ct);
+        var title = CatalogProjection.Title(new(work,
+            [.. await db.WorkNames.AsNoTracking().Where(n => n.WorkId == work.Id).OrderBy(n => n.Id).ToListAsync(ct)], [], [], []));
+        var seasonIds = db.Seasons.Where(s => s.WorkId == work.Id && (input.Scope == "show" || s.Number == input.Season))
+            .Select(s => s.Id);
+        var episodeIds = (await db.Episodes.AsNoTracking().Where(e => seasonIds.Contains(e.SeasonId) &&
+            (input.Scope != "episode" || e.Number == input.Episode)).Select(e => e.Id).ToListAsync(ct)).ToHashSet();
         bool Within(string? id) => input.Scope == "show" || id is not null && episodeIds.Contains(id);
-        var selectedTargets = (await state.ReadAsync<TargetRow>(CatalogState.Query(workId: item.WorkId), ct))
+        var selectedTargets = (await db.Targets.AsNoTracking().Where(t => t.WorkId == work.Id).OrderBy(t => t.Id).ToListAsync(ct))
             .Where(t => Within(t.EpisodeId)).ToArray();
         var allBindings = await library.BindingsAsync(ct);
         var media = await library.MediaAsync(null, ct);
-        var links = await state.ReadAsync<DownloadTargetRow>(CatalogState.Query(), ct);
-        var downloads = await state.ReadAsync<DownloadRow>(CatalogState.Query(), ct);
+        var links = await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
+        var downloads = await db.Downloads.AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct);
         var preview = LibraryRemoval.Preview(new(input.Scope, input.Scope == "show" ? null : input.Season,
             input.Scope == "episode" ? input.Episode : null), item.WorkId, episodeIds, selectedTargets,
             links, downloads, allBindings, media);
@@ -104,7 +104,7 @@ internal static class LibraryEndpoints
         {
             await targets.ScopeActionAsync(work.WorkKey,
                 input.Scope == "show" ? null : input.Season, input.Scope == "episode" ? input.Episode : null, TargetAction.Remove, ct);
-            if (input.Scope == "show" && !await state.RemoveAsync(actor, item.Id, ct))
+            if (input.Scope == "show" && !await CatalogEndpoints.RemoveWatchAsync(db, actor, item.Id, ct))
                 return Results.Json(result with { Ok = false, Failed = result.Failed.Add(new(title,
                     "The files were deleted, but this title could not be removed from your library. Reload and remove it again.")) },
                     statusCode: 409);
@@ -112,7 +112,7 @@ internal static class LibraryEndpoints
         return Results.Ok(result);
     }
 
-    private static async Task<IResult> OnDemand(HttpContext http, CatalogState state, IMetadata metadata,
+    private static async Task<IResult> OnDemand(HttpContext http, TorrentFlowDbContext db, IMetadata metadata,
         TargetPipeline targets, CancellationToken ct)
     {
         var body = await http.Request.ReadFromJsonAsync<JsonElement>(ct);
@@ -125,13 +125,13 @@ internal static class LibraryEndpoints
         WorkRow? work = null;
         if (!string.IsNullOrWhiteSpace(id))
         {
-            var item = (await state.ReadAsync<WatchItemRow>(CatalogState.Query(id,
-                userId: AccessIdentity.UserId(http)), ct)).SingleOrDefault();
+            var actor = AccessIdentity.UserId(http);
+            var item = await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id && i.UserId == actor, ct);
             if (item is null) return Results.NotFound(new { ok = false, error = "Not found", message = "Library item not found" });
-            work = (await state.ReadAsync<WorkRow>(CatalogState.Query(item.WorkId), ct)).SingleOrDefault();
+            work = await db.Works.AsNoTracking().SingleOrDefaultAsync(w => w.Id == item.WorkId, ct);
         }
         else if (Text(body, "workKey") is { } key)
-            work = (await state.ReadAsync<WorkRow>(CatalogState.Query(), ct)).FirstOrDefault(w => w.WorkKey == key || w.Id == key);
+            work = await db.Works.AsNoTracking().OrderBy(w => w.Id).FirstOrDefaultAsync(w => w.WorkKey == key || w.Id == key, ct);
         if (work is null && Text(body, "title") is { Length: > 0 } title)
             work = (await metadata.ResolveAsync(new(null, title, null,
                 Text(body, "mediaType") == "movie" ? WorkKind.Film : WorkKind.Series), ct)).Work?.Work;

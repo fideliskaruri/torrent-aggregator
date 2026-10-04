@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using TorrentFlow.Api.Access;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -40,24 +40,28 @@ internal static class DevEngine
         }
     }
 
-    private sealed class EngineHost(MonoTorrentEngine engine, RawDownloads downloads, IServiceScopeFactory scopes,
-        IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
+    private sealed class EngineHost(MonoTorrentEngine engine, RawDownloads downloads,
+        IDbContextFactory<TorrentFlowDbContext> contexts, IHostEnvironment environment, ILogger<EngineHost> logger) : BackgroundService
     {
         private bool initialized;
         public override async Task StartAsync(CancellationToken ct)
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var row = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), ct)).Single();
-            await engine.InitializeAsync(SettingsCatalog.Read<EngineSettings>(row), async (port, token) =>
+            EngineSettings settings;
+            await using (var db = await contexts.CreateDbContextAsync(ct))
+                settings = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct));
+            await engine.InitializeAsync(settings, async (port, token) =>
             {
                 for (var attempt = 0; attempt < 3; attempt++)
                 {
-                    var old = (await store.ReadAsync<SettingRow>(AccessState.Query("engine"), token)).Single();
+                    await using var db = await contexts.CreateDbContextAsync(token);
+                    var old = await db.Settings.SingleAsync(s => s.Id == "engine", token);
                     var value = SettingsCatalog.Read<EngineSettings>(old) with { ListenPort = port };
                     var next = old with { Value = JsonSerializer.SerializeToElement(value, Json),
                         Revision = old.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-                    if ((await AccessState.CommitAsync(store, next, old.Revision, null, token)).Applied) return;
+                    SettingsCatalog.Validate(next);
+                    db.Entry(old).CurrentValues.SetValues(next);
+                    try { await db.SaveChangesAsync(token); return; }
+                    catch (DbUpdateConcurrencyException) { }
                 }
                 throw new InvalidOperationException("Engine listen port settings changed repeatedly. Restart to retry.");
             }, environment.IsDevelopment(), ct);

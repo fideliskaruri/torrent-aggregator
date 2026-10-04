@@ -23,7 +23,7 @@ public static class SettingsCatalog
         return row.Value.Deserialize<T>(StoreJson.Options)!;
     }
 
-    internal static void Validate(SettingRow row)
+    public static void Validate(SettingRow row)
     {
         if (row.SchemaVersion != 1 || !Types.TryGetValue(row.Id, out var type))
             throw new ArgumentException("Unknown settings section or schema version.");

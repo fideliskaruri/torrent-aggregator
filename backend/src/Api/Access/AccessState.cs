@@ -2,12 +2,14 @@ using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
 using TorrentFlow.Store;
 
 namespace TorrentFlow.Api.Access;
 
-public sealed partial class AccessState(IConfiguration configuration, IServiceScopeFactory scopes)
+public sealed partial class AccessState(IConfiguration configuration, IDbContextFactory<TorrentFlowDbContext> contexts)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -24,10 +26,9 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
 
     public async Task InitializeAsync(WebApplication app, CancellationToken ct = default)
     {
-        await using var scope = scopes.CreateAsyncScope();
-        var store = scope.ServiceProvider.GetRequiredService<IStore>();
-        var row = (await store.ReadAsync<SettingRow>(Query("remoteAccess"), ct)).Single();
-        current = SettingsCatalog.Read<RemoteAccessSettings>(row);
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        current = SettingsCatalog.Read<RemoteAccessSettings>(
+            await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "remoteAccess", ct));
         var section = configuration.GetSection("TorrentFlow:RemoteAccess");
         // Explicit host configuration is a startup overlay, never a caller-controlled identity.
         if (section.Exists())
@@ -64,7 +65,7 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
         }
         app.Lifetime.ApplicationStarted.Register(() => Listening = Startup.Enabled &&
             app.Urls.Any(x => Uri.TryCreate(x, UriKind.Absolute, out var uri) && uri.Port == Startup.TunnelPort));
-        await EnsureUserAsync(store, "local", null, UserRole.Owner, ct);
+        await EnsureUserAsync(db, "local", null, UserRole.Owner, ct);
     }
 
     public async Task<bool> SaveAsync(RemoteAccessSettings next, CancellationToken ct)
@@ -72,59 +73,37 @@ public sealed partial class AccessState(IConfiguration configuration, IServiceSc
         await gate.WaitAsync(ct);
         try
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<IStore>();
-            var old = (await store.ReadAsync<SettingRow>(Query("remoteAccess"), ct)).Single();
-            var row = old with { Value = JsonSerializer.SerializeToElement(next, Json),
-                Revision = old.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
-            var result = await CommitAsync(store, row, old.Revision, null, ct);
-            if (result.Applied) Volatile.Write(ref current, next);
-            return result.Applied;
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            var row = await db.Settings.SingleAsync(s => s.Id == "remoteAccess", ct);
+            var updated = row with { Value = JsonSerializer.SerializeToElement(next, Json),
+                Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
+            SettingsCatalog.Validate(updated);
+            db.Entry(row).CurrentValues.SetValues(updated);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateConcurrencyException) { return false; }
+            Volatile.Write(ref current, next);
+            return true;
         }
         finally { gate.Release(); }
     }
 
-    public static StoreQuery Query(string? id = null, string? userId = null, string? cursor = null) =>
-        new(id, null, null, null, userId, null, null, null, null, null, null, null, null, cursor, 500, StoreOrder.PrimaryKey);
-
-    internal static async Task<ImmutableArray<T>> AllAsync<T>(IStore store, CancellationToken ct, string? userId = null)
-        where T : StoreRow
+    internal static async Task EnsureUserAsync(TorrentFlowDbContext db, string id, string? email, UserRole role, CancellationToken ct)
     {
-        var rows = ImmutableArray.CreateBuilder<T>();
-        string? cursor = null;
-        while (true)
-        {
-            var page = await store.ReadAsync<T>(Query(userId: userId, cursor: cursor), ct);
-            rows.AddRange(page);
-            if (page.Length < 500) return rows.ToImmutable();
-            cursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(page[^1].Id));
-        }
-    }
-
-    internal static async Task<string> EnsureUserAsync(IStore store, string id, string? email, UserRole role, CancellationToken ct)
-    {
-        var existing = (await store.ReadAsync<UserRow>(Query(id), ct)).SingleOrDefault();
-        if (existing is not null && existing.Role == role && existing.NormalizedEmail == email) return existing.Id;
+        var existing = await db.Users.SingleOrDefaultAsync(u => u.Id == id, ct);
+        if (existing is not null && existing.Role == role && existing.NormalizedEmail == email) return;
         var now = DateTimeOffset.UtcNow;
-        var row = existing is null ? new UserRow { Id = id, NormalizedEmail = email, Name = email is null ? "Local" : null, Image = null, Role = role, CreatedAt = now, UpdatedAt = now }
-            : existing with { Role = role, NormalizedEmail = email, UpdatedAt = now };
-        var result = await CommitAsync(store, row, null, existing, ct);
-        if (!result.Applied)
+        if (existing is null)
+            db.Users.Add(new UserRow { Id = id, NormalizedEmail = email, Name = email is null ? "Local" : null, Image = null, Role = role, CreatedAt = now, UpdatedAt = now });
+        else
+            db.Entry(existing).CurrentValues.SetValues(existing with { Role = role, NormalizedEmail = email, UpdatedAt = now });
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (ex is DbUpdateConcurrencyException || ex.InnerException is SqliteException { SqliteErrorCode: 19 })
         {
-            var winner = (await store.ReadAsync<UserRow>(Query(id), ct)).SingleOrDefault();
+            db.ChangeTracker.Clear();
+            var winner = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == id, ct);
             if (winner?.Role != role || winner.NormalizedEmail != email)
                 throw new InvalidOperationException("The user changed during sign-in. Try signing in again.");
         }
-        return row.Id;
-    }
-
-    internal static Task<CommitResult> CommitAsync(IStore store, StoreRow row, long? version, StoreRow? expected, CancellationToken ct)
-    {
-        var key = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
-        var receipt = new AttemptRow { Id = $"commit:access:{key}", TargetId = null, WorkId = null, ReleaseHash = null, ActorUserId = null, Kind = AttemptKind.LegacyEvent, StartedAt = now, EndedAt = now, Outcome = "applied", ReasonCode = "access", ReasonText = null, Decision = null, LegacyContext = null, BatchId = null, DownloadId = null, DeadlineAt = null, Swap = null };
-        return store.CommitAsync(new StoreCommit(key, StoreOwner.Targets,
-            [new RowWrite(row, version, expected), new RowWrite(receipt, null, null)], []), ct);
     }
 
     internal static string? Validate(ref RemoteAccessSettings next)

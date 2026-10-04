@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
+using TorrentFlow.Store;
 
 namespace TorrentFlow.Api.Access;
 
@@ -64,19 +66,19 @@ public sealed class AccessMiddleware(RequestDelegate next, AccessState state, Ac
                 await Error(http, 403, "requester_forbidden", "This part of TorrentFlow is only available to its owner.");
                 return;
             }
-            var store = http.RequestServices.GetRequiredService<IStore>();
+            var db = http.RequestServices.GetRequiredService<TorrentFlowDbContext>();
             // Hash-derived IDs make concurrent first sign-ins converge without an unbounded email scan.
             var id = owner ? "local" : "remote-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(result.Email))).ToLowerInvariant();
             if (!owner)
             {
-                if ((await store.ReadAsync<UserRow>(AccessState.Query(id), http.RequestAborted)).IsEmpty)
+                if (!await db.Users.AnyAsync(u => u.Id == id, http.RequestAborted))
                 {
-                    var existing = (await AccessState.AllAsync<UserRow>(store, http.RequestAborted))
-                        .SingleOrDefault(x => x.NormalizedEmail == result.Email);
+                    var existing = await db.Users.AsNoTracking()
+                        .SingleOrDefaultAsync(u => u.NormalizedEmail == result.Email, http.RequestAborted);
                     if (existing is not null) id = existing.Id;
                 }
                 if (id == "local") throw new InvalidOperationException("A requester email resolved to the local owner row.");
-                await AccessState.EnsureUserAsync(store, id, result.Email, UserRole.Requester, http.RequestAborted);
+                await AccessState.EnsureUserAsync(db, id, result.Email, UserRole.Requester, http.RequestAborted);
             }
             SetIdentity(http, owner ? "owner" : "requester", "tunnel", result.Email, id);
             var segments = (http.Request.Path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
