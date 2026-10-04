@@ -98,16 +98,7 @@ internal static class CardAction
             "tv" => "tv",
             _ => null,
         };
-        var href = "/search?q=" + QueryEscape(title);
-        return category is null ? href : href + "&category=" + QueryEscape(category);
+        var href = "/search?q=" + Uri.EscapeDataString(title);
+        return category is null ? href : href + "&category=" + Uri.EscapeDataString(category);
     }
-
-    private static string QueryEscape(string value) => Uri.EscapeDataString(value)
-        .Replace("!", "%21", StringComparison.Ordinal)
-        .Replace("'", "%27", StringComparison.Ordinal)
-        .Replace("(", "%28", StringComparison.Ordinal)
-        .Replace(")", "%29", StringComparison.Ordinal)
-        .Replace("~", "%7E", StringComparison.Ordinal)
-        .Replace("%2A", "*", StringComparison.OrdinalIgnoreCase)
-        .Replace("%20", "+", StringComparison.Ordinal);
 }
