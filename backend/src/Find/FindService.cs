@@ -49,7 +49,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
             {
                 if (next.PoolRevision < lastFeedbackRevision || next.PoolRevision > revision) continue;
                 lastFeedbackRevision = next.PoolRevision;
-                // Coverage is supplied only by the coordinator after Check + Plan gates, never by listed seeds.
+                // Coverage is supplied only by the coordinator after Plan gates, never by listed seeds.
                 covered.UnionWith(next.CoveredEpisodeIds.Where(request.Scope.EpisodeIds.Contains));
                 filmCovered |= next.FilmCovered;
                 pool.Scrapes(next.ScrapedSeeders);

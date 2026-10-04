@@ -9,9 +9,10 @@ public interface IParser
     string? NormalizeInfoHash(string hashOrMagnet);
 }
 
-/// <summary>In: complete metadata, targets, pool, ownership, blocks and evidence. Out: assignments and every rejection. Never: I/O, search, probe, add or persist.</summary>
+/// <summary>In: work, targets, pool, ownership, blocks and parsed file metadata. Out: assignments and every rejection. Never: I/O, search, probe, add or persist.</summary>
 public interface IPlan
 {
+    PlanShortlist Shortlist(PlanInput input);
     PlanResult Choose(PlanInput input);
 }
 
@@ -35,7 +36,7 @@ public interface ISources
     Task<SourceResult> TestAsync(SourceSettings source, CancellationToken cancellationToken);
 }
 
-/// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: judge swarm health, pick releases, call Engine or own Target state.</summary>
+/// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: rank releases, call Engine or own Target state.</summary>
 public interface IFind
 {
     Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken);
@@ -44,28 +45,14 @@ public interface IFind
     Task<RawSearchResult> SearchRawAsync(RawSearchQuery query, CancellationToken cancellationToken);
 }
 
-/// <summary>In: hash candidates and priority lane. Out: measured verdict/file lists. Never: choose releases, retain downloads, attach a second live-hash manager or persist caller-aborted/live measurements.</summary>
-public interface ICheck
-{
-    IAsyncEnumerable<SwarmEvidence> ProbeAsync(ImmutableArray<ProbeRequest> requests, CancellationToken cancellationToken);
-    IAsyncEnumerable<SwarmEvidence> ProbeStreamAsync(IAsyncEnumerable<ProbeRequest> requests, CancellationToken cancellationToken);
-    CheckDiagnostics Diagnostics { get; }
-    Task<ImmutableArray<SwarmEvidence>> LoadAsync(ImmutableArray<string> hashes, CancellationToken cancellationToken);
-    Task<ImmutableArray<SwarmEvidence>> RecentAsync(int limit, CancellationToken cancellationToken);
-}
-
 /// <summary>In: probe capabilities, bound paths, durable selections and Run/Stop decisions. Out: exact live files and safe filing permits. Never: admission policy, work lookup, naming, deleting or Target writes.</summary>
 public interface IEngine
 {
     Task<ProbeAttachment> AttachProbeAsync(Candidate candidate, CancellationToken cancellationToken);
-    Task<SwarmEvidence> ObserveProbeAsync(ProbeHandle handle, TimeSpan window, CancellationToken cancellationToken);
     Task ReleaseProbeAsync(ProbeHandle handle, CancellationToken cancellationToken);
     Task<EngineResult> ClaimAdmissionAsync(EngineAdmissionClaim claim, CancellationToken cancellationToken);
     Task ReleaseAdmissionClaimAsync(string token, CancellationToken cancellationToken);
     Task<EngineResult> AdmitFromProbeAsync(ProbeHandle handle, EngineAdmission admission, CancellationToken cancellationToken);
-    Task<MetadataWaitAttachment> AttachMetadataWaitAsync(MetadataWaitRequest request, CancellationToken cancellationToken);
-    Task<MetadataWaitAttachment> ObserveMetadataWaitAsync(string token, CancellationToken cancellationToken);
-    Task ReleaseMetadataWaitAsync(string token, CancellationToken cancellationToken);
     Task<EngineResult> StartAsync(EngineAdmission admission, CancellationToken cancellationToken);
     Task<EngineResult> SetIntentAsync(string downloadId, bool run, CancellationToken cancellationToken);
     Task<EngineResult> SelectAsync(string downloadId, ImmutableArray<FileBinding> files, CancellationToken cancellationToken);

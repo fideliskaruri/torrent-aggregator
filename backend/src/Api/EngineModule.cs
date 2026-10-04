@@ -19,10 +19,6 @@ internal static class EngineModule
     {
         services.AddSingleton(sp => new MonoTorrentEngine(directory,
             message => sp.GetRequiredService<ILogger<MonoTorrentEngine>>().LogInformation("{EngineMessage}", message),
-            maximumProbePieceBytes: sp.GetRequiredService<IConfiguration>()
-                .GetValue("TorrentFlow:Engine:ProbeMaxPieceBytes", 32 * 1024 * 1024),
-            probeDiskBudgetBytes: sp.GetRequiredService<IConfiguration>()
-                .GetValue<long>("TorrentFlow:Engine:ProbeDiskBytes", 40L * 1024 * 1024),
             fileState: new FilingFileState(sp.GetRequiredService<IServiceScopeFactory>())));
         services.AddSingleton<IEngine>(sp => sp.GetRequiredService<MonoTorrentEngine>());
         services.AddSingleton<RawDownloads>();

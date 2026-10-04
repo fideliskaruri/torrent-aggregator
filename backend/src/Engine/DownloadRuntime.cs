@@ -80,7 +80,7 @@ public sealed partial class MonoTorrentEngine
             entry.MetadataStalled = entry.ProgressStalled = false;
             if (!entry.Bound)
             {
-                if (!entry.Manager.HasMetadata) await StartMetadataAsync(entry.Manager);
+                if (!entry.Manager.HasMetadata) continue;
             }
             else await entry.Manager.StartAsync();
             entry.Run = true;

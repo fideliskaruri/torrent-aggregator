@@ -5,7 +5,6 @@
   <Project Path="src/Metadata/Metadata.csproj" />
   <Project Path="src/Sources/Sources.csproj" />
   <Project Path="src/Engine/Engine.csproj" />
-  <Project Path="src/Check/Check.csproj" />
   <Project Path="src/Find/Find.csproj" />
   <Project Path="src/Library/Library.csproj" />
   <Project Path="src/Store/Store.csproj" />

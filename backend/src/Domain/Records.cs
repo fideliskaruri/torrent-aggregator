@@ -618,10 +618,6 @@ public sealed record CandidateBatch(string SessionId, long PoolRevision, Immutab
     public int RequestLimit { get; init; }
     public bool RequestBudgetExhausted { get; init; }
 }
-public sealed record ProbeRequest(Candidate Candidate, PriorityLane Lane, bool ForceFresh, bool WantedTarget)
-{
-    public bool RetainAdmission { get; init; }
-}
 public sealed record SwarmEvidence(string Hash, HealthBand Band, ImmutableArray<TorrentFile>? Files,
     int ConnectedPeers, int ConnectedSeeders, int ByteSendingPeers, long BytesDelivered,
     TimeSpan Window, int? ScrapedSeeders, string Reason, DateTimeOffset CheckedAt,
@@ -644,14 +640,13 @@ public sealed record Assignment(string Hash, ImmutableArray<string> TargetIds,
     ImmutableArray<SelectedFile> Files, long ReservedPieceBytes, string Reason);
 public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, ImmutableArray<int> OwnerSelectedFiles,
     ImmutableArray<TargetRow> Targets,
-    ImmutableArray<Candidate> Pool, ImmutableArray<SwarmEvidence> Evidence,
-    ImmutableArray<OwnedItem> Owned, ImmutableArray<BlockRow> Blocks, DateTimeOffset Now)
+    ImmutableArray<Candidate> Pool, ImmutableArray<OwnedItem> Owned,
+    ImmutableArray<BlockRow> Blocks, DateTimeOffset Now)
 {
-    public string? UnknownFallbackReason { get; init; }
-    public bool QueriesExhausted { get; init; }
     public WorkPreferenceRow? Preference { get; init; }
     public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];
 }
+public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, ImmutableArray<Rejection> Rejections);
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,
     ImmutableArray<string> UncoveredTargetIds);
 public sealed record EngineFileSnapshot(int Index, long Bytes, long CompletedBytes, long AllocatedBytes,
@@ -694,9 +689,6 @@ public sealed record EngineFilingPermit(string Token, string DownloadId, Immutab
     bool Detached, Failure? Failure);
 public sealed record EngineDrainResult(string DownloadId, bool Detached, bool WritesDrained, Failure? Failure);
 public sealed record FileExecutionProof(EngineFilingPermit? FilingPermit, EngineDrainResult? Drain);
-public sealed record MetadataWaitRequest(string TargetId, Candidate Candidate, DateTimeOffset DeadlineAt);
-public sealed record MetadataWaitAttachment(ProbeHandle? Handle, string TargetId, string Hash,
-    DateTimeOffset DeadlineAt, ImmutableArray<TorrentFile>? Files, Failure? Failure);
 public sealed record DownloadWindow(ImmutableArray<DayOfWeek> Days, TimeOnly Start, TimeOnly End,
     int? DownloadBytesPerSecond, int? UploadBytesPerSecond);
 public sealed record PlacementInput(WorkSnapshot? Work, ImmutableArray<TargetRow> Targets, Assignment Assignment,

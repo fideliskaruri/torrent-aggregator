@@ -55,8 +55,6 @@ builder.Services.AddRequests();
 builder.Services.AddAutomation();
 builder.Services.AddEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
-TorrentFlow.Targets.CheckComposition.AddCheckModule(builder.Services,
-    builder.Configuration.GetSection("TorrentFlow:Check").Get<TorrentFlow.Domain.CheckOptions>());
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddLibrary();

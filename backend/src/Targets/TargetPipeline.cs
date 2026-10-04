@@ -389,29 +389,40 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
             await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow { Id = $"plan:{row.Id}:{Guid.NewGuid():N}", TargetId = row.Id, WorkId = row.WorkId, ReleaseHash = null, ActorUserId = row.CreatedBy, Kind = AttemptKind.Plan, StartedAt = plannedAt, EndedAt = plannedAt, Outcome = "planned", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = JsonSerializer.SerializeToElement(new { lane, result.Plan.Assignments, result.Plan.Rejections,
                     result.Plan.UncoveredTargetIds }), BatchId = row.BatchId, DownloadId = null, DeadlineAt = null, Swap = null }, null, null))],
                 [], lifetime.Token);
-            foreach (var assignment in result.Plan.Assignments)
+            try
             {
-                var assigned = rows.Where(r => assignment.TargetIds.Contains(r.Id)).ToImmutableArray();
-                var candidate = result.Find.Candidates.Single(c => c.Release.Id == assignment.Hash);
-                var evidence = result.Evidence.SingleOrDefault(e => e.Hash == assignment.Hash);
-                var files = evidence?.Files ?? candidate.Release.Files;
-                if (files is null || evidence?.Band == HealthBand.Unknown)
+                foreach (var assignment in result.Plan.Assignments)
                 {
-                    foreach (var row in assigned) await ChangeAsync(row.Id, token, TargetState.Waiting,
-                        lifetime.Token, WaitReason.WaitingForSeeders, assignment.Reason, chosen: assignment.Hash);
-                    continue;
+                    var assigned = rows.Where(r => assignment.TargetIds.Contains(r.Id)).ToImmutableArray();
+                    var candidate = result.Find.Candidates.Single(c => c.Release.Id == assignment.Hash);
+                    if (candidate.Release.Files is not { } files)
+                    {
+                        foreach (var row in assigned) await ChangeAsync(row.Id, token, TargetState.Waiting,
+                            lifetime.Token, WaitReason.WaitingForSeeders, assignment.Reason, chosen: assignment.Hash);
+                        continue;
+                    }
+                    if (!await CanRunAsync(lifetime.Token)) continue;
+                    await transfers.AdmitAsync(work, assigned, assignment, candidate, files,
+                        result.Attachments.GetValueOrDefault(assignment.Hash),
+                        async (id, state, reason, text) => await ChangeAsync(id, token, state, lifetime.Token,
+                            reason, text, chosen: assignment.Hash), stateGate, lifetime.Token);
                 }
-                if (!await CanRunAsync(lifetime.Token)) continue;
-                await transfers.AdmitAsync(work, assigned, assignment, candidate, files.Value, evidence?.AdmissionHandle,
-                    async (id, state, reason, text) => await ChangeAsync(id, token, state, lifetime.Token,
-                        reason, text, chosen: assignment.Hash), stateGate, lifetime.Token);
+                foreach (var row in rows.Where(r => result.Plan.UncoveredTargetIds.Contains(r.Id)))
+                {
+                    var rejection = result.Plan.Rejections.FirstOrDefault(r => r.TargetId == row.Id &&
+                        r.Code != "uncovered_item");
+                    var waitReason = result.Find.Candidates.IsEmpty ? WaitReason.NoResults :
+                        result.WaitingForSeeders ? WaitReason.WaitingForSeeders : WaitReason.RejectedCandidates;
+                    await WaitAsync(row, token, waitReason, rejection?.Explanation ??
+                        (waitReason == WaitReason.WaitingForSeeders
+                            ? "Waiting for a seed or for torrent metadata to become available."
+                            : "No eligible release covers this item. Trying again later."), lifetime.Token);
+                }
             }
-            foreach (var row in rows.Where(r => result.Plan.UncoveredTargetIds.Contains(r.Id)))
+            finally
             {
-                var reason = result.Plan.Rejections.FirstOrDefault(r => r.TargetId == row.Id);
-                await WaitAsync(row, token, result.Find.Candidates.IsEmpty ? WaitReason.NoResults :
-                    WaitReason.RejectedCandidates, reason?.Explanation ??
-                    "No checked release covers this item. Trying again later.", lifetime.Token);
+                foreach (var handle in result.Attachments.Values)
+                    await engine.ReleaseProbeAsync(handle, CancellationToken.None);
             }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
