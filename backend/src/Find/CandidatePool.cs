@@ -32,7 +32,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
             string? reason = null;
             if (hash is null) { code = "invalid_hash"; reason = "The listing has no valid infohash."; }
             else if (raw.Name.Length > TorrentFlow.Parser.ReleaseParser.MaximumNameLength)
-            { code = "invalid_name"; reason = "The release name exceeds the parser limit."; }
+            { code = "invalid_name"; reason = "The source name exceeds the parser limit."; }
             else parse = parser.Parse(raw.Name);
             var coverage = ImmutableArray<string>.Empty;
             if (code is null && work is not null && scope is not null)
@@ -107,13 +107,13 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
         var years = requested.Where(e => e.AirAt.HasValue).Select(e => e.AirAt!.Value.Year)
             .Append(work.Work.Year ?? 0);
         if (parsed.Year is { } year && work.Work.Year.HasValue && !years.Any(y => Math.Abs(y - year) <= 1))
-            return ("year_mismatch", $"Release year {year} is outside the catalog year tolerance (one year).", []);
+            return ("year_mismatch", $"Source year {year} is outside the catalog year tolerance (one year).", []);
         if (scope!.Film)
             return parsed.Kind == ReleaseKind.Movie
                 ? (null, null, [])
-                : ("kind_mismatch", $"A film cannot use a {parsed.Kind} release.", []);
+                : ("kind_mismatch", $"A film cannot use a {parsed.Kind} source.", []);
         if (parsed.Kind is ReleaseKind.Movie or ReleaseKind.Other or ReleaseKind.Special)
-            return ("kind_mismatch", $"An episode scope cannot use a {parsed.Kind} release.", []);
+            return ("kind_mismatch", $"An episode scope cannot use a {parsed.Kind} source.", []);
         var covered = requested.Where(e => Covers(parsed, e)).Select(e => e.Id).ToImmutableArray();
         return covered.IsEmpty
             ? ("scope_mismatch", "The parsed season/episode/absolute range does not cover any requested item.", [])

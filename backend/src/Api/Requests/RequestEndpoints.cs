@@ -129,11 +129,11 @@ internal static class RequestEndpoints
         var request = (await service.Read<RequestRow>(row => row.Id == id, ct)).SingleOrDefault()
             ?? throw new KeyNotFoundException("Request not found.");
         if (!http.Request.HasJsonContentType() || http.Request.ContentLength > 16384)
-            return Results.BadRequest(new { error = "Choose a release first." });
+            return Results.BadRequest(new { error = "Choose a source first." });
         var body = await http.Request.ReadFromJsonAsync<JsonElement>(ct);
         if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("token", out var token) ||
             token.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(token.GetString()))
-            return Results.BadRequest(new { error = "Choose a release first." });
+            return Results.BadRequest(new { error = "Choose a source first." });
         ReleaseChoice? choice;
         try
         {
@@ -141,9 +141,9 @@ internal static class RequestEndpoints
                 .CreateProtector("TorrentFlow.TitleReleaseChoice.v1").Unprotect(token.GetString()!));
         }
         catch (Exception ex) when (ex is CryptographicException or JsonException)
-        { return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." }); }
+        { return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a source." }); }
         if (choice is null || choice.ExpiresAt <= DateTimeOffset.UtcNow || choice.WorkId != request.WorkId)
-            return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a release." });
+            return Results.Conflict(new { ok = false, message = "That choice expired. Search again and choose a source." });
         await RequestService.Gate.WaitAsync(ct);
         try
         {

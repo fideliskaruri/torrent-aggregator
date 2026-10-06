@@ -10,10 +10,10 @@ public sealed partial class TargetPipeline
     public async Task<TargetActionReply> PickAsync(string targetId, string releaseHash, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(targetId) || string.IsNullOrWhiteSpace(releaseHash))
-            throw new ArgumentException("Choose a target and a release from the search results.");
+            throw new ArgumentException("Choose a target and a source from the search results.");
         releaseHash = releaseHash.Trim().ToLowerInvariant();
         if (releaseHash.Length is not (40 or 64) || releaseHash.Any(c => !Uri.IsHexDigit(c)))
-            throw new ArgumentException("Choose a release from the search results.");
+            throw new ArgumentException("Choose a source from the search results.");
         await stateGate.WaitAsync(ct);
         try
         {
@@ -23,13 +23,13 @@ public sealed partial class TargetPipeline
                 ?? throw new ArgumentException("This target no longer exists.");
             if (target.State is TargetState.Fetching or TargetState.Filing or TargetState.Done or TargetState.Removed ||
                 target.ResumeState is TargetState.Fetching or TargetState.Filing)
-                throw new ArgumentException("Pick a release for an item still waiting to download.");
+                throw new ArgumentException("Pick a source for an item still waiting to download.");
             var release = (await store.ListAsync<ReleaseRow>(row => row.Id == releaseHash, ct)).SingleOrDefault()
-                ?? throw new ArgumentException("That release is no longer in the search results. Search again.");
+                ?? throw new ArgumentException("That source is no longer in the search results. Search again.");
             if (release.Parsed.Unsafe || release.Parsed.Cam || release.Parsed.Sample ||
                 target.ResolutionFloor is { } floor &&
                     (release.Parsed.Quality.Resolution is not { } resolution || resolution < floor))
-                throw new ArgumentException("This release does not meet the title's safety or quality requirements.");
+                throw new ArgumentException("This source does not meet the title's safety or quality requirements.");
             if (target.PickedReleaseHash == releaseHash && target.State == TargetState.Wanted)
                 return new(true, 1, 0, [targetId], "1 queued");
             var now = DateTimeOffset.UtcNow;

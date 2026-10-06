@@ -21,9 +21,9 @@ export interface WantedRow {
   episode?: number | null;
   looking: boolean;
   nextAttemptAt?: string | null;
-  /** "Pick a release yourself" for this film or episode. */
+  /** "Pick a source yourself" for this film or episode. */
   pickLink?: string | null;
-  /** "Pick a release yourself" for the episode's whole season. */
+  /** "Pick a source yourself" for the episode's whole season. */
   seasonPickLink?: string | null;
 }
 
@@ -60,7 +60,7 @@ export async function stopWanted(target: WantedTarget): Promise<boolean> {
 export function wantedRemoveDescription(target: WantedTarget): string {
   return target.season != null && target.episode == null
     ? "TorrentFlow stops looking for these episodes, also after a restart. If a search for them is running or just finished, the episodes it started that are still downloading are removed too. Finished episodes stay."
-    : "TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page.";
+    : "TorrentFlow stops looking for a source, also after a restart. A source it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page.";
 }
 
 /** The owner's wanted rows, polled while the page is visible. */
@@ -98,8 +98,8 @@ export function wantedRowMatches(row: WantedRow, t: WantedTarget): boolean {
 }
 
 /**
- * The way out of "Looking for a release", the same on Downloads and the title
- * page, also while it waits for an English release: pick a release yourself,
+ * The way out of "Looking for a source", the same on Downloads and the title
+ * page, also while it waits for an English source: pick a source yourself,
  * search again now, or remove it so TorrentFlow stops looking (also after a
  * restart, and also a search already running).
  */
@@ -178,7 +178,7 @@ export function WantedActions({
         data-looking-pick
       >
         <Search className="h-3.5 w-3.5" />
-        Pick a release
+        Pick a source
       </Button>
       <Button
         type="button"

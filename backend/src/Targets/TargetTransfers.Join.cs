@@ -138,7 +138,7 @@ internal sealed partial class TargetTransfers
                     var rollback = claimedUpdates.Select(update =>
                         (Before: update.After, After: update.Before)).ToImmutableArray();
                     if (!await repository.UpdateBindingsAsync(rollback, [], CancellationToken.None))
-                        throw new IOException("The shared release could not restore its previous file bindings.");
+                        throw new IOException("The shared source could not restore its previous file bindings.");
                     throw;
                 }
             }

@@ -92,7 +92,7 @@ internal static class DownloadRowView
     };
 
     internal static string WantedStatusLabel(TargetState state, string? reason) =>
-        state is TargetState.Wanted or TargetState.Searching ? "Looking for a release" :
+        state is TargetState.Wanted or TargetState.Searching ? "Looking for a source" :
         string.IsNullOrWhiteSpace(reason) ? "Waiting" : reason;
 
     private static string ShortError(string? error)

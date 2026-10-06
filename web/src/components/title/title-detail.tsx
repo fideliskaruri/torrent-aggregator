@@ -120,11 +120,11 @@ export function TitleDetail(props: TitleDetailProps) {
           onOpenChange={(open) => {
             if (!open && !findingAnother) setFindAnother(null);
           }}
-          title={`Find another release for ${findAnother.label}?`}
+          title={`Find another source for ${findAnother.label}?`}
           description="The current download and its partial files will be removed. TorrentFlow will search again."
           variant="destructive"
           busy={findingAnother}
-          confirmLabel="Pick best release"
+          confirmLabel="Pick best source"
           onConfirm={() => void (async () => {
             setFindingAnother(true);
             try {
@@ -136,7 +136,7 @@ export function TitleDetail(props: TitleDetailProps) {
                 toast.error(result?.message ?? "The download could not be removed. Try again.");
                 return;
               }
-              toast.success(result.message ?? `Looking for another release of ${findAnother.label}.`);
+              toast.success(result.message ?? `Looking for another source of ${findAnother.label}.`);
               setFindAnother(null);
               detail.startTransferPoll();
               void refetch();

@@ -77,7 +77,7 @@ export function RuleRow({
       <ConfirmAction
         label={<><Trash2 className="size-4" /><span className="sr-only">Delete rule</span></>}
         title="Delete rule?"
-        description={`"${rule.name}" stops matching releases. Past sends stay in Notifications.`}
+        description={`"${rule.name}" stops matching sources. Past sends stay in Notifications.`}
         confirmLabel="Delete rule"
         onConfirm={() => onDelete(rule)}
         buttonProps={{ size: "icon-sm", "aria-label": `Delete ${rule.name}` }}

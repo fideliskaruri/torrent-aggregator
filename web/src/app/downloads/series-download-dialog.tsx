@@ -384,11 +384,11 @@ export function SeriesDownloadDialog({
                   size="sm"
                   className="ml-auto"
                   data-season-find-release
-                  aria-label={`Find another release for ${selectedSeason.label}`}
+                  aria-label={`Find another source for ${selectedSeason.label}`}
                   onClick={() => onAction("find-another-release", seasonPack)}
                 >
                   <Search className="h-3.5 w-3.5" />
-                  {FIND_ANOTHER_SOURCE_LABEL} release
+                  {FIND_ANOTHER_SOURCE_LABEL}
                 </Button>
               ) : null}
             </div>

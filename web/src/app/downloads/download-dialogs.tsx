@@ -34,12 +34,12 @@ export function DownloadDialogs({ page }: { page: Model }) {
           if (!open && !page.findingAnother) page.setFindAnotherTorrent(null);
         }}
           title={page.findAnotherTorrent.packed && page.findAnotherTorrent.season != null
-            ? `Find another release for ${page.findAnotherTorrent.workTitle ?? "this show"} Season ${String(page.findAnotherTorrent.season).padStart(2, "0")}?`
-            : `Find another release for ${transferLabel(page.findAnotherTorrent)}?`}
+            ? `Find another source for ${page.findAnotherTorrent.workTitle ?? "this show"} Season ${String(page.findAnotherTorrent.season).padStart(2, "0")}?`
+            : `Find another source for ${transferLabel(page.findAnotherTorrent)}?`}
           description={page.findAnotherTorrent.packed
-            ? "This release is a season pack. Every episode downloading from it will search again, and their partial files will be removed."
+            ? "This source is a season pack. Every episode downloading from it will search again, and their partial files will be removed."
             : "The current download and its partial files will be removed. TorrentFlow will search again."}
-          variant="destructive" busy={page.findingAnother} confirmLabel="Pick best release"
+          variant="destructive" busy={page.findingAnother} confirmLabel="Pick best source"
           confirmData={{ "data-find-another-confirm": true }}
           onConfirm={() => void page.confirmFindAnother()}
           secondaryAction={page.findAnotherTorrent.workKey ? (

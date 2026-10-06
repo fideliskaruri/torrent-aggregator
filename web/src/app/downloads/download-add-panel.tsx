@@ -30,7 +30,7 @@ export function DownloadAddPanel({ page }: { page: Model }) {
             page.setRawSendValue(event.target.value);
             if (page.rawSendError) page.setRawSendError(null);
           }}
-          placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
+          placeholder="magnet:?xt=urn:btih:… or https://example.com/source.torrent"
           aria-label="Paste a magnet link or .torrent URL"
           aria-invalid={page.rawSendInvalid || page.rawSendError?.field === "source" || undefined}
           aria-describedby={page.rawSendAnyError ? "raw-torrent-send-error" : undefined}

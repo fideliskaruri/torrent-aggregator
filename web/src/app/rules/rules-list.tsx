@@ -47,7 +47,7 @@ export function RulesList({
             selection={selection}
             noResults={rules.length > 0 && filtered.length === 0}
             onClearFilters={clearFilters}
-            empty={<TfEmptyState icon={Zap} title="No rules yet" description="Create a rule to match releases automatically." />}
+            empty={<TfEmptyState icon={Zap} title="No rules yet" description="Create a rule to match sources automatically." />}
             renderRow={(rule) => (
               <RuleRow rule={rule} busy={busy} onToggle={onToggle} onRetarget={onRetarget}
                 onEdit={onEdit} onDelete={onDelete} />

@@ -83,7 +83,7 @@ export function useDownloadRowActions(
       });
       const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
       if (!response.ok || body?.ok !== true) {
-        toast.error(`Couldn't find another release for ${label}`, {
+        toast.error(`Couldn't find another source for ${label}`, {
           description: body?.message?.trim() || body?.error?.trim() ||
             `TorrentFlow answered HTTP ${response.status}. Try again.`,
         });
@@ -96,11 +96,11 @@ export function useDownloadRowActions(
         next.delete(torrent.transferId);
         return next;
       });
-      toast.success(`Looking for another release of ${label}`);
-      ui.setAnnouncement(`Looking for another release of ${label}.`);
+      toast.success(`Looking for another source of ${label}`);
+      ui.setAnnouncement(`Looking for another source of ${label}.`);
       void data.load();
     } catch {
-      toast.error(`Couldn't find another release for ${label}`, {
+      toast.error(`Couldn't find another source for ${label}`, {
         description: "Couldn't reach TorrentFlow. Try again.",
       });
     } finally {

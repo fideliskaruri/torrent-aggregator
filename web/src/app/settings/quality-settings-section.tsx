@@ -24,7 +24,7 @@ const AUDIO_CHOICES: ReadonlyArray<{
   {
     value: "any",
     label: "Any language",
-    hint: "Do not check the language. Any release can download.",
+    hint: "Do not check the language. Any source can download.",
   },
 ];
 

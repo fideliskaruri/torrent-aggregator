@@ -67,7 +67,7 @@ public sealed class ReleaseParser : IParser
     {
         ArgumentNullException.ThrowIfNull(releaseName);
         if (releaseName.Length > MaximumNameLength)
-            throw new ArgumentException($"Release names must not exceed {MaximumNameLength} characters.", nameof(releaseName));
+            throw new ArgumentException($"Source names must not exceed {MaximumNameLength} characters.", nameof(releaseName));
         var raw = releaseName.Trim();
         if (raw.Contains('\\')) raw = raw[(raw.LastIndexOf('\\') + 1)..];
         var group = Group(raw);

@@ -191,7 +191,7 @@ public sealed partial class TargetPipeline
                     await WaitAsync(row, token, waitReason, rejection?.Explanation ??
                         (waitReason == WaitReason.WaitingForSeeders
                             ? "Waiting for a seed or for torrent metadata to become available."
-                            : "No eligible release covers this item. Trying again later."), lifetime.Token);
+                            : "No eligible source covers this item. Trying again later."), lifetime.Token);
                 }
             }
             finally
