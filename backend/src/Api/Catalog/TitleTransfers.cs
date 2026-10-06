@@ -66,13 +66,15 @@ internal static class TitleTransfers
             var state = DownloadRowView.State(false, member.IsPaused(), member.State == TargetState.Filing, live);
             if (state == "error")
                 return new("failed", "failed", 0, download.Hash, null, live?.Failure?.Message ?? member.ReasonText);
-            if (state is "queued" or "paused")
-            {
-                int? position = positions.TryGetValue(download.Id, out var value) ? value : null;
-                return new("queued", "queued", 0, download.Hash, null, null, position);
-            }
             var selected = files.Where(file => file.DownloadId == download.Id && file.Selected &&
                 file.Role != FileRole.Unwanted && members.Any(target => target.Id == file.TargetId)).ToArray();
+            var held = DownloadRowView.HeldStatus(state, live,
+                selected.Select(file => (file.FileIndex, file.Filed)));
+            if (state is "queued" or "paused" || held is not null)
+            {
+                int? position = held is null && positions.TryGetValue(download.Id, out var value) ? value : null;
+                return new("queued", "queued", 0, download.Hash, null, null, position, held?.StatusLabel);
+            }
             var total = selected.Sum(file => Math.Max(0, file.ExpectedBytes));
             var completed = selected.Sum(file => file.Filed ? file.ExpectedBytes :
                 live?.Files.FirstOrDefault(item => item.Index == file.FileIndex)?.CompletedBytes ?? 0);

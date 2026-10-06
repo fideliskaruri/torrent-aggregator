@@ -167,7 +167,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
         var cap = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct))
             .MaxActiveDownloads;
-        var full = snapshot.Live.Count(l => l.Active && !l.Complete) >= cap;
+        var nowDownloads = snapshot.Queue.Where(q => q.Now).Select(q => q.DownloadId).ToHashSet(StringComparer.Ordinal);
+        var full = snapshot.Live.Count(l => l.Active && !l.Complete && !nowDownloads.Contains(l.DownloadId)) >= cap;
         var rows = new List<object>();
         var queuePosition = 0;
         foreach (var download in snapshot.Queue.Select(q => snapshot.Downloads.Single(d => d.Id == q.DownloadId)))
@@ -227,7 +228,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 var parsed = parser.Parse(releaseName);
                 var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
                 var position = state == "queued" ? downloadPosition : null;
-                var rowStatus = DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
+                var heldStatus = packed && target is not null
+                    ? DownloadRowView.HeldStatus(state, live, selected.Select(file => (file.FileIndex, file.Filed)))
+                    : null;
+                var rowStatus = heldStatus ??
+                    DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
                 var forced = target?.DownloadNow == true || rawIntent?.NowAt is not null;
                 var filesExist = selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
                     media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null));
@@ -236,8 +241,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 {
                     hash = download.Hash, name = releaseName,
                     progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
-                    sizeBytes = size, dlspeed = live?.BytesPerSecond ?? 0, upspeed = 0,
-                    eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
+                    sizeBytes = size, dlspeed = heldStatus is null ? live?.BytesPerSecond ?? 0 : 0, upspeed = 0,
+                    eta = heldStatus is null ? live?.Eta?.TotalSeconds : null, peers = live?.Peers ?? 0,
                     status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
                     category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                     savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),

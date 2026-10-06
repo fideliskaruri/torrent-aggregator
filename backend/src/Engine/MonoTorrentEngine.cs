@@ -26,6 +26,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         public bool WantsRun { get; set; }
         public string? SharedSlotDownloadId { get; set; }
         public bool Bound { get; set; }
+        public ImmutableHashSet<int> Held { get; set; } = ImmutableHashSet<int>.Empty;
         public bool Completed { get; set; }
         public bool MetadataReported { get; set; }
         public bool MetadataStalled { get; set; }
@@ -128,6 +129,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         var devRuns = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var devIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var devBindings = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var devHeld = new Dictionary<string, ImmutableHashSet<int>>(StringComparer.OrdinalIgnoreCase);
         if (restoreDevState && File.Exists(statePath))
         {
             var saved = BEncodedDictionary.Decode<BEncodedDictionary>(await File.ReadAllBytesAsync(statePath, ct));
@@ -138,6 +140,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                     !torrent.TryGetValue("DevRun", out var run) || ((BEncodedNumber)run).Number != 0;
                 devIds[hash] = torrent.TryGetValue("DevId", out var id) ? ((BEncodedString)id).Text : hash;
                 if (torrent.TryGetValue("DevBound", out var bound)) devBindings[hash] = ((BEncodedNumber)bound).Number != 0;
+                if (torrent.TryGetValue("DevHeld", out var held))
+                    devHeld[hash] = ((BEncodedList)held).Cast<BEncodedNumber>()
+                        .Select(index => checked((int)index.Number)).ToImmutableHashSet();
                 if (torrent.TryGetValue("DevRank", out var rank))
                 {
                     var now = ((BEncodedNumber)torrent["DevNow"]).Number != 0;
@@ -171,14 +176,16 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             {
                 WantsRun = devRuns.GetValueOrDefault(hash, true),
                 Bound = devBindings.GetValueOrDefault(hash, manager.HasMetadata),
+                Held = devHeld.GetValueOrDefault(hash, ImmutableHashSet<int>.Empty),
             };
             entries.Add(hash, entry);
             registered[hash] = entry.Id;
-            WatchCompletion(manager);
+            WatchCompletion(entry);
             if (durableFiles.SingleOrDefault(f => f.DownloadId == entry.Id) is { } durable && manager.HasMetadata)
             {
-                await BindAsync(manager, [.. durable.Files.Select(f => new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))]);
+                await BindAsync(entry, [.. durable.Files.Select(f => new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))]);
                 entry.Filed.UnionWith(durable.Files.Where(f => f.Filed).Select(f => f.FileIndex));
+                if (restoreDevState) entry.Held = devHeld.GetValueOrDefault(hash, ImmutableHashSet<int>.Empty);
                 // Publication changes resume identities. Verify the rebound boundary pieces on replay.
                 await HashCheckBindingsAsync(entry);
             }
@@ -408,7 +415,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             // Transfer the SAME manager, drain and force a full recheck. No cache-invalidating second manager.
             await entry.Manager.StopAsync(TimeSpan.Zero);
             await client.DiskManager.FlushAsync(entry.Manager);
-            try { await BindAsync(entry.Manager, admission.Files); }
+            try { await BindAsync(entry, admission.Files); }
             catch
             {
                 await RemoveManagerAsync(entry, false);
@@ -425,7 +432,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             entry.Id = admission.Download.Id;
             entry.SharedSlotDownloadId = claims[admission.AdmissionToken].SharedSlotDownloadId;
             entry.Bound = true;
-            WatchCompletion(entry.Manager);
+            WatchCompletion(entry);
             registered[handle.Hash] = entry.Id;
             foreach (var token in handles.Values.Where(h => h.Hash == handle.Hash).Select(h => h.Token).ToArray())
             { handles.Remove(token); }
@@ -503,7 +510,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                 { WantsRun = admission.Download.Intent is DownloadIntent.Run or DownloadIntent.Queued,
                     SharedSlotDownloadId = claims.GetValueOrDefault(admission.AdmissionToken)?.SharedSlotDownloadId };
             entries.Add(hash, entry);
-            WatchCompletion(manager);
+            WatchCompletion(entry);
             registered[hash] = entry.Id;
             claims.Remove(admission.AdmissionToken);
             await ConfigureTrackersAsync(manager);
@@ -519,7 +526,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                 }
                 if (!admission.Files.IsDefaultOrEmpty)
                 {
-                    try { await BindAsync(manager, admission.Files); }
+                    try { await BindAsync(entry, admission.Files); }
                     catch
                     {
                         await RemoveManagerAsync(entry, true);
@@ -569,8 +576,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         return null;
     }
 
-    private async Task BindAsync(TorrentManager manager, ImmutableArray<FileBinding> bindings)
+    private async Task BindAsync(Entry entry, ImmutableArray<FileBinding> bindings)
     {
+        var manager = entry.Manager;
         if (!MetadataReady(manager) || bindings.Length != manager.Files.Count ||
             bindings.Select(b => b.FileIndex).Distinct().Count() != bindings.Length ||
             bindings.Select(b => Path.GetFullPath(b.AbsolutePath)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != bindings.Length ||
@@ -594,6 +602,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         }
         foreach (var binding in bindings.Where(b => b.Selected))
             await manager.SetFilePriorityAsync(manager.Files[binding.FileIndex], Priority.Normal);
+        entry.Held = ImmutableHashSet<int>.Empty;
         PhysicalFiles.PrepareBoundaries(manager);
         foreach (var binding in bindings.Where(b => !b.Selected))
         {
@@ -632,7 +641,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                 return Rejected("filed", "An already filed file cannot be selected for download again.");
             await entry.Manager.StopAsync(TimeSpan.Zero);
             entry.Run = false;
-            await BindAsync(entry.Manager, files);
+            await BindAsync(entry, files);
             entry.Bound = true;
             entry.Completed = false;
             await ReconcileQueueAsync();
@@ -698,10 +707,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         finally { gate.Release(); }
     }
 
-    private static bool SelectedComplete(TorrentManager manager) => manager.HasMetadata &&
-        manager.Files.Any(f => f.Priority != Priority.DoNotDownload) &&
-        manager.Files.Where(f => f.Priority != Priority.DoNotDownload).All(f => f.BitField.AllTrue);
-
     private async Task<EngineSnapshot> SnapshotAsync(Entry entry)
     {
         var manager = entry.Manager;
@@ -709,12 +714,13 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         var files = manager.Files.Select((f, i) => new EngineFileSnapshot(i, f.Length,
             CompletedFileBytes(manager, f),
             PhysicalFiles.AllocatedBytes(f.FullPath),
-            f.Priority != Priority.DoNotDownload, f.FullPath, f.BitField.AllTrue)).ToImmutableArray();
+            f.Priority != Priority.DoNotDownload || entry.Held.Contains(i), f.FullPath, f.BitField.AllTrue,
+            entry.Held.Contains(i))).ToImmutableArray();
         var selected = files.Where(f => f.Selected).ToArray();
         var bytes = selected.Sum(f => f.Bytes);
         var completed = selected.Sum(f => f.CompletedBytes);
         UpdateUploaded(entry);
-        return new(entry.Id, Hash(manager), MetadataReady(manager), true, entry.Completed || entry.Bound && SelectedComplete(manager),
+        return new(entry.Id, Hash(manager), MetadataReady(manager), true, entry.Completed || entry.Bound && SelectedComplete(entry),
             entry.Run && entry.MetadataStalled, entry.Run && entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
             DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
@@ -872,6 +878,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                     torrent["DevRun"] = new BEncodedNumber(entry.WantsRun && !entry.Completed ? 1 : 0);
                     torrent["DevId"] = new BEncodedString(entry.Id);
                     torrent["DevBound"] = new BEncodedNumber(entry.Bound ? 1 : 0);
+                    torrent["DevHeld"] = new BEncodedList(entry.Held.Order()
+                        .Select(index => (BEncodedValue)new BEncodedNumber(index)));
                     if (queueOrder.TryGetValue(entry.Id, out var order))
                     {
                         torrent["DevRank"] = new BEncodedNumber(order.Rank);
@@ -943,26 +951,28 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         if (shuttingDown || client is null) throw new InvalidOperationException("The engine is not running.");
     }
 
-    private void WatchCompletion(TorrentManager manager)
+    private void WatchCompletion(Entry entry)
     {
+        var manager = entry.Manager;
         manager.PieceHashed += (_, _) =>
         {
-            if (SelectedComplete(manager)) _ = StopCompletedAsync(manager);
+            if (SelectedComplete(entry)) _ = StopCompletedAsync(entry);
         };
         manager.TorrentStateChanged += (_, change) =>
         {
             if (change.NewState == TorrentState.Seeding)
-                _ = StopCompletedAsync(manager);
+                _ = StopCompletedAsync(entry);
         };
     }
 
-    private async Task StopCompletedAsync(TorrentManager manager)
+    private async Task StopCompletedAsync(Entry captured)
     {
         await gate.WaitAsync();
         try
         {
+            var manager = captured.Manager;
             if (!shuttingDown && entries.TryGetValue(Hash(manager), out var entry) &&
-                !entry.Probe && entry.Bound && ReferenceEquals(entry.Manager, manager) && SelectedComplete(manager))
+                ReferenceEquals(entry, captured) && !entry.Probe && entry.Bound && SelectedComplete(entry))
             {
                 await CompleteDownloadAsync(entry);
                 await ReconcileQueueAsync();
@@ -1039,8 +1049,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         {
             if (!entries.TryGetValue(hash, out var entry) || entry.Probe) return Rejected("not_found", "Download not found.");
             await entry.Manager.StopAsync(TimeSpan.Zero);
-            await entry.Manager.SetNeedsHashCheckAsync();
-            await entry.Manager.HashCheckAsync(false);
+            await HashCheckBindingsAsync(entry);
             entry.Run = false;
             entry.WantsRun = false;
             return new(true, await SnapshotAsync(entry), null);
