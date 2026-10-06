@@ -18,14 +18,13 @@ import {
   type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
-import { releaseDisplayFacts, rollupChip } from "./release-display";
+import { releaseDisplayFacts } from "./release-display";
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import type { OpenDownloadMode } from "@/lib/open-download";
 import { DownloadGroupSummary } from "./download-group-summary";
 import { DownloadTransferRow } from "./download-transfer-row";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
-import { TransferProgress, transferBarTone } from "./transfer-progress";
 import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
 import { SearchingBadge } from "./searching-badge";
 import { WantedMenuActions } from "./wanted-menu-actions";
@@ -71,43 +70,27 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
     const failed = season.counts.error;
     const label = season.label;
     const hasDownloads = season.entries.length > 0;
-    const liveDetails = season.status === "downloading"
-      ? [formatSpeed(season.dlspeed), season.eta != null ? formatEta(season.eta) : null]
-        .filter(Boolean).join(" · ")
-      : null;
+    const liveRows = season.status === "downloading"
+      ? [season.eta != null ? formatEta(season.eta) : null, formatSpeed(season.dlspeed)]
+        .filter((row): row is string => Boolean(row))
+      : [];
     return {
       value: season.key,
       label,
       detailText: hasDownloads ? [
         `${pct}%`,
-        liveDetails,
+        ...liveRows,
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean).join(" · ") : "Looking",
       detail: hasDownloads ? (
-        <span className="flex w-40 flex-col items-start gap-0.5">
-          <span className="flex w-full items-center gap-1.5">
-            <TransferProgress
-              percent={pct}
-              tone={transferBarTone(season.status, rollupChip(season).failing)}
-              label={`${label} progress`}
-              size="mini"
-              className="w-auto"
-            />
-            {failed > 0 ? (
-              <span
-                className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-destructive"
-                data-season-tab-failed={failed}
-              >
-                {failed} failed
-              </span>
-            ) : null}
-          </span>
-          {liveDetails ? (
-            <span
-              className="block w-full truncate text-[12px] tabular-nums text-muted-foreground"
-              title={liveDetails}
-            >
-              {liveDetails}
+        <span className="flex w-40 flex-col items-start gap-0.5 text-[12px] tabular-nums">
+          <span className="absolute top-1.5 right-3 font-medium text-primary">{pct}%</span>
+          {liveRows.map((row) => (
+            <span key={row} className="block w-full truncate text-muted-foreground" title={row}>{row}</span>
+          ))}
+          {failed > 0 ? (
+            <span className="whitespace-nowrap text-destructive" data-season-tab-failed={failed}>
+              {failed} failed
             </span>
           ) : null}
         </span>
