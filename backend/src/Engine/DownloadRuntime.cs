@@ -90,26 +90,17 @@ public sealed partial class MonoTorrentEngine
 
             var paidGroups = groups.ToDictionary(pair => pair.Key,
                 pair => pair.Value.Where(group => !group.Free).ToArray());
-            if (slot.Entries.Length > 1)
+            foreach (var entry in slot.Entries)
             {
-                foreach (var entry in slot.Entries)
+                if (!groups.ContainsKey(entry))
                 {
-                    if (!groups.TryGetValue(entry, out var entryGroups))
-                    {
-                        budget--;
-                        continue;
-                    }
-                    if (paidGroups[entry].FirstOrDefault() is { } first)
-                    {
-                        foreach (var file in first.Indices) ReleaseSet(entry).Add(file);
-                        budget--;
-                    }
-                    else if (entryGroups.Count == 0)
-                        budget--;
+                    budget--;
+                    continue;
                 }
-            }
-            else if (!groups.ContainsKey(slot.Entries[0]))
+                if (paidGroups[entry].FirstOrDefault() is not { } first) continue;
+                foreach (var file in first.Indices) ReleaseSet(entry).Add(file);
                 budget--;
+            }
 
             foreach (var entry in slot.Entries.Where(groups.ContainsKey))
             {

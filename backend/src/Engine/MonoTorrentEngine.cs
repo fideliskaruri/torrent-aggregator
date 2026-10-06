@@ -185,7 +185,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             {
                 await BindAsync(entry, [.. durable.Files.Select(f => new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))]);
                 entry.Filed.UnionWith(durable.Files.Where(f => f.Filed).Select(f => f.FileIndex));
-                if (restoreDevState) entry.Held = devHeld.GetValueOrDefault(hash, ImmutableHashSet<int>.Empty);
                 // Publication changes resume identities. Verify the rebound boundary pieces on replay.
                 await HashCheckBindingsAsync(entry);
             }
