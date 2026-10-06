@@ -37,18 +37,20 @@ try {
         if ($metadata) { $versionArgs += "-p:SourceRevisionId=$metadata" }
     }
 
-    dotnet publish server\TorrentFlow.Api -c Release -r win-x64 --self-contained true `
+    dotnet publish backend\src\Api -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:EnableCompressionInSingleFile=false `
         -p:DebugType=None `
         -p:DebugSymbols=false `
-        -p:SkipWebBuild=true `
         @versionArgs `
         -o $publishDir
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 
     Get-ChildItem $publishDir -File | Where-Object Name -ne 'TorrentFlow.exe' | Remove-Item -Force
+    # The exe serves the web app from the wwwroot folder next to it.
+    Copy-Item (Join-Path $repoRoot 'web\dist') (Join-Path $publishDir 'wwwroot') -Recurse
+    Get-ChildItem (Join-Path $publishDir 'wwwroot') -Recurse -Filter *.map | Remove-Item -Force
 
     if ($Installer) {
         $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source

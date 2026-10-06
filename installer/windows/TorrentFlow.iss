@@ -4,7 +4,7 @@
 ; (scripts\publish-exe.ps1 -Version 1.2.3 -Installer does both steps.)
 ;
 ; Installs without admin to %LOCALAPPDATA%\Programs\TorrentFlow. App data lives separately in
-; %LOCALAPPDATA%\TorrentFlow and is kept on uninstall unless the user asks to remove it.
+; %LOCALAPPDATA%\TorrentFlow-Rebuild and is kept on uninstall unless the user asks to remove it.
 ; The in-app updater runs this setup with /SILENT /UPDATE=1 after the app has closed itself.
 
 #ifndef AppVersion
@@ -23,6 +23,8 @@
 #ifndef SourceExe
   #define SourceExe "..\..\artifacts\exe\TorrentFlow.exe"
 #endif
+; The web app ships in a wwwroot folder next to the exe.
+#define SourceDir ExtractFilePath(SourceExe)
 
 #define AppName "TorrentFlow"
 #define AppExe "TorrentFlow.exe"
@@ -45,7 +47,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
-SetupIconFile=..\..\server\TorrentFlow.Api\Desktop\TorrentFlow.ico
+SetupIconFile=..\..\backend\src\Api\Desktop\TorrentFlow.ico
 OutputDir=..\..\artifacts\exe
 OutputBaseFilename=TorrentFlow-Setup-{#AppVersion}
 ArchitecturesAllowed=x64compatible
@@ -64,8 +66,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 Name: "autostart"; Description: "Start TorrentFlow when I sign in to Windows (runs in the tray)"; GroupDescription: "Startup:"; Flags: unchecked
 
+[InstallDelete]
+; Web assets have hashed names; clear the old set so updates do not pile up stale files.
+Type: filesandordirs; Name: "{app}\wwwroot"
+
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
+Source: "{#SourceDir}wwwroot\*"; DestDir: "{app}\wwwroot"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"
@@ -142,7 +149,7 @@ begin
 
   RemoveAutostartIfOurs;
 
-  DataDir := ExpandConstant('{localappdata}\{#AppName}');
+  DataDir := ExpandConstant('{localappdata}\{#AppName}-Rebuild');
   if UninstallSilent or not DirExists(DataDir) then
     Exit;
 
