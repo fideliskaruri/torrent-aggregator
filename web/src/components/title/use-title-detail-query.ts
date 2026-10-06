@@ -27,7 +27,13 @@ export function useTitleDetailQuery(props: TitleDetailProps) {
   const [seasonStatuses, setSeasonStatuses] = useState<
     Record<string, SeasonGrabStatus>
   >({});
-  const [findAnother, setFindAnother] = useState<{ hash: string; label: string } | null>(null);
+  const [findAnother, setFindAnother] = useState<{
+    hash: string;
+    label: string;
+    season?: number;
+    episode?: number | null;
+    packed?: boolean;
+  } | null>(null);
   const [findingAnother, setFindingAnother] = useState(false);
   const previousWorkKey = useRef(props.workKey);
   const manualSeasonSelection = useRef(false);

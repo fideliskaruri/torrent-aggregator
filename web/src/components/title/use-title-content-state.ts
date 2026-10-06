@@ -60,7 +60,13 @@ export function useTitleContentState({
     resolution?: number,
   ) => void;
   onLibraryChanged: () => void;
-    onFindAnother: (subject: { hash: string; label: string }) => void;
+    onFindAnother: (subject: {
+      hash: string;
+      label: string;
+      season?: number;
+      episode?: number | null;
+      packed?: boolean;
+    }) => void;
 }) {
   const caps = useCapabilities();
   const { openFolder } = useFeatures();
@@ -136,8 +142,14 @@ export function useTitleContentState({
   const tabTitle = titlePending ? routeTitle : title;
   useDocumentTitle(tabTitle, tabTitle ? `Get ${tabTitle}.` : null);
   const handleFindEpisodeSource = useCallback(
-    (hash: string, episodeLabel: string) =>
-      onFindAnother({ hash, label: `${title} ${episodeLabel}` }),
+    (hash: string, episodeLabel: string, episodeSeason: number, episode: number, packed: boolean) =>
+      onFindAnother({
+        hash,
+        label: `${title} ${episodeLabel}`,
+        season: episodeSeason,
+        episode: packed ? null : episode,
+        packed,
+      }),
     [onFindAnother, title],
   );
   const workKey = payload.workKey;

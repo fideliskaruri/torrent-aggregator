@@ -114,7 +114,12 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
       const res = await sessionAwareFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: release.token }),
+        body: JSON.stringify({
+          token: release.token,
+          ...(!target.requestId && target.replaceTransferId
+            ? { replaceTransferId: target.replaceTransferId }
+            : {}),
+        }),
       });
       const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(res);
       if (!res.ok || !body?.ok) {

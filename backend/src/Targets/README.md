@@ -82,6 +82,8 @@ No unit tests or full hard-set reruns are required for this slice.
 `POST /api/downloads/{transferId}/find-another` marks the current release blocked for
 the affected target, detaches and removes the current download and its partial files,
 then returns the target to Wanted so the normal pipeline can select another release.
+The picked-release variant stores the chosen hash on the reset targets so the normal
+pipeline grabs that release instead.
 Automatic stall recovery uses the same behavior. Import review holds still apply.
 
 `RecoverySettingsAsync` and `UpdateRecoverySettingsAsync` persist thresholds (default

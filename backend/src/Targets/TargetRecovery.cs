@@ -53,7 +53,11 @@ public sealed partial class TargetPipeline
     }
 
     public Task<TargetActionReply> FindAnotherAsync(string targetId, CancellationToken ct) =>
-        FindAnotherCoreAsync(targetId, null, ct);
+        FindAnotherCoreAsync(targetId, null, null, ct);
+
+    public Task<TargetActionReply> FindAnotherAsync(string targetId, string? pickedReleaseHash,
+        CancellationToken ct) =>
+        FindAnotherCoreAsync(targetId, null, pickedReleaseHash, ct);
 
     internal static async Task<ImmutableHashSet<string>> ExcludedAsync(TargetStore store, string workKey,
         string? current, CancellationToken ct)
@@ -66,7 +70,7 @@ public sealed partial class TargetPipeline
     }
 
     private async Task<TargetActionReply> FindAnotherCoreAsync(string targetId, string? stall,
-        CancellationToken ct)
+        string? pickedReleaseHash, CancellationToken ct)
     {
         var snapshot = await ReadAsync(ct);
         var target = snapshot.Targets.SingleOrDefault(t => t.Id == targetId);
@@ -74,6 +78,8 @@ public sealed partial class TargetPipeline
             return new(false, 0, 0, [targetId], "Only an unfinished download can find another release.");
         var download = snapshot.Downloads.SingleOrDefault(d => d.Hash == target.ChosenReleaseHash);
         if (download is null) return new(false, 0, 0, [targetId], "Download not found.");
+        if (pickedReleaseHash?.Equals(download.Hash, StringComparison.OrdinalIgnoreCase) == true)
+            return new(false, 0, 0, [targetId], "That release is already downloading.");
         if (!swapping.TryAdd(download.Id, 0))
             return new(false, 0, 0, [targetId], "Already looking for another release.");
 
@@ -110,7 +116,7 @@ public sealed partial class TargetPipeline
                     ChosenReleaseHash = null,
                     ReplaceMediaFileId = null,
                     ReplacementMode = null,
-                    PickedReleaseHash = null,
+                    PickedReleaseHash = pickedReleaseHash,
                     LeaseToken = null,
                     LeaseUntil = null,
                     UpdatedAt = now,
@@ -144,7 +150,7 @@ public sealed partial class TargetPipeline
                 attempts.FirstOrDefault()?.StartedAt > DateTimeOffset.UtcNow.AddSeconds(-Math.Min(60, settings.BackoffSeconds)))
                 continue;
             flights["find-another:" + live.DownloadId] = FindAnotherCoreAsync(target.Id,
-                live.StalledMetadata ? "NoMetadata" : "NoProgress", ct);
+                live.StalledMetadata ? "NoMetadata" : "NoProgress", null, ct);
         }
     }
 }
