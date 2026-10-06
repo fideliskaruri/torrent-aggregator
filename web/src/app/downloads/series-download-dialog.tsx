@@ -70,24 +70,25 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
     const failed = season.counts.error;
     const label = season.label;
     const hasDownloads = season.entries.length > 0;
-    const liveRows = season.status === "downloading"
-      ? [season.eta != null ? formatEta(season.eta) : null, formatSpeed(season.dlspeed)]
-        .filter((row): row is string => Boolean(row))
-      : [];
+    const live = season.status === "downloading";
+    const eta = live && season.eta != null ? formatEta(season.eta) : null;
+    const speed = live ? formatSpeed(season.dlspeed) : null;
     return {
       value: season.key,
       label,
       detailText: hasDownloads ? [
         `${pct}%`,
-        ...liveRows,
+        eta,
+        speed,
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean).join(" · ") : "Looking",
       detail: hasDownloads ? (
-        <span className="flex w-40 flex-col items-start gap-0.5 text-[12px] tabular-nums">
+        <span className="flex w-36 flex-col items-start gap-0.5 text-[12px] tabular-nums">
           <span className="absolute top-1.5 right-3 font-medium text-primary">{pct}%</span>
-          {liveRows.length > 0 ? (
+          {live ? (
             <span className="flex w-full justify-between gap-2 text-muted-foreground">
-              {liveRows.map((row) => <span key={row} className="truncate" title={row}>{row}</span>)}
+              {eta ? <span className="max-w-1/2 min-w-0 truncate" title={eta}>{eta}</span> : <span />}
+              <span className="shrink-0">{speed}</span>
             </span>
           ) : null}
           {failed > 0 ? (
@@ -96,7 +97,7 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
             </span>
           ) : null}
         </span>
-      ) : <span className="text-[12px] text-muted-foreground">Looking</span>,
+      ) : <span className="w-36 text-[12px] text-muted-foreground">Looking</span>,
     };
   });
 }
