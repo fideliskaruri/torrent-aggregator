@@ -83,21 +83,22 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean).join(" · ") : "Looking",
       detail: hasDownloads ? (
-        <span className="flex w-36 flex-col items-start gap-0.5 text-[12px] tabular-nums">
-          <span className="absolute top-1.5 right-3 font-medium text-primary">{pct}%</span>
-          {live ? (
-            <span className="flex w-full justify-between gap-2 text-muted-foreground">
-              {eta ? <span className="max-w-1/2 min-w-0 truncate" title={eta}>{eta}</span> : <span />}
-              <span className="shrink-0">{speed}</span>
-            </span>
-          ) : null}
-          {failed > 0 ? (
-            <span className="whitespace-nowrap text-destructive" data-season-tab-failed={failed}>
-              {failed} failed
-            </span>
-          ) : null}
+        <span className="w-36 text-[12px] tabular-nums">
+          <span className="absolute top-1.5 right-3 flex items-center gap-1.5 font-medium">
+            {failed > 0 ? (
+              <span className="whitespace-nowrap text-destructive" data-season-tab-failed={failed}>
+                {failed} failed
+              </span>
+            ) : null}
+            <span className="text-primary">{pct}%</span>
+          </span>
+          {/* Always reserve the second line so every tab is the same height. */}
+          <span className="flex h-4 w-full justify-between gap-2 leading-4 text-muted-foreground">
+            {live && eta ? <span className="max-w-1/2 min-w-0 truncate" title={eta}>{eta}</span> : <span />}
+            {live ? <span className="shrink-0">{speed}</span> : null}
+          </span>
         </span>
-      ) : <span className="w-36 text-[12px] text-muted-foreground">Looking</span>,
+      ) : <span className="block h-4 w-36 text-[12px] leading-4 text-muted-foreground">Looking</span>,
     };
   });
 }
