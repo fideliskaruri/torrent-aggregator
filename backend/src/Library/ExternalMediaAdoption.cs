@@ -10,7 +10,7 @@ public sealed record ExternalAdoptionBatch(int Imported, int Paused, int Skipped
     ImmutableArray<string> Errors);
 public sealed record ExternalIdentityPick(int FileIndex, string WorkId, string? EpisodeId);
 
-public sealed class ExternalMediaAdoption(MediaImport importer, ILibraryRepository inventory)
+public sealed partial class ExternalMediaAdoption(MediaImport importer, ILibraryRepository inventory)
 {
     public const string ReviewPrefix = "adoption:external:";
     private static readonly SemaphoreSlim ImportGate = new(1, 1);
@@ -27,7 +27,7 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ILibraryReposito
             var scan = await get(id, ct);
             if (scan is null)
             {
-                await importer.ScanFilesAsync(id, MediaImport.ValidateFolder(source.SavePath),
+                await importer.ScanFilesAsync(id, ScanRoot(source.SavePath, source.Files),
                     source.Files, update => scan = update, ct);
                 await save(scan!, ct);
             }
@@ -40,6 +40,18 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ILibraryReposito
         }
         finally { ImportGate.Release(); }
     }
+
+    // Files saved straight into a folder like "Sintel (2010)" need that folder's name as title evidence.
+    private static string ScanRoot(string folder, ImmutableArray<string> files)
+    {
+        var root = MediaImport.ValidateFolder(folder);
+        var titled = TitledFolder().IsMatch(Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)));
+        return titled && files.All(f => string.Equals(Path.GetDirectoryName(Path.GetFullPath(f)), root, StringComparison.OrdinalIgnoreCase))
+            && Path.GetDirectoryName(root) is { } parent ? parent : root;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(19|20)\d{2}\b|\bS\d{1,2}\b|season", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex TitledFolder();
 
     public async Task<bool> AlreadyOwnedAsync(ImmutableArray<string> paths, CancellationToken ct)
     {
@@ -105,7 +117,7 @@ public sealed class ExternalMediaAdoption(MediaImport importer, ILibraryReposito
         var scan = await get(id, ct);
         if (scan is null)
         {
-            await importer.ScanFilesAsync(id, MediaImport.ValidateFolder(folder), paths, update => scan = update, ct);
+            await importer.ScanFilesAsync(id, ScanRoot(folder, paths), paths, update => scan = update, ct);
             await save(scan!, ct);
         }
         var before = await inventory.MediaAsync(null, ct);

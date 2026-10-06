@@ -1,5 +1,7 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
-import { FolderSearch } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { FolderOpen, FolderSearch } from "lucide-react";
+import { useSearchParams } from "react-router";
+import { FolderPicker } from "@/components/settings/folder-picker";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -13,6 +15,7 @@ import {
   type ImportItem,
   type ImportResultItem,
   type ImportScan,
+  type ImportScanSummary,
 } from "@/lib/library/import";
 import {
   type CandidatePick,
@@ -47,7 +50,10 @@ function choice(item: ImportItem, index: number): Pick {
 /** Pick a folder, scan it, review the matches and import with one mode. Nothing changes before confirm. */
 export function FolderImport() {
   const pathId = useId();
-  const [path, setPath] = useState("");
+  const [params] = useSearchParams();
+  const [path, setPath] = useState(() => params.get("path") ?? "");
+  const [browsing, setBrowsing] = useState(false);
+  const autoStarted = useRef(false);
   const [pathError, setPathError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
@@ -59,6 +65,25 @@ export function FolderImport() {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResultItem[] | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState<ImportScanSummary[]>([]);
+
+  useEffect(() => {
+    if (scanId) return;
+    let cancelled = false;
+    libraryRequest<{ scans: ImportScanSummary[] }>("GET", "/api/library/imports")
+      .then((answer) => { if (!cancelled) setWaiting(answer.scans.filter((s) => s.state === "complete" && s.pending > 0)); })
+      .catch(() => { if (!cancelled) setWaiting([]); });
+    return () => { cancelled = true; };
+  }, [scanId]);
+
+  function openScan(id: string, folder: string) {
+    setPath(folder);
+    setScan(null);
+    setResult(null);
+    setPicks({});
+    setPollError(null);
+    setScanId(id);
+  }
 
   const finished = scan?.state === "complete" || scan?.state === "failed";
   useEffect(() => {
@@ -83,13 +108,26 @@ export function FolderImport() {
     };
   }, [scanId, finished, pollKey]);
 
-  async function start(event: FormEvent) {
+  useEffect(() => {
+    const initial = params.get("path");
+    if (!initial || autoStarted.current) return;
+    autoStarted.current = true;
+    void scanFolder(initial);
+    // Only the path the page opened with starts a scan by itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function start(event: FormEvent) {
     event.preventDefault();
-    if (!path.trim()) return setPathError("Type the full path of the folder to import, for example E:\\Old movies.");
+    void scanFolder(path);
+  }
+
+  async function scanFolder(folder: string) {
+    if (!folder.trim()) return setPathError("Choose a folder to import.");
     setStarting(true);
     setPathError(null);
     try {
-      const accepted = await libraryRequest<{ scanId: string }>("POST", "/api/library/imports/scan", { path: path.trim() });
+      const accepted = await libraryRequest<{ scanId: string }>("POST", "/api/library/imports/scan", { path: folder.trim() });
       setScan(null);
       setResult(null);
       setScanId(accepted.scanId);
@@ -142,12 +180,42 @@ export function FolderImport() {
             aria-invalid={pathError !== null} aria-describedby={pathError ? `${pathId}-error` : undefined}
             onChange={(event) => setPath(event.target.value)} className="font-mono max-md:min-h-11 pointer-coarse:min-h-11" />
         </FormField>
+        <Button type="button" variant="secondary" size="sm" disabled={starting || (scanId !== null && !finished)}
+          onClick={() => setBrowsing(true)} data-import-browse>
+          <FolderOpen aria-hidden />
+          Browse
+        </Button>
         <Button type="submit" size="sm" disabled={starting || (scanId !== null && !finished)}>
           {starting ? <LoadingGlyph className="size-3.5" /> : <FolderSearch aria-hidden />}
           Scan folder
         </Button>
       </form>
       {pathError ? <p id={`${pathId}-error`} role="alert" className="text-xs text-destructive">{pathError}</p> : null}
+      <FolderPicker open={browsing} initialPath={path.trim()} title="Choose a folder to import"
+        onClose={() => setBrowsing(false)}
+        onSelect={(folder) => { setBrowsing(false); setPath(folder); void scanFolder(folder); }} />
+
+      {!scanId && waiting.length > 0 ? (
+        <section className="space-y-2" aria-labelledby={`${pathId}-waiting`} data-import-waiting>
+          <h3 id={`${pathId}-waiting`} className="text-[13px] font-medium text-foreground">Waiting for you</h3>
+          <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+            {waiting.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 p-3">
+                <span className="min-w-0">
+                  {item.title ? <span className="block truncate text-sm text-foreground" title={item.title}>{item.title}</span> : null}
+                  <span className={`block truncate font-mono text-xs ${item.title ? "text-subtle-foreground" : "text-foreground"}`} title={item.path}>{item.path}</span>
+                  <span className="block text-xs text-subtle-foreground">
+                    {item.pending} {item.pending === 1 ? "video needs" : "videos need"} a title before import
+                  </span>
+                </span>
+                <Button type="button" variant="secondary" size="sm" onClick={() => openScan(item.id, item.path)} data-import-waiting-open={item.id}>
+                  Review
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {pollError && !scan ? (
         <TfErrorState title="Could not follow the scan" message={pollError} onRetry={() => setPollKey((k) => k + 1)} />
@@ -167,7 +235,7 @@ export function FolderImport() {
       ) : null}
 
       {scan?.state === "failed" ? (
-        <TfErrorState title="The scan stopped" message={scan.error ?? "Scan the folder again."} onRetry={() => void start({ preventDefault() {} } as FormEvent)} />
+        <TfErrorState title="The scan stopped" message={scan.error ?? "Scan the folder again."} onRetry={() => void scanFolder(path)} />
       ) : null}
 
       {scan?.state === "complete" && scan.items.length === 0 ? (

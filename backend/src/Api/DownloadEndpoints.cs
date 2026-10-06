@@ -80,7 +80,8 @@ internal static class DownloadEndpoints
         group.MapGet("/settings/download-recovery/sources", async (IConfiguration configuration,
             MediaImport importer, ImportReviewRepository reviews, ILibraryRepository inventory, CancellationToken ct) =>
         {
-            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
+            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
+                OldAppDownloads.Read(configuration));
             var adoption = new ExternalMediaAdoption(importer, inventory);
             var candidates = new List<object>();
             foreach (var row in scan.Candidates)
@@ -98,7 +99,8 @@ internal static class DownloadEndpoints
                 return Results.BadRequest(new { error = "Select between 1 and 500 torrents to import." });
             if (input.Ids.Length == 0)
                 return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
-            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct);
+            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
+                OldAppDownloads.Read(configuration));
             var adoption = new ExternalMediaAdoption(importer, inventory);
             var unfinished = scan.Candidates.Where(c => !c.Complete && input.Ids.Contains(c.Id)).ToArray();
             var result = await adoption.ImportAsync(input.Ids.Where(id => unfinished.All(c => c.Id != id)),

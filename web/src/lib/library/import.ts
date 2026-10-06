@@ -31,6 +31,15 @@ export interface ImportScan {
   error: string | null;
 }
 
+export interface ImportScanSummary {
+  id: string;
+  path: string;
+  state: ImportScan["state"];
+  error: string | null;
+  pending: number;
+  title: string | null;
+}
+
 export interface ImportResultItem {
   itemId: string;
   imported: boolean;

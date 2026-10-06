@@ -13,13 +13,15 @@ public sealed record ExternalDownloadCandidate(string Id, string Source, string 
     [property: JsonIgnore] byte[] TorrentBytes);
 public sealed record ExternalDownloadScan(ImmutableArray<ExternalDownloadCandidate> Candidates,
     ImmutableArray<string> Warnings);
+// A transfer from the pre-rebuild TorrentFlow, read from its set-aside database.
+public sealed record OldAppTorrent(string Hash, string Name, string? SavePath, string EngineDirectory);
 
 // A foreign-client disk format adapter, not an Engine admission or identity resolver.
 public sealed class ExternalDownloadScanner
 {
     private const int MaxBytes = 32 * 1024 * 1024;
 
-    public ExternalDownloadScan Scan(string? scanRoot, CancellationToken ct)
+    public ExternalDownloadScan Scan(string? scanRoot, CancellationToken ct, IReadOnlyList<OldAppTorrent>? oldApp = null)
     {
         var root = string.IsNullOrWhiteSpace(scanRoot)
             ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : Path.GetFullPath(scanRoot);
@@ -70,55 +72,13 @@ public sealed class ExternalDownloadScanner
                                 hash = text.Span.Length == 20 ? Convert.ToHexString(text.Span) : text.Text;
                         if (!metadata.TryGetValue(hash, out var entry))
                             throw new IOException("Torrent metadata is unavailable. Export the torrent from the original client and scan again.");
-                        var torrent = entry.Torrent;
                         var save = new[] { "save_path", "qBt-savePath", "save-path", "destination", "download-dir", "path" }
                             .Select(k => resume.TryGetValue(k, out var v) && v is BEncodedString s ? s.Text : null)
                             .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
-                        if (save is null || !Path.IsPathFullyQualified(save))
-                            throw new IOException("The original absolute save folder is unavailable.");
-                        save = Path.GetFullPath(save);
-                        NoLinks(save);
-                        string Bind(string relative)
-                        {
-                            relative = relative.Replace('/', Path.DirectorySeparatorChar);
-                            if (Path.IsPathRooted(relative) || relative.Split(Path.DirectorySeparatorChar)
-                                .Any(s => s is "." or ".." || s.Contains(':')))
-                                throw new IOException("A torrent file escapes its original save folder.");
-                            var path = Path.GetFullPath(Path.Combine(save, relative));
-                            if (!path.StartsWith(Path.TrimEndingDirectorySeparator(save) + Path.DirectorySeparatorChar,
-                                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-                                throw new IOException("A torrent file escapes its original save folder.");
-                            NoLinks(path);
-                            return path;
-                        }
-                        static string Existing(string p) => File.Exists(p) ? p :
-                            new[] { ".!qB", ".part", ".!ut" }.Select(s => p + s).FirstOrDefault(File.Exists) ?? p;
-                        var flat = torrent.Files.Select(f => Bind(f.Path)).ToArray();
-                        var nested = torrent.Files.Select(f => Bind(Path.Combine(torrent.Name, f.Path))).ToArray();
-                        var flatFound = flat.Any(p => File.Exists(Existing(p)));
-                        var nestedFound = nested.Any(p => File.Exists(Existing(p)));
-                        if (flatFound && nestedFound && !flat.SequenceEqual(nested))
-                            throw new IOException("Both payload layouts exist. Choose one in the original client before importing.");
-                        var paths = nestedFound && torrent.Files.Count > 1 ? nested : flat;
-                        if (resume.TryGetValue("mapped_files", out var mapped) && mapped is BEncodedList list)
-                            for (var i = 0; i < Math.Min(list.Count, paths.Length); i++)
-                                if (list[i] is BEncodedString name && !string.IsNullOrWhiteSpace(name.Text))
-                                {
-                                    var renamed = Bind(name.Text);
-                                    if (renamed != paths[i] && File.Exists(paths[i]))
-                                        throw new IOException("Both original and renamed payloads exist.");
-                                    paths[i] = renamed;
-                                }
-                        paths = paths.Select(Existing).ToArray();
-                        foreach (var path in paths) NoLinks(path);
-                        var complete = paths.Zip(torrent.Files).All(p => File.Exists(p.First) &&
-                            new FileInfo(p.First).Length == p.Second.Length && Path.GetExtension(p.First) is not ".!qB" and not ".part" and not ".!ut");
-                        hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
-                        var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                            $"{source}\n{hash}\n{save}\n{nestedFound && torrent.Files.Count > 1}"))).ToLowerInvariant();
-                        rows.Add(new(id, source, hash, torrent.Name, torrent.Size, save,
-                            paths.Any(p => File.Exists(p) && new FileInfo(p).Length > 0), complete, [.. paths], entry.Bytes));
-                        used.Add(hash);
+                        var mapped = resume.TryGetValue("mapped_files", out var m) && m is BEncodedList list
+                            ? list.Select(v => v is BEncodedString s ? s.Text : null).ToArray() : [];
+                        rows.Add(Candidate(source, entry.Torrent, entry.Bytes, save, mapped));
+                        used.Add(entry.Torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant());
                     });
                 }
                 foreach (var (hash, entry) in metadata)
@@ -126,7 +86,70 @@ public sealed class ExternalDownloadScanner
                         warnings.Add($"{source}: {entry.Torrent.Name} has metadata but no readable original save path; not offered for import.");
             });
         }
+        foreach (var row in oldApp ?? [])
+        {
+            ct.ThrowIfCancellationRequested();
+            Guard(OldAppSource, () =>
+            {
+                var file = new[] { Path.Combine(row.EngineDirectory, "torrents", row.Hash.ToLowerInvariant() + ".torrent"),
+                        Path.Combine(row.EngineDirectory, "metadata", row.Hash.ToUpperInvariant() + ".torrent") }
+                    .FirstOrDefault(File.Exists)
+                    ?? throw new IOException($"{row.Name} never finished fetching its torrent details, so it can't be brought back. Search for it again.");
+                var bytes = Read(file);
+                rows.Add(Candidate(OldAppSource, Torrent.Load(bytes), bytes, row.SavePath, []));
+            });
+        }
         return new([.. rows.DistinctBy(r => r.Id)], warnings.ToImmutable());
+    }
+
+    public const string OldAppSource = "Old TorrentFlow";
+
+    private static ExternalDownloadCandidate Candidate(string source, Torrent torrent, byte[] bytes, string? save,
+        IReadOnlyList<string?> mapped)
+    {
+        if (save is null || !Path.IsPathFullyQualified(save))
+            throw new IOException("The original absolute save folder is unavailable.");
+        save = Path.GetFullPath(save);
+        NoLinks(save);
+        string Bind(string relative)
+        {
+            relative = relative.Replace('/', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(relative) || relative.Split(Path.DirectorySeparatorChar)
+                .Any(s => s is "." or ".." || s.Contains(':')))
+                throw new IOException("A torrent file escapes its original save folder.");
+            var path = Path.GetFullPath(Path.Combine(save, relative));
+            if (!path.StartsWith(Path.TrimEndingDirectorySeparator(save) + Path.DirectorySeparatorChar,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                throw new IOException("A torrent file escapes its original save folder.");
+            NoLinks(path);
+            return path;
+        }
+        static string Existing(string p) => File.Exists(p) ? p :
+            new[] { ".!qB", ".part", ".!ut" }.Select(s => p + s).FirstOrDefault(File.Exists) ?? p;
+        var flat = torrent.Files.Select(f => Bind(f.Path)).ToArray();
+        var nested = torrent.Files.Select(f => Bind(Path.Combine(torrent.Name, f.Path))).ToArray();
+        var flatFound = flat.Any(p => File.Exists(Existing(p)));
+        var nestedFound = nested.Any(p => File.Exists(Existing(p)));
+        if (flatFound && nestedFound && !flat.SequenceEqual(nested))
+            throw new IOException("Both payload layouts exist. Choose one in the original client before importing.");
+        var paths = nestedFound && torrent.Files.Count > 1 ? nested : flat;
+        for (var i = 0; i < Math.Min(mapped.Count, paths.Length); i++)
+            if (mapped[i] is { } name && !string.IsNullOrWhiteSpace(name))
+            {
+                var renamed = Bind(name);
+                if (renamed != paths[i] && File.Exists(paths[i]))
+                    throw new IOException("Both original and renamed payloads exist.");
+                paths[i] = renamed;
+            }
+        paths = paths.Select(Existing).ToArray();
+        foreach (var path in paths) NoLinks(path);
+        var complete = paths.Zip(torrent.Files).All(p => File.Exists(p.First) &&
+            new FileInfo(p.First).Length == p.Second.Length && Path.GetExtension(p.First) is not ".!qB" and not ".part" and not ".!ut");
+        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"{source}\n{hash}\n{save}\n{nestedFound && torrent.Files.Count > 1}"))).ToLowerInvariant();
+        return new(id, source, hash, torrent.Name, torrent.Size, save,
+            paths.Any(p => File.Exists(p) && new FileInfo(p).Length > 0), complete, [.. paths], bytes);
     }
 
     private static IEnumerable<string> Entries(string root, string pattern)

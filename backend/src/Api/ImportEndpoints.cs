@@ -34,7 +34,8 @@ internal static class ImportEndpoints
         group.MapGet("/imports", async (ImportReviewRepository reviews, CancellationToken ct) =>
             Results.Json(new { scans = (await reviews.ListAsync(ct)).Where(s => !s.Items.IsEmpty ||
                 s.State is "queued" or "scanning" or "failed").Select(s => new { s.Id, s.Path, s.State,
-                    s.Error, pending = s.Items.Length }) }, Json));
+                    s.Error, pending = s.Items.Length,
+                    title = s.Items.IsEmpty ? null : Path.GetFileName(s.Items[0].Path) }) }, Json));
         group.MapGet("/imports/{id}", async (string id, ImportJobs jobs, CancellationToken ct) =>
             await jobs.GetAsync(id, ct) is { } scan ? Results.Json(new
             {

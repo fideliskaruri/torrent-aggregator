@@ -1,6 +1,7 @@
 import { readJsonBody } from "@/lib/api-json";
 import { get, send } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -82,7 +83,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
 }) {
   const [initial] = useState(takePrefetched);
   const [info, setInfo] = useState<RecoveryInfo | null>(initial?.info ?? null);
-  const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
   const [error, setError] = useState(initial?.error ?? false);
   const [skipFirstFetch] = useState(() => ({ current: initial != null }));
   const [retry, setRetry] = useState(0);
@@ -158,7 +159,19 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
       toast.dismiss(pending);
       const summary = `Imported ${result.imported ?? 0}; paused ${result.paused ?? 0}; skipped ${result.skipped ?? 0}.`;
       if ((result.failed ?? 0) > 0 || (result.errors?.length ?? 0) > 0) {
-        toast.warning(`${summary} ${result.failed ?? result.errors?.length ?? 0} could not be imported.`);
+        const errors = result.errors ?? [];
+        const waiting = errors.filter((e) => e.includes("confirm the matching title")).length;
+        const failed = Math.max((result.failed ?? errors.length) - waiting, 0);
+        const parts = [
+          waiting > 0 ? `${waiting} ${waiting === 1 ? "is" : "are"} waiting for you to pick a title.` : "",
+          failed > 0 ? `${failed} could not be imported.` : "",
+        ].filter(Boolean).join(" ");
+        if (waiting > 0) setSourceOpen(false);
+        toast.warning(`${summary} ${parts}`, {
+          description: failed > 0 ? errors.find((e) => !e.includes("confirm the matching title")) : undefined,
+          action: waiting > 0 ? { label: "Review in Import", onClick: () => navigate("/settings/library") } : undefined,
+          duration: waiting > 0 ? 20000 : undefined,
+        });
       } else {
         toast.success(`${summary} Other client data was left unchanged.`);
       }
@@ -172,20 +185,8 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     }
   }
 
-  async function importFiles() {
-    setBusy(true);
-    try {
-      const response = await send("/api/settings/download-recovery", { method: "POST" });
-      const result = ((await readJsonBody(response)) ?? {}) as { imported?: number; restoredTorrents?: number; failedTorrents?: number; error?: string };
-      if (!response.ok) throw new Error(result.error || "Import failed");
-      const message = `Imported ${result.imported ?? 0} local files; restored ${result.restoredTorrents ?? 0} torrents.`;
-      if (result.failedTorrents) toast.warning(`${message} ${result.failedTorrents} torrents could not start; check their error in Downloads.`);
-      else toast.success(`${message} Existing downloads were left unchanged.`);
-      onImported?.();
-      setRetry((value) => value + 1);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not import existing downloads");
-    } finally { setBusy(false); }
+  function importFiles() {
+    if (info?.downloadDirectory) navigate(`/settings/library?path=${encodeURIComponent(info.downloadDirectory)}`);
   }
 
   const groupedSources = useMemo(() => {
@@ -218,13 +219,12 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
       <p className="text-muted-foreground">
         {mode === "empty" && info.hasMedia ? "Media files already exist in your download folder. Recover them without downloading again."
           : mode === "empty" ? "Recover downloads already held by another torrent client, or scan your local folder for media."
-          : "Recover media already in the saved download folder. Files without torrent metadata are imported as completed, non-seeding downloads."}
+          : "Scan the saved download folder for films and episodes you already have and add them to your library."}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" disabled={busy || !info.downloadDirectory}
-          aria-label="Import existing downloads" data-import-downloads onClick={() => void importFiles()}>
-          {busy && <LoadingGlyph className="h-4 w-4" />}
-          {busy ? "Scanning and importing…" : "Import existing downloads"}
+        <Button type="button" variant="secondary" disabled={!info.downloadDirectory}
+          aria-label="Import existing downloads" data-import-downloads onClick={importFiles}>
+          Import existing downloads
         </Button>
         <Button type="button" variant="secondary" aria-label="Import from another torrent client"
           data-import-other-client onClick={openSourceImport}>
