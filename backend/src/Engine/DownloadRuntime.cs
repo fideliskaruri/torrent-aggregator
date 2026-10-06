@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using MonoTorrent.Client;
 using TorrentFlow.Domain;
 
@@ -42,9 +43,9 @@ public sealed partial class MonoTorrentEngine
     {
         var ordered = entries.Values.Where(e => !e.Probe && e.WantsRun && !e.Completed &&
                 (e.Bound || !MetadataReady(e.Manager)) &&
-                (!e.Bound || e.Manager.Files.Any(f => f.Priority != MonoTorrent.Priority.DoNotDownload)) &&
+                (!e.Bound || SelectedFiles(e).Length > 0) &&
                 e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
-                (!e.Bound || !SelectedComplete(e.Manager)) &&
+                (!e.Bound || !SelectedComplete(e)) &&
                 (!queueOrder.TryGetValue(e.Id, out var q) || q.Eligible))
             .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Priority ?? TargetPriority.BackCatalogue)
             .ThenBy(e => queueOrder.GetValueOrDefault(e.Id)?.Rank ?? 0)
@@ -58,23 +59,83 @@ public sealed partial class MonoTorrentEngine
         }).OrderBy(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Priority ?? TargetPriority.BackCatalogue)
             .ThenBy(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Rank ?? 0)
             .ThenBy(g => g.Owner.Id, StringComparer.Ordinal).ToArray();
-        var winners = slots.Where(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Now != true)
-            .Take(settings.MaxActiveDownloads)
-            .Concat(slots.Where(g => queueOrder.GetValueOrDefault(g.Owner.Id)?.Now == true))
-            .SelectMany(g => g.Entries)
-            .ToHashSet();
+        var winners = new HashSet<Entry>();
+        var releases = new Dictionary<Entry, HashSet<int>>();
+        var budget = settings.MaxActiveDownloads;
+        foreach (var slot in slots)
+        {
+            var now = queueOrder.GetValueOrDefault(slot.Owner.Id)?.Now == true;
+            if (!now && budget <= 0) continue;
+            foreach (var entry in slot.Entries) winners.Add(entry);
+
+            var groups = slot.Entries.Where(e => e.Bound && MetadataReady(e.Manager))
+                .ToDictionary(e => e, PendingGroups);
+            HashSet<int> ReleaseSet(Entry entry)
+            {
+                if (!releases.TryGetValue(entry, out var set)) releases[entry] = set = [];
+                return set;
+            }
+
+            if (now)
+            {
+                foreach (var entry in slot.Entries.Where(e => groups.ContainsKey(e)))
+                    foreach (var file in groups[entry].SelectMany(g => g.Indices))
+                        ReleaseSet(entry).Add(file);
+                continue;
+            }
+
+            foreach (var entry in groups.Keys)
+                foreach (var free in groups[entry].Where(group => group.Free))
+                    foreach (var file in free.Indices) ReleaseSet(entry).Add(file);
+
+            var paidGroups = groups.ToDictionary(pair => pair.Key,
+                pair => pair.Value.Where(group => !group.Free).ToArray());
+            foreach (var entry in slot.Entries)
+            {
+                if (!groups.ContainsKey(entry))
+                {
+                    budget--;
+                    continue;
+                }
+                if (paidGroups[entry].FirstOrDefault() is not { } first) continue;
+                foreach (var file in first.Indices) ReleaseSet(entry).Add(file);
+                budget--;
+            }
+
+            foreach (var entry in slot.Entries.Where(groups.ContainsKey))
+            {
+                foreach (var group in paidGroups[entry])
+                {
+                    if (group.Indices.All(ReleaseSet(entry).Contains)) continue;
+                    if (budget <= 0) break;
+                    foreach (var file in group.Indices) ReleaseSet(entry).Add(file);
+                    budget--;
+                }
+            }
+        }
         // Drain losers before starting winners: lowering a cap never transiently exceeds it.
         foreach (var entry in entries.Values.Where(e => !e.Probe && e.Run && !winners.Contains(e)))
         {
             log($"Queue stop {entry.Id}: wantsRun={entry.WantsRun}, complete={entry.Completed}, " +
                 $"eligible={queueOrder.GetValueOrDefault(entry.Id)?.Eligible}, " +
-                $"selected={entry.Manager.Files.Count(f => f.Priority != MonoTorrent.Priority.DoNotDownload)}, cap={settings.MaxActiveDownloads}.");
+                $"selected={SelectedFiles(entry).Length}, cap={settings.MaxActiveDownloads}.");
             await StopDownloadAsync(entry);
         }
-        foreach (var entry in ordered.Where(e => winners.Contains(e) && !e.Run))
+        foreach (var entry in ordered.Where(winners.Contains))
         {
+            if (entry.Bound && MetadataReady(entry.Manager))
+            {
+                try { await ApplyHoldsAsync(entry, releases.GetValueOrDefault(entry) ?? []); }
+                catch (Exception ex)
+                {
+                    log($"Applying download-slot holds failed for {entry.Id}: {ex.Message}");
+                    try { await ClearHoldsAsync(entry); }
+                    catch (Exception restore) { log($"Clearing download-slot holds failed for {entry.Id}: {restore.Message}"); }
+                }
+            }
+            if (entry.Run) continue;
             entry.ActiveSince = entry.ProgressSince = Stopwatch.GetTimestamp();
-            entry.ProgressBaseline = SelectedCompletedBytes(entry.Manager);
+            entry.ProgressBaseline = SelectedCompletedBytes(entry);
             entry.MetadataStalled = entry.ProgressStalled = false;
             if (!entry.Bound)
             {
@@ -99,9 +160,9 @@ public sealed partial class MonoTorrentEngine
 
     private static async Task HashCheckBindingsAsync(Entry entry)
     {
-        // MonoTorrent skips DoNotDownload files during a hash check. Include filed files
-        // for this read-only stopped check, then protect them again before payload starts.
-        foreach (var index in entry.Filed)
+        // MonoTorrent skips DoNotDownload files during a hash check. Include filed and
+        // held files for this read-only check, then protect them again before payload starts.
+        foreach (var index in entry.Filed.Concat(entry.Held).Distinct())
             await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.Normal);
         try
         {
@@ -110,7 +171,7 @@ public sealed partial class MonoTorrentEngine
         }
         finally
         {
-            foreach (var index in entry.Filed)
+            foreach (var index in entry.Filed.Concat(entry.Held).Distinct())
                 await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.DoNotDownload);
         }
     }
@@ -122,13 +183,12 @@ public sealed partial class MonoTorrentEngine
         entry.LastUploaded = current;
     }
 
-    private static long SelectedCompletedBytes(TorrentManager manager) => manager.HasMetadata
-        ? manager.Files.Where(f => f.Priority != MonoTorrent.Priority.DoNotDownload)
-            .Sum(f => CompletedFileBytes(manager, f)) : 0;
+    private static long SelectedCompletedBytes(Entry entry) => entry.Manager.HasMetadata
+        ? SelectedFiles(entry).Sum(i => CompletedFileBytes(entry.Manager, entry.Manager.Files[i])) : 0;
 
     private async Task ObserveDownloadAsync(Entry entry)
     {
-        if (entry.Bound && SelectedComplete(entry.Manager))
+        if (entry.Bound && SelectedComplete(entry))
         {
             await CompleteDownloadAsync(entry);
             return;
@@ -159,7 +219,7 @@ public sealed partial class MonoTorrentEngine
             return;
         }
         if (!entry.Bound) return;
-        var bytes = SelectedCompletedBytes(entry.Manager);
+        var bytes = SelectedCompletedBytes(entry);
         if (bytes - entry.ProgressBaseline >= settings.ProgressStallBytes)
         {
             entry.ProgressBaseline = bytes;
@@ -183,6 +243,100 @@ public sealed partial class MonoTorrentEngine
         entry.MetadataStalled = entry.ProgressStalled = false;
         await SaveResumeAsync(entry.Manager);
         await EmitAsync(entry, "completed");
+    }
+
+    private sealed record PendingFileGroup(int[] Indices, string Path, bool Free);
+
+    private static int[] SelectedFiles(Entry entry) => !entry.Manager.HasMetadata ? [] :
+        [.. entry.Manager.Files.Select((file, index) => (file, index))
+            .Where(item => item.file.Priority != MonoTorrent.Priority.DoNotDownload || entry.Held.Contains(item.index))
+            .Select(item => item.index)];
+
+    private static bool SelectedComplete(Entry entry)
+    {
+        var selected = SelectedFiles(entry);
+        return entry.Manager.HasMetadata && selected.Length > 0 &&
+            selected.All(index => entry.Manager.Files[index].BitField.AllTrue);
+    }
+
+    private static List<PendingFileGroup> PendingGroups(Entry entry)
+    {
+        var candidates = SelectedFiles(entry).Where(index => !entry.Manager.Files[index].BitField.AllTrue)
+            .Select(index => (Index: index, File: entry.Manager.Files[index]))
+            .ToArray();
+        var groups = candidates.GroupBy(item => EpisodeGroupKey(item.File.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var indices = group.Select(item => item.Index).ToArray();
+                var path = group.Select(item => item.File.FullPath)
+                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase).First();
+                return new PendingFileGroup(indices, path,
+                    indices.Length == 1 && group.Single().File.Length < 1024 * 1024);
+            })
+            .OrderBy(group => group.Indices.Any(index => !entry.Held.Contains(index) &&
+                entry.Manager.Files[index].Priority != MonoTorrent.Priority.DoNotDownload) ? 0 : 1)
+            .ThenBy(group => group.Path, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.Indices.Min())
+            .ToList();
+        return groups;
+    }
+
+    private static string EpisodeGroupKey(string torrentPath)
+    {
+        var normalized = torrentPath.Replace('\\', '/');
+        var separator = normalized.LastIndexOf('/');
+        var directory = separator < 0 ? string.Empty : normalized[..separator];
+        var name = separator < 0 ? normalized : normalized[(separator + 1)..];
+        var extension = Path.GetExtension(name);
+        var stem = Path.GetFileNameWithoutExtension(name);
+        if (extension.ToLowerInvariant() is ".srt" or ".ass" or ".ssa" or ".vtt" or ".sub" or ".idx")
+        {
+            var dot = stem.LastIndexOf('.');
+            if (dot > 0 && Regex.IsMatch(stem[(dot + 1)..], @"^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                stem = stem[..dot];
+        }
+        return directory + "/" + stem;
+    }
+
+    private static async Task ApplyHoldsAsync(Entry entry, ISet<int> released)
+    {
+        var selected = SelectedFiles(entry);
+        var incomplete = selected.Where(index => !entry.Manager.Files[index].BitField.AllTrue).ToArray();
+        var nextHeld = incomplete.Where(index => !released.Contains(index)).ToImmutableHashSet();
+        var oldHeld = entry.Held;
+
+        // Hold membership is part of selection, so publish it before lowering priorities.
+        entry.Held = oldHeld.Union(nextHeld);
+        foreach (var index in selected)
+        {
+            var priority = entry.Manager.Files[index].BitField.AllTrue || released.Contains(index)
+                ? MonoTorrent.Priority.Normal
+                : MonoTorrent.Priority.DoNotDownload;
+            if (entry.Manager.Files[index].Priority != priority)
+                await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], priority);
+        }
+        entry.Held = nextHeld;
+        PhysicalFiles.PrepareBoundaries(entry.Manager);
+        if (!oldHeld.SetEquals(nextHeld))
+        {
+            entry.ProgressSince = Stopwatch.GetTimestamp();
+            entry.ProgressBaseline = SelectedCompletedBytes(entry);
+            entry.ProgressStalled = false;
+        }
+    }
+
+    private static async Task ClearHoldsAsync(Entry entry)
+    {
+        var held = entry.Held;
+        try
+        {
+            foreach (var index in held)
+                if (index >= 0 && index < entry.Manager.Files.Count &&
+                    entry.Manager.Files[index].Priority != MonoTorrent.Priority.Normal)
+                    await entry.Manager.SetFilePriorityAsync(entry.Manager.Files[index], MonoTorrent.Priority.Normal);
+        }
+        finally { entry.Held = ImmutableHashSet<int>.Empty; }
     }
 
     private async Task EmitAsync(Entry entry, string kind)

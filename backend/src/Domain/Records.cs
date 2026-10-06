@@ -640,7 +640,7 @@ public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, Immutab
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,
     ImmutableArray<string> UncoveredTargetIds);
 public sealed record EngineFileSnapshot(int Index, long Bytes, long CompletedBytes, long AllocatedBytes,
-    bool Selected, string? PhysicalPath, bool AllTouchingPiecesComplete);
+    bool Selected, string? PhysicalPath, bool AllTouchingPiecesComplete, bool Held = false);
 public sealed record EngineSnapshot(string DownloadId, string Hash, bool MetadataAvailable,
     bool Attached, bool Complete, bool StalledMetadata, bool StalledProgress,
     long SelectedBytes, long CompletedSelectedBytes, long BytesPerSecond, int Peers, int Seeders,

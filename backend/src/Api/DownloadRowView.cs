@@ -45,6 +45,17 @@ internal static class DownloadRowView
         return new(status, label);
     }
 
+    internal static DownloadRowStatus? HeldStatus(string state, EngineSnapshot? live,
+        IEnumerable<(int Index, bool Filed)> files)
+    {
+        if (state is not ("downloading" or "stalledDL") || live is null) return null;
+        var pending = files.Where(file => !file.Filed).ToArray();
+        if (pending.Length == 0 || pending.Any(file =>
+                live.Files.FirstOrDefault(engineFile => engineFile.Index == file.Index)?.Held != true))
+            return null;
+        return new("queued", "Waiting for a download slot");
+    }
+
     internal static string MediaKind(WorkRow? work, ParsedRelease parsed) => work is not null
         ? work.Anime == true ? "anime" : work.Kind == WorkKind.Series ? "series" : "movie"
         : parsed.Seasons.Length > 0 || parsed.Episodes.Length > 0 || parsed.AbsoluteNumbers.Length > 0 ||
