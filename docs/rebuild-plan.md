@@ -216,16 +216,10 @@ Goal: the web app runs on the new server for everything that doesn't download.
 looks right.
 
 ## Phase 7: Switchover
-- **7.1 Converter (Sol medium):**
-  - Back up first.
-  - The conversion is idempotent.
-  - `.staging` payloads are hash-checked and moved into place.
-  - Orphan targets go back to wanted.
-- **7.2 Rehearsal (coordinator):** run the converter on a copy of 3930, then check that:
-  - everything is present;
-  - nothing already on disk downloads again.
-- **7.3 Live (coordinator, with the owner present):** stop 3930, back up, convert, and start the new server. The old
-  server and database stay untouched for rollback.
+- **7.1 Converter, 7.2 Rehearsal: dropped.** The owner chose a fresh start (data wiped), so the legacy converter was
+  deleted in phase 1 (`c5e7f05b`, code review S2). Existing files on disk are adopted by the library scan instead.
+- **7.3 Live (coordinator, with the owner present):** stop 3930, back up its database, and start the new server on
+  the owner's port. The old server and database stay untouched for rollback.
 - **7.4 Clean up (owner go, after a week of real use):** delete `server/` and the leftovers.
 
 **Gate:** the owner downloads a real series on the new server, and it lands in Jellyfin.
