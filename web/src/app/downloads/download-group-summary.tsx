@@ -52,7 +52,7 @@ export function DownloadGroupSummary({
             </Badge>
           ) : null}
           <span className="text-[12px] tabular-nums text-subtle-foreground">
-            {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
+            {group.releaseCount} {group.releaseCount === 1 ? "source" : "sources"}
             {" · "}{group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
             {group.sizeBytes > 0 ? ` · ${formatBytes(group.sizeBytes)}` : null}
           </span>

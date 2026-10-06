@@ -108,7 +108,7 @@ public sealed partial class TargetPipeline
                 var find = scope.ServiceProvider.GetRequiredService<TargetStore>();
                 var release = candidate.Release with { Name = input.Name, Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes) };
                 if (!await find.SaveAsync([new(release, null, null)], [], ct))
-                    throw new IOException("The release metadata could not be saved.");
+                    throw new IOException("The source metadata could not be saved.");
                 var fileWrites = await ((ILibraryPlacementProposalRepository)inventory).ProposeExternalPlacementAsync(
                     files, input.ReviewId, input.ReviewItemIds, ct)
                     ?? throw new IOException("The original file bindings are already reserved. Scan again.");

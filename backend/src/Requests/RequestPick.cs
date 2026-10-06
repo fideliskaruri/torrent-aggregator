@@ -13,7 +13,7 @@ public static class RequestPick
         var request = (await service.Read<RequestRow>(row => row.Id == id, ct)).SingleOrDefault()
             ?? throw new KeyNotFoundException("Request not found.");
         if (request.Decision != RequestDecision.Approved)
-            throw new ArgumentException("Approve this request before choosing a release.");
+            throw new ArgumentException("Approve this request before choosing a source.");
         var items = await service.Read<RequestItemRow>(row => row.RequestId == id, ct);
         if (!items.Any(i => i.TargetId == input.TargetId && i.Settlement == ItemSettlement.Open))
             throw new ArgumentException("Choose an unfinished item from this request.");

@@ -34,7 +34,7 @@ export default function RulesPage() {
           <main className="container-app min-w-0 max-w-3xl space-y-5 py-6 pb-24 sm:py-8">
             <TfPageHeader
               title="Auto-download rules"
-              description="Automatically grab matching video releases."
+              description="Automatically grab matching video sources."
               actions={
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="secondary" onClick={() => {

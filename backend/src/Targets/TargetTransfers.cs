@@ -22,7 +22,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (File.Exists(file.EnginePath)) File.Delete(file.EnginePath);
         }
         if (!await repository.RemoveDownloadFilesAsync(download.Id, ct))
-            throw new IOException("The previous release's files could not be cleaned. Trying again.");
+            throw new IOException("The previous source's files could not be cleaned. Trying again.");
         await TargetPipeline.CommitAsync(store, [], [.. links.Where(l => l.DownloadId == download.Id)
             .Select(l => new RowDelete(StoreTable.DownloadTarget, l.Id, null, l)),
             new(StoreTable.Download, download.Id, download.Version, null)], ct);
@@ -81,7 +81,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (!claim.Accepted)
             {
                 foreach (var target in targets) await change(target.Id, TargetState.Waiting,
-                    WaitReason.WaitingForSeeders, claim.Failure?.Message ?? "Waiting for the release to become available.");
+                    WaitReason.WaitingForSeeders, claim.Failure?.Message ?? "Waiting for the source to become available.");
                 return;
             }
             try

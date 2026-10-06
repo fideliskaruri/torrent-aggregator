@@ -115,7 +115,7 @@ export function ActivityContent() {
       <div className="min-w-0 space-y-5">
         <TfPageHeader
           title="Download log"
-          description="Releases successfully sent to a download client."
+          description="Sources successfully sent to a download client."
         />
         {content}
       </div>

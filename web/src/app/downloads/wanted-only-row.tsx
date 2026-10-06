@@ -44,7 +44,7 @@ export function WantedOnlyRow({ title, wanted }: { title: WantedTitle; wanted: W
             episode: primary.episode,
             onPicked: () => void wanted.reload(),
           })}
-          aria-label={`Pick a release for ${title.title}`} data-wanted-pick>
+          aria-label={`Pick a source for ${title.title}`} data-wanted-pick>
           <Search className="size-3.5" />
           Pick a release
         </Button>

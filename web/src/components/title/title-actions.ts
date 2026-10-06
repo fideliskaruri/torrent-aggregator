@@ -91,7 +91,7 @@ export function offersDownload(transfer: TitleEpisodeTransfer | null): boolean {
 }
 
 /** What a row waiting for an English release says (docs/release-language.md). */
-export const WAITING_FOR_ENGLISH_LABEL = "Waiting for an English release";
+export const WAITING_FOR_ENGLISH_LABEL = "Waiting for an English source";
 
 /** What an anime episode whose show season is not known yet says: nothing is searched or sent until it is. */
 export const WAITING_FOR_SEASON_LIST_LABEL = "Waiting for the show's season list";

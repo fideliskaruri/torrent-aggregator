@@ -103,7 +103,7 @@ export function RuleEditorDialog({
               <Input id="rule-seeders" inputMode="numeric" value={form.minSeeders} onChange={(e) =>
                 setForm((current) => ({ ...current, minSeeders: e.target.value }))} />
             </FormField>
-            <FormField label="Skip releases larger than" htmlFor="rule-max-size">
+            <FormField label="Skip sources larger than" htmlFor="rule-max-size">
               <div className="flex items-center gap-2">
                 <Input id="rule-max-size" inputMode="decimal" value={form.maxSizeGb} placeholder="Any size"
                   onChange={(e) => setForm((current) => ({ ...current, maxSizeGb: e.target.value }))} />

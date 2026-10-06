@@ -23,23 +23,23 @@ public sealed partial class ReleasePlanner : IPlan
             void Refuse(string code, string text, string? target = null) =>
                 rejections.Add(new(release.Id, target, code, text));
             if (release.Id.Length != 40 || release.Id.Any(c => !char.IsAsciiHexDigit(c)))
-            { Refuse("invalid_hash", "This release has no valid torrent hash."); continue; }
+            { Refuse("invalid_hash", "This source has no valid torrent hash."); continue; }
             if (!raw && (input.Work is null || !Identity(parsed.Title, input.Work)))
-            { Refuse("wrong_work", "The release name does not match this title's catalog names."); continue; }
+            { Refuse("wrong_work", "The source name does not match this title's catalog names."); continue; }
             if (!raw && input.Work!.Work.Kind == WorkKind.Film &&
                 (parsed.Kind != ReleaseKind.Movie || parsed.Pack || !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty))
-            { Refuse("wrong_kind", "This is not a single film release."); continue; }
+            { Refuse("wrong_kind", "This is not a single-film source."); continue; }
             if (!raw && input.Work!.Work.Kind == WorkKind.Film &&
                 parsed.Year is { } year && input.Work.Work.Year is { } expected && year != expected)
             {
-                Refuse("wrong_year", $"The release year is {year}; this film was released in {expected}.");
+                Refuse("wrong_year", $"The source is from {year}; this film was released in {expected}.");
                 var knownFiles = release.Files;
                 if (knownFiles is { } list && FileEligibility.Safety(list, false) is { } fileProblem)
                     Refuse(fileProblem.Code, fileProblem.Text);
                 continue;
             }
             if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other && !raw)
-            { Refuse("junk_release", "This release is a sample, camera recording, or non-feature release."); continue; }
+            { Refuse("junk_release", "This source is a sample, camera recording, or non-feature video."); continue; }
             if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(input))))
             {
                 foreach (var target in targets)
@@ -49,21 +49,21 @@ public sealed partial class ReleasePlanner : IPlan
             }
             var files = release.Files;
             if (files is null || files.Value.IsDefaultOrEmpty)
-            { Refuse("metadata_required", "A complete file list is needed before selecting this release."); continue; }
+            { Refuse("metadata_required", "A complete file list is needed before selecting this source."); continue; }
             var pack = parsed.Pack || parsed.Kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries;
             var safety = FileEligibility.Safety(files.Value, pack);
             if (safety is { } problem) { Refuse(problem.Code, problem.Text); continue; }
             if (input.Blocks.Any(b => b.Hash.Equals(release.Id, StringComparison.OrdinalIgnoreCase) &&
                 (b.WorkKey is null || b.WorkKey == input.Work?.Work.WorkKey) && (b.Until is null || b.Until > input.Now)))
-            { Refuse("blocked_hash", "This release is blocked for this title or for every title."); continue; }
+            { Refuse("blocked_hash", "This source is blocked for this title or for every title."); continue; }
             var metadata = input.FileMetadata.FirstOrDefault(m => m.Hash.Equals(release.Id, StringComparison.OrdinalIgnoreCase));
             var videos = files.Value.Where(f => FileEligibility.IsVideo(f) && !FileEligibility.IsExtra(f)).ToArray();
             if (!raw && targets.Length == 0)
-            { Refuse("no_targets", "No catalog items were requested for this release."); continue; }
+            { Refuse("no_targets", "No catalog items were requested for this source."); continue; }
             if (raw)
             {
                 if (parsed.ClearlyForeign || parsed.Foreign == ForeignStatus.Yes)
-                { Refuse("foreign_language", "This release clearly identifies a foreign language."); continue; }
+                { Refuse("foreign_language", "This source clearly identifies a foreign language."); continue; }
                 var selected = input.OwnerSelectedFiles.IsDefaultOrEmpty ? videos.Select(f => f.Index).ToHashSet() :
                     input.OwnerSelectedFiles.ToHashSet();
                 if (selected.Any(i => !files.Value.Any(f => f.Index == i)) ||
@@ -87,10 +87,10 @@ public sealed partial class ReleasePlanner : IPlan
             foreach (var target in targets)
             {
                 if (target.PickedReleaseHash is { } picked && picked != release.Id)
-                { Refuse("owner_pick", "The owner chose a different release for this item.", target.Id); continue; }
+                { Refuse("owner_pick", "The owner chose a different source for this item.", target.Id); continue; }
                 if (target.MinListedSeeders is { } minimum &&
                     (candidate.TrustedSeeders ?? -1) < minimum)
-                { Refuse("minimum_seeders", "This release does not meet the rule's minimum seed count.", target.Id); continue; }
+                { Refuse("minimum_seeders", "This source does not meet the rule's minimum seed count.", target.Id); continue; }
                 if (target.WorkId != input.Work!.Work.Id)
                 { Refuse("wrong_target_work", "The target belongs to a different title.", target.Id); continue; }
                 var owned = input.Owned.Where(o => o.WorkId == target.WorkId && o.EpisodeId == target.EpisodeId)
@@ -109,7 +109,7 @@ public sealed partial class ReleasePlanner : IPlan
                 if (pack && (season is null || !Finished(input.Work, season, input.Now)))
                 { Refuse("season_unfinished", "A season pack is only selected when every episode has aired.", target.Id); continue; }
                 if (!pack && episode is not null && !Coordinates(parsed, episode, season!, input.Work))
-                { Refuse("wrong_episode", "The release numbers do not identify this exact episode.", target.Id); continue; }
+                { Refuse("wrong_episode", "The source numbers do not identify this exact episode.", target.Id); continue; }
                 if (!pack && episode is not null && metadata is not null && videos.Any(v =>
                     metadata.ParsedFiles.TryGetValue(v.Index, out var fp) &&
                     (!fp.Seasons.IsEmpty || !fp.Episodes.IsEmpty || !fp.AbsoluteNumbers.IsEmpty || !fp.Ranges.IsEmpty) &&

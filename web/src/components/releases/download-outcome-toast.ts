@@ -18,7 +18,7 @@ export interface DownloadOutcomeRetry {
 /**
  * The one toast for how a Download went: the title page (single grab and
  * season), the library's on-demand grab, and anything else that sends a
- * download. A miss can offer "Pick a release yourself" and a Retry; both
+ * download. A miss can offer "Pick a source yourself" and a Retry; both
  * keep the toast up until the owner acts. Retry owns the action slot (it keeps
  * the toast open), so the pick then sits in the cancel slot, which closes it.
  */
@@ -35,7 +35,7 @@ export function toastDownloadOutcome({
   description?: string;
   /** Reuse a toast, e.g. the season's "Retrying" toast. */
   id?: string;
-  /** Offers "Pick a release yourself" for this target. Null when the viewer can't download. */
+  /** Offers "Pick a source yourself" for this target. Null when the viewer can't download. */
   pick?: ReleasePickTarget | null;
   retry?: DownloadOutcomeRetry;
 }) {

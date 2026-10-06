@@ -71,7 +71,7 @@ public static class LibraryRemoval
         var summary = outcome == "deletes" ? $"Deletes {fileCount} files · {size} from {subject}." :
             outcome == "blocked" ? "These files also belong to other episodes or need a separate removal operation. They will be left in place." :
             $"No files held for {subject}. Nothing to delete.";
-        if (outcome == "deletes" && blocked.Count > 0) summary += $" {blocked.Count} releases will be left in place.";
+        if (outcome == "deletes" && blocked.Count > 0) summary += $" {blocked.Count} sources will be left in place.";
         return new(new(scope, outcome, fileCount, totalBytes, missing, releases.ToImmutable(), blocked.ToImmutable(), summary),
             items.ToImmutable(), unbound, activeIds);
     }

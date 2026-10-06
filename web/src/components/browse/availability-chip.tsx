@@ -25,7 +25,7 @@ function availabilityMeta(state: AvailabilityState | Unresolved): AvailabilityMe
       return {
         label: "Can get",
         tone: "secondary",
-        description: "Not on disk yet, but a viable release exists.",
+        description: "Not on disk yet, but a viable source exists.",
       };
     case "unavailable":
       return {

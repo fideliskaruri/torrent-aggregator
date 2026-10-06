@@ -1,7 +1,7 @@
 /**
  * One release offered for the owner to choose: its name, quality, seeders,
  * size, site, languages and why it is listed. "Find another source"
- * (Downloads and the title page) and "Pick a release yourself" (title,
+ * (Downloads and the title page) and "Pick a source yourself" (title,
  * requests, activity) render the same card.
  */
 import type { LiHTMLAttributes, ReactNode } from "react";
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatWhen } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ReleaseLanguages, type ReleaseLanguageInfo } from "./release-language";
 
@@ -32,6 +32,7 @@ export interface ReleaseCardData {
   quality?: number | null;
   source: string;
   why: string;
+  usedAt?: string | null;
   languages?: ReleaseLanguageInfo | null;
   blocked?: ReleaseBlockInfo | null;
 }
@@ -117,7 +118,7 @@ export function ReleaseCard({
     >
       {blocked ? (
         <Badge variant="danger" data-release-blocked-badge>
-          Blocked
+          Dropped
         </Badge>
       ) : (
         badge
@@ -132,12 +133,17 @@ export function ReleaseCard({
         source={release.source}
       />
       <ReleaseLanguages info={release.languages} />
+      {release.usedAt ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground" data-release-used-at>
+          Used {formatWhen(release.usedAt)}
+        </p>
+      ) : null}
       {blockedMessage ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground break-words" data-release-blocked-message>
           {blockedMessage}
         </p>
       ) : null}
-      {release.why ? (
+      {release.why && release.why !== blockedMessage ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground break-words" data-alternative-reason>
           {release.why}
         </p>
@@ -159,4 +165,3 @@ export function ReleaseCard({
     </li>
   );
 }
-

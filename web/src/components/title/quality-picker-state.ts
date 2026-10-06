@@ -11,7 +11,7 @@ export const QUALITY_CHOICES = [
   {
     value: 480,
     label: "480p",
-    hint: "Minimum 480p. Releases without a stated quality are skipped.",
+    hint: "Minimum 480p. Sources without a stated quality are skipped.",
   },
   {
     value: 720,
@@ -21,7 +21,7 @@ export const QUALITY_CHOICES = [
   {
     value: 1080,
     label: "1080p",
-    hint: "Minimum 1080p. Uses 4K only when no eligible 1080p release exists.",
+    hint: "Minimum 1080p. Uses 4K only when no eligible 1080p source exists.",
   },
   {
     value: 2160,

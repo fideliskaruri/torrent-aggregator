@@ -55,7 +55,7 @@ export function WatchlistDeleteFiles({ item, onDeleted }: { item: WatchlistItem;
         confirm: true,
       });
       if (!response.ok || !response.data?.ok) throw response.error;
-      toast.success(response.data.freedFiles ? `Deleted ${response.data.freedFiles} files` : "Removed the release record");
+      toast.success(response.data.freedFiles ? `Deleted ${response.data.freedFiles} files` : "Removed the source record");
       setOpen(false);
       onDeleted();
     } catch {

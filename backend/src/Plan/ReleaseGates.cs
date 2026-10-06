@@ -66,24 +66,24 @@ public sealed partial class ReleasePlanner
         var release = candidate.Release;
         var parsed = release.Parsed;
         if (release.Id.Length != 40 || release.Id.Any(c => !char.IsAsciiHexDigit(c)))
-            return new(release.Id, null, "invalid_hash", "This release has no valid torrent hash.");
+            return new(release.Id, null, "invalid_hash", "This source has no valid torrent hash.");
         if (input.Mode == AcquisitionMode.ExplicitRaw)
             return parsed.ClearlyForeign || parsed.Foreign == ForeignStatus.Yes
-                ? new(release.Id, null, "foreign_language", "This release clearly identifies a foreign language.")
+                ? new(release.Id, null, "foreign_language", "This source clearly identifies a foreign language.")
                 : null;
         if (input.Work is null || !Identity(parsed.Title, input.Work))
-            return new(release.Id, null, "wrong_work", "The release name does not match this title's catalog names.");
+            return new(release.Id, null, "wrong_work", "The source name does not match this title's catalog names.");
         if (input.Work.Work.Kind == WorkKind.Film && (parsed.Kind != ReleaseKind.Movie || parsed.Pack ||
             !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty))
-            return new(release.Id, null, "wrong_kind", "This is not a single film release.");
+            return new(release.Id, null, "wrong_kind", "This is not a single-film source.");
         if (input.Work.Work.Kind == WorkKind.Film && parsed.Year is { } year &&
             input.Work.Work.Year is { } expected && year != expected)
-            return new(release.Id, null, "wrong_year", $"The release year is {year}; this film was released in {expected}.");
+            return new(release.Id, null, "wrong_year", $"The source is from {year}; this film was released in {expected}.");
         if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other)
-            return new(release.Id, null, "junk_release", "This release is a sample, camera recording, or non-feature release.");
+            return new(release.Id, null, "junk_release", "This source is a sample, camera recording, or non-feature video.");
         if (input.Blocks.Any(b => b.Hash.Equals(release.Id, StringComparison.OrdinalIgnoreCase) &&
             (b.WorkKey is null || b.WorkKey == input.Work.Work.WorkKey) && (b.Until is null || b.Until > input.Now)))
-            return new(release.Id, null, "blocked_hash", "This release is blocked for this title or for every title.");
+            return new(release.Id, null, "blocked_hash", "This source is blocked for this title or for every title.");
         return null;
     }
 
@@ -92,9 +92,9 @@ public sealed partial class ReleasePlanner
         if (input.Work is null || target.WorkId != input.Work.Work.Id)
             return new(candidate.Release.Id, target.Id, "wrong_target_work", "The target belongs to a different title.");
         if (target.PickedReleaseHash is { } picked && picked != candidate.Release.Id)
-            return new(candidate.Release.Id, target.Id, "owner_pick", "The owner chose a different release for this item.");
+            return new(candidate.Release.Id, target.Id, "owner_pick", "The owner chose a different source for this item.");
         if (target.MinListedSeeders is { } minimum && (candidate.TrustedSeeders ?? -1) < minimum)
-            return new(candidate.Release.Id, target.Id, "minimum_seeders", "This release does not meet the rule's minimum seed count.");
+            return new(candidate.Release.Id, target.Id, "minimum_seeders", "This source does not meet the rule's minimum seed count.");
         if (target.State == TargetState.Removed || target.IsPaused() ||
             target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
             return new(candidate.Release.Id, target.Id, "inactive_target", "This item is not asking for a download.");
@@ -116,7 +116,7 @@ public sealed partial class ReleasePlanner
         if (pack && (season is null || !Finished(input.Work, season, input.Now)))
             return new(candidate.Release.Id, target.Id, "season_unfinished", "A season pack is only selected when every episode has aired.");
         if (!pack && episode is not null && !Coordinates(parsed, episode, season!, input.Work))
-            return new(candidate.Release.Id, target.Id, "wrong_episode", "The release numbers do not identify this exact episode.");
+            return new(candidate.Release.Id, target.Id, "wrong_episode", "The source numbers do not identify this exact episode.");
         var floor = target.ResolutionFloor ?? input.Preference?.ResolutionFloor;
         if (floor is not null && (parsed.Quality.Resolution is not { } resolution || resolution < floor))
             return new(candidate.Release.Id, target.Id, "quality_floor", $"This item requires at least {floor}p.");
@@ -236,8 +236,8 @@ public sealed partial class ReleasePlanner
         return markers.Contains(wanted) || markers.Contains("multi") || markers.Contains("dual");
     }
     private static string LanguageRejection(string desired) => Language(desired) == "en"
-        ? "This release explicitly identifies non-English audio. Choose an English, DUAL/MULTI, or unmarked release."
-        : "This release clearly identifies a different audio language. Choose a release in your selected language.";
+        ? "This source explicitly identifies non-English audio. Choose an English, DUAL/MULTI, or unmarked source."
+        : "This source clearly identifies a different audio language. Choose a source in your selected language.";
     private static string Language(string marker) => marker.Trim().ToLowerInvariant() switch
     {
         "english" or "eng" => "en", "russian" or "rus" or "lostfilm" => "ru",

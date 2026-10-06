@@ -39,15 +39,15 @@ internal static class FileEligibility
     internal static (string Code, string Text)? Safety(IReadOnlyList<TorrentFile> files, bool pack)
     {
         if (files.Any(f => Dangerous.Contains(Extension(f.RelativePath))))
-            return ("unsafe_program", "This release contains a program or script.");
+            return ("unsafe_program", "This source contains a program or script.");
         if (files.Any(f => f.Index < 0 || f.Bytes < 0 || f.Offset < 0 || f.Offset > long.MaxValue - f.Bytes) ||
             files.Select(f => f.Index).Distinct().Count() != files.Count)
-            return ("invalid_files", "The release has invalid file sizes or duplicate file indices.");
+            return ("invalid_files", "The source has invalid file sizes or duplicate file indices.");
         if (pack && files.Any(IsDisc)) return ("disc_image", "A season pack cannot contain disc images or disc folders.");
         if (pack && files.Any(IsArchive)) return ("pack_archive", "A season pack cannot contain archives.");
         if (!files.Any(IsVideo))
-            return files.Any(IsArchive) ? ("archive_only", "This release contains archives, not video files.") :
-                ("no_video", "This release contains no video files.");
+            return files.Any(IsArchive) ? ("archive_only", "This source contains archives, not video files.") :
+                ("no_video", "This source contains no video files.");
         return null;
     }
     internal static FileRole? SidecarRole(TorrentFile file) => Subtitles.Contains(Extension(file.RelativePath))

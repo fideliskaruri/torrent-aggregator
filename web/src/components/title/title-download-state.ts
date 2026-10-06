@@ -61,7 +61,7 @@ export function titleDownloadPresentation(target: {
       transfer.state === "looking" || transfer.state === "waiting_season_list"
         ? "Looking"
         : transfer.state === "waiting_english"
-          ? "Waiting for an English release"
+          ? "Waiting for an English source"
           : queuePosition != null
             ? `Queued #${queuePosition}`
             : "Queued";
@@ -76,7 +76,7 @@ export function titleDownloadPresentation(target: {
       onDisk,
       held,
       state: "looking",
-      label: transfer.state === "waiting_english" ? "Waiting for an English release" : "Looking",
+      label: transfer.state === "waiting_english" ? "Waiting for an English source" : "Looking",
       progress: null,
       queuePosition: null,
     };

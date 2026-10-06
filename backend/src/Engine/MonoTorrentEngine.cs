@@ -552,7 +552,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                 {
                     await RemoveManagerAsync(entry, true);
                     entries.Remove(hash);
-                    return Rejected("metadata_required", "The saved file list has no matching torrent information. Check this release again before downloading.");
+                    return Rejected("metadata_required", "The saved file list has no matching torrent information. Check this source again before downloading.");
                 }
             }
             await ReconcileQueueAsync();

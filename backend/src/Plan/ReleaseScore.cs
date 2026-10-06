@@ -36,7 +36,7 @@ public sealed partial class ReleasePlanner
         foreach (var option in options.Where(o => o.Target is null || !missing.Contains(o.Target.Id)))
             if (!picked.Contains(option))
                 rejections.Add(new(option.Candidate.Release.Id, option.Target?.Id,
-                    "lower_ranked", "Another eligible release has a better quality, seed count, or coverage fit."));
+                    "lower_ranked", "Another eligible source has a better quality, seed count, or coverage fit."));
         var assignments = picked.GroupBy(o => o.Candidate.Release.Id, StringComparer.OrdinalIgnoreCase).Select(g =>
         {
             var first = g.First();
@@ -52,7 +52,7 @@ public sealed partial class ReleasePlanner
         }).ToImmutableArray();
         foreach (var target in targets.Where(t => missing.Contains(t.Id)))
             rejections.Add(new("", target.Id, "uncovered_item",
-                "No eligible release was selected for this item. Review the release reasons or try again later."));
+                "No eligible source was selected for this item. Review the source reasons or try again later."));
         return new(assignments, [.. rejections], [.. targets.Where(t => missing.Contains(t.Id)).Select(t => t.Id)]);
 
         int Coverage(Option o, Option[] available) => available.Where(x => SameRank(o, x) &&

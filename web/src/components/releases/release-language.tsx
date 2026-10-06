@@ -50,11 +50,11 @@ const FIT_BADGES: Record<LanguageFit, { label: string; variant: "success" | "def
 };
 
 const BASIS_WORDS: Record<ReleaseLanguageInfo["basis"], string | null> = {
-  name: "From the release name",
+  name: "From the source name",
   category: "From the site's category",
   files: "From the file list",
   header: "Checked in the video",
-  group: "From the release group",
+  group: "From the source group",
   none: null,
 };
 
@@ -64,7 +64,7 @@ const CONFIDENCE_WORDS: Record<ReleaseLanguageInfo["confidence"], string> = {
   low: "low confidence",
 };
 
-/** Where the languages were read, in plain words: "From the release name, medium confidence". */
+/** Where the languages were read, in plain words: "From the source name, medium confidence". */
 export function languageBasisText(info: Pick<ReleaseLanguageInfo, "basis" | "confidence">): string | null {
   const basis = BASIS_WORDS[info.basis] ?? null;
   if (!basis) return null;

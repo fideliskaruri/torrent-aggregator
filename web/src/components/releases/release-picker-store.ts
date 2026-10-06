@@ -1,5 +1,5 @@
 /**
- * "Pick a release yourself" can be offered from anywhere a grab failed: a
+ * "Pick a source yourself" can be offered from anywhere a grab failed: a
  * title page toast, a request row, the activity log. They all open the one
  * dialog mounted by `ReleasePickerHost`, through this tiny store.
  */
@@ -12,13 +12,13 @@ export interface ReleasePickTarget {
   query?: string | null;
   /** Set when the pick is for a request, so the transfer joins that request. */
   requestId?: string | null;
-  /** Replaces this active download atomically when a release is picked. */
+  /** Replaces this active download atomically when a source is picked. */
   replaceTransferId?: string | null;
-  /** Called after a release started, e.g. to refresh the page that offered the pick. */
+  /** Called after a source started, e.g. to refresh the page that offered the pick. */
   onPicked?: () => void;
 }
 
-export const PICK_RELEASE_LABEL = "Pick a release yourself";
+export const PICK_RELEASE_LABEL = "Pick a source yourself";
 
 type Listener = (target: ReleasePickTarget) => void;
 const listeners = new Set<Listener>();

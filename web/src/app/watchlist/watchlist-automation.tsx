@@ -62,7 +62,7 @@ export function WatchlistAutomation({ count }: { count: number }) {
     <section className="space-y-3" data-watchlist-automation>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm leading-relaxed text-subtle-foreground">
-          Checks monitored titles and may download matching releases. {automationStateCopy(interval)}
+          Checks monitored titles and may download matching sources. {automationStateCopy(interval)}
         </p>
         <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={automation.pending}>
           {automation.pending ? <LoadingGlyph className="size-3.5" /> : <Radar className="size-3.5" />} Run automation
@@ -75,6 +75,6 @@ export function WatchlistAutomation({ count }: { count: number }) {
         <Link to="/history" className="inline-flex min-h-11 items-center gap-1 font-medium text-brand-foreground hover:underline lg:min-h-0">View in Activity <ArrowRight className="size-3" /></Link>
       </div> : null}
     </section>
-    <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} contentData={{ "data-automation-review": true }} title="Run library automation?" description="TorrentFlow searches every monitored title and may send matching releases to your download client right away. Review enabled titles and rules before you continue." cancelLabel="Review library" busy={automation.pending} icon={<Radar className="size-3.5" />} confirmLabel="Search and download matches" onConfirm={() => void run()} />
+    <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} contentData={{ "data-automation-review": true }} title="Run library automation?" description="TorrentFlow searches every monitored title and may send matching sources to your download client right away. Review enabled titles and rules before you continue." cancelLabel="Review library" busy={automation.pending} icon={<Radar className="size-3.5" />} confirmLabel="Search and download matches" onConfirm={() => void run()} />
   </>;
 }
