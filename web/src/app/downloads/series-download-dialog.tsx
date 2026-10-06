@@ -178,7 +178,8 @@ function dialogSeasonBuckets(
 }
 
 function WantedEpisodeRowCard({ item, wanted }: { item: WantedEpisodeRow; wanted: WantedState }) {
-  const label = item.season != null ? wantedRowLabel(item.row) : item.group.title;
+  const label = item.season == null ? item.group.title
+    : item.episode != null ? `E${formatEpisodeNumber(item.episode)}` : wantedRowLabel(item.row);
   return (
     <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3"
       data-wanted-episode-row={item.key}>

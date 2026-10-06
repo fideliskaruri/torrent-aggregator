@@ -13,9 +13,10 @@ export function SearchingBadge({ groups, label }: { groups: readonly WantedGroup
       title={wantedTooltip(groups)}
       data-searching-badge
       data-searching={searching || undefined}
+      className="max-w-full"
     >
       {searching ? <Spinner className="size-3" /> : <Search aria-hidden className="size-3" />}
-      {label ?? statusLabel}
+      <span className="truncate">{label ?? statusLabel}</span>
     </Badge>
   );
 }
