@@ -28,13 +28,24 @@ internal static class OldAppDownloads
             { DataSource = database, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info(EngineTorrent)";
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var schema = command.ExecuteReader())
+            while (schema.Read()) columns.Add(schema.GetString(1));
+
+        var stagePath = columns.Contains("stagePath") ? "stagePath" : "NULL";
+        var promotion = columns.Contains("promotion") ? "promotion" : "NULL";
         // Rows the old app made for loose files have no torrent behind them; Import a folder covers those.
         command.CommandText = """
-            SELECT hash, name, savePath FROM EngineTorrent
+            SELECT hash, name, savePath, {stagePath}, {promotion} FROM EngineTorrent
             WHERE status <> 'removed' AND COALESCE(torrentUrl, '') <> 'imported:local'
-            """;
+            """.Replace("{stagePath}", stagePath, StringComparison.Ordinal)
+            .Replace("{promotion}", promotion, StringComparison.Ordinal);
         using var reader = command.ExecuteReader();
         while (reader.Read())
-            rows.Add(new(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), engine));
+            rows.Add(new(reader.GetString(0), reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2), engine,
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
     }
 }

@@ -9,7 +9,8 @@ namespace TorrentFlow.Targets;
 
 public sealed record ExternalTransferInput(string Hash, string Name, byte[] TorrentBytes,
     ImmutableArray<string> Paths, ImmutableArray<ExternalTransferItem> Items, bool Paused = false,
-    string? ReviewId = null, ImmutableArray<string> ReviewItemIds = default);
+    string? ReviewId = null, ImmutableArray<string> ReviewItemIds = default,
+    ImmutableArray<MediaFileRow> Replaces = default);
 public sealed record ExternalTransferItem(int FileIndex, string WorkId, string? EpisodeId);
 
 public sealed partial class TargetPipeline
@@ -36,10 +37,13 @@ public sealed partial class TargetPipeline
                 throw new ArgumentException("Choose valid original file indices and distinct absolute paths.");
             var inventory = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
             var repository = (ILibraryDownloadRepository)inventory;
-            var owned = await inventory.MediaAsync(null, ct);
+            // Library rows being handed over are swapped for the download in the same commit.
+            var replaces = input.Replaces.IsDefault ? [] : input.Replaces;
+            var owned = (await inventory.MediaAsync(null, ct)).Where(m => replaces.All(r => r.Id != m.Id)).ToArray();
             var bindings = await repository.BindingsAsync(ct);
-            if (input.Paths.Any(p => owned.Any(m => m.PhysicalKey == LibraryPaths.PhysicalKey(p)) ||
-                bindings.Any(b => b.PhysicalKey == LibraryPaths.PhysicalKey(p))))
+            var selectedPaths = input.Items.Select(item => input.Paths[item.FileIndex]).ToArray();
+            if (selectedPaths.Any(p => owned.Any(m => m.PhysicalKey == LibraryPaths.PhysicalKey(p))) ||
+                input.Paths.Any(p => bindings.Any(b => b.PhysicalKey == LibraryPaths.PhysicalKey(p))))
                 throw new InvalidOperationException("A file in this transfer is already managed. Keep the existing file.");
             var targets = new List<TargetRow>();
             var previous = new Dictionary<string, TargetRow?>();
@@ -54,7 +58,8 @@ public sealed partial class TargetPipeline
                     throw new ArgumentException("Confirm the video's catalog identity in Import first.");
                 var targetId = $"target:{item.WorkId}:{item.EpisodeId ?? "film"}";
                 var prior = (await store.ListAsync<TargetRow>(row => row.Id == targetId, ct)).SingleOrDefault();
-                if (prior is not null && prior.State != TargetState.Removed)
+                if (prior is not null && prior.State != TargetState.Removed &&
+                    !(prior.State == TargetState.Done && !replaces.IsEmpty))
                     throw new InvalidOperationException("This item already has download intent. Remove it before handing over another transfer.");
                 previous[targetId] = prior;
                 targets.Add(new TargetRow
@@ -112,10 +117,20 @@ public sealed partial class TargetPipeline
                 var fileWrites = await ((ILibraryPlacementProposalRepository)inventory).ProposeExternalPlacementAsync(
                     files, input.ReviewId, input.ReviewItemIds, ct)
                     ?? throw new IOException("The original file bindings are already reserved. Scan again.");
+                var replacedIds = replaces.Select(r => r.Id).ToArray();
+                var operations = await store.ListAsync<FileOperationRow>(o =>
+                    o.MediaFileId != null && replacedIds.Contains(o.MediaFileId), ct);
+                if (operations.Any(o => o.State != FileOperationState.Done))
+                    throw new IOException("A library file is still being moved. Try again when it finishes.");
+                var operationIds = operations.Select(o => o.Id).ToArray();
+                var claims = await store.ListAsync<FilePathClaimRow>(c => operationIds.Contains(c.OperationId), ct);
                 await CommitAsync(store, [new(download, null, null),
                     .. targets.Select(t => new RowWrite(t, previous[t.Id]?.Version, null)),
                     .. targets.Select(t => new RowWrite(new DownloadTargetRow { Id = $"{id}:{t.Id}", DownloadId = id, TargetId = t.Id, Role = AssociationRole.Current, CreatedAt = now }, null, null)),
-                    .. fileWrites], [], ct);
+                    .. fileWrites], [
+                    .. replaces.Select(r => new RowDelete(StoreTable.MediaFile, r.Id, r.Version, null)),
+                    .. operations.Select(o => new RowDelete(StoreTable.FileOperation, o.Id, null, o)),
+                    .. claims.Select(c => new RowDelete(StoreTable.FilePathClaim, c.Id, null, c))], ct);
                 if (input.ReviewId is not null)
                 {
                     var reviews = scope.ServiceProvider.GetRequiredService<ImportReviewRepository>();
@@ -138,7 +153,8 @@ public sealed partial class TargetPipeline
                     await CommitAsync(store, [.. targets.Select(t => new RowWrite(t with
                     {
                         State = TargetState.Waiting,
-                        ResumeState = input.Paused ? TargetState.Fetching : TargetState.Wanted,
+                        // A handed-over transfer owns its library files, so it retries in place instead of searching.
+                        ResumeState = input.Paused || !replaces.IsEmpty ? TargetState.Fetching : TargetState.Wanted,
                         ReasonCode = input.Paused ? WaitReason.Paused : WaitReason.FileBusy,
                         ReasonText = "The original files could not be opened. Close the other client; TorrentFlow will try again.",
                         NextTryAt = input.Paused ? null : failedAt.AddMinutes(5),

@@ -75,7 +75,8 @@ internal static class DownloadFiling
                 var validation = TorrentFlow.Library.DownloadFiling.ValidatePartial(binding,
                     new(binding.FileIndex, binding.ExpectedBytes, binding.ExpectedBytes, 0, true, physical, true));
                 if (validation is not null) throw new IOException(validation.Message);
-                if (File.Exists(source))
+                // Handed-over transfers download in place, so their partial path is already the final path.
+                if (File.Exists(source) && LibraryPaths.PhysicalKey(source) != LibraryPaths.PhysicalKey(final))
                 {
                     if (File.Exists(final) || Directory.Exists(final))
                         throw new IOException("A file already uses the library destination. Review it before retrying.");

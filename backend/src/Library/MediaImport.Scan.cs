@@ -23,7 +23,13 @@ public sealed partial class MediaImport
             LibraryPaths.NoLinks(file);
             if (!LibraryPaths.IsInside(path, file)) throw new IOException("The file is outside its original download folder.");
             var info = new FileInfo(file);
-            var evidence = ReadEvidence(path, file) with { Details = await DetailsAsync(file, ct) };
+            var exists = info.Exists;
+            var evidence = ReadEvidence(path, file) with
+            {
+                Details = exists
+                    ? await DetailsAsync(file, ct)
+                    : new ImportMediaDetails(null, null, null, "This file has not finished downloading.")
+            };
             var nameCandidates = new List<NameCandidate>(evidence.Names.Length);
             foreach (var name in evidence.Names)
             {
@@ -64,13 +70,17 @@ public sealed partial class MediaImport
                 already = !(await placement.OwnedAsync(new(chosen.WorkId,
                     chosen.EpisodeId is null ? [] : [chosen.EpisodeId], !evidence.Series), ct)).IsEmpty;
             var stem = Path.GetFileNameWithoutExtension(file);
-            var sidecars = Directory.EnumerateFiles(Path.GetDirectoryName(file)!)
-                .Where(p => Subtitles.Contains(Path.GetExtension(p)) &&
-                    (Path.GetFileNameWithoutExtension(p).Equals(stem, StringComparison.OrdinalIgnoreCase) ||
-                     Path.GetFileNameWithoutExtension(p).StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase)))
-                .Select(p => { LibraryPaths.NoLinks(p); var sidecar = new FileInfo(p); return new ImportSidecar(p, sidecar.Length, sidecar.LastWriteTimeUtc); })
-                .ToImmutableArray();
-            items.Add(new(Guid.NewGuid().ToString("N"), file, info.Length, info.LastWriteTimeUtc, evidence.Parsed,
+            var directory = Path.GetDirectoryName(file)!;
+            var sidecars = Directory.Exists(directory)
+                ? Directory.EnumerateFiles(directory)
+                    .Where(p => Subtitles.Contains(Path.GetExtension(p)) &&
+                        (Path.GetFileNameWithoutExtension(p).Equals(stem, StringComparison.OrdinalIgnoreCase) ||
+                         Path.GetFileNameWithoutExtension(p).StartsWith(stem + ".", StringComparison.OrdinalIgnoreCase)))
+                    .Select(p => { LibraryPaths.NoLinks(p); var sidecar = new FileInfo(p); return new ImportSidecar(p, sidecar.Length, sidecar.LastWriteTimeUtc); })
+                    .ToImmutableArray()
+                : [];
+            items.Add(new(Guid.NewGuid().ToString("N"), file, exists ? info.Length : 0,
+                exists ? info.LastWriteTimeUtc : DateTimeOffset.UnixEpoch, evidence.Parsed,
                 evidence.Parents, candidates.IsEmpty ? ImportConfidence.Unmatched :
                     decision.Confident ? ImportConfidence.Confident : ImportConfidence.NeedsPick,
                 candidates, sidecars, already,

@@ -14,14 +14,16 @@ public sealed record ExternalDownloadCandidate(string Id, string Source, string 
 public sealed record ExternalDownloadScan(ImmutableArray<ExternalDownloadCandidate> Candidates,
     ImmutableArray<string> Warnings);
 // A transfer from the pre-rebuild TorrentFlow, read from its set-aside database.
-public sealed record OldAppTorrent(string Hash, string Name, string? SavePath, string EngineDirectory);
+public sealed record OldAppTorrent(string Hash, string Name, string? SavePath, string EngineDirectory,
+    string? StagePath = null, string? Promotion = null);
 
 // A foreign-client disk format adapter, not an Engine admission or identity resolver.
 public sealed class ExternalDownloadScanner
 {
     private const int MaxBytes = 32 * 1024 * 1024;
 
-    public ExternalDownloadScan Scan(string? scanRoot, CancellationToken ct, IReadOnlyList<OldAppTorrent>? oldApp = null)
+    public ExternalDownloadScan Scan(string? scanRoot, CancellationToken ct,
+        IReadOnlyList<OldAppTorrent>? oldApp = null, bool clients = true)
     {
         var root = string.IsNullOrWhiteSpace(scanRoot)
             ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : Path.GetFullPath(scanRoot);
@@ -41,6 +43,7 @@ public sealed class ExternalDownloadScanner
                         : ex.Message));
             }
         }
+        if (clients)
         foreach (var source in new[] { "qBittorrent", "Transmission" })
         {
             var folder = Path.Combine(root, source == "qBittorrent" ? "qBittorrent" : "transmission");
@@ -89,15 +92,44 @@ public sealed class ExternalDownloadScanner
         foreach (var row in oldApp ?? [])
         {
             ct.ThrowIfCancellationRequested();
-            Guard(OldAppSource, () =>
+            ExternalDownloadCandidate? Build(string? save)
             {
-                var file = new[] { Path.Combine(row.EngineDirectory, "torrents", row.Hash.ToLowerInvariant() + ".torrent"),
-                        Path.Combine(row.EngineDirectory, "metadata", row.Hash.ToUpperInvariant() + ".torrent") }
-                    .FirstOrDefault(File.Exists)
-                    ?? throw new IOException($"{row.Name} never finished fetching its torrent details, so it can't be brought back. Search for it again.");
-                var bytes = Read(file);
-                rows.Add(Candidate(OldAppSource, Torrent.Load(bytes), bytes, row.SavePath, []));
-            });
+                try
+                {
+                    var file = new[] { Path.Combine(row.EngineDirectory, "torrents", row.Hash.ToLowerInvariant() + ".torrent"),
+                            Path.Combine(row.EngineDirectory, "metadata", row.Hash.ToUpperInvariant() + ".torrent") }
+                        .FirstOrDefault(File.Exists)
+                        ?? throw new IOException($"{row.Name} never finished fetching its torrent details, so it can't be brought back. Search for it again.");
+                    var bytes = Read(file);
+                    return Candidate(OldAppSource, Torrent.Load(bytes), bytes, save, []);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+                    or FormatException or BEncodingException or TorrentException or InvalidOperationException
+                    or InvalidCastException or OverflowException)
+                {
+                    if (warnings.Count < 100)
+                        warnings.Add($"{OldAppSource}: " + (ex is BEncodingException or TorrentException or InvalidCastException
+                            or FormatException or OverflowException
+                            ? "A client metadata file could not be read. Export the torrent from the original client and scan again."
+                            : ex.Message));
+                    return null;
+                }
+            }
+
+            var useStage = !string.IsNullOrWhiteSpace(row.StagePath) &&
+                !string.Equals(row.Promotion, "promoted", StringComparison.OrdinalIgnoreCase);
+            var primary = useStage ? row.StagePath : row.SavePath;
+            var other = useStage ? row.SavePath : row.StagePath;
+            var candidate = Build(primary);
+            var rootsDiffer = !string.IsNullOrWhiteSpace(other) &&
+                !string.Equals(primary, other, OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            if (candidate?.DataExists != true && rootsDiffer)
+            {
+                var alternate = Build(other);
+                if (alternate?.DataExists == true) candidate = alternate;
+            }
+            if (candidate is not null) rows.Add(candidate);
         }
         return new([.. rows.DistinctBy(r => r.Id)], warnings.ToImmutable());
     }

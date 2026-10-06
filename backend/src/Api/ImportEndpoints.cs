@@ -45,7 +45,7 @@ internal static class ImportEndpoints
                 unmatched = scan.Items.Where(i => i.Group == ImportConfidence.Unmatched),
             }, Json) : Results.NotFound(new { message = "This scan expired. Scan the folder again." }));
         group.MapPost("/imports/{id}/confirm", async (string id, HttpContext http, ImportJobs jobs,
-            MediaImport importer, CancellationToken ct) =>
+            MediaImport importer, OldTorrentHandoff handoff, CancellationToken ct) =>
         {
             var input = await http.Request.ReadFromJsonAsync<ImportConfirmInput>(Json, ct) ??
                 throw new ArgumentException("Choose files to import.");
@@ -57,6 +57,7 @@ internal static class ImportEndpoints
             var reviews = scope.ServiceProvider.GetRequiredService<ImportReviewRepository>();
             foreach (var item in result.Items.Where(i => i.Error is null && (i.Imported || i.AlreadyInLibrary)))
                 await reviews.DecideAsync(id, item.ItemId, "confirmed", ct);
+            handoff.Kick();
             return Results.Json(result, Json);
         });
         group.MapPost("/imports/{id}/dismiss", async (string id, ImportDismissInput input, ImportJobs jobs,

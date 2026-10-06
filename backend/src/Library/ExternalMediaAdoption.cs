@@ -23,22 +23,62 @@ public sealed partial class ExternalMediaAdoption(MediaImport importer, ILibrary
         await ImportGate.WaitAsync(ct);
         try
         {
-            var id = ReviewPrefix + source.Id;
-            var scan = await get(id, ct);
-            if (scan is null)
-            {
-                await importer.ScanFilesAsync(id, ScanRoot(source.SavePath, source.Files),
-                    source.Files, update => scan = update, ct);
-                await save(scan!, ct);
-            }
+            var scan = await GetOrScanReviewAsync(source, get, save, ct);
             if (picks.IsDefaultOrEmpty || picks.Select(p => p.FileIndex).Distinct().Count() != picks.Length ||
                 picks.Any(p => p.FileIndex < 0 || p.FileIndex >= source.Files.Length ||
-                    !scan!.Items.Any(i => LibraryPaths.PhysicalKey(i.Path) == LibraryPaths.PhysicalKey(source.Files[p.FileIndex]) &&
+                    !scan.Items.Any(i => LibraryPaths.PhysicalKey(i.Path) == LibraryPaths.PhysicalKey(source.Files[p.FileIndex]) &&
                         i.Candidates.Any(c => c.WorkId == p.WorkId && c.EpisodeId == p.EpisodeId))))
                 throw new ArgumentException("Confirm the matching title in Import before handing over this torrent.");
-            return scan!;
+            return scan;
         }
         finally { ImportGate.Release(); }
+    }
+
+    public async Task<(ImportScanView Review, ImmutableArray<ExternalIdentityPick> Picks)> SuggestPicksAsync(
+        ExternalAdoptionSource source,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save,
+        CancellationToken ct)
+    {
+        await ImportGate.WaitAsync(ct);
+        try
+        {
+            var review = await GetOrScanReviewAsync(source, get, save, ct);
+            var picks = review.Items
+                .Where(item => !item.AlreadyInLibrary && !item.Candidates.IsEmpty &&
+                    (item.Group == ImportConfidence.Confident || item.Candidates.Length == 1))
+                .Select(item =>
+                {
+                    var fileIndex = Enumerable.Range(0, source.Files.Length)
+                        .FirstOrDefault(index => LibraryPaths.PhysicalKey(source.Files[index]) ==
+                            LibraryPaths.PhysicalKey(item.Path), -1);
+                    return (item, fileIndex);
+                })
+                .Where(value => value.fileIndex >= 0)
+                .Select(value =>
+                {
+                    var candidate = value.item.Candidates[0];
+                    return new ExternalIdentityPick(value.fileIndex, candidate.WorkId, candidate.EpisodeId);
+                })
+                .ToImmutableArray();
+            return (review, picks);
+        }
+        finally { ImportGate.Release(); }
+    }
+
+    private async Task<ImportScanView> GetOrScanReviewAsync(ExternalAdoptionSource source,
+        Func<string, CancellationToken, Task<ImportScanView?>> get,
+        Func<ImportScanView, CancellationToken, Task> save, CancellationToken ct)
+    {
+        var id = ReviewPrefix + source.Id;
+        var scan = await get(id, ct);
+        if (scan is null)
+        {
+            await importer.ScanFilesAsync(id, ScanRoot(source.SavePath, source.Files),
+                source.Files, update => scan = update, ct);
+            await save(scan!, ct);
+        }
+        return scan!;
     }
 
     // Files saved straight into a folder like "Sintel (2010)" need that folder's name as title evidence.

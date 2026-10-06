@@ -58,6 +58,8 @@ builder.Services.AddEngine(dataDirectory);
 TorrentFlow.Targets.PlanComposition.AddPlanModule(builder.Services);
 TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<DownloadsApi>();
+builder.Services.AddSingleton<OldTorrentHandoff>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OldTorrentHandoff>());
 builder.Services.AddLibrary();
 builder.Services.AddLocalFiles();
 builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,

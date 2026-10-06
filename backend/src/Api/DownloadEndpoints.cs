@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -78,63 +79,98 @@ internal static class DownloadEndpoints
         group.MapPost("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(true, ct)));
         group.MapGet("/settings/download-recovery/sources", async (IConfiguration configuration,
-            MediaImport importer, ImportReviewRepository reviews, ILibraryRepository inventory, CancellationToken ct) =>
+            MediaImport importer, ImportReviewRepository reviews, ILibraryRepository inventory,
+            TargetPipeline targets, CancellationToken ct) =>
         {
             var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
                 OldAppDownloads.Read(configuration));
             var adoption = new ExternalMediaAdoption(importer, inventory);
+            var downloadHashes = (await targets.ReadAsync(ct)).Downloads
+                .Select(d => d.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
             var candidates = new List<object>();
             foreach (var row in scan.Candidates)
                 candidates.Add(new { row.Id, row.Source, row.Hash, row.Name, row.SizeBytes, row.SavePath,
-                    row.DataExists, row.Complete, alreadyImported = await adoption.AlreadyOwnedAsync(row.Files, ct) });
+                    row.DataExists, row.Complete, alreadyImported =
+                        downloadHashes.Contains(row.Hash.ToLowerInvariant()) ||
+                        await adoption.AlreadyOwnedAsync(row.Files, ct) });
             return Reply(new { candidates, scan.Warnings });
         });
         group.MapPost("/settings/download-recovery/sources", async (RecoverySourcesInput input,
             IConfiguration configuration, MediaImport importer, ImportReviewRepository reviews,
-            ILibraryRepository inventory, TargetPipeline targets, HttpContext http, CancellationToken ct) =>
+            ILibraryRepository inventory, TargetPipeline targets, OldTorrentHandoff handoff,
+            HttpContext http, CancellationToken ct) =>
         {
-            if (!input.Acknowledged)
-                return Results.BadRequest(new { error = "Confirm that the other client will not write to these files." });
-            if (input.Ids is null || input.Ids.Length > 500 || input.Ids.Any(string.IsNullOrWhiteSpace))
-                return Results.BadRequest(new { error = "Select between 1 and 500 torrents to import." });
-            if (input.Ids.Length == 0)
-                return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
-            var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
-                OldAppDownloads.Read(configuration));
-            var adoption = new ExternalMediaAdoption(importer, inventory);
-            var unfinished = scan.Candidates.Where(c => !c.Complete && input.Ids.Contains(c.Id)).ToArray();
-            var result = await adoption.ImportAsync(input.Ids.Where(id => unfinished.All(c => c.Id != id)),
-                [.. scan.Candidates.Select(c => new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))],
-                reviews.GetAsync, reviews.SaveAsync, reviews.DecideAsync, ct);
-            foreach (var candidate in unfinished)
+            try
             {
-                try
+                if (!input.Acknowledged)
+                    return Results.BadRequest(new { error = "Confirm that the other client will not write to these files." });
+                if (input.Ids is null || input.Ids.Length > 500 || input.Ids.Any(string.IsNullOrWhiteSpace))
+                    return Results.BadRequest(new { error = "Select between 1 and 500 torrents to import." });
+                if (input.Ids.Length == 0)
+                    return Results.Ok(new { imported = 0, paused = 0, skipped = 0, failed = 0, errors = Array.Empty<string>() });
+                var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
+                    OldAppDownloads.Read(configuration));
+                var adoption = new ExternalMediaAdoption(importer, inventory);
+                var unfinished = scan.Candidates.Where(c => !c.Complete && input.Ids.Contains(c.Id)).ToArray();
+                var result = await adoption.ImportAsync(input.Ids.Where(id => unfinished.All(c => c.Id != id)),
+                    [.. scan.Candidates.Select(c => new ExternalAdoptionSource(c.Id, c.Name, c.SavePath, c.Complete, c.Files))],
+                    reviews.GetAsync, reviews.SaveAsync, reviews.DecideAsync, ct);
+                foreach (var candidate in unfinished)
                 {
-                    if ((await targets.ReadAsync(ct)).Downloads.Any(d => d.Hash == candidate.Hash))
+                    try
                     {
-                        result = result with { Skipped = result.Skipped + 1 };
-                        continue;
+                        if ((await targets.ReadAsync(ct)).Downloads.Any(d =>
+                            d.Hash.Equals(candidate.Hash, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            result = result with { Skipped = result.Skipped + 1 };
+                            continue;
+                        }
+                        var selected = input.Selections?.Where(s => s.SourceId == candidate.Id).ToArray() ?? [];
+                        var source = new ExternalAdoptionSource(candidate.Id, candidate.Name,
+                            candidate.SavePath, candidate.Complete, candidate.Files);
+                        ImportScanView review;
+                        ImmutableArray<ExternalIdentityPick> picks;
+                        if (selected.Length == 0)
+                        {
+                            var suggestion = await adoption.SuggestPicksAsync(source,
+                                reviews.GetAsync, reviews.SaveAsync, ct);
+                            if (suggestion.Picks.IsEmpty)
+                            {
+                                result = result with { Failed = result.Failed + 1,
+                                    Errors = result.Errors.Add($"{candidate.Name}: confirm the matching title in Import, then import it again.") };
+                                continue;
+                            }
+                            review = suggestion.Review;
+                            picks = suggestion.Picks;
+                        }
+                        else
+                        {
+                            picks = [.. selected.Select(s =>
+                                new ExternalIdentityPick(s.FileIndex, s.WorkId, s.EpisodeId))];
+                            review = await adoption.ReviewTransferAsync(source, picks,
+                                reviews.GetAsync, reviews.SaveAsync, ct);
+                        }
+                        var reviewItemIds = review.Items.Where(i => picks.Any(p =>
+                                LibraryPaths.PhysicalKey(i.Path) ==
+                                LibraryPaths.PhysicalKey(candidate.Files[p.FileIndex])))
+                            .Select(i => i.Id).ToImmutableArray();
+                        var admitted = await targets.AdmitExternalAsync(new(candidate.Hash, candidate.Name,
+                            candidate.TorrentBytes, candidate.Files,
+                            [.. picks.Select(p => new ExternalTransferItem(p.FileIndex, p.WorkId, p.EpisodeId))],
+                            input.Paused, review.Id, reviewItemIds), AccessIdentity.Actor(http).UserId, ct);
+                        if (!admitted.Accepted) throw new IOException(admitted.Failure?.Message);
+                        result = result with { Imported = result.Imported + 1,
+                            Paused = result.Paused + (input.Paused ? 1 : 0) };
                     }
-                    var selected = input.Selections?.Where(s => s.SourceId == candidate.Id).ToArray() ?? [];
-                    var review = await adoption.ReviewTransferAsync(new(candidate.Id, candidate.Name,
-                        candidate.SavePath, candidate.Complete, candidate.Files),
-                        [.. selected.Select(s => new ExternalIdentityPick(s.FileIndex, s.WorkId, s.EpisodeId))],
-                        reviews.GetAsync, reviews.SaveAsync, ct);
-                    var admitted = await targets.AdmitExternalAsync(new(candidate.Hash, candidate.Name,
-                        candidate.TorrentBytes, candidate.Files, [.. selected.Select(s =>
-                            new ExternalTransferItem(s.FileIndex, s.WorkId, s.EpisodeId))], input.Paused, review.Id,
-                        [.. review.Items.Where(i => selected.Any(s => i.Path == candidate.Files[s.FileIndex])).Select(i => i.Id)]),
-                        AccessIdentity.Actor(http).UserId, ct);
-                    if (!admitted.Accepted) throw new IOException(admitted.Failure?.Message);
-                    result = result with { Imported = result.Imported + 1, Paused = result.Paused + (input.Paused ? 1 : 0) };
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+                    {
+                        result = result with { Failed = result.Failed + 1,
+                            Errors = result.Errors.Add($"{candidate.Name}: {ex.Message}") };
+                    }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
-                {
-                    result = result with { Failed = result.Failed + 1,
-                        Errors = result.Errors.Add($"{candidate.Name}: {ex.Message}") };
-                }
+                return Reply(result);
             }
-            return Reply(result);
+            finally { handoff.Kick(); }
         });
     }
 
