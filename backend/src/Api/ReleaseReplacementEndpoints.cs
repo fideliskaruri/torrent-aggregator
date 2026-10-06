@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TorrentFlow.Domain;
 using TorrentFlow.Targets;
 
@@ -13,7 +14,11 @@ internal static class ReleaseReplacementEndpoints
         group.MapPost("/downloads/{transferId}/find-another", async (string transferId,
             TargetPipeline targets, CancellationToken ct) =>
         {
-            var hash = transferId.StartsWith("builtin:", StringComparison.Ordinal) ? transferId[8..] : transferId;
+            var match = Regex.Match(transferId.Trim(),
+                "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success) return Results.NotFound(new { ok = false, error = "Download not found." });
+            var hash = match.Groups[1].Value;
             var target = await CurrentTarget(targets, hash, ct);
             if (target is null) return Results.NotFound(new { ok = false, error = "Download not found." });
             return ActionReply(await targets.FindAnotherAsync(target.Id, ct), await targets.ReadAsync(ct), target.Id);

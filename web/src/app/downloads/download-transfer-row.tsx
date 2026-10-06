@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible,CollapsibleTrigger } from "@/components/ui/collapsible";
 import { progressPercent } from "@/components/tf/active-row-state";
-import { packLabel, rowStateBadge, showsProgressBar } from "./release-display";
+import { rowStateBadge, showsProgressBar } from "./release-display";
 import {
 rowAttr,
 torrentRowMenuItems,
@@ -72,7 +72,8 @@ export function DownloadTransferRow({
   const canOpen = openFolder && t.actions.open;
   const errorMessage = t.status === "error" ? t.statusLabel : null;
   const [errorExpanded, setErrorExpanded] = useState(false);
-  const showEta = ["downloading", "finishing", "waiting"].includes(t.status) && t.eta != null && t.eta > 0;
+  const showEta = !t.packed && ["downloading", "finishing", "waiting"].includes(t.status) &&
+    t.eta != null && t.eta > 0;
   const speed = showEta ? formatSpeed(t.dlspeed) : null;
   const done = t.status === "ready";
   const quality = t.quality.label;
@@ -166,11 +167,6 @@ export function DownloadTransferRow({
                   {badge.label}
                 </Badge>
                 {!card ? <SearchingBadge groups={wantedGroups} /> : null}
-                {packLabel(t) ? (
-                  <span className="text-[12px] text-muted-foreground" data-season-pack>
-                    {packLabel(t)}
-                  </span>
-                ) : null}
                 {/*
                   One quality tag at most (resolution).
  Source tags, peers and

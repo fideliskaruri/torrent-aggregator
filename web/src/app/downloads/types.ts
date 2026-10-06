@@ -54,7 +54,8 @@ export interface ClientTorrent {
   posterUrl?: string | null;
   season?: number | null;
   episode?: number | null;
-  packEpisodes?: number | null;
+  targetId?: number | string | null;
+  packed?: boolean;
   transferId: string;
   magnet?: string | null;
 }

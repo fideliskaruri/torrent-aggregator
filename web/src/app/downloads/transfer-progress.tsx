@@ -37,12 +37,12 @@ export function TransferProgress({
   barClassName?: string;
 }) {
   return (
-    <div className={cn("flex items-center", size === "mini" ? "w-full gap-1.5" : "gap-2", className)}>
+    <div className={cn("flex items-center", size === "mini" ? "w-full gap-1.5" : "flex-wrap gap-x-2 gap-y-1", className)}>
       <Progress
         value={percent}
         aria-label={label}
         className={cn(
-          size === "mini" ? "h-1 w-10 shrink-0 bg-border" : size === "sm" ? "h-1 flex-1" : "h-1.5 flex-1",
+          size === "mini" ? "h-1 w-10 shrink-0 bg-border" : size === "sm" ? "h-1 min-w-24 flex-1" : "h-1.5 min-w-24 flex-1",
           barClassName,
         )}
         indicatorClassName={tone}

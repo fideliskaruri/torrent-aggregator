@@ -21,8 +21,9 @@ public static class NotificationEndpoints
             var all = (await db.AllAsync<NotificationRow>(ct)).Where(n => n.UserId == user).ToArray();
             var works = (await db.AllAsync<WorkRow>(ct)).ToDictionary(w => w.WorkKey);
             var transfers = JsonSerializer.SerializeToElement(await downloads.ListAsync(ct), CatalogProjection.Json)
-                .GetProperty("torrents").EnumerateArray().ToDictionary(
-                    t => t.GetProperty("hash").GetString()!, t => t.GetProperty("posterUrl").GetString(),
+                .GetProperty("torrents").EnumerateArray()
+                .GroupBy(t => t.GetProperty("hash").GetString()!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().GetProperty("posterUrl").GetString(),
                     StringComparer.OrdinalIgnoreCase);
             var rows = all.OrderByDescending(n => n.CreatedAt).ThenByDescending(n => n.Id)
                 .Take(Math.Clamp(limit ?? 100, 1, 100));

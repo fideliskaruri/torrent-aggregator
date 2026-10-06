@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { formatBytes, formatSpeed } from "@/lib/format";
+import { formatBytes, formatEta, formatSpeed } from "@/lib/format";
 import { seasonProgressLabel } from "@/components/title/season-progress";
 import { progressPercent } from "@/components/tf/active-row-state";
 import { seriesEpisodeTally, type SeriesGroup } from "./grouping";
@@ -62,7 +62,10 @@ export function DownloadGroupSummary({
         {showsProgressBar(group) ? (
           <TransferProgress percent={pct} tone={transferBarTone(group.status, chip.failing)}
             label={`${group.title} combined download progress`}
-            speed={["downloading", "finishing", "waiting"].includes(group.status) ? formatSpeed(group.dlspeed) : null}
+            speed={["downloading", "finishing", "waiting"].includes(group.status)
+              ? [formatSpeed(group.dlspeed), group.eta != null ? formatEta(group.eta) : null]
+                .filter(Boolean).join(" · ")
+              : null}
             className="pt-0.5" barClassName="max-w-[18rem]" />
         ) : null}
         {children}

@@ -116,6 +116,10 @@ already-filed files and never copies live counters into Store. `TargetSnapshot.Q
 exposes the Targets-owned ordering for truthful queue positions. Target actions permit
 removing completed intent while retaining Library files, and Try now dispatches a Wanted
 target immediately. The cap update calls Engine directly and applies in both directions.
+`GET /api/client/torrents` projects a shared season-pack download as one row per active target,
+using `builtin:<40 hex hash>:<target id>` for target actions. Pause, resume, force and delete
+resolve that target only; `deleteFiles` removes only its bound file indices. Bare hashes still
+address the whole download.
 
 Target-backed deletion supports `deleteFiles`, using Library's digest-checked, path-bounded
 payload removal. Tidy reports the already-reserved final layout without moving active files;
