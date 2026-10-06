@@ -41,6 +41,8 @@ Log.Logger = new LoggerConfiguration()
         rollOnFileSizeLimit: true, retainedFileCountLimit: 14, shared: true)
     .CreateLogger();
 builder.Services.AddSerilog();
+if (builder.Configuration["TorrentFlow:OldAppBackup"] is { Length: > 0 } oldAppBackup)
+    Log.Information("Moved the old TorrentFlow database and engine state to {Backup}", oldAppBackup);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;

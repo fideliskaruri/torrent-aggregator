@@ -28,9 +28,11 @@ dotnet backend\src\Api\bin\Debug\net10.0\TorrentFlow.dll `
 ```
 
 `TorrentFlow:DataDirectory` / `TorrentFlow__DataDirectory` is explicit. Without it,
-the default is the platform application-data directory's **TorrentFlow-Rebuild**,
-never TorrentFlow's old directory, with no legacy auto-adoption. A `portable`
-marker next to the executable selects `rebuild-data` there. The executable is
+the default is the platform application-data directory's **TorrentFlow**, the
+folder the old app used. If that folder holds the old app's database, startup moves
+it and the old `engine` folder into `old-app-backup-<time>` there (never deleted;
+the old data is not converted) and starts a fresh database. A `portable`
+marker next to the executable selects `data` there. The executable is
 `TorrentFlow`; the default listener is loopback port 3940. `--urls` and
 `ASPNETCORE_URLS` may explicitly override it. `--background` and `--no-browser`
 are switch-only flags stripped before configuration parsing; `--desktop` optionally

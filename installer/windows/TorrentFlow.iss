@@ -4,7 +4,7 @@
 ; (scripts\publish-exe.ps1 -Version 1.2.3 -Installer does both steps.)
 ;
 ; Installs without admin to %LOCALAPPDATA%\Programs\TorrentFlow. App data lives separately in
-; %LOCALAPPDATA%\TorrentFlow-Rebuild and is kept on uninstall unless the user asks to remove it.
+; %LOCALAPPDATA%\TorrentFlow and is kept on uninstall unless the user asks to remove it.
 ; The in-app updater runs this setup with /SILENT /UPDATE=1 after the app has closed itself.
 
 #ifndef AppVersion
@@ -149,7 +149,7 @@ begin
 
   RemoveAutostartIfOurs;
 
-  DataDir := ExpandConstant('{localappdata}\{#AppName}-Rebuild');
+  DataDir := ExpandConstant('{localappdata}\{#AppName}');
   if UninstallSilent or not DirExists(DataDir) then
     Exit;
 

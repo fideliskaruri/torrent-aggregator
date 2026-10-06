@@ -10,7 +10,7 @@ import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import type { SettingsPatch } from "./settings-types";
 
 interface DownloadSettings {
-  baseDownloadPath: string;
+  baseDownloadPath: string | null;
   maxStorageGb: string | number;
   maxActiveDownloads: number;
 }
@@ -24,7 +24,7 @@ export function DownloadSettingsSection({
   saving: boolean;
   onSave: (patch: SettingsPatch) => Promise<boolean>;
 }) {
-  const [path, setPath] = useState(settings.baseDownloadPath);
+  const [path, setPath] = useState(settings.baseDownloadPath ?? "");
   const [cap, setCap] = useState(String(settings.maxStorageGb));
   const [maxActive, setMaxActive] = useState(settings.maxActiveDownloads);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -49,7 +49,7 @@ export function DownloadSettingsSection({
       onToggle={() => setOpen((value) => !value)}
     >
       <div className="space-y-4" data-settings-downloads>
-        <DownloadRecovery revision={settings.baseDownloadPath} />
+        <DownloadRecovery revision={settings.baseDownloadPath ?? undefined} />
         <DownloadLocationFields
           folder={path}
           onFolderChange={setPath}

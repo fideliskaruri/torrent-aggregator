@@ -1,7 +1,7 @@
 export type AudioLanguage = "auto" | "en" | "english" | "any";
 
 export interface SettingsData {
-  baseDownloadPath: string;
+  baseDownloadPath: string | null;
   maxStorageGb: string | number;
   maxActiveDownloads: number;
   preferredResolution: number;

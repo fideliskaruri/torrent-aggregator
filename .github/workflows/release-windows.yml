@@ -66,7 +66,7 @@ jobs:
 
       - name: Smoke-test the exe
         run: |
-          # Started from a scratch folder without overrides, it must use %LOCALAPPDATA%\TorrentFlow-Rebuild
+          # Started from a scratch folder without overrides, it must use %LOCALAPPDATA%\TorrentFlow
           # and serve the web app from wwwroot.
           $exe = (Resolve-Path artifacts\exe\TorrentFlow.exe).Path
           $cwd = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'torrentflow-cwd') -Force
@@ -83,7 +83,7 @@ jobs:
             if ($version -ne '${{ steps.version.outputs.version }}') { throw "The exe reports version '$version'." }
             $page = Invoke-WebRequest http://127.0.0.1:3924/downloads -UseBasicParsing
             if ($page.Content -notmatch 'id="root"') { throw "The exe did not serve the web app." }
-            if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'TorrentFlow-Rebuild'))) { throw "The exe did not use %LOCALAPPDATA%\TorrentFlow-Rebuild." }
+            if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'TorrentFlow\torrentflow.db'))) { throw "The exe did not use %LOCALAPPDATA%\TorrentFlow." }
           }
           finally {
             Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
