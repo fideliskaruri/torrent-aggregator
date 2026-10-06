@@ -3,6 +3,7 @@ import { isValidTorrentSourceInput, TORRENT_SOURCE_INPUT_HINT } from "@/lib/torr
 import { toast } from "@/lib/toast";
 import {
   groupDownloads,
+  seasonBucketKey,
   statusCounts,
   type SeriesGroup,
 } from "./grouping";
@@ -93,7 +94,18 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
     ui.setAnnouncement(`${ui.openGroupTitle || "This show"}’s downloads are gone. Closed details.`);
   }
   if (openGroup) {
-    const resolved = resolveSelectedSeasonKey(openGroup.seasons, ui.selectedSeasonKey);
+    const wantedSeasons = (wantedByWorkKey.get(openGroup.key) ?? [])
+      .map((wanted) => wanted.season)
+      .filter((season): season is number => season != null);
+    const wantedKeys = new Set(wantedSeasons.map((season) => seasonBucketKey(openGroup.key, season)));
+    const selectedExists = ui.selectedSeasonKey != null &&
+      (openGroup.seasons.some((season) => season.key === ui.selectedSeasonKey) ||
+        wantedKeys.has(ui.selectedSeasonKey));
+    const firstWantedKey = [...new Set(wantedSeasons)].sort((a, b) => a - b)
+      .map((season) => seasonBucketKey(openGroup.key, season))[0] ?? null;
+    const resolved = selectedExists
+      ? ui.selectedSeasonKey
+      : resolveSelectedSeasonKey(openGroup.seasons, null) ?? firstWantedKey;
     if (resolved !== ui.selectedSeasonKey) ui.setSelectedSeasonKey(resolved);
   }
 

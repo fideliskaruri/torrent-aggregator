@@ -38,6 +38,10 @@ export interface SeriesGroup<T> extends CombinedTotals {
   seasonCount: number;
 }
 
+export function seasonBucketKey(groupKey: string, season: number): string {
+  return `${groupKey}::Season ${formatSeasonLabel(season).slice(1)}`;
+}
+
 interface SingleGroup<T> {
   kind: "single";
   key: string;
@@ -147,7 +151,7 @@ export function groupDownloads(rows: readonly ClientTorrent[]): DownloadGroup<Cl
         const label = season == null ? "Other" : `Season ${formatSeasonLabel(season).slice(1)}`;
         return {
           season,
-          key: `${key}::${label}`,
+          key: season == null ? `${key}::${label}` : seasonBucketKey(key, season),
           label,
           entries: sorted,
           ...totalsFor(sorted),

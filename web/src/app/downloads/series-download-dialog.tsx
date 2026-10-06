@@ -14,6 +14,8 @@ import { SeasonSwitcher, type SeasonOption } from "@/components/tf/season-switch
 import { progressPercent } from "@/components/tf/active-row-state";
 import { formatEta, formatSpeed } from "@/lib/format";
 import {
+  seasonBucketKey,
+  type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
 import { releaseDisplayFacts, rollupChip } from "./release-display";
@@ -25,10 +27,12 @@ import { DownloadTransferRow } from "./download-transfer-row";
 import { IconMenuButton, groupMenuItems } from "./row-menu";
 import { TransferProgress, transferBarTone } from "./transfer-progress";
 import { SeriesDownloadBulkBar } from "./series-download-bulk-bar";
-import { WantedDetails } from "./wanted-details";
-import type { WantedGroup } from "./wanted-groups";
+import { SearchingBadge } from "./searching-badge";
+import { WantedMenuActions } from "./wanted-menu-actions";
+import { wantedRowLabel, type WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
-import { formatEpisodeNumber } from "@/lib/library/cursor";
+import { formatEpisodeNumber, formatSeasonLabel } from "@/lib/library/cursor";
+import type { WantedRow } from "@/components/wanted/wanted-actions";
 
 type WantedState = ReturnType<typeof useDownloads>["wanted"];
 export interface SeriesDownloadDialogProps {
@@ -61,11 +65,12 @@ export interface SeriesDownloadDialogProps {
 }
 
 /** The dialog's seasons as switcher options: label, mini bar and failed count. */
-function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
-  return group.seasons.map((season) => {
+function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonOption[] {
+  return seasons.map((season) => {
     const pct = progressPercent(season.progress);
     const failed = season.counts.error;
     const label = season.label;
+    const hasDownloads = season.entries.length > 0;
     const liveDetails = season.status === "downloading"
       ? [formatSpeed(season.dlspeed), season.eta != null ? formatEta(season.eta) : null]
         .filter(Boolean).join(" · ")
@@ -73,12 +78,12 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
     return {
       value: season.key,
       label,
-      detailText: [
+      detailText: hasDownloads ? [
         `${pct}%`,
         liveDetails,
         failed > 0 ? `${failed} failed` : null,
-      ].filter(Boolean).join(" · "),
-      detail: (
+      ].filter(Boolean).join(" · ") : "Looking",
+      detail: hasDownloads ? (
         <span className="flex w-full items-center gap-1.5">
           <TransferProgress
             percent={pct}
@@ -101,7 +106,7 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
             </span>
           ) : null}
         </span>
-      ),
+      ) : <span className="text-[12px] text-muted-foreground">Looking</span>,
     };
   });
 }
@@ -111,6 +116,90 @@ function episodeLabel(torrent: ClientTorrent) {
     ? `E${formatEpisodeNumber(torrent.episode)}`
     : releaseDisplayFacts(torrent).title;
 }
+
+interface WantedEpisodeRow {
+  key: string;
+  season: number | null;
+  episode: number | null;
+  row: WantedRow;
+  group: WantedGroup;
+}
+
+function wantedEpisodeRows(groups: readonly WantedGroup[]): WantedEpisodeRow[] {
+  return groups.flatMap((group) => {
+    const rows = group.season == null ? group.rows.slice(0, 1) : group.rows;
+    return rows.map((row) => {
+      const season = row.season ?? null;
+      const episode = row.episode ?? null;
+      const label = season == null ? null : wantedRowLabel(row);
+      const rowGroup: WantedGroup = {
+        ...group,
+        key: `${group.key}|${episode ?? "season"}`,
+        title: season == null ? group.title : group.name,
+        season,
+        episode,
+        label,
+        statusLabel: row.statusLabel,
+        looking: row.looking,
+        nextAttemptAt: row.nextAttemptAt ?? null,
+        rows: [row],
+      };
+      return { key: rowGroup.key, season, episode, row, group: rowGroup };
+    });
+  });
+}
+
+function dialogSeasonBuckets(
+  group: SeriesGroup<ClientTorrent>,
+  wantedRows: readonly WantedEpisodeRow[],
+): SeasonBucket<ClientTorrent>[] {
+  const seasons = [...group.seasons];
+  for (const season of new Set(wantedRows.map((item) => item.season).filter(
+    (value): value is number => value != null,
+  ))) {
+    if (seasons.some((bucket) => bucket.season === season)) continue;
+    seasons.push({
+      season,
+      key: seasonBucketKey(group.key, season),
+      label: `Season ${formatSeasonLabel(season).slice(1)}`,
+      entries: [],
+      progress: 0,
+      sizeBytes: 0,
+      dlspeed: 0,
+      upspeed: 0,
+      eta: null,
+      status: "waiting",
+      statusLabel: "Looking",
+      counts: { total: 0, downloading: 0, queued: 0, paused: 0, done: 0, error: 0 },
+    });
+  }
+  return seasons.sort((a, b) =>
+    a.season == null ? 1 : b.season == null ? -1 : a.season - b.season);
+}
+
+function WantedEpisodeRowCard({ item, wanted }: { item: WantedEpisodeRow; wanted: WantedState }) {
+  const label = item.season != null ? wantedRowLabel(item.row) : item.group.title;
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3"
+      data-wanted-episode-row={item.key}>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 text-[13px] font-semibold tabular-nums text-foreground">
+          {label}
+        </span>
+        <SearchingBadge groups={[item.group]} label="Looking" />
+      </div>
+      <div className="flex justify-end">
+        <WantedMenuActions groups={[item.group]} onChanged={wanted.reload} setRows={wanted.setRows}
+          label={`More actions for ${label}`} triggerProps={{ "data-wanted-episode-actions": "" }} />
+      </div>
+    </div>
+  );
+}
+
+type EpisodeListItem =
+  | { kind: "download"; key: string; episode: number | null; torrent: ClientTorrent }
+  | { kind: "wanted"; key: string; episode: number | null; item: WantedEpisodeRow };
+
 export function SeriesDownloadDialog({
   group,
   open,
@@ -133,16 +222,40 @@ export function SeriesDownloadDialog({
   wantedGroups,
   wantedState,
 }: SeriesDownloadDialogProps) {
+  const wantedRows = useMemo(() => wantedEpisodeRows(wantedGroups), [wantedGroups]);
+  const seasons = useMemo(
+    () => group ? dialogSeasonBuckets(group, wantedRows) : [],
+    [group, wantedRows],
+  );
   const selectedSeason = useMemo(
-    () => group?.seasons.find((season) => season.key === selectedSeasonKey) ?? null,
-    [group, selectedSeasonKey],
+    () => seasons.find((season) => season.key === selectedSeasonKey) ?? null,
+    [seasons, selectedSeasonKey],
   );
   const selectAllId = useId();
 
   if (!group) return null;
 
-  const seasons = seasonOptions(group);
+  const seasonTabs = seasonOptions(seasons);
   const seasonIds = selectedSeason?.entries.map((torrent) => torrent.transferId) ?? [];
+  const episodeItems: EpisodeListItem[] = [
+    ...(selectedSeason?.entries ?? []).map((torrent) => ({
+      kind: "download" as const,
+      key: torrent.transferId,
+      episode: torrent.episode ?? null,
+      torrent,
+    })),
+    ...wantedRows
+      .filter((item) => item.season == null || item.season === selectedSeason?.season)
+      .map((item) => ({
+        kind: "wanted" as const,
+        key: item.key,
+        episode: item.episode,
+        item,
+      })),
+  ].sort((a, b) =>
+    (a.episode ?? (a.kind === "wanted" ? -1 : Number.MAX_SAFE_INTEGER)) -
+      (b.episode ?? (b.kind === "wanted" ? -1 : Number.MAX_SAFE_INTEGER)) ||
+    a.key.localeCompare(b.key));
   const seasonCheckedCount = seasonIds.filter((transferId) => selected.has(transferId)).length;
   const seasonChecked =
     seasonIds.length > 0 && seasonCheckedCount === seasonIds.length
@@ -181,9 +294,6 @@ export function SeriesDownloadDialog({
           <div className="flex items-start gap-2">
             <DownloadGroupSummary group={group} titleHref={titleHref} posterUrl={group.torrents[0].posterUrl}
               heading wantedGroups={wantedGroups}>
-              {wantedGroups.length > 0 && wantedState ? (
-                <WantedDetails groups={wantedGroups} wanted={wantedState} />
-              ) : null}
               {firstFailed ? (
                 <div className="flex pt-1">
                   <Button
@@ -216,7 +326,7 @@ export function SeriesDownloadDialog({
         >
           <SeasonSwitcher
             variant="select"
-            options={seasons}
+            options={seasonTabs}
             value={selectedSeasonKey}
             onValueChange={onSelectSeason}
             placeholder="Choose a season"
@@ -229,7 +339,7 @@ export function SeriesDownloadDialog({
         <div className="hidden shrink-0 sm:block">
           <SeasonSwitcher
             variant="tabs"
-            options={seasons}
+            options={seasonTabs}
             value={selectedSeasonKey}
             ariaLabel={`Seasons of ${group.title}`}
           />
@@ -265,14 +375,16 @@ export function SeriesDownloadDialog({
               </label>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {selectedSeason.entries.map((torrent) => (
+              {episodeItems.map((item) => item.kind === "wanted" ? (
+                <WantedEpisodeRowCard key={item.key} item={item.item} wanted={wantedState} />
+              ) : (
                 <DownloadTransferRow
-                  key={torrent.transferId}
-                  torrent={torrent}
+                  key={item.key}
+                  torrent={item.torrent}
                   kind="episode"
-                  title={episodeLabel(torrent)}
-                  isSelected={selected.has(torrent.transferId)}
-                  highlighted={torrent.transferId === highlightedTransferId}
+                  title={episodeLabel(item.torrent)}
+                  isSelected={selected.has(item.torrent.transferId)}
+                  highlighted={item.torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
                   onAction={onAction}
