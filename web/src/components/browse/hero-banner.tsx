@@ -129,7 +129,13 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                   <Link to={titleHref}>Details</Link>
                 </Button>
               ) : null
-            ) : action.kind === "search" || action.kind === "request" ? (
+            ) : action.kind === "search" ? (
+              titleHref ? (
+                <Button asChild size="lg" data-hero-primary>
+                  <Link to={titleHref}>Details</Link>
+                </Button>
+              ) : null
+            ) : action.kind === "request" ? (
               <Button asChild size="lg" data-hero-primary>
                 <Link to={action.href}>{action.label}</Link>
               </Button>
