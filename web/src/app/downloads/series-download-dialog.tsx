@@ -85,9 +85,11 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
       detail: hasDownloads ? (
         <span className="flex w-40 flex-col items-start gap-0.5 text-[12px] tabular-nums">
           <span className="absolute top-1.5 right-3 font-medium text-primary">{pct}%</span>
-          {liveRows.map((row) => (
-            <span key={row} className="block w-full truncate text-muted-foreground" title={row}>{row}</span>
-          ))}
+          {liveRows.length > 0 ? (
+            <span className="flex w-full justify-between gap-2 text-muted-foreground">
+              {liveRows.map((row) => <span key={row} className="truncate" title={row}>{row}</span>)}
+            </span>
+          ) : null}
           {failed > 0 ? (
             <span className="whitespace-nowrap text-destructive" data-season-tab-failed={failed}>
               {failed} failed
