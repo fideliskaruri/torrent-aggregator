@@ -1,7 +1,9 @@
 import { Search } from "lucide-react";
 import { send } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { openReleasePicker } from "@/components/releases/release-picker-store";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { TitleDetailSkeleton } from "./title-detail-skeleton";
@@ -46,6 +48,21 @@ export function TitleDetail(props: TitleDetailProps) {
     findingAnother,
     setFindingAnother,
   } = detail;
+  const pickOwnRelease = () => {
+    if (!findAnother || !data?.workKey) return;
+    setFindAnother(null);
+    openReleasePicker({
+      workKey: data.workKey,
+      title: findAnother.label,
+      season: findAnother.season,
+      episode: findAnother.packed ? null : findAnother.episode,
+      replaceTransferId: `builtin:${findAnother.hash}`,
+      onPicked: () => {
+        detail.startTransferPoll();
+        void refetch();
+      },
+    });
+  };
 
   return (
     <div
@@ -107,7 +124,7 @@ export function TitleDetail(props: TitleDetailProps) {
           description="The current download and its partial files will be removed. TorrentFlow will search again."
           variant="destructive"
           busy={findingAnother}
-          confirmLabel="Find another"
+          confirmLabel="Pick best release"
           onConfirm={() => void (async () => {
             setFindingAnother(true);
             try {
@@ -129,6 +146,13 @@ export function TitleDetail(props: TitleDetailProps) {
               setFindingAnother(false);
             }
           })()}
+          secondaryAction={data?.workKey ? (
+            <Button type="button" variant="outline" disabled={findingAnother}
+              className="max-md:min-h-11 pointer-coarse:min-h-11"
+              data-find-another-pick onClick={pickOwnRelease}>
+              Pick my own
+            </Button>
+          ) : null}
         />
       ) : null}
 

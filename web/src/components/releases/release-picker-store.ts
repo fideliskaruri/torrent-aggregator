@@ -12,6 +12,8 @@ export interface ReleasePickTarget {
   query?: string | null;
   /** Set when the pick is for a request, so the transfer joins that request. */
   requestId?: string | null;
+  /** Replaces this active download atomically when a release is picked. */
+  replaceTransferId?: string | null;
   /** Called after a release started, e.g. to refresh the page that offered the pick. */
   onPicked?: () => void;
 }

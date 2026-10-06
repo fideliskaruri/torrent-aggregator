@@ -37,7 +37,7 @@ function EpisodeCardImpl({
     gated?: boolean;
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, resolution?: number) => void;
-  onFindAnother?: (hash: string, episodeLabel: string) => void;
+  onFindAnother?: (hash: string, episodeLabel: string, season: number, episode: number, packed: boolean) => void;
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
 }) {

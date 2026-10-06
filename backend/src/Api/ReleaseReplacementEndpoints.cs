@@ -8,24 +8,31 @@ namespace TorrentFlow.Api;
 internal static class ReleaseReplacementEndpoints
 {
     private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web);
+    private static readonly Regex TransferIdPattern = new(
+        "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     internal static void Map(RouteGroupBuilder group)
     {
         group.MapPost("/downloads/{transferId}/find-another", async (string transferId,
             TargetPipeline targets, CancellationToken ct) =>
         {
-            var match = Regex.Match(transferId.Trim(),
-                "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (!match.Success) return Results.NotFound(new { ok = false, error = "Download not found." });
-            var hash = match.Groups[1].Value;
+            if (!TryParseTransferId(transferId, out var hash))
+                return Results.NotFound(new { ok = false, error = "Download not found." });
             var target = await CurrentTarget(targets, hash, ct);
             if (target is null) return Results.NotFound(new { ok = false, error = "Download not found." });
             return ActionReply(await targets.FindAnotherAsync(target.Id, ct), await targets.ReadAsync(ct), target.Id);
         });
     }
 
-    private static async Task<TargetRow?> CurrentTarget(TargetPipeline targets, string hash, CancellationToken ct)
+    internal static bool TryParseTransferId(string? transferId, out string hash)
+    {
+        var match = TransferIdPattern.Match(transferId?.Trim() ?? "");
+        hash = match.Success ? match.Groups[1].Value : "";
+        return match.Success;
+    }
+
+    internal static async Task<TargetRow?> CurrentTarget(TargetPipeline targets, string hash, CancellationToken ct)
     {
         if (hash.Length is not (40 or 64) || hash.Any(c => !Uri.IsHexDigit(c))) return null;
         var snapshot = await targets.ReadAsync(ct);

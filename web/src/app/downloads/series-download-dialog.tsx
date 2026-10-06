@@ -358,7 +358,7 @@ export function SeriesDownloadDialog({
           {selectedSeason ? (
             <>
             <div
-              className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 sm:-mx-5 sm:px-5"
+              className="sticky -top-3 z-10 -mx-4 -mt-5 mb-3 flex min-h-11 items-center gap-2.5 border-b border-border bg-card px-4 py-2 sm:-mx-5 sm:px-5"
               data-season-select-all-row
             >
               <Checkbox

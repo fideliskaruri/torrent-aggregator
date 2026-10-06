@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Channels;
+using TorrentFlow.Api;
 using Microsoft.AspNetCore.DataProtection;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
@@ -114,6 +115,13 @@ internal static class TitleReleases
         if (input.ValueKind != JsonValueKind.Object || !input.TryGetProperty("token", out var token) ||
             token.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(token.GetString()))
             return Results.BadRequest(new { ok = false, message = "Choose a release first." });
+        string? replaceTransferId = null;
+        if (input.TryGetProperty("replaceTransferId", out var replace) && replace.ValueKind != JsonValueKind.Null)
+        {
+            if (replace.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(replace.GetString()))
+                return Results.BadRequest(new { ok = false, message = "Choose a download to replace." });
+            replaceTransferId = replace.GetString();
+        }
         Choice? choice;
         try { choice = JsonSerializer.Deserialize<Choice>(Protector(protection).Unprotect(token.GetString()!)); }
         catch (Exception ex) when (ex is CryptographicException or JsonException)
@@ -135,6 +143,20 @@ internal static class TitleReleases
                 (scope.Film ? !selected.CoversFilm : episodes.IsEmpty ||
                     !episodes.All(id => selected.CoveredEpisodeIds.Contains(id))))
                 return Results.Conflict(new { ok = false, message = "That release doesn't match this title. Search again and choose another." });
+            if (replaceTransferId is not null)
+            {
+                if (!ReleaseReplacementEndpoints.TryParseTransferId(replaceTransferId, out var currentHash))
+                    return Results.Conflict(new { ok = false, message = "Download not found." });
+                var currentTarget = await ReleaseReplacementEndpoints.CurrentTarget(targets, currentHash, ct);
+                if (currentTarget is null)
+                    return Results.Conflict(new { ok = false, message = "Download not found." });
+                if (currentTarget.WorkId != work!.Work.Id)
+                    return Results.Conflict(new { ok = false, message = "That download does not belong to this title." });
+                var replaced = await targets.FindAnotherAsync(currentTarget.Id, choice.Hash, ct);
+                return Results.Json(new { ok = replaced.Accepted, message = replaced.Message,
+                    title = CatalogProjection.Title(work!), infoHash = choice.Hash, queued = replaced.Queued > 0 },
+                    statusCode: replaced.Accepted ? 200 : 409);
+            }
             var accepted = await targets.AcquireAsync(new(workKey, choice.Season, choice.Episode),
                 AccessIdentity.UserId(http), ct);
             if (!accepted.Accepted || accepted.TargetIds.IsEmpty)

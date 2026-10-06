@@ -87,7 +87,7 @@ export function EpisodeCardActions({
   openEpisodeFile: () => void;
   offerFindSource: boolean;
   sourceHash: string | null;
-  onFindAnother?: (hash: string, episodeLabel: string) => void;
+  onFindAnother?: (hash: string, episodeLabel: string, season: number, episode: number, packed: boolean) => void;
   waitingForSeasonList: boolean;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
   waitingForEnglish: boolean;
@@ -108,7 +108,7 @@ export function EpisodeCardActions({
     menuItems.push({
       label: FIND_ANOTHER_SOURCE_LABEL,
       icon: <Search />,
-      onSelect: () => onFindAnother?.(sourceHash, episode.label),
+      onSelect: () => onFindAnother?.(sourceHash, episode.label, episode.season, episode.episode, episode.fromPack),
       dataAttribute: "data-episode-find-source",
     });
   }

@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { openReleasePicker } from "@/components/releases/release-picker-store";
 import { SeriesDownloadDialog } from "./series-download-dialog";
 import { downloadTitleHref } from "./download-links";
 import { transferLabel, transfersLabel } from "./release-display";
@@ -38,9 +39,29 @@ export function DownloadDialogs({ page }: { page: Model }) {
           description={page.findAnotherTorrent.packed
             ? "This release is a season pack. Every episode downloading from it will search again, and their partial files will be removed."
             : "The current download and its partial files will be removed. TorrentFlow will search again."}
-          variant="destructive" busy={page.findingAnother} confirmLabel="Find another"
+          variant="destructive" busy={page.findingAnother} confirmLabel="Pick best release"
           confirmData={{ "data-find-another-confirm": true }}
-          onConfirm={() => void page.confirmFindAnother()} />
+          onConfirm={() => void page.confirmFindAnother()}
+          secondaryAction={page.findAnotherTorrent.workKey ? (
+            <Button type="button" variant="outline" disabled={page.findingAnother}
+              className="max-md:min-h-11 pointer-coarse:min-h-11"
+              data-find-another-pick
+              onClick={() => {
+                const torrent = page.findAnotherTorrent;
+                if (!torrent?.workKey) return;
+                page.setFindAnotherTorrent(null);
+                openReleasePicker({
+                  workKey: torrent.workKey,
+                  title: torrent.workTitle ?? transferLabel(torrent),
+                  season: torrent.season,
+                  episode: torrent.packed ? null : torrent.episode,
+                  replaceTransferId: torrent.transferId,
+                  onPicked: () => void page.load(),
+                });
+              }}>
+              Pick my own
+            </Button>
+          ) : null} />
       ) : null}
       <ConfirmDialog open={!!page.pendingDelete}
         onOpenChange={(open) => { if (!open) page.setPendingDelete(null); }}
