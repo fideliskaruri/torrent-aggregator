@@ -26,7 +26,7 @@ async function postRowAction(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: act,
-      hash: torrent.hash,
+      transferIds: [torrent.transferId],
     }),
   }).catch(() => null);
   if (!response) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
@@ -151,7 +151,7 @@ export function useDownloadRowActions(
         const response = await send("/api/client/torrents", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "delete", hashes: transfers.map((torrent) => torrent.hash), deleteFiles }),
+          body: JSON.stringify({ action: "delete", transferIds: transfers.map((torrent) => torrent.transferId), deleteFiles }),
         });
         const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
         if (!response.ok || body?.ok !== true) {

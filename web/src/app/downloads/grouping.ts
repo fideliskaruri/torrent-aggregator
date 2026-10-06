@@ -15,6 +15,7 @@ interface CombinedTotals {
   sizeBytes: number;
   dlspeed: number;
   upspeed: number;
+  eta: number | null;
   status: DownloadStatus;
   statusLabel: string;
   counts: StatusCounts;
@@ -77,6 +78,10 @@ function combinedStatus(rows: readonly ClientTorrent[]): ClientTorrent {
   return rows.reduce((best, row) => STATUS_RANK[row.status] > STATUS_RANK[best.status] ? row : best);
 }
 
+function distinctDownloads(rows: readonly ClientTorrent[]): ClientTorrent[] {
+  return [...new Map(rows.map((row) => [row.hash, row])).values()];
+}
+
 function totalsFor(rows: readonly ClientTorrent[]): CombinedTotals {
   const sizeBytes = rows.reduce((sum, row) => sum + Math.max(0, row.sizeBytes || 0), 0);
   const completedBytes = rows.reduce(
@@ -84,11 +89,19 @@ function totalsFor(rows: readonly ClientTorrent[]): CombinedTotals {
     0,
   );
   const representative = combinedStatus(rows);
+  const downloads = distinctDownloads(rows);
+  const etaByHash = new Map<string, number>();
+  for (const row of rows) {
+    if (row.status !== "downloading" || row.eta == null || row.eta <= 0) continue;
+    etaByHash.set(row.hash, Math.max(etaByHash.get(row.hash) ?? 0, row.eta));
+  }
+  const etaValues = [...etaByHash.values()];
   return {
     progress: sizeBytes > 0 ? completedBytes / sizeBytes : 0,
     sizeBytes,
-    dlspeed: rows.reduce((sum, row) => sum + (Number(row.dlspeed) || 0), 0),
-    upspeed: rows.reduce((sum, row) => sum + (Number(row.upspeed) || 0), 0),
+    dlspeed: downloads.reduce((sum, row) => sum + (Number(row.dlspeed) || 0), 0),
+    upspeed: downloads.reduce((sum, row) => sum + (Number(row.upspeed) || 0), 0),
+    eta: etaValues.length > 0 ? Math.max(...etaValues) : null,
     status: representative.status,
     statusLabel: representative.statusLabel,
     counts: statusCounts(rows),
@@ -148,7 +161,7 @@ export function groupDownloads(rows: readonly ClientTorrent[]): DownloadGroup<Cl
       title,
       seasons,
       torrents: members,
-      releaseCount: members.length,
+      releaseCount: new Set(members.map((torrent) => torrent.hash)).size,
       seasonCount: seasons.length,
       ...totalsFor(members),
     });
@@ -162,7 +175,7 @@ export function groupDownloads(rows: readonly ClientTorrent[]): DownloadGroup<Cl
 export function seriesEpisodeTally(group: SeriesGroup<ClientTorrent>) {
   const statuses = new Map<string, DownloadStatus>();
   for (const row of group.torrents) {
-    if (row.season == null || row.episode == null || row.packEpisodes) continue;
+    if (row.season == null || row.episode == null) continue;
     const key = `${row.season}:${row.episode}`;
     const current = statuses.get(key);
     if (!current || STATUS_RANK[row.status] > STATUS_RANK[current]) statuses.set(key, row.status);

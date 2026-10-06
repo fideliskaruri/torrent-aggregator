@@ -84,7 +84,7 @@ export function torrentRowMenuItems({
   const pauseResume = pauseResumeAction(t);
   const facts = [
     t.category,
-    t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
+    !t.packed && t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
   ].filter(Boolean);
   const hasLifecycleItems = t.actions.downloadNow || t.actions.findAnother || pauseResume !== null;
   return (

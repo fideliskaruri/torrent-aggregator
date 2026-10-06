@@ -78,12 +78,6 @@ export function showsProgressBar(torrent: Pick<ClientTorrent, "status" | "progre
   );
 }
 
-export function packLabel(torrent: Pick<ClientTorrent, "packEpisodes">): string | null {
-  const count = torrent.packEpisodes ?? 0;
-  if (!count) return null;
-  return `${count} missing ${count === 1 ? "episode" : "episodes"} in season pack`;
-}
-
 export function transferLabel(torrent: ClientTorrent): string {
   const { title, episodeLabel } = releaseDisplayFacts(torrent);
   return episodeLabel ? `${title} ${episodeLabel}` : title;

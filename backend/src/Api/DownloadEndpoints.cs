@@ -137,7 +137,7 @@ internal static class DownloadEndpoints
     }
 
     internal sealed record DownloadAction(string Action, string? Hash = null, string[]? Hashes = null,
-        string? OwnerClientType = null, bool DeleteFiles = false);
+        string? OwnerClientType = null, bool DeleteFiles = false, string[]? TransferIds = null);
     internal sealed record RecoverySourcesInput(string[]? Ids, bool Acknowledged,
         ExternalSelection[]? Selections = null, bool Paused = false);
     internal sealed record ExternalSelection(string SourceId, int FileIndex, string WorkId, string? EpisodeId = null);
@@ -173,66 +173,94 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         foreach (var download in snapshot.Queue.Select(q => snapshot.Downloads.Single(d => d.Id == q.DownloadId)))
         {
             var associations = links.Where(l => l.DownloadId == download.Id).ToArray();
-            var items = snapshot.Targets.Where(t => associations.Any(l => l.TargetId == t.Id)).ToArray();
-            if (items.Length > 0 && items.All(t => t.State == TargetState.Removed)) continue;
-            var target = items.FirstOrDefault(t => t.State != TargetState.Removed);
+            var targetIds = associations.Select(l => l.TargetId).ToHashSet(StringComparer.Ordinal);
+            var items = snapshot.Targets.Where(t => targetIds.Contains(t.Id) && t.State != TargetState.Removed).ToArray();
+            if (targetIds.Count > 0 && items.Length == 0) continue;
             var live = snapshot.Live.FirstOrDefault(l => l.DownloadId == download.Id);
             var rawIntent = raw.FirstOrDefault(r => r.Id == download.RawIntentId);
-            var libraryFile = media.FirstOrDefault(m => m.DownloadId == download.Id && m.Role == FileRole.Video);
-            var work = works.FirstOrDefault(w => w.Id == (target?.WorkId ?? libraryFile?.WorkId));
-            var episode = episodes.FirstOrDefault(e => e.Id == (target?.EpisodeId ?? libraryFile?.EpisodeId));
-            var season = seasons.FirstOrDefault(s => s.Id == episode?.SeasonId);
             var release = releases.FirstOrDefault(r => r.Id == download.Hash);
-            var done = download.FinishedAt is not null || target?.State == TargetState.Done ||
-                rawIntent?.State == RawDownloadState.Done;
-            var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
-                live?.Intent == DownloadIntent.Paused;
-            var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live);
-            var failed = state == "error";
-            var selected = files.Where(f => f.DownloadId == download.Id && f.Role != FileRole.Unwanted).ToArray();
-            var size = selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
-                live?.SelectedBytes ?? release?.TotalBytes ?? 0;
-            size += media.Where(m => m.DownloadId == download.Id &&
-                selected.All(f => f.FileIndex != m.FileIndex)).Sum(m => m.Bytes);
-            var completed = selected.Length > 0 ? selected.Sum(f => f.Filed ? f.ExpectedBytes :
-                live?.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.CompletedBytes ?? 0) :
-                live?.CompletedSelectedBytes ?? 0;
-            var title = work is null ? null : CatalogProjection.Title(new(work,
-                [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
-            var releaseName = release?.Name ?? title ?? download.Hash;
-            var parsed = parser.Parse(releaseName);
-            var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
-            var position = state == "queued" ? (int?)++queuePosition : null;
-            var rowStatus = DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
-            var forced = target?.DownloadNow == true || rawIntent?.NowAt is not null;
-            var filesExist = selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
-                media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null));
-            var filesMissing = done && selected.Length > 0 && !filesExist;
-            rows.Add(new
+            var queued = items.Length > 0
+                ? items.Any(target => DownloadRowView.State(target.State == TargetState.Done,
+                    target.IsPaused() || live?.Intent == DownloadIntent.Paused,
+                    target.State == TargetState.Filing, live) == "queued")
+                : DownloadRowView.State(download.FinishedAt is not null || rawIntent?.State == RawDownloadState.Done,
+                    rawIntent?.State == RawDownloadState.Paused || live?.Intent == DownloadIntent.Paused,
+                    false, live) == "queued";
+            var downloadPosition = queued ? ++queuePosition : (int?)null;
+            var packed = items.Length > 1;
+
+            void AddRow(TargetRow? target)
             {
-                hash = download.Hash, name = releaseName,
-                progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
-                sizeBytes = size, dlspeed = live?.BytesPerSecond ?? 0, upspeed = 0,
-                eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
-                status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
-                category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
-                savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
-                magnet = release?.Magnet, addedAt = download.AddedAt, filesMissing,
-                transferId = "builtin:" + download.Hash,
-                workId = work?.Id, workKey = work?.WorkKey,
-                workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
-                workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
-                posterUrl = work?.PosterUrl,
-                season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
-                episode = items.Length > 1 ? null : episode?.Number ??
-                    (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),
-                packEpisodes = items.Length > 1 ? (int?)items.Count(t => t.State != TargetState.Removed) : null,
-                quality = DownloadRowView.Quality(parsed.Quality),
-                mediaKind = DownloadRowView.MediaKind(work, parsed),
-                groupKey = work?.WorkKey ?? "raw:" + download.Hash,
-                isSeries = DownloadRowView.IsSeries(work, parsed),
-                actions = DownloadRowView.Actions(rowStatus.Status, forced, target is not null, filesExist),
-            });
+                var libraryFile = media.FirstOrDefault(m => m.DownloadId == download.Id && m.Role == FileRole.Video &&
+                    (target is null || m.EpisodeId == target.EpisodeId));
+                var work = works.FirstOrDefault(w => w.Id == (target?.WorkId ?? libraryFile?.WorkId));
+                var episode = episodes.FirstOrDefault(e => e.Id == (target?.EpisodeId ?? libraryFile?.EpisodeId));
+                var season = seasons.FirstOrDefault(s => s.Id == episode?.SeasonId);
+                var selected = target is null
+                    ? files.Where(f => f.DownloadId == download.Id && f.Role != FileRole.Unwanted).ToArray()
+                    : files.Where(f => f.DownloadId == download.Id && f.TargetId == target.Id &&
+                        f.Role != FileRole.Unwanted).ToArray();
+                var done = target is null
+                    ? download.FinishedAt is not null || rawIntent?.State == RawDownloadState.Done
+                    : target.State == TargetState.Done;
+                var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
+                    live?.Intent == DownloadIntent.Paused;
+                var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live);
+                var failed = state == "error";
+                var size = target is not null ? selected.Sum(f => f.ExpectedBytes) :
+                    selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
+                    live?.SelectedBytes ?? release?.TotalBytes ?? 0;
+                if (target is null)
+                    size += media.Where(m => m.DownloadId == download.Id &&
+                        selected.All(f => f.FileIndex != m.FileIndex)).Sum(m => m.Bytes);
+                var completed = target is not null || selected.Length > 0
+                    ? selected.Sum(f => f.Filed ? f.ExpectedBytes :
+                        live?.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.CompletedBytes ?? 0)
+                    : live?.CompletedSelectedBytes ?? 0;
+                var title = work is null ? null : CatalogProjection.Title(new(work,
+                    [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
+                var releaseName = release?.Name ?? title ?? download.Hash;
+                var parsed = parser.Parse(releaseName);
+                var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
+                var position = state == "queued" ? downloadPosition : null;
+                var rowStatus = DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
+                var forced = target?.DownloadNow == true || rawIntent?.NowAt is not null;
+                var filesExist = selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
+                    media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null));
+                var filesMissing = done && selected.Length > 0 && !filesExist;
+                rows.Add(new
+                {
+                    hash = download.Hash, name = releaseName,
+                    progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
+                    sizeBytes = size, dlspeed = live?.BytesPerSecond ?? 0, upspeed = 0,
+                    eta = live?.Eta?.TotalSeconds, peers = live?.Peers ?? 0,
+                    status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
+                    category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
+                    savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
+                    magnet = release?.Magnet, addedAt = download.AddedAt, filesMissing,
+                    transferId = packed && target is not null
+                        ? $"builtin:{download.Hash}:{target.Id}" : "builtin:" + download.Hash,
+                    targetId = packed ? target?.Id : null,
+                    packed,
+                    workId = work?.Id, workKey = work?.WorkKey,
+                    workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
+                    workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
+                    posterUrl = work?.PosterUrl,
+                    season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
+                    episode = episode?.Number ??
+                        (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),
+                    quality = DownloadRowView.Quality(parsed.Quality),
+                    mediaKind = DownloadRowView.MediaKind(work, parsed),
+                    groupKey = work?.WorkKey ?? "raw:" + download.Hash,
+                    isSeries = DownloadRowView.IsSeries(work, parsed),
+                    actions = DownloadRowView.Actions(rowStatus.Status, forced, target is not null, filesExist),
+                });
+            }
+
+            if (packed)
+                foreach (var target in items) AddRow(target);
+            else
+                AddRow(items.FirstOrDefault());
         }
         return new { torrents = rows };
     }
@@ -250,15 +278,41 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         if (input.DeleteFiles && action != TargetAction.Remove)
             throw new ArgumentException("Delete files is only available when removing a download.");
         var hashes = input.Hashes ?? (input.Hash is { } singleHash ? [singleHash] : []);
-        if (hashes.Length == 0 || hashes.Length > 500) throw new ArgumentException("Choose downloads to change.");
+        var transferIds = input.TransferIds ?? [];
+        if (hashes.Length + transferIds.Length == 0 || hashes.Length + transferIds.Length > 500)
+            throw new ArgumentException("Choose downloads to change.");
         var snapshot = await targets.ReadAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var links = await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
-        foreach (var hash in hashes.Distinct(StringComparer.OrdinalIgnoreCase))
+        var work = new List<(string Hash, string? TargetId)>();
+        work.AddRange(hashes.Select(hash => (hash, (string?)null)));
+        foreach (var transferId in transferIds)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(transferId.Trim(),
+                "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            if (!match.Success) throw new ArgumentException("Choose a valid download.");
+            work.Add((match.Groups[1].Value, match.Groups[2].Success ? match.Groups[2].Value : null));
+        }
+        foreach (var (hash, targetId) in work.Distinct())
         {
             var download = snapshot.Downloads.FirstOrDefault(d => d.Hash.Equals(hash, StringComparison.OrdinalIgnoreCase));
-            if (download is null) continue;
+            if (download is null)
+            {
+                if (targetId is not null) throw new ArgumentException("This download no longer has an action.");
+                continue;
+            }
             var ids = links.Where(l => l.DownloadId == download.Id).Select(l => l.TargetId).Distinct().ToArray();
+            if (targetId is not null)
+            {
+                if (!ids.Contains(targetId, StringComparer.Ordinal) ||
+                    !snapshot.Targets.Any(t => t.Id == targetId))
+                    throw new ArgumentException("This download no longer has an action.");
+                if (input.DeleteFiles) await targets.DeleteTargetFilesAsync(download.Hash, targetId, ct);
+                await targets.ActionAsync(targetId, action, ct);
+                continue;
+            }
             if (ids.Length == 0 && download.RawIntentId is not null)
             {
                 if (action == TargetAction.Remove) await rawDownloads.RemoveAsync(download.Hash, input.DeleteFiles, ct);
@@ -277,7 +331,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     internal async Task<IResult> KeepAsync(string transferId, CancellationToken ct)
     {
         var match = System.Text.RegularExpressions.Regex.Match(transferId.Trim(),
-            "^(?:builtin:)?([0-9a-f]{40})$", System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         if (!match.Success) return Results.BadRequest(new { ok = false, reason = "invalid-id",
             error = "That is not a download id.", message = "Reload the page and try again." });

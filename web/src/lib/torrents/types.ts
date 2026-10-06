@@ -138,4 +138,6 @@ export interface OwnedClientTorrent extends ClientTorrent {
   ownerClientLabel: string;
   /** Stable row/action identity; hashes are only unique inside one client. */
   transferId: string;
+  targetId?: number | string | null;
+  packed?: boolean;
 }

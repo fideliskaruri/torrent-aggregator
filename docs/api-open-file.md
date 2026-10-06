@@ -8,16 +8,17 @@ Downloads row fields that came with it.
 
 Owner only, on the computer running TorrentFlow. Opens one finished video file of a built-in download.
 
-- `transferId`: the row's `transferId` from `GET /api/client/torrents` (`builtin:<40 hex hash>`), URL-encoded with
-  `encodeURIComponent`. A bare 40-character hash is accepted too.
+- `transferId`: the row's `transferId` from `GET /api/client/torrents` (`builtin:<40 hex hash>` or
+  `builtin:<40 hex hash>:<target id>`), URL-encoded with `encodeURIComponent`. A bare 40-character hash is accepted too.
 - Body (JSON): `{ "mode": "open" }` or `{ "mode": "reveal" }`. `mode` is optional and defaults to `"open"`.
   - `open`: the computer's default app for that file type opens the file (Windows shell open, `open` on macOS,
     `xdg-open` on Linux).
   - `reveal`: the file manager opens with the file selected (`explorer.exe /select,` on Windows, `open -R` on macOS;
     Linux opens the containing folder).
 
-Which file: the largest finished video file in the download's own recorded file list (the list written when the
-download finished and was checked). Only video extensions are ever opened (`mkv mp4 avi m4v mov wmv flv webm ts m2ts
+Which file: for a target-suffixed ID, that target's largest finished bound video file; otherwise, the largest finished
+video file in the download's own recorded file list (the list written when the download finished and was checked).
+Only video extensions are ever opened (`mkv mp4 avi m4v mov wmv flv webm ts m2ts
 mpg mpeg vob`). The path must be inside the download folders from Settings, and no folder on the way and not the file
 itself may be a link (symlink or junction). These checks run again right before launching.
 
@@ -38,7 +39,7 @@ Body: `{ "ok": false, "reason": "<code>", "error": "<what happened>", "message":
 | HTTP | `reason` | When |
 |---|---|---|
 | 400 | `invalid-mode` | `mode` is not `open` or `reveal` (also carries `field: "mode"`). |
-| 400 | `invalid-id` | `transferId` is not a built-in transfer id or a 40-character hash. |
+| 400 | `invalid-id` | `transferId` is not a built-in transfer id or a 40-character hash, optionally suffixed by a target ID. |
 | 409 | `remote` | Owner using TorrentFlow through remote access. Also `openFolderDisabled: true`. |
 | 409 | `container` | TorrentFlow runs in a container (Docker). Also `openFolderDisabled: true`. |
 | 409 | `other-client` | The transfer belongs to qBittorrent or Transmission. |

@@ -13,6 +13,22 @@ public sealed partial class TargetPipeline
     public Task DeleteDownloadFilesAsync(string hash, CancellationToken ct) =>
         transfers.DeleteFilesAsync(hash, null, stateGate, ct);
 
+    public async Task DeleteTargetFilesAsync(string hash, string targetId, CancellationToken ct)
+    {
+        hash = hash.ToLowerInvariant();
+        await using var scope = scopes.CreateAsyncScope();
+        var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        var download = await repository.DownloadAsync(hash, ct);
+        if (download is null) throw new ArgumentException("This download no longer has an action.");
+        var indices = (await repository.BindingsAsync(ct))
+            .Where(file => file.DownloadId == download.Id && file.TargetId == targetId &&
+                file.Role != FileRole.Unwanted)
+            .Select(file => file.FileIndex)
+            .Distinct()
+            .ToImmutableArray();
+        if (!indices.IsEmpty) await transfers.DeleteFilesAsync(hash, indices, stateGate, ct);
+    }
+
     public async Task<LibraryDeleteResult> DeleteLibraryAsync(LibraryDeletePreview preview, CancellationToken ct)
     {
         await libraryDeletionGate.WaitAsync(ct);

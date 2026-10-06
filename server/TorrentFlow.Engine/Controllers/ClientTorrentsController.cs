@@ -173,15 +173,6 @@ public sealed class ClientTorrentsController(
                 if (target.Episode is not null) torrent["episode"] = target.Episode;
             }
         }
-        // Season pack fallback v1: one transfer filling several missing episodes of a season with selected files only.
-        var packs = await db.AcquisitionTargets.AsNoTracking()
-            .Where(a => a.UserId == LocalUser.Id && a.InfoHash != null && a.FileIndex != null && hashes.Contains(a.InfoHash.ToLower()))
-            .GroupBy(a => a.InfoHash!.ToLower()).Select(g => new { Hash = g.Key, Count = g.Count() }).ToListAsync(ct);
-        foreach (var torrent in torrents)
-        {
-            var hash = torrent["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant();
-            if (hash != null && packs.FirstOrDefault(p => p.Hash == hash) is { } pack) torrent["packEpisodes"] = pack.Count;
-        }
         await AnnotateReplacedAsync(db, torrents, targetHashes, ct);
     }
 

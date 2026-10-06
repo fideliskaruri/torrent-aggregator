@@ -100,9 +100,10 @@ scan) and `TitleService.Reconcile` return every unfinished claim to the wanted q
 
 ### UI
 
-One transfer in Downloads with plain status "Downloading N missing episodes from a season pack" (then "Got N
-missing episodes from a season pack"), from `packEpisodes` on `GET /api/client/torrents`. No per-episode swap or
-delete for a pack row in v1. Requests are fulfilled through the same start report and completion rule.
+Downloads shows one episode row for each linked, non-removed target in a shared season-pack transfer.
+Each row reports its own file progress, size and status, and supports target-scoped pause, resume and delete.
+Torrent speed and ETA appear once on the series group and season headers. Find another remains download-scoped:
+the current Targets path removes the shared transfer and returns its active members to the wanted queue.
 
 ### Configuration (`TorrentFlow:Library`)
 

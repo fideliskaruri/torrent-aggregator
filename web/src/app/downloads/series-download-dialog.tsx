@@ -12,8 +12,8 @@ import {
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { SeasonSwitcher, type SeasonOption } from "@/components/tf/season-switcher";
 import { progressPercent } from "@/components/tf/active-row-state";
+import { formatEta, formatSpeed } from "@/lib/format";
 import {
-  type SeasonBucket,
   type SeriesGroup,
 } from "./grouping";
 import { releaseDisplayFacts, rollupChip } from "./release-display";
@@ -66,10 +66,18 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
     const pct = progressPercent(season.progress);
     const failed = season.counts.error;
     const label = season.label;
+    const liveDetails = season.status === "downloading"
+      ? [formatSpeed(season.dlspeed), season.eta != null ? formatEta(season.eta) : null]
+        .filter(Boolean).join(" · ")
+      : null;
     return {
       value: season.key,
       label,
-      detailText: `${pct}%${failed > 0 ? ` · ${failed} failed` : ""}`,
+      detailText: [
+        `${pct}%`,
+        liveDetails,
+        failed > 0 ? `${failed} failed` : null,
+      ].filter(Boolean).join(" · "),
       detail: (
         <span className="flex w-full items-center gap-1.5">
           <TransferProgress
@@ -79,6 +87,11 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
             size="mini"
             className="w-auto"
           />
+          {liveDetails ? (
+            <span className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-muted-foreground">
+              {liveDetails}
+            </span>
+          ) : null}
           {failed > 0 ? (
             <span
               className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-destructive"
@@ -93,12 +106,10 @@ function seasonOptions(group: SeriesGroup<ClientTorrent>): SeasonOption[] {
   });
 }
 
-function episodeLabel(torrent: ClientTorrent, season: SeasonBucket<ClientTorrent>) {
+function episodeLabel(torrent: ClientTorrent) {
   return torrent.episode != null
     ? `E${formatEpisodeNumber(torrent.episode)}`
-    : torrent.packEpisodes
-      ? `${season.label} pack`
-      : releaseDisplayFacts(torrent).title;
+    : releaseDisplayFacts(torrent).title;
 }
 export function SeriesDownloadDialog({
   group,
@@ -259,7 +270,7 @@ export function SeriesDownloadDialog({
                   key={torrent.transferId}
                   torrent={torrent}
                   kind="episode"
-                  title={episodeLabel(torrent, selectedSeason)}
+                  title={episodeLabel(torrent)}
                   isSelected={selected.has(torrent.transferId)}
                   highlighted={torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}

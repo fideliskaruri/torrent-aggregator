@@ -700,8 +700,8 @@ with `frontend/`.
 
 #### 6.4.1 Where it's offered (owner only)
 
-One web helper, `canFindAnotherSource(subject)`, replaces `canFindAnotherRelease`. It requires the built-in client,
-a hash, and not a season pack row (`packEpisodes`). Whether the download has finished no longer matters, so none of
+One web helper, `canFindAnotherSource(subject)`, replaces `canFindAnotherRelease`. It requires the built-in client
+and a hash. Whether the download has finished no longer matters, so none of
 the three different "finished" tests (6.8) feed it. Imported rows still get the server's 409, and the dialog says why
 (today's behaviour).
 
@@ -1032,8 +1032,7 @@ Noted, not filed (minor, or not reachable from the UI):
   today.
 - Alternatives without a magnet are dropped (`ReleaseSwapService.cs:209`).
 - The web tests "finished" in four places with three rules:
-  - `progress >= 0.9999`: `canFindAnotherRelease` (`release-swap-dialog.tsx:78`) and `packLabel`
-    (`release-display.ts:263`);
+  - `progress >= 0.9999`: `canFindAnotherRelease` (`release-swap-dialog.tsx:78`);
   - `>= 1`: `showsProgressBar` (:179);
   - state `downloaded`: `canOpenFinishedFile` (:190).
 

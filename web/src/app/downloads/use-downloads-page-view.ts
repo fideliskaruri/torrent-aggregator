@@ -152,7 +152,7 @@ export function useDownloadsPageView(ui: Ui, data: Data) {
 
   let dlspeed = 0;
   let upspeed = 0;
-  for (const torrent of downloadable) {
+  for (const torrent of new Map(downloadable.map((row) => [row.hash, row])).values()) {
     dlspeed += torrent.dlspeed || 0;
     upspeed += torrent.upspeed || 0;
   }

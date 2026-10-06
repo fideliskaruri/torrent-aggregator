@@ -8,7 +8,7 @@ namespace TorrentFlow.Library;
 
 public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFiles
 {
-    [GeneratedRegex("^(?:builtin:)?([0-9a-f]{40})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BuiltinId();
 
     public LocalFileResult Browse(string? path)
@@ -116,12 +116,26 @@ public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFi
             return Refuse(LocalFileError.Conflict, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
         var bindings = await repository.BindingsAsync(ct);
         var media = await repository.MediaAsync(null, ct);
-        var video = bindings.Where(f => f.DownloadId == download.Id && f.Filed && f.Role == FileRole.Video)
-            .Join(media.Where(m => m.Role == FileRole.Video), f => f.MediaFileId, m => m.Id, (_, m) => m)
-            .OrderByDescending(m => m.Bytes).ThenBy(m => m.Id, StringComparer.Ordinal).FirstOrDefault();
-        if (video is null) return Refuse(LocalFileError.Conflict, "no-video", "This download has no video file to open.", "Show it in its folder instead.");
+        var targetId = match.Groups[2].Success ? match.Groups[2].Value : null;
+        string? full;
+        if (targetId is null)
+        {
+            var video = bindings.Where(f => f.DownloadId == download.Id && f.Filed && f.Role == FileRole.Video)
+                .Join(media.Where(m => m.Role == FileRole.Video), f => f.MediaFileId, m => m.Id, (_, m) => m)
+                .OrderByDescending(m => m.Bytes).ThenBy(m => m.Id, StringComparer.Ordinal).FirstOrDefault();
+            full = video?.Path;
+        }
+        else
+        {
+            var boundVideo = bindings.Where(f => f.DownloadId == download.Id && f.TargetId == targetId &&
+                    f.Filed && f.Role == FileRole.Video)
+                .OrderByDescending(f => f.ExpectedBytes).ThenBy(f => f.FileIndex).FirstOrDefault();
+            full = boundVideo?.MediaFileId is { } mediaId
+                ? media.FirstOrDefault(m => m.Id == mediaId && m.Role == FileRole.Video)?.Path ?? boundVideo.FinalPath
+                : boundVideo?.FinalPath;
+        }
+        if (full is null) return Refuse(LocalFileError.Conflict, "no-video", "This download has no video file to open.", "Show it in its folder instead.");
         var roots = await repository.RootsAsync(ct);
-        var full = video.Path;
         var verified = VerifyVideo(full, roots);
         if (verified is not null) return verified;
         full = Path.GetFullPath(full);
