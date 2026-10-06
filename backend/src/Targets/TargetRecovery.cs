@@ -97,9 +97,12 @@ public sealed partial class TargetPipeline
             var work = (await store.ListAsync<WorkRow>(row => row.Id == target.WorkId, ct)).SingleOrDefault();
             if (work is null) return new(false, 0, 0, [targetId], "The title is no longer available.");
             var now = DateTimeOffset.UtcNow;
+            // A source picked back by hand still has its old block; refresh it instead of adding a second one.
+            var oldBlock = (await store.ListAsync<BlockRow>(b => b.Hash == download.Hash && b.WorkKey == work.WorkKey, ct))
+                .SingleOrDefault();
             await CommitAsync(store, [
                 new(new AttemptRow { Id = Guid.NewGuid().ToString("N"), TargetId = target.Id, WorkId = target.WorkId, ReleaseHash = download.Hash, ActorUserId = target.CreatedBy, Kind = AttemptKind.Swap, StartedAt = now, EndedAt = now, Outcome = "Searching", ReasonCode = stall, ReasonText = stall is null ? "Looking for another source." : "The source stalled. Looking for another.", Decision = null, LegacyContext = null, BatchId = target.BatchId, DownloadId = download.Id, DeadlineAt = null, Swap = null }, null, null),
-                new(new BlockRow { Id = Guid.NewGuid().ToString("N"), Hash = download.Hash, WorkKey = work.WorkKey, Reason = "Owner chose another source", Origin = BlockOrigin.Owner, ReplacedByHash = null, CreatedAt = now, Until = null }, null, null),
+                new(new BlockRow { Id = oldBlock?.Id ?? Guid.NewGuid().ToString("N"), Hash = download.Hash, WorkKey = work.WorkKey, Reason = "Owner chose another source", Origin = BlockOrigin.Owner, ReplacedByHash = null, CreatedAt = now, Until = null }, null, oldBlock),
             ], [], ct);
 
             await DeleteDownloadFilesAsync(download.Hash, ct);
