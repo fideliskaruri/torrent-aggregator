@@ -147,7 +147,8 @@ internal static class TitleReleases
                 sourceDownloads.Any(row => row.FinishedAt is null);
             var finished = sourceDownloads.Any(row => row.FinishedAt is not null) && blocked is null;
             var state = inUse ? "in_use" : finished ? "finished" : "dropped";
-            var blockedInfo = blocked is null ? null : new
+            // A source picked back by hand keeps its block for automatic picks, but it is not dropped.
+            var blockedInfo = blocked is null || inUse ? null : new
             {
                 reason = "replaced",
                 at = blocked.CreatedAt.ToString("O"),

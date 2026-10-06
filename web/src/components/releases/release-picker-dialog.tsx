@@ -239,6 +239,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1">
+          <div className="shrink-0 px-4 pt-3 sm:px-5">
           <TabsList className="h-11 w-full grid-cols-2" data-release-picker-tabs>
             <TabsTrigger value="search" className="min-h-11" data-release-picker-search-tab>Search</TabsTrigger>
             <TabsTrigger value="previous" className="min-h-11" data-release-picker-previous-tab>
@@ -248,6 +249,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
               ) : null}
             </TabsTrigger>
           </TabsList>
+          </div>
 
           <TabsContent value="search" className="min-h-0">
             <div className="min-h-0 max-h-full space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
