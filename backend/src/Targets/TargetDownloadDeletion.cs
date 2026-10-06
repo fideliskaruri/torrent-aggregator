@@ -10,8 +10,27 @@ public sealed partial class TargetPipeline
 {
     private readonly SemaphoreSlim libraryDeletionGate = new(1, 1);
 
-    public Task DeleteDownloadFilesAsync(string hash, CancellationToken ct) =>
-        transfers.DeleteFilesAsync(hash, null, stateGate, ct);
+    public async Task DeleteDownloadFilesAsync(string hash, CancellationToken ct)
+    {
+        hash = hash.ToLowerInvariant();
+        await using var scope = scopes.CreateAsyncScope();
+        var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        var download = await repository.DownloadAsync(hash, ct);
+        if (download is null) return;
+        var bindings = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == download.Id).ToArray();
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var removed = (await store.ListAsync<TargetRow>(t => t.State == TargetState.Removed, ct))
+            .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        // Files of episodes removed earlier with "keep files" stay on disk.
+        var kept = bindings.Where(f => f.TargetId is not null && removed.Contains(f.TargetId)).ToArray();
+        if (kept.Length == 0)
+        {
+            await transfers.DeleteFilesAsync(hash, null, stateGate, ct);
+            return;
+        }
+        var indices = bindings.Except(kept).Select(f => f.FileIndex).Distinct().ToImmutableArray();
+        if (!indices.IsEmpty) await transfers.DeleteFilesAsync(hash, indices, stateGate, ct);
+    }
 
     public async Task DeleteTargetFilesAsync(string hash, string targetId, CancellationToken ct)
     {

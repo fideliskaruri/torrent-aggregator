@@ -112,8 +112,6 @@ public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFi
         var hash = match.Groups[1].Value.ToLowerInvariant();
         var download = await repository.DownloadAsync(hash, ct);
         if (download is null) return Refuse(LocalFileError.Missing, "not-found", "That download is no longer in TorrentFlow.", "Reload the page.");
-        if (download.FinishedAt is null)
-            return Refuse(LocalFileError.Conflict, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
         var bindings = await repository.BindingsAsync(ct);
         var media = await repository.MediaAsync(null, ct);
         var targetId = match.Groups[2].Success ? match.Groups[2].Value : null;
@@ -134,6 +132,8 @@ public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFi
                 ? media.FirstOrDefault(m => m.Id == mediaId && m.Role == FileRole.Video)?.Path ?? boundVideo.FinalPath
                 : boundVideo?.FinalPath;
         }
+        if (full is null && download.FinishedAt is null)
+            return Refuse(LocalFileError.Conflict, "not-finished", "This download hasn't finished yet.", "Wait until it finishes, then try again.");
         if (full is null) return Refuse(LocalFileError.Conflict, "no-video", "This download has no video file to open.", "Show it in its folder instead.");
         var roots = await repository.RootsAsync(ct);
         var verified = VerifyVideo(full, roots);

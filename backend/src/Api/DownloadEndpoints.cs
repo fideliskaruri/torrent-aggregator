@@ -174,7 +174,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         {
             var associations = links.Where(l => l.DownloadId == download.Id).ToArray();
             var targetIds = associations.Select(l => l.TargetId).ToHashSet(StringComparer.Ordinal);
-            var items = snapshot.Targets.Where(t => targetIds.Contains(t.Id) && t.State != TargetState.Removed).ToArray();
+            var linked = snapshot.Targets.Where(t => targetIds.Contains(t.Id) && t.State != TargetState.Removed).ToArray();
+            // A target re-requested onto another release keeps an old link here; it belongs to its new download.
+            var current = linked.Where(t => download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var items = current.Length > 0 ? current : linked;
             if (targetIds.Count > 0 && items.Length == 0) continue;
             var live = snapshot.Live.FirstOrDefault(l => l.DownloadId == download.Id);
             var rawIntent = raw.FirstOrDefault(r => r.Id == download.RawIntentId);
@@ -307,7 +311,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             if (targetId is not null)
             {
                 if (!ids.Contains(targetId, StringComparer.Ordinal) ||
-                    !snapshot.Targets.Any(t => t.Id == targetId))
+                    !snapshot.Targets.Any(t => t.Id == targetId &&
+                        download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase)))
                     throw new ArgumentException("This download no longer has an action.");
                 if (input.DeleteFiles) await targets.DeleteTargetFilesAsync(download.Hash, targetId, ct);
                 await targets.ActionAsync(targetId, action, ct);
@@ -336,10 +341,13 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         if (!match.Success) return Results.BadRequest(new { ok = false, reason = "invalid-id",
             error = "That is not a download id.", message = "Reload the page and try again." });
         var hash = match.Groups[1].Value.ToLowerInvariant();
-        var download = (await targets.ReadAsync(ct)).Downloads.SingleOrDefault(d => d.Hash == hash);
+        var snapshot = await targets.ReadAsync(ct);
+        var download = snapshot.Downloads.SingleOrDefault(d => d.Hash == hash);
         if (download is null) return Results.NotFound(new { ok = false, reason = "not-found",
             error = "Torrent not found in engine.", message = "Torrent not found in engine." });
-        if (download.FinishedAt is null) return Results.Conflict(new { ok = false, reason = "not-held",
+        var episodeDone = match.Groups[2].Success &&
+            snapshot.Targets.Any(t => t.Id == match.Groups[2].Value && t.State == TargetState.Done);
+        if (download.FinishedAt is null && !episodeDone) return Results.Conflict(new { ok = false, reason = "not-held",
             error = "This download is still finishing. Try again when it is ready.",
             message = "This download is still finishing. Try again when it is ready." });
         return Results.Ok(new { ok = true, message = "The download is already kept in your library." });
