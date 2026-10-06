@@ -115,7 +115,7 @@ export function TitleCard({
         </Badge>
       </Button>
     </span>
-  ) : action.kind === "search" || action.kind === "request" ? (
+  ) : action.kind === "request" ? (
     <span className={actionRowClass}>
       <Button
         asChild
