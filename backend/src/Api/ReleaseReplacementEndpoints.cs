@@ -19,17 +19,19 @@ internal static class ReleaseReplacementEndpoints
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (!match.Success) return Results.NotFound(new { ok = false, error = "Download not found." });
             var hash = match.Groups[1].Value;
-            var target = await CurrentTarget(targets, hash, ct);
+            var target = await CurrentTarget(targets, hash, match.Groups[2].Success ? match.Groups[2].Value : null, ct);
             if (target is null) return Results.NotFound(new { ok = false, error = "Download not found." });
             return ActionReply(await targets.FindAnotherAsync(target.Id, ct), await targets.ReadAsync(ct), target.Id);
         });
     }
 
-    private static async Task<TargetRow?> CurrentTarget(TargetPipeline targets, string hash, CancellationToken ct)
+    private static async Task<TargetRow?> CurrentTarget(TargetPipeline targets, string hash, string? targetId,
+        CancellationToken ct)
     {
         if (hash.Length is not (40 or 64) || hash.Any(c => !Uri.IsHexDigit(c))) return null;
         var snapshot = await targets.ReadAsync(ct);
         return snapshot.Targets.FirstOrDefault(t => t.State == TargetState.Fetching &&
+            (targetId is null || t.Id == targetId) &&
             t.ChosenReleaseHash?.Equals(hash, StringComparison.OrdinalIgnoreCase) == true);
     }
 

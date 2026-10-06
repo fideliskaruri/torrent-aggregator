@@ -202,7 +202,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                         f.Role != FileRole.Unwanted).ToArray();
                 var done = target is null
                     ? download.FinishedAt is not null || rawIntent?.State == RawDownloadState.Done
-                    : target.State == TargetState.Done;
+                    : target.State == TargetState.Done || !packed && download.FinishedAt is not null;
                 var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                     live?.Intent == DownloadIntent.Paused;
                 var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live);
