@@ -17,6 +17,7 @@ UI change so the owner doesn't have to describe each detail. Every UI change MUS
 3. **Bugs** are tracked in the session SQLite `bugs` table (id, title, area, symptom, root_cause, status, verified, reported_by, notes). `root_cause` stays UNCONFIRMED until proven by reading code + reproducing; `verified=0` until proven fixed via MCP.
 4. **Backend Parser kinds are structural (OPS-671).** Movie means one unqualified title, not a verified film. Without coordinates, pack cues or an explicit non-feature marker, use Movie even for unknown/junk names or unusual containers. Unsafe is independent. Use Other for explicit extras/music/book/subtitle-only/software markers; unqualified BD-box/Batch/Complete/Collection cues claim CompleteSeries. Plan owns work identity and eligibility against Metadata and file evidence. Relabel policy changes with a row-specific corpus audit; never infer kind from known titles. Corpus verification must reject PowerShell List type-name stringification in any column.
 5. **Audio codecs are not soundtrack markers (OPS-679).** With video source/codec/resolution evidence, MP3/FLAC/AAC alone must not cause Other. Explicit OST/soundtrack/album/theme/ED/OP-song markers still establish music; independent extras/book/software reasons remain valid.
+6. **Season-pack test title: Scorpion.** For any test that needs the planner to pick a season pack, request a Scorpion season. It always resolves to a pack.
 
 ## Pages (13)
 | # | Route | File |
