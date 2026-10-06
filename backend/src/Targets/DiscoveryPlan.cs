@@ -34,6 +34,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
 
         if (targets[0].PickedReleaseHash is { } picked)
         {
+            // An explicit owner pick overrides an earlier find-another block on the same release.
+            excludedHashes = excludedHashes?.Remove(picked);
             found = await find.SelectAsync(request, picked, cancellationToken);
             if (onBatch is not null) await onBatch(found);
         }
