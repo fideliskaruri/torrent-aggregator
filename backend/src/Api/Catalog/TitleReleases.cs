@@ -121,23 +121,18 @@ internal static class TitleReleases
             .Concat(downloads.Select(row => row.Hash)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var now = DateTimeOffset.UtcNow;
         var activeBlocks = await store.ListAsync<BlockRow>(row =>
-            (row.WorkKey == null || row.WorkKey == workKey) && (row.Until == null || row.Until > now), ct);
+            (row.WorkKey == null || row.WorkKey == work.Work.WorkKey) && (row.Until == null || row.Until > now), ct);
         var blocks = activeBlocks.Where(row => otherHashes.Contains(row.Hash) || wholeWork).ToArray();
         var hashes = otherHashes.Concat(blocks.Select(row => row.Hash))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (hashes.Count == 0) return Results.Json(new { sources = Array.Empty<object>() }, CatalogProjection.Json);
 
-        var releases = await store.ListAsync<ReleaseRow>(row => hashes.Contains(row.Id), ct);
-        var observations = await store.ListAsync<ReleaseObservationRow>(row => hashes.Contains(row.Hash), ct);
         var protector = Protector(protection);
         var previous = new List<(PickerRelease Item, DateTimeOffset? UsedAt)>();
-        foreach (var release in releases)
+        foreach (var hash in hashes)
         {
-            var hash = release.Id;
             var candidate = (await find.SelectAsync(request, hash, ct)).Candidates.FirstOrDefault();
             if (candidate is null) continue;
-            var sourceObservations = observations.Where(row => row.Hash == hash).ToArray();
-            var latestObservation = sourceObservations.OrderByDescending(row => row.ObservedAt).FirstOrDefault();
             var sourceDownloads = downloads.Where(row => row.Hash == hash).ToArray();
             var sourceAttempts = attempts.Where(row => row.ReleaseHash == hash).ToArray();
             var sourceBlocks = blocks.Where(row => row.Hash == hash)
@@ -159,26 +154,21 @@ internal static class TitleReleases
                 .Concat(sourceBlocks.Select(row => (DateTimeOffset?)row.CreatedAt))
                 .Max() ?? targets.Where(row => row.ChosenReleaseHash == hash || row.PickedReleaseHash == hash)
                     .Select(row => (DateTimeOffset?)row.UpdatedAt).Max();
-            var fits = scope.Film ? candidate.CoversFilm : !episodes.IsEmpty &&
-                episodes.All(id => candidate.CoveredEpisodeIds.Contains(id));
             var why = state switch
             {
                 "in_use" => "Downloading now.",
                 "finished" => "Downloaded before.",
-                _ => blockedInfo?.message ?? "Used before.",
+                _ => "Used before.",
             };
             previous.Add((Project(candidate, scope, episodes, work.Work.Id, season, episode, protector,
-                latestObservation is null ? null : latestObservation.ListedSeeders ?? 0,
-                latestObservation?.SourceId, fits, why, state,
-                usedAt?.ToString("O"), blockedInfo), usedAt));
+                why, state, usedAt?.ToString("O"), blockedInfo), usedAt));
         }
         return Results.Json(new { sources = previous.OrderByDescending(row => row.UsedAt)
             .Select(row => row.Item) }, CatalogProjection.Json);
     }
 
     private static PickerRelease Project(Candidate candidate, TargetScope scope, ImmutableArray<string> episodes,
-        string workId, int? season, int? episode, IDataProtector protector, int? seeders = null,
-        string? source = null, bool? fits = null, string? why = null, string? state = null,
+        string workId, int? season, int? episode, IDataProtector protector, string? why = null, string? state = null,
         string? usedAt = null, object? blocked = null)
     {
         var parsed = candidate.Release.Parsed;
@@ -186,10 +176,10 @@ internal static class TitleReleases
             string.Join(", ", parsed.LanguageMarkers);
         return new(protector.Protect(JsonSerializer.Serialize(new Choice(workId, candidate.Release.Id,
                 season, episode, DateTimeOffset.UtcNow.AddMinutes(15)))),
-            candidate.Release.Id, candidate.Release.Name, seeders ?? candidate.TrustedSeeders ?? 0,
+            candidate.Release.Id, candidate.Release.Name, candidate.TrustedSeeders ?? 0,
             candidate.Observations.Select(row => row.ListedLeechers).DefaultIfEmpty().Max() ?? 0,
             candidate.Release.TotalBytes, parsed.Quality.Resolution,
-            source ?? candidate.Observations.FirstOrDefault()?.SourceId ?? "",
+            candidate.Observations.FirstOrDefault()?.SourceId ?? "",
             language, parsed.ClearlyForeign ? "clash" : "neutral",
             new
             {
@@ -203,8 +193,8 @@ internal static class TitleReleases
                 englishReason = parsed.ClearlyForeign ?
                     "This source is labelled in another language." : "Language not stated",
             },
-            fits ?? (scope.Film ? candidate.CoversFilm : !episodes.IsEmpty &&
-                episodes.All(id => candidate.CoveredEpisodeIds.Contains(id))),
+            scope.Film ? candidate.CoversFilm : !episodes.IsEmpty &&
+                episodes.All(id => candidate.CoveredEpisodeIds.Contains(id)),
             why ?? (parsed.ClearlyForeign ? "This source is labelled in another language." :
                 parsed.Unsafe ? "This source is not safe to download." : "Found for this title."),
             state, usedAt, blocked);

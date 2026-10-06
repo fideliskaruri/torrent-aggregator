@@ -143,7 +143,7 @@ export function ReleaseCard({
           {blockedMessage}
         </p>
       ) : null}
-      {release.why && release.why !== blockedMessage ? (
+      {release.why ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground break-words" data-alternative-reason>
           {release.why}
         </p>
