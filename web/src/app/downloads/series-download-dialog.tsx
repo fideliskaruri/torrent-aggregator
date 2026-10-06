@@ -84,25 +84,30 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean).join(" · ") : "Looking",
       detail: hasDownloads ? (
-        <span className="flex w-full items-center gap-1.5">
-          <TransferProgress
-            percent={pct}
-            tone={transferBarTone(season.status, rollupChip(season).failing)}
-            label={`${label} progress`}
-            size="mini"
-            className="w-auto"
-          />
+        <span className="flex w-40 flex-col items-start gap-0.5">
+          <span className="flex w-full items-center gap-1.5">
+            <TransferProgress
+              percent={pct}
+              tone={transferBarTone(season.status, rollupChip(season).failing)}
+              label={`${label} progress`}
+              size="mini"
+              className="w-auto"
+            />
+            {failed > 0 ? (
+              <span
+                className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-destructive"
+                data-season-tab-failed={failed}
+              >
+                {failed} failed
+              </span>
+            ) : null}
+          </span>
           {liveDetails ? (
-            <span className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-muted-foreground">
-              {liveDetails}
-            </span>
-          ) : null}
-          {failed > 0 ? (
             <span
-              className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-destructive"
-              data-season-tab-failed={failed}
+              className="block w-full truncate text-[12px] tabular-nums text-muted-foreground"
+              title={liveDetails}
             >
-              · {failed} failed
+              {liveDetails}
             </span>
           ) : null}
         </span>
@@ -232,6 +237,17 @@ export function SeriesDownloadDialog({
     () => seasons.find((season) => season.key === selectedSeasonKey) ?? null,
     [seasons, selectedSeasonKey],
   );
+  const packHashes = [
+    ...new Set(
+      (selectedSeason?.entries ?? [])
+        .filter((torrent) => torrent.packed && torrent.actions.findAnother)
+        .map((torrent) => torrent.hash),
+    ),
+  ];
+  const packHash = packHashes.length === 1 ? packHashes[0] : null;
+  const seasonPack = packHash != null
+    ? selectedSeason?.entries.find((torrent) => torrent.hash === packHash) ?? null
+    : null;
   const selectAllId = useId();
 
   if (!group) return null;
@@ -374,6 +390,20 @@ export function SeriesDownloadDialog({
               >
                 Select all ({seasonIds.length})
               </label>
+              {seasonPack ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="ml-auto"
+                  data-season-find-release
+                  aria-label={`Find another release for ${selectedSeason.label}`}
+                  onClick={() => onAction("find-another-release", seasonPack)}
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  {FIND_ANOTHER_SOURCE_LABEL} release
+                </Button>
+              ) : null}
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {episodeItems.map((item) => item.kind === "wanted" ? (
@@ -381,7 +411,12 @@ export function SeriesDownloadDialog({
               ) : (
                 <DownloadTransferRow
                   key={item.key}
-                  torrent={item.torrent}
+                  torrent={seasonPack?.hash === item.torrent.hash
+                    ? {
+                      ...item.torrent,
+                      actions: { ...item.torrent.actions, findAnother: false },
+                    }
+                    : item.torrent}
                   kind="episode"
                   title={episodeLabel(item.torrent)}
                   isSelected={selected.has(item.torrent.transferId)}

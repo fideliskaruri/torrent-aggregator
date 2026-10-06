@@ -32,7 +32,9 @@ export function DownloadDialogs({ page }: { page: Model }) {
         <ConfirmDialog open onOpenChange={(open) => {
           if (!open && !page.findingAnother) page.setFindAnotherTorrent(null);
         }}
-          title={`Find another release for ${transferLabel(page.findAnotherTorrent)}?`}
+          title={page.findAnotherTorrent.packed && page.findAnotherTorrent.season != null
+            ? `Find another release for ${page.findAnotherTorrent.workTitle ?? "this show"} Season ${String(page.findAnotherTorrent.season).padStart(2, "0")}?`
+            : `Find another release for ${transferLabel(page.findAnotherTorrent)}?`}
           description={page.findAnotherTorrent.packed
             ? "This release is a season pack. Every episode downloading from it will search again, and their partial files will be removed."
             : "The current download and its partial files will be removed. TorrentFlow will search again."}
