@@ -146,7 +146,11 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                             work.Work.Year, work.Work.Kind), null, ct);
                         if (extras is null) continue;
                         var releaseAt = ReleaseDate(extras.Work);
-                        if (releaseAt is null || releaseAt > now || extras.InTheatricalWindow) continue;
+                        // Same rule as the web release gate: a dateless film from an earlier year is out.
+                        var released = releaseAt is null
+                            ? work.Work.Year is { } year && year < now.Year
+                            : releaseAt <= now;
+                        if (!released || extras.InTheatricalWindow) continue;
 
                         if (await ReadEnabledFollowAsync(follow.Id, ct) is null) continue;
                         if (!acceptedTargets.Add(work.Work.Id + ":film"))
@@ -159,7 +163,7 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                         ownedCount += accepted.Owned;
                         existingCount += accepted.Queued == 0 && accepted.Owned == 0 ? 1 : 0;
                         if (accepted.Queued > 0)
-                            items.Add(new(work.Work.WorkKey, "", 0, 0, releaseAt.Value,
+                            items.Add(new(work.Work.WorkKey, "", 0, 0, releaseAt ?? now,
                                 "Follow", "queued", Message: accepted.Message));
                         continue;
                     }

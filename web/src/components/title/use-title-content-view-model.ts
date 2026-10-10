@@ -24,6 +24,7 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     mediaType: payload.isSeries ? "series" : "movie",
     inTheatricalWindow: extras?.inTheatricalWindow ?? false,
     nextHomeReleaseAt: extras?.nextHomeReleaseAt ?? null,
+    year: payload.year,
   });
   const gated = releaseGate.gated;
   const seasons = mergeSeasons(

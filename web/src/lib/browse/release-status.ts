@@ -6,9 +6,10 @@
  * hero) must gray it out and label it "Coming {date}" rather than offer a dead
  * Download that resolves to nothing.
  *
- * Unknown dates are NEVER gated: the absence of a date is not evidence that a
- * title is in the future. Confusing "no date" with "future" would hide half the
- * catalogue, exactly the mistake the `availability: null` state exists to avoid.
+ * Unknown dates are not gated, with one exception: a film with no date whose
+ * year is this year or later is still only announced (see `browseReleaseGate`).
+ * Otherwise the absence of a date is not evidence that a title is in the
+ * future, and gating it would hide half the catalogue.
  */
 
 export interface ReleaseStatus {
@@ -151,6 +152,7 @@ export function browseReleaseGate(
     mediaType?: string | null;
     inTheatricalWindow?: boolean;
     nextHomeReleaseAt?: string | null;
+    year?: number | null;
   },
   now: Date = new Date(),
 ): BrowseReleaseGate {
@@ -167,6 +169,15 @@ export function browseReleaseGate(
   const movie = ["movie", "movies", "film", "feature"].includes(
     mediaType ?? "",
   );
+  // An announced film with no date yet (The Batman: Part II) is not out. The
+  // server's follow pass treats it the same way, so it never offers Download.
+  if (movie && !primary.date && item.year != null && item.year >= now.getFullYear()) {
+    return {
+      gated: true,
+      label: item.year > now.getFullYear() ? `Coming ${item.year}` : "Date not announced",
+      reason: "future",
+    };
+  }
   const theatrical = theatricalWindowStatus(
     movie && item.inTheatricalWindow === true,
     item.nextHomeReleaseAt,
