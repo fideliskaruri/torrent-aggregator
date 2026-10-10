@@ -115,7 +115,7 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
       formatReleaseDate(releaseDate) ||
       extras?.certification,
   );
-  const showDownload = !payload.isSeries && !gated;
+  const showDownload = !payload.isSeries && !gated && !heroExtrasPending;
   const titleTransfer = progress?.transfer ?? payload.transfer;
   const titlePresentation = titleDownloadPresentation({
     available: payload.owned != null,
@@ -213,6 +213,7 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     metaYear,
     genres,
     heroExtrasPending,
+    filmAvailabilitySettled: !heroExtrasPending,
     metaListPresent,
     showDownload,
     ownedFilm,

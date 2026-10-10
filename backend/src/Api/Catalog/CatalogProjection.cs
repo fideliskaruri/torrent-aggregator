@@ -67,8 +67,38 @@ internal static class CatalogProjection
         provider = Provider(w), providerId = Primary(w)?.ExternalId, format = w.Work.Format.ToString(),
     };
     internal static object Watch(WatchItemRow item, WorkSnapshot w, bool ready, FollowRow? follow = null,
-        WorkPreferenceRow? preference = null) => new
+        WorkPreferenceRow? preference = null, IEnumerable<TargetRow>? workTargets = null,
+        IEnumerable<OwnedItem>? ownedItems = null)
     {
+        var now = DateTimeOffset.UtcNow;
+        var targets = (workTargets ?? []).Where(t => t.Kind == TargetKind.Acquire &&
+            t.State is not (TargetState.Removed or TargetState.Done)).ToArray();
+        var owned = (ownedItems ?? []).ToArray();
+        bool HasCopy(TargetRow target) => target.State == TargetState.Waiting &&
+            (target.ChosenReleaseHash is not null ||
+             target.ReasonCode is WaitReason.DownloadCap or WaitReason.FileBusy or WaitReason.NoDriveSpace or
+                 WaitReason.DriveOffline or WaitReason.WaitingForSeeders);
+        var downloading = targets.Any(t => t.State is TargetState.Fetching or TargetState.Filing || HasCopy(t));
+        var lookingTargets = targets.Where(t =>
+            (t.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting) &&
+            !HasCopy(t) && (t.ExpectedAt is null || t.ExpectedAt <= now)).ToArray();
+        var hasFiles = ready;
+        var libraryState = downloading ? "downloading" : lookingTargets.Length > 0 ? "looking" :
+            hasFiles ? "downloaded" : follow?.Enabled == true || targets.Any(t => t.ExpectedAt > now)
+                ? "coming_up" : "idle";
+        var airedEpisodes = Series(w)
+            ? w.Episodes.Count(e => e.MappingStatus == MappingStatus.Confirmed &&
+                e.AirAt is { } air && air <= now && w.Seasons.Any(s => s.Id == e.SeasonId && s.Number >= 1))
+            : 0;
+        var ownedEpisodes = Series(w) ? owned.Where(o => o.EpisodeId is not null)
+            .Select(o => o.EpisodeId).Distinct(StringComparer.Ordinal).Count() : 0;
+        var activeEpisodes = Series(w) ? targets.Count(t => t.EpisodeId is not null) : 0;
+        var nextReleaseAt = NextReleaseAt(w, now);
+        var latestLooking = lookingTargets.OrderByDescending(t => t.UpdatedAt).FirstOrDefault();
+        var earliestLooking = lookingTargets.Length == 0 ? (DateTimeOffset?)null :
+            lookingTargets.Min(t => t.CreatedAt);
+        return new
+        {
         item.Id, item.UserId, workId = item.WorkId, w.Work.WorkKey, mediaType = TitleType(w),
         externalId = Primary(w)?.ExternalId ?? "work:" + w.Work.WorkKey, provider = Provider(w) ?? "",
         title = Title(w), w.Work.PosterUrl, synopsis = w.Work.Synopsis, w.Work.Rating,
@@ -81,7 +111,24 @@ internal static class CatalogProjection
         latestReleaseTitle = (string?)null, latestReleaseAt = (string?)null,
         latestReleaseMagnet = (string?)null, nextEpisodeHint = (string?)null, item.CreatedAt, item.UpdatedAt,
         seederWaitSince = (string?)null, preferredResolution = preference?.PreferredResolution, ready,
-    };
+        libraryState, hasFiles,
+        ownedEpisodes = Series(w) ? (int?)ownedEpisodes : null,
+        airedEpisodes = Series(w) ? (int?)airedEpisodes : null,
+        activeEpisodes, nextReleaseAt,
+        lookingReason = latestLooking?.ReasonText, lookingSince = earliestLooking,
+        };
+    }
+    private static string? NextReleaseAt(WorkSnapshot w, DateTimeOffset now)
+    {
+        DateTimeOffset? release = Series(w)
+            ? w.Episodes.Where(e => e.AirAt > now && w.Seasons.Any(s => s.Id == e.SeasonId && s.Number >= 1))
+                .MinBy(e => e.AirAt)?.AirAt
+            : new[] { w.Work.DigitalAt, w.Work.PhysicalAt }.OfType<DateTimeOffset>()
+                .Where(at => at > now).Order().Cast<DateTimeOffset?>().FirstOrDefault()
+                ?? new[] { w.Work.TheatricalAt, w.PremiereAt }.OfType<DateTimeOffset>()
+                    .Where(at => at > now).Order().Cast<DateTimeOffset?>().FirstOrDefault();
+        return release?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    }
     internal static EpisodeCoordinate? Coordinate(WorkSnapshot w, FollowRow? follow)
     {
         var episode = w.Episodes.FirstOrDefault(e => e.Id == follow?.FromEpisodeId);

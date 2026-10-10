@@ -14,7 +14,38 @@ import { DOWNLOAD_KEY } from "./title-actions";
 import type { TitleContentViewModel } from "./use-title-content-view-model";
 
 export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
-  const { payload, title, caps, ownedFilm, gated, discoverEpisodes, discoveryPending, refetchExtras, canOpenFile, openingFile, openTitleFile, showDownload, downloadControl, titleTransfer, downloadLabel, downloadStatus, downloadCanRun, onAction, downloadAction, titleLooking, titleWanted, titleWantedRow, metaYear, canFindSource, findSourceHash, onFindAnother, seasons, onLibraryChanged } = model;
+  const {
+    payload,
+    title,
+    caps,
+    ownedFilm,
+    gated,
+    filmAvailabilitySettled,
+    heroExtrasPending,
+    discoverEpisodes,
+    discoveryPending,
+    refetchExtras,
+    canOpenFile,
+    openingFile,
+    openTitleFile,
+    showDownload,
+    downloadControl,
+    titleTransfer,
+    downloadLabel,
+    downloadStatus,
+    downloadCanRun,
+    onAction,
+    downloadAction,
+    titleLooking,
+    titleWanted,
+    titleWantedRow,
+    metaYear,
+    canFindSource,
+    findSourceHash,
+    onFindAnother,
+    seasons,
+    onLibraryChanged,
+  } = model;
   return (
               <div
                 className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 empty:hidden md:mt-5 md:flex md:flex-wrap md:items-center"
@@ -123,6 +154,13 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                     </ButtonBody>
                   </Button>
                 ) : null}
+                {!payload.isSeries && heroExtrasPending && caps.canDownload && !ownedFilm ? (
+                  <div
+                    aria-hidden="true"
+                    className="h-11 w-full animate-pulse rounded-md bg-muted md:w-32"
+                    data-title-acquire-placeholder
+                  />
+                ) : null}
 
                 {titleLooking ? (
                   <WantedActions
@@ -158,6 +196,8 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                   <LibraryControls
                     library={payload.library}
                     isSeries={payload.isSeries}
+                    gated={gated}
+                    settled={filmAvailabilitySettled}
                     seasons={seasons.map((s) => s.season)}
                     releaseDate={payload.releaseDate}
                     title={title}

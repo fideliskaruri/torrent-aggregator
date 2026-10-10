@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { parseLibrary } from "@/lib/requests";
@@ -21,6 +22,7 @@ type WatchlistPatch = {
   monitored?: boolean;
   fromSeason?: number;
   fromEpisode?: number;
+  preferredResolution?: number | null;
 };
 
 function readOnlyItem(row: LibraryRow): WatchlistItem {
@@ -58,15 +60,38 @@ export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
     : readOnly && owner.data
       ? { items: ownerItems.map(readOnlyItem) }
       : owner.data;
-  const items = data?.items ?? [];
-  const patch = useApiMutation<WatchlistPatch, { item?: WatchlistItem }>("/api/watchlist", "PATCH");
+  const [patchedOwnerItems, setPatchedOwnerItems] = useState<WatchlistItem[] | null>(null);
+  useEffect(() => {
+    if (ownerSession && !readOnly && owner.data?.items) {
+      setPatchedOwnerItems(owner.data.items);
+    }
+  }, [owner.data, ownerSession, readOnly]);
+  const items = ownerSession && !readOnly
+    ? patchedOwnerItems ?? ownerItems
+    : data?.items ?? [];
+  const patch = useApiMutation<WatchlistPatch, { item?: WatchlistItem }>(
+    "/api/watchlist",
+    "PATCH",
+  );
 
-  async function update(body: WatchlistPatch) {
+  async function update(body: WatchlistPatch): Promise<WatchlistItem | null> {
     try {
-      await patch.run(body);
+      const response = await patch.run(body);
+      const updatedItem = response?.item ?? null;
+      if (updatedItem) {
+        setPatchedOwnerItems((current) => {
+          const rows = current ?? ownerItems;
+          return [
+            ...rows.filter((item) => item.id !== body.id && item.id !== updatedItem.id),
+            updatedItem,
+          ];
+        });
+      }
       source.refetch();
+      return updatedItem;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update this title. Try again.");
+      return null;
     }
   }
 

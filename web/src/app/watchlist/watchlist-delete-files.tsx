@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
@@ -15,7 +15,15 @@ function queryFor(item: WatchlistItem, scope: DeleteScope) {
   return query.toString();
 }
 
-export function WatchlistDeleteFiles({ item, onDeleted }: { item: WatchlistItem; onDeleted: () => void }) {
+export function WatchlistDeleteFiles({
+  item,
+  onDeleted,
+  renderTrigger,
+}: {
+  item: WatchlistItem;
+  onDeleted: () => void;
+  renderTrigger?: (open: () => void) => ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<DeleteScope>({ kind: "show" });
   const [plan, setPlan] = useState<DeletePlan | null>(null);
@@ -66,9 +74,11 @@ export function WatchlistDeleteFiles({ item, onDeleted }: { item: WatchlistItem;
   }
 
   return <>
-    <Button type="button" variant="ghost" size="icon-sm" className="text-subtle-foreground hover:text-destructive" aria-label="Delete downloaded files" onClick={() => setOpen(true)} data-delete-files>
-      <Trash2 className="size-4" />
-    </Button>
+    {renderTrigger
+      ? renderTrigger(() => setOpen(true))
+      : <Button type="button" variant="ghost" size="icon-sm" className="text-subtle-foreground hover:text-destructive" aria-label="Delete downloaded files" onClick={() => setOpen(true)} data-delete-files>
+        <Trash2 className="size-4" />
+      </Button>}
     <ConfirmDialog open={open} onOpenChange={setOpen} contentData={{ "data-delete-files-dialog": true }} title="Delete downloaded files?" description={plan?.summary ?? "Review what is on disk before confirming."} variant="destructive" busy={busy} confirmDisabled={plan?.outcome !== "deletes"} confirmLabel={plan?.outcome === "deletes" ? `Delete ${plan.fileCount} file${plan.fileCount === 1 ? "" : "s"}` : plan?.outcome === "nothing-held" ? "Nothing to delete" : "Delete files"} onConfirm={() => void confirm()}>
       {scopes.length > 1 ? <Select value={scope.kind} onValueChange={(value) => {
         const selected = scopes.find((option) => option.value === value);

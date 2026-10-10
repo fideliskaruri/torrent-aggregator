@@ -16,7 +16,8 @@ internal static class LibraryEndpoints
     {
         var actor = AccessIdentity.UserId(h);
         var rows = await LibraryRead.ItemsAsync(actor,
-            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)], inventory, library, ct);
+            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+            await db.Targets.AsNoTracking().ToListAsync(ct), inventory, library, ct);
         var works = new List<(WatchItemRow Item, WorkSnapshot Work)>();
         foreach (var item in rows)
             if ((await metadata.GetWorkAsync(item.WorkId, false, ct)).Work is { } work)
@@ -76,6 +77,7 @@ internal static class LibraryEndpoints
         var actor = AccessIdentity.UserId(http);
         var item = (await LibraryRead.ItemsAsync(actor,
             [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+            await db.Targets.AsNoTracking().ToListAsync(ct),
             library, placement, ct)).SingleOrDefault(i => i.Id == input.WatchListItemId);
         if (item is null) return Results.NotFound(new { error = "Not found" });
         var work = await db.Works.AsNoTracking().SingleAsync(w => w.Id == item.WorkId, ct);
@@ -104,7 +106,7 @@ internal static class LibraryEndpoints
         {
             await targets.ScopeActionAsync(work.WorkKey,
                 input.Scope == "show" ? null : input.Season, input.Scope == "episode" ? input.Episode : null, TargetAction.Remove, ct);
-            if (input.Scope == "show" && !await CatalogEndpoints.RemoveWatchAsync(db, actor, item.Id, ct))
+            if (input.Scope == "show" && !await CatalogEndpoints.RemoveWatchAsync(db, actor, item.Id, ct, item.WorkId))
                 return Results.Json(result with { Ok = false, Failed = result.Failed.Add(new(title,
                     "The files were deleted, but this title could not be removed from your library. Reload and remove it again.")) },
                     statusCode: 409);

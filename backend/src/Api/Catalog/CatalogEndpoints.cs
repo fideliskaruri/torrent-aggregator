@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Requests;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
@@ -402,7 +403,8 @@ internal static class CatalogEndpoints
         value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.ToString() : null : null;
 
     private static async Task<IResult> SaveWatch(HttpContext h, TorrentFlowDbContext db, IMetadata metadata,
-        ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
+        ILibraryRepository inventory, ILibraryPlacement library, Hunter hunter,
+        ILoggerFactory loggerFactory, CancellationToken ct)
     {
         JsonElement body;
         try { body = await JsonSerializer.DeserializeAsync<JsonElement>(h.Request.Body, cancellationToken: ct); }
@@ -415,6 +417,7 @@ internal static class CatalogEndpoints
         {
             prior = (await LibraryRead.ItemsAsync(actor,
                 [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+                await db.Targets.AsNoTracking().ToListAsync(ct),
                 inventory, library, ct)).FirstOrDefault(i => i.Id == Text(body, "id"));
             if (prior is null) return Json(new { error = "Not found" }, 404);
             w = (await metadata.GetWorkAsync(prior.WorkId, false, ct)).Work;
@@ -477,6 +480,7 @@ internal static class CatalogEndpoints
                 resolution is not (480 or 720 or 1080 or 2160)))
             return Json(new { error = "preferredResolution must be 480, 720, 1080 or 2160." }, 400);
         prior ??= await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.WorkId == workId && i.UserId == actor, ct);
+        var followBefore = await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == workId, ct);
         for (var retry = 0; retry < 6; retry++)
         {
             var now = DateTimeOffset.UtcNow;
@@ -511,15 +515,31 @@ internal static class CatalogEndpoints
                 db.ChangeTracker.Clear();
                 continue;
             }
+            var followAfter = await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == workId, ct);
+            if (followAfter is { Enabled: true } && (followBefore is not { Enabled: true } ||
+                followBefore.FromEpisodeId != followAfter.FromEpisodeId ||
+                followBefore.NewEpisodesSince != followAfter.NewEpisodesSince))
+            {
+                var logger = loggerFactory.CreateLogger("TorrentFlow.Api.Catalog.CatalogEndpoints");
+                _ = Task.Run(async () =>
+                {
+                    try { await hunter.RunAsync(CancellationToken.None); }
+                    catch (Exception ex) { logger.LogWarning(ex, "The follow check failed after saving a library item."); }
+                });
+            }
             return Json(new { item = await WatchProjection(item, w, db, library, ct), existed = prior is not null });
         }
         return Json(new { error = "The item changed. Try saving again." }, 409);
     }
     internal static async Task<object> WatchProjection(WatchItemRow item, WorkSnapshot w, TorrentFlowDbContext db,
-        ILibraryPlacement library, CancellationToken ct) =>
-        CatalogProjection.Watch(item, w, !(await library.OwnedAsync(new(w.Work.Id, [], false), ct)).IsEmpty,
+        ILibraryPlacement library, CancellationToken ct)
+    {
+        var owned = await library.OwnedAsync(new(w.Work.Id, [], w.Work.Kind == WorkKind.Film), ct);
+        return CatalogProjection.Watch(item, w, !owned.IsEmpty,
             await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == w.Work.Id, ct),
-            await db.WorkPreferences.AsNoTracking().SingleOrDefaultAsync(p => p.WorkId == w.Work.Id, ct));
+            await db.WorkPreferences.AsNoTracking().SingleOrDefaultAsync(p => p.WorkId == w.Work.Id, ct),
+            await db.Targets.AsNoTracking().Where(t => t.WorkId == w.Work.Id).ToListAsync(ct), owned);
+    }
     private static async Task<IResult> RemoveWatch(HttpContext h, TorrentFlowDbContext db,
         ILibraryRepository inventory, ILibraryPlacement library, TargetPipeline targets,
         CancellationToken ct)
@@ -528,7 +548,9 @@ internal static class CatalogEndpoints
         var actor = ActorId(h);
         var item = (await LibraryRead.ItemsAsync(actor,
             [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+            await db.Targets.AsNoTracking().ToListAsync(ct),
             inventory, library, ct)).FirstOrDefault(i => i.Id == Param(h, "id"));
+        var scopeActionNeeded = false;
         if (item is not null && !(await inventory.MediaAsync(item.WorkId, ct)).IsEmpty)
         {
             if (AccessIdentity.Actor(h).Role != UserRole.Owner)
@@ -543,23 +565,34 @@ internal static class CatalogEndpoints
                 await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
             var deleted = await targets.DeleteLibraryAsync(preview, ct);
             if (!deleted.Ok) return Json(deleted, 409);
-            var workKey = await db.Works.Where(x => x.Id == item.WorkId).Select(x => x.WorkKey).SingleAsync(ct);
+            scopeActionNeeded = true;
+        }
+        // Turn the follow off before removing downloads so a concurrent Hunter pass cannot queue new ones.
+        if (!await RemoveWatchAsync(db, actor, Param(h, "id")!, ct, item?.WorkId))
+            return Json(new { error = "The item changed. Try removing it again." }, 409);
+        if (item is not null && (scopeActionNeeded ||
+            await db.Targets.AsNoTracking().AnyAsync(t => t.WorkId == item.WorkId &&
+                t.State != TargetState.Removed && t.State != TargetState.Done, ct)))
+        {
+            var workKey = await db.Works.AsNoTracking().Where(x => x.Id == item.WorkId)
+                .Select(x => x.WorkKey).SingleAsync(ct);
             await targets.ScopeActionAsync(workKey, null, null, TargetAction.Remove, ct);
         }
-        return await RemoveWatchAsync(db, actor, Param(h, "id")!, ct) ? Json(new { ok = true }) :
-            Json(new { error = "The item changed. Try removing it again." }, 409);
+        return Json(new { ok = true });
     }
-    internal static async Task<bool> RemoveWatchAsync(TorrentFlowDbContext db, string actor, string id, CancellationToken ct)
+    internal static async Task<bool> RemoveWatchAsync(TorrentFlowDbContext db, string actor, string id,
+        CancellationToken ct, string? validatedWorkId = null)
     {
         for (var retry = 0; retry < 6; retry++)
         {
             var item = await db.WatchItems.SingleOrDefaultAsync(i => i.Id == id && i.UserId == actor, ct);
-            if (item is null) return true;
-            var follow = await db.Follows.SingleOrDefaultAsync(f => f.WorkId == item.WorkId, ct);
+            var workId = item?.WorkId ?? validatedWorkId;
+            if (workId is null) return true;
+            var follow = await db.Follows.SingleOrDefaultAsync(f => f.WorkId == workId, ct);
             if (follow is not null)
                 db.Entry(follow).CurrentValues.SetValues(follow with
                     { Enabled = false, UpdatedAt = DateTimeOffset.UtcNow, Version = follow.Version + 1 });
-            db.WatchItems.Remove(item);
+            if (item is not null) db.WatchItems.Remove(item);
             try
             {
                 await db.SaveChangesAsync(ct);

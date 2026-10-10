@@ -2,9 +2,18 @@ import { formatEpisodeLabel } from "@/lib/library/cursor";
 
 export interface LibraryCardRow {
   status: string;
+  mediaType?: string | null;
   monitored?: boolean;
+  fromSeason?: number | null;
   cursorSeason?: number | null;
   cursorEpisode?: number | null;
+}
+
+export function followLine(row: LibraryCardRow): string {
+  if (!row.monitored) return "Not following";
+  return row.fromSeason != null
+    ? `Following from S${row.fromSeason}`
+    : "Following";
 }
 
 function formatEpisode(

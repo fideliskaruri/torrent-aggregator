@@ -12,7 +12,7 @@
  */
 import { useLayoutEffect, useRef, useState } from "react";
 import { send as apiSend } from "@/lib/api";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { BellPlus, Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,8 @@ import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 export interface LibraryControlsProps {
   library: TitleLibraryState;
   isSeries: boolean;
+  gated: boolean;
+  settled: boolean;
   /** Season numbers the provider knows about, ascending. */
   seasons?: number[];
   /** `YYYY-MM-DD`, or null. Used when describing the title being added. */
@@ -47,6 +49,8 @@ type Phase = "idle" | "pending";
 export function LibraryControls({
   library,
   isSeries,
+  gated,
+  settled,
   seasons = [],
   releaseDate = null,
   title = null,
@@ -128,6 +132,9 @@ export function LibraryControls({
           }),
         }),
       "Could not add this to your library",
+      !isSeries && gated
+        ? "We'll download it when it's out"
+        : "Added to library",
     ).then(() => setAsking(false));
 
   const itemId = library.watchListItemId;
@@ -163,6 +170,10 @@ export function LibraryControls({
     if (focusLibraryControl()) event.preventDefault();
   };
 
+  if (!isSeries && (!settled || (!library.inLibrary && !gated))) return null;
+
+  const filmWaiting = !isSeries && gated;
+
   return (
     <div
       data-title-library
@@ -176,7 +187,7 @@ export function LibraryControls({
               data-in-library
             >
               <Check aria-hidden />
-              In Library
+              {filmWaiting ? "We'll get it when it's out" : "In Library"}
             </Badge>
           )}
           {itemId ? (
@@ -186,13 +197,17 @@ export function LibraryControls({
               size="sm"
               variant="ghost"
               data-remove-from-library
-              aria-label="Remove from library"
+              aria-label={
+                filmWaiting
+                  ? `Stop waiting for ${title ?? "this title"}`
+                  : "Remove from library"
+              }
               disabled={busy}
               onClick={() => setConfirmingRemove(true)}
               className="min-h-[44px] text-muted-foreground"
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
-              Remove
+              {filmWaiting ? "Stop" : "Remove"}
             </Button>
           ) : null}
         </div>
@@ -200,15 +215,25 @@ export function LibraryControls({
         <Button
           ref={addButtonRef}
           type="button"
-          size="sm"
-          variant="secondary"
+          size={filmWaiting ? "lg" : "sm"}
+          variant={filmWaiting ? "default" : "secondary"}
           data-add-to-library
+          data-title-watch-release={filmWaiting || undefined}
+          aria-label={
+            filmWaiting ? `Get it when it's out${title ? `, ${title}` : ""}` : undefined
+          }
           disabled={busy}
           onClick={onAddPressed}
-          className="min-h-[44px] w-full justify-center md:w-auto"
+          className={`min-h-[44px] w-full justify-center md:w-auto${filmWaiting ? " md:min-w-[12rem]" : ""}`}
         >
-          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
-          Add to library
+          {busy ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : filmWaiting ? (
+            <BellPlus aria-hidden />
+          ) : (
+            <Plus aria-hidden />
+          )}
+          {filmWaiting ? "Get it when it's out" : "Add to library"}
         </Button>
       )}
 

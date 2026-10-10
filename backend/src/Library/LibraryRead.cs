@@ -37,10 +37,31 @@ public static class LibraryRead
     }
 
     public static async Task<ImmutableArray<WatchItemRow>> ItemsAsync(string userId,
-        ImmutableArray<WatchItemRow> intent, ILibraryRepository inventory, ILibraryPlacement library,
+        ImmutableArray<WatchItemRow> intent, IEnumerable<TargetRow> targets,
+        ILibraryRepository inventory, ILibraryPlacement library,
         CancellationToken ct)
     {
         var items = intent.DistinctBy(w => w.WorkId).ToDictionary(w => w.WorkId);
+        foreach (var work in targets.Where(t => t.Kind == TargetKind.Acquire &&
+                     t.State is not (TargetState.Removed or TargetState.Done) &&
+                     (t.Origin is IntentOrigin.Owner or IntentOrigin.Follow ||
+                      t.Origin == IntentOrigin.Request && t.CreatedBy == userId))
+                 .GroupBy(t => t.WorkId))
+        {
+            if (items.ContainsKey(work.Key)) continue;
+            var rows = work.ToArray();
+            items.Add(work.Key, new WatchItemRow
+            {
+                Id = ItemId(work.Key),
+                UserId = userId,
+                WorkId = work.Key,
+                Status = WatchStatus.Planned,
+                UpgradeWatch = false,
+                CreatedAt = rows.Min(t => t.CreatedAt),
+                UpdatedAt = rows.Max(t => t.UpdatedAt),
+                Version = 0,
+            });
+        }
         foreach (var work in (await inventory.MediaAsync(null, ct)).GroupBy(f => f.WorkId))
         {
             if (items.ContainsKey(work.Key)) continue;
