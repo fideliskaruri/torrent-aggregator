@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { Link } from "react-router";
+import { Library } from "lucide-react";
 import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
 import type { RailItem } from "@/lib/browse";
 import { browseReleaseGate } from "@/lib/browse/release-status";
@@ -37,12 +38,13 @@ export function TitleCard({
   const { canSeeTransfers } = useCapabilities();
   const title = item.title;
   const label = cardActionLabel(action, status, releaseGate);
+  const owned = !unreleased && action.kind === "local";
   const reactId = useId();
   const describedBy = unreleased || blocked ? `${reactId}-reason` : undefined;
   const accessibleName = [
     title,
     item.subtitle,
-    unreleased ? releaseGate.label : blocked ? action.reason : null,
+    unreleased ? releaseGate.label : blocked ? action.reason : owned ? label : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -91,7 +93,14 @@ export function TitleCard({
             <AvailabilityChip state={item.availability} compact />
           )
         }
-      />
+      >
+        {owned ? (
+          <span title={label} data-card-owned
+            className="absolute right-1.5 top-1.5 z-[1] flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
+            <Library aria-hidden className="size-3.5" />
+          </span>
+        ) : null}
+      </MediaPoster>
       <MediaPosterCaption title={title} fullTitle={item.title} subtitle={item.subtitle} />
     </>
   );
@@ -130,7 +139,7 @@ export function TitleCard({
         </Link>
       </Button>
     </span>
-  ) : action.kind === "blocked" || action.kind === "downloading" || action.kind === "local" ? (
+  ) : action.kind === "blocked" || action.kind === "downloading" ? (
     <span className={actionRowClass} aria-hidden>
       <Badge variant={quietBadge ? "default" : "solid"} className={badgeClass}>
         {badgeInner}
