@@ -1,10 +1,8 @@
-import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { PageQueryBoundary } from "@/components/tf/page-query-boundary";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
 import { useCapabilities } from "@/lib/capabilities";
-import { SEARCH_HREF } from "@/lib/navigation";
 import { libraryPageSummary } from "@/components/library/library-state";
 import { useWatchlist } from "./use-watchlist";
 import { WatchlistList } from "./watchlist-list";
@@ -30,7 +28,6 @@ export default function WatchlistPage() {
             description={libraryPageSummary(watchlist.items)}
             actions={<div className="flex items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={watchlist.refresh}>Refresh</Button>
-              {!readOnly ? <Button asChild variant="outline" size="sm"><Link to={SEARCH_HREF}>Add titles</Link></Button> : null}
             </div>}
           />
           {!readOnly ? <WatchlistAutomation count={watchlist.items.length} /> : null}
