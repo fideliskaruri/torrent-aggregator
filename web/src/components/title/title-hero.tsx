@@ -39,7 +39,7 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
               priority
               variant="plain"
               className={cn(
-                "scale-[1.06] object-cover object-[center_22%] blur-[3px]",
+                "scale-[1.06] object-cover object-[center_22%] blur-[1px]",
                 gated && "grayscale",
               )}
             />
@@ -48,15 +48,15 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
 
         <div
           aria-hidden
-          className="absolute inset-0 -z-10 bg-background/52"
+          className="absolute inset-0 -z-10 bg-background/20"
         />
         <div
           aria-hidden
-          className="absolute inset-0 -z-10 bg-[linear-gradient(to_top,var(--bg)_0%,color-mix(in_srgb,var(--bg)_88%,transparent)_34%,color-mix(in_srgb,var(--bg)_45%,transparent)_68%,transparent_100%)]"
+          className="absolute inset-0 -z-10 bg-[linear-gradient(to_top,var(--bg)_0%,color-mix(in_srgb,var(--bg)_70%,transparent)_22%,color-mix(in_srgb,var(--bg)_20%,transparent)_50%,transparent_75%)]"
         />
         <div
           aria-hidden
-          className="absolute inset-0 -z-10 bg-[linear-gradient(to_right,var(--bg)_0%,color-mix(in_srgb,var(--bg)_70%,transparent)_45%,transparent_88%)]"
+          className="absolute inset-0 -z-10 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--bg)_92%,transparent)_0%,color-mix(in_srgb,var(--bg)_65%,transparent)_40%,transparent_70%)]"
         />
 
         <div className="container-app">
@@ -64,14 +64,11 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
 
           <div
             className={cn(
-              "grid grid-cols-1 items-end gap-x-4 gap-y-5 py-5 sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-x-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-10",
-              payload.isSeries
-                ? "min-h-0 md:min-h-[18rem] lg:min-h-[20rem]"
-                : "min-h-0 md:min-h-[21rem] lg:min-h-[24rem]",
+              "grid grid-cols-1 items-start gap-x-4 gap-y-5 py-5 sm:py-6 md:grid-cols-[168px_minmax(0,40rem)] md:gap-x-6 md:pt-6 md:pb-10 lg:grid-cols-[196px_minmax(0,44rem)]",
             )}
           >
 
-            <div className="w-[104px] shrink-0 self-end sm:w-[120px] md:row-span-2 md:w-[168px] lg:w-[196px]">
+            <div className="w-[104px] shrink-0 self-start sm:w-[120px] md:row-span-2 md:w-[168px] lg:w-[196px]">
               <div
                 className={cn(
                   "relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-muted shadow-md",

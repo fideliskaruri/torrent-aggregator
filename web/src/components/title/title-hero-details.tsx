@@ -7,7 +7,7 @@ import { GenreChips,HeroMetaList } from "./title-hero-meta";
 export function TitleHeroDetails({ model }: { model: TitleContentViewModel }) {
   const { payload, extras, heroExtrasPending, genres, metaListPresent, releaseDate } = model;
   return (
-            <div className="min-w-0 flex flex-col gap-4 md:col-start-2 md:flex-row md:gap-8">
+            <div className="min-w-0 flex flex-col gap-4 md:col-start-2 md:flex-row md:gap-6">
 
                 <div className="min-w-0 flex-1 md:max-w-2xl md:min-h-[9.40625rem]">
                   {payload.overview ?? extras?.overview ? (
@@ -38,7 +38,7 @@ export function TitleHeroDetails({ model }: { model: TitleContentViewModel }) {
                 </div>
 
                 {metaListPresent ? (
-                  <div className="w-full md:w-[260px] md:shrink-0">
+                  <div className="w-full md:w-[200px] md:shrink-0">
                     <HeroMetaList
                       originalLanguage={extras?.originalLanguage ?? null}
                       releaseDate={releaseDate}
@@ -46,7 +46,7 @@ export function TitleHeroDetails({ model }: { model: TitleContentViewModel }) {
                     />
                   </div>
                 ) : heroExtrasPending ? (
-                  <div aria-hidden className="grid w-full gap-y-2 text-[13px] md:w-[260px] md:shrink-0">
+                  <div aria-hidden className="grid w-full gap-y-2 text-[13px] md:w-[200px] md:shrink-0">
                     {["w-40", "w-48", "w-32"].map((width) => (
                       <div key={width} className="flex h-lh items-center">
                         <Skeleton className={cn("h-3 rounded", width)} />
