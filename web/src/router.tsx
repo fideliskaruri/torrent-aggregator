@@ -9,25 +9,61 @@ import {
 import RootLayout from "@/app/layout";
 import { NotFoundPage } from "@/app/not-found";
 import { CapabilityGuard } from "@/components/layout/capability-guard";
+import { TfEmptyState } from "@/components/tf/empty-state";
+import { isChunkLoadError, reloadForNewBuild } from "@/lib/chunk-reload";
+import { RefreshCw, TriangleAlert } from "lucide-react";
 
 /** Each `src/app/.../page.tsx` becomes a lazily loaded route, like Next.js page chunks. */
 function page(load: () => Promise<{ default: ComponentType }>): Pick<RouteObject, "lazy"> {
   return {
-    lazy: async () => ({ Component: (await load()).default }),
+    lazy: async () => {
+      try {
+        return { Component: (await load()).default };
+      } catch (error) {
+        // An update replaced this tab's page chunks: reload into the new build instead of erroring.
+        if (isChunkLoadError(error)) {
+          const next = router.state.navigation.location;
+          const href = next ? next.pathname + next.search + next.hash : undefined;
+          if (reloadForNewBuild(href)) return new Promise<never>(() => {});
+        }
+        throw error;
+      }
+    },
   };
 }
 
-/** Renders a 404 response as the not-found view; anything else propagates. */
+/** 404s show the not-found view; anything else gets a friendly error inside the app shell. */
 function RouteBoundary() {
   const error = useRouteError();
   if (isRouteErrorResponse(error) && error.status === 404) return <NotFoundPage />;
-  throw error;
+  const update = isChunkLoadError(error);
+  return (
+    <div className="container-app min-w-0 py-8 sm:py-12" data-route-error>
+      <TfEmptyState
+        icon={update ? RefreshCw : TriangleAlert}
+        title={update ? "TorrentFlow was updated" : "This page hit a problem"}
+        headingLevel={1}
+        description={
+          update
+            ? "Reload to get the latest version."
+            : "Reload to try again. If it keeps happening, go back to Browse."
+        }
+        actionLabel="Reload"
+        actionHref={window.location.pathname + window.location.search}
+        onAction={(event) => {
+          event.preventDefault();
+          window.location.reload();
+        }}
+      />
+    </div>
+  );
 }
 
 const routes: RouteObject[] = [
   {
     path: "/",
     Component: RootLayout,
+    errorElement: <RouteBoundary />,
     HydrateFallback: () => null,
     children: [
       {
