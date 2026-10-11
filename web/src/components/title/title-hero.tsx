@@ -110,8 +110,7 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
 
               <div
                 className={cn(
-                  "mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2",
-                  heroExtrasPending && "min-h-7",
+                  "mt-3 flex min-h-7 flex-wrap items-center gap-x-2.5 gap-y-2",
                 )}
               >
                 {gated ? (
@@ -149,6 +148,8 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
                   className="mt-3 text-[13px]"
                   data-show-progress
                 />
+              ) : payload.isSeries && (titlePending || heroExtrasPending) ? (
+                <div aria-hidden className="mt-3 h-5" data-show-progress-pending />
               ) : null}
 
 

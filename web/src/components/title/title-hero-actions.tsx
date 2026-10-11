@@ -2,6 +2,7 @@ import { CheckCircle2,Download,FolderOpen,Search } from "lucide-react";
 import { Link } from "react-router";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ButtonBody } from "./button-body";
 import { requestTitleFor } from "./title-payload";
 import { LibraryControls } from "./library-controls";
@@ -45,10 +46,14 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
     onFindAnother,
     seasons,
     onLibraryChanged,
+    titlePending,
   } = model;
   return (
               <div
-                className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 empty:hidden md:mt-5 md:flex md:flex-wrap md:items-center"
+                className={cn(
+                  "mt-4 grid w-full min-w-0 grid-cols-1 gap-2 md:mt-5 md:flex md:flex-wrap md:items-center",
+                  titlePending || heroExtrasPending ? "min-h-10 max-md:min-h-11" : "empty:hidden",
+                )}
                 data-title-acquire
               >
 
@@ -157,7 +162,7 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                 {!payload.isSeries && heroExtrasPending && caps.canDownload && !ownedFilm ? (
                   <div
                     aria-hidden="true"
-                    className="h-11 w-full animate-pulse rounded-md bg-muted md:w-32"
+                    className="h-10 w-full animate-pulse rounded-md bg-muted max-md:min-h-11 pointer-coarse:min-h-11 md:w-32"
                     data-title-acquire-placeholder
                   />
                 ) : null}

@@ -203,7 +203,22 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     Storage details unavailable.{" "}
     <Button type="button" variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry storage details</Button>
   </div>;
-  if (!info) return null;
+  if (!info) return <div aria-hidden className="min-w-0 space-y-3 text-xs" data-download-recovery-pending>
+    {mode !== "empty" && <div className="min-w-0 space-y-0.5 text-muted-foreground">
+      <p className="text-subtle-foreground">App data folder</p>
+      <div className="flex h-[1.625em] items-center"><div className="h-3 w-48 max-w-full animate-pulse rounded bg-muted" /></div>
+    </div>}
+    <div className="space-y-2">
+      <p className="text-muted-foreground">
+        {mode === "empty" ? "Recover downloads already held by another torrent client, or scan your local folder for media."
+          : "Scan the saved download folder for films and episodes you already have and add them to your library."}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" disabled tabIndex={-1}>Import existing downloads</Button>
+        <Button type="button" variant="secondary" disabled tabIndex={-1}>Import from another client</Button>
+      </div>
+    </div>
+  </div>;
   return <div className="min-w-0 space-y-3 text-xs" data-download-recovery>
     {mode !== "empty" && <dl className="min-w-0 space-y-2 text-muted-foreground" data-storage-paths>
       <div className="min-w-0 space-y-0.5">

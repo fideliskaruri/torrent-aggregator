@@ -34,7 +34,15 @@ export function TitleHeroDetails({ model }: { model: TitleContentViewModel }) {
                     </div>
                   ) : null}
 
-                  <GenreChips genres={genres} />
+                  {heroExtrasPending && genres.length === 0 && (payload.overview ?? extras?.overview) ? (
+                    <div aria-hidden className="mt-4 flex gap-2" data-title-genres-placeholder>
+                      <Skeleton className="h-[1.625rem] w-16 rounded-full" />
+                      <Skeleton className="h-[1.625rem] w-20 rounded-full" />
+                      <Skeleton className="h-[1.625rem] w-14 rounded-full" />
+                    </div>
+                  ) : (
+                    <GenreChips genres={genres} />
+                  )}
                 </div>
 
                 {metaListPresent ? (

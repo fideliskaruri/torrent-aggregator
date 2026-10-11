@@ -62,7 +62,8 @@ export function WatchlistAutomation({ count }: { count: number }) {
     <section className="space-y-3" data-watchlist-automation>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm leading-relaxed text-subtle-foreground">
-          Checks monitored titles and may download matching sources. {automationStateCopy(interval)}
+          Checks monitored titles and may download matching sources.
+          <span className="block truncate">{automationStateCopy(interval)}</span>
         </p>
         <Button type="button" size="sm" onClick={() => setConfirmOpen(true)} disabled={automation.pending}>
           {automation.pending ? <LoadingGlyph className="size-3.5" /> : <Radar className="size-3.5" />} Run automation
