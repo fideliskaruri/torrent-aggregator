@@ -14,7 +14,6 @@ node_modules
 **/.torrentflow.key
 **/remote-access.json
 **/packages.lock.json
-!server/**/packages.lock.json
 _bmad
 _bmad-output
 .agents

@@ -10,11 +10,10 @@ RUN pnpm build
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS publish
 ARG TARGETARCH
 WORKDIR /src
-COPY Directory.Build.props Directory.Packages.props ./
-COPY server/ server/
-COPY --from=web /src/web/dist/ web/dist/
-RUN dotnet publish server/TorrentFlow.Api -c Release -a $TARGETARCH \
-    --self-contained false -p:UseAppHost=false -p:SkipWebBuild=true -o /out
+COPY Directory.Build.props ./
+COPY backend/ backend/
+RUN dotnet publish backend/src/Api -c Release -a $TARGETARCH \
+    --self-contained false -p:UseAppHost=false -o /out
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
@@ -28,6 +27,7 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:3000 \
     DOTNET_RUNNING_IN_CONTAINER=true \
     PUID=1000 PGID=1000 TZ=Etc/UTC HOME=/data
 COPY --from=publish /out/ ./
+COPY --from=web /src/web/dist/ ./wwwroot/
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/torrentflow-entrypoint
 RUN mkdir -p /data /media
 EXPOSE 3000 3940 6881/tcp 6881/udp

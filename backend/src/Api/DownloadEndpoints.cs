@@ -561,8 +561,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     } },
             }, defaults = new
             {
-                categories, baseDownloadPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow"),
+                categories, baseDownloadPath = configuration["TorrentFlow:DefaultDownloadDirectory"] is { Length: > 0 } configured
+                    ? configured
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow"),
                 clientType = "builtin",
             } };
         }
