@@ -17,14 +17,12 @@ export function RailArrow({
       aria-hidden
       data-rail-arrow={direction}
       className={cn(
-        "pointer-events-none absolute inset-y-0 z-[1] hidden w-12 items-center md:flex",
+        "pointer-events-none absolute inset-y-0 z-[1] flex w-12 items-center",
         "transition-opacity duration-150",
         direction === "left"
           ? "left-0 justify-start bg-gradient-to-r from-background via-background/80 to-transparent pl-1"
           : "right-0 justify-end bg-gradient-to-l from-background via-background/80 to-transparent pr-1",
-        hidden
-          ? "opacity-0"
-          : "opacity-0 group-hover/rail:opacity-100 group-focus-within/rail:opacity-100",
+        hidden ? "opacity-0" : "opacity-100",
       )}
     >
       <Button
@@ -32,6 +30,7 @@ export function RailArrow({
         variant="outline"
         size="icon"
         tabIndex={-1}
+        aria-label={direction === "left" ? "Scroll left" : "Scroll right"}
         onClick={onClick}
         className={cn(
           "rounded-full bg-card/90 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground dark:bg-card/90",
