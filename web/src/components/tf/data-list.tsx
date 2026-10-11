@@ -65,7 +65,7 @@ export function DataList<T>({
                 className={cn(
                   "absolute left-0 top-0 z-[4] flex size-11 cursor-pointer items-start justify-start p-1.5 transition-opacity duration-150",
                   !checked && !selection.someSelected &&
-                    "[@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/item:opacity-100 focus-within:opacity-100",
+                    "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 group-hover/item:opacity-100 focus-within:opacity-100",
                 )}
               >
                 <span className="flex size-6 items-center justify-center rounded-md border border-border bg-card/90 shadow-sm">

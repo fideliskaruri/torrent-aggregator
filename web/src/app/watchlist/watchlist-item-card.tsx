@@ -182,7 +182,7 @@ export function WatchlistItemCard({
               data-library-more
               className={cn(
                 "pointer-events-auto absolute right-0 top-0 flex size-11 items-start justify-end p-1.5 outline-none transition-opacity duration-150",
-                "[@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
+                "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
                 "[&:focus-visible>span]:ring-2 [&:focus-visible>span]:ring-ring",
               )}
             >
