@@ -30,7 +30,7 @@ export function QualityOptions({
       value={value == null ? "" : String(value)}
       disabled={disabled}
       onValueChange={(next) => onChange(Number(next))}
-      className={cn("grid grid-cols-2 gap-2 sm:grid-cols-4", className)}
+      className={cn("grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-2", className)}
     >
       {QUALITY_CHOICES.map((choice) => (
         <Label

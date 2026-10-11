@@ -17,6 +17,7 @@ import {
   seasonBucketKey,
   type SeasonBucket,
   type SeriesGroup,
+  type StatusCounts,
 } from "./grouping";
 import { releaseDisplayFacts } from "./release-display";
 import type { ClientTorrent, TorrentRowAction } from "./types";
@@ -63,6 +64,16 @@ export interface SeriesDownloadDialogProps {
   wantedState: WantedState;
 }
 
+/** A season tab's second line when nothing is moving: how much of it is ready. */
+function seasonSummary(counts: StatusCounts): string {
+  if (counts.total > 0 && counts.done === counts.total) {
+    return counts.done === 1 ? "Ready" : `All ${counts.done} ready`;
+  }
+  if (counts.queued > 0 && counts.done === 0) return "Queued";
+  if (counts.paused > 0 && counts.done === 0) return "Paused";
+  return `${counts.done} of ${counts.total} ready`;
+}
+
 /** The dialog's seasons as switcher options: label, mini bar and failed count. */
 function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonOption[] {
   return seasons.map((season) => {
@@ -80,6 +91,7 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
         `${pct}%`,
         eta,
         speed,
+        live ? null : seasonSummary(season.counts),
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean).join(" · ") : "Looking",
       detail: hasDownloads ? (
@@ -94,8 +106,14 @@ function seasonOptions(seasons: readonly SeasonBucket<ClientTorrent>[]): SeasonO
           </span>
           {/* Always reserve the second line so every tab is the same height. */}
           <span className="flex h-4 w-full justify-between gap-2 leading-4 text-muted-foreground">
-            {live && eta ? <span className="max-w-1/2 min-w-0 truncate" title={eta}>{eta}</span> : <span />}
-            {live ? <span className="shrink-0">{speed}</span> : null}
+            {live ? (
+              <>
+                {eta ? <span className="max-w-1/2 min-w-0 truncate" title={eta}>{eta}</span> : <span />}
+                <span className="shrink-0">{speed}</span>
+              </>
+            ) : (
+              <span className="min-w-0 truncate" data-season-tab-summary>{seasonSummary(season.counts)}</span>
+            )}
           </span>
         </span>
       ) : <span className="block h-4 w-36 text-[12px] leading-4 text-muted-foreground">Looking</span>,

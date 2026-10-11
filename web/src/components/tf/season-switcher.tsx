@@ -139,7 +139,7 @@ function SeasonTabs({
   return (
     <div ref={railRef} className="shrink-0 border-b border-border" data-season-rail>
       <ScrollArea className="w-full">
-        <TabsList aria-label={ariaLabel} className="mx-4 my-2 group-data-horizontal/tabs:h-auto sm:mx-5">
+        <TabsList aria-label={ariaLabel} className="mx-4 my-2 gap-1.5 group-data-horizontal/tabs:h-auto sm:mx-5">
           {options.map((option) => (
             <TabsTrigger
               key={option.value}
