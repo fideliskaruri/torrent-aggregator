@@ -19,6 +19,7 @@ export function DataList<T>({
   noResults = false,
   onClearFilters,
   selection,
+  selectionLayout = "row",
   className,
 }: {
   items: readonly T[];
@@ -30,6 +31,8 @@ export function DataList<T>({
   noResults?: boolean;
   onClearFilters?: () => void;
   selection?: ListSelection;
+  /** `overlay` floats the checkbox over the item's top-left corner, for poster grids. */
+  selectionLayout?: "row" | "overlay";
   className?: string;
 }) {
   if (error) return <>{error}</>;
@@ -53,6 +56,25 @@ export function DataList<T>({
       )}
       {items.map((item) => {
         const id = getKey(item);
+        if (selection && selectionLayout === "overlay") {
+          const checked = selection.selectedIds.has(id);
+          return (
+            <li key={id} className="group/item relative min-w-0">
+              {renderRow(item)}
+              <label
+                className={cn(
+                  "absolute left-0 top-0 z-[4] flex size-11 cursor-pointer items-start justify-start p-1.5 transition-opacity duration-150",
+                  !checked && !selection.someSelected &&
+                    "[@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/item:opacity-100 focus-within:opacity-100",
+                )}
+              >
+                <span className="flex size-6 items-center justify-center rounded-md border border-border bg-card/90 shadow-sm">
+                  <input type="checkbox" aria-label={`Select ${id}`} checked={checked} onChange={() => selection.toggle(id)} />
+                </span>
+              </label>
+            </li>
+          );
+        }
         return selection ? (
           <li key={id} className="flex min-w-0 items-start gap-3">
             <input type="checkbox" aria-label={`Select ${id}`} checked={selection.selectedIds.has(id)} onChange={() => selection.toggle(id)} className="mt-4 shrink-0" />

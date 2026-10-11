@@ -18,6 +18,8 @@ import {
   type LibraryStatus,
 } from "@/components/library/library-state";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
+import { GRID } from "@/components/browse/rail-layout";
+import { cn } from "@/lib/utils";
 import { WatchlistItemCard } from "./watchlist-item-card";
 import { toast } from "@/lib/toast";
 
@@ -162,10 +164,11 @@ export function WatchlistList({
         items={filtered}
         getKey={KEY}
         selection={readOnly ? undefined : selection}
+        selectionLayout="overlay"
         noResults={noResults}
         onClearFilters={clearFilters}
         empty={empty}
-        className="grid grid-cols-1 gap-2 space-y-0 md:grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))]"
+        className={cn(GRID, "space-y-0")}
         renderRow={(item) => (
           <WatchlistItemCard
             item={item}

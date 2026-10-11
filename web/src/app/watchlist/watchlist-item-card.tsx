@@ -27,7 +27,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
-import { MediaPoster } from "@/components/browse/media-poster-card";
+import { MediaPoster, MediaPosterCaption } from "@/components/browse/media-poster-card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { QualityOptions } from "@/components/settings/quality-options";
 import type { WatchlistItem } from "@/lib/api/watchlist-types";
 import { SEARCH_HREF } from "@/lib/navigation";
@@ -99,82 +101,95 @@ export function WatchlistItemCard({
     }
   }
 
+  const comingUpFilm = state === "coming_up" && !isSeriesMediaType(item.mediaType);
+  const subtitle = `${mediaTypeLabel} · ${status.text}`;
+  const cardVisual = (
+    <>
+      <MediaPoster
+        variant="rail"
+        src={item.posterUrl}
+        title={item.title}
+        sizes="(min-width: 1024px) 200px, (min-width: 640px) 180px, 120px"
+        gated={comingUpFilm}
+        className={cn(
+          "transition-[transform,border-color,box-shadow] duration-150 ease-out",
+          "group-hover:border-input group-hover:shadow-md",
+          "motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1",
+        )}
+      />
+      <MediaPosterCaption
+        title={item.title}
+        subtitle={
+          <span title={status.title ?? `${subtitle} · ${followLine(item)}`}>
+            {mediaTypeLabel}
+            <span aria-hidden> · </span>
+            <span data-card-state>{status.text}</span>
+          </span>
+        }
+      />
+    </>
+  );
+  const badgeClass = "pointer-events-auto min-w-0 justify-start py-1 leading-none";
+  const stateBadge =
+    state === "looking" ? (
+      <Link to={searchHref} aria-label={`Pick a copy of ${item.title}`} className="flex min-h-11 min-w-0 items-end rounded-md lg:min-h-0">
+        <Badge variant="solid" className={badgeClass}>
+          <Search aria-hidden className="size-3 shrink-0" />
+          <span className="truncate">Pick a copy</span>
+        </Badge>
+      </Link>
+    ) : state === "downloading" ? (
+      <Link to="/downloads" aria-label={`View download of ${item.title}`} className="flex min-h-11 min-w-0 items-end rounded-md lg:min-h-0">
+        <Badge variant="solid" className={badgeClass}>
+          <span className="truncate">Downloading</span>
+        </Badge>
+      </Link>
+    ) : state === "coming_up" ? (
+      <Badge aria-hidden className={cn(badgeClass, "pointer-events-none bg-card text-subtle-foreground")}>
+        <span className="truncate">Coming up</span>
+      </Badge>
+    ) : null;
+
   return (
     <article
-      className="surface grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-2.5 p-2"
+      className="group relative min-w-0"
       data-library-card
       data-library-state={state}
     >
-      <MediaPoster variant="row" src={item.posterUrl} title={item.title}>
-        {titleHref ? (
-          <Link
-            to={titleHref}
-            data-library-card-link
-            aria-label={`Open ${item.title}`}
-            className="absolute inset-0 z-[1] rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        ) : null}
-      </MediaPoster>
-
-      <div className="min-w-0 space-y-0.5">
-        {titleHref ? (
-          <Link
-            to={titleHref}
-            data-library-card-link
-            className="block min-h-6 truncate rounded-sm text-[14px] font-medium leading-5 text-foreground hover:text-brand-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {item.title}
-          </Link>
-        ) : (
-          <h2 className="truncate text-[14px] font-medium leading-5 text-foreground">{item.title}</h2>
-        )}
-        <p className="truncate text-xs text-subtle-foreground">
-          <span>{mediaTypeLabel}</span>
-          <span aria-hidden> · </span>
-          <span>{followLine(item)}</span>
-        </p>
-        <p
-          data-card-state
-          title={status.title}
-          className="truncate text-xs font-medium text-foreground"
+      {titleHref ? (
+        <Link
+          to={titleHref}
+          data-library-card-link
+          aria-label={`${item.title}, ${subtitle}`}
+          className="block w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          {status.text}
-        </p>
-      </div>
+          {cardVisual}
+        </Link>
+      ) : (
+        <div>{cardVisual}</div>
+      )}
 
-      <div className="flex items-center gap-1">
-        {state === "looking" ? (
-          <Button
-            asChild
-            type="button"
-            variant="outline"
-            className="min-h-11 px-2.5 text-xs md:min-h-8"
-          >
-            <Link to={searchHref}><Search aria-hidden className="size-3.5" /> Pick a copy</Link>
-          </Button>
-        ) : state === "downloading" ? (
-          <Button
-            asChild
-            type="button"
-            variant="outline"
-            className="min-h-11 px-2.5 text-xs md:min-h-8"
-          >
-            <Link to="/downloads">View</Link>
-          </Button>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[3] aspect-[2/3] transition-transform duration-150 ease-out motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1">
+        {stateBadge ? (
+          <div className="absolute inset-x-0 bottom-0 flex min-w-0 px-1.5 pb-1.5">{stateBadge}</div>
         ) : null}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
-              className="size-11 shrink-0 md:size-8"
               aria-label={`More actions for ${item.title}`}
               data-library-more
+              className={cn(
+                "pointer-events-auto absolute right-0 top-0 flex size-11 items-start justify-end p-1.5 outline-none transition-opacity duration-150",
+                "[@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
+                "[&:focus-visible>span]:ring-2 [&:focus-visible>span]:ring-ring",
+              )}
             >
-              <Ellipsis aria-hidden className="size-4" />
-            </Button>
+              <span className="flex size-7 items-center justify-center rounded-md border border-border bg-card/90 text-foreground shadow-sm hover:bg-card">
+                <Ellipsis aria-hidden className="size-4" />
+              </span>
+            </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {!readOnly ? (
