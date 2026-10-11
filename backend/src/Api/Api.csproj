@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AssemblyName>TorrentFlow</AssemblyName>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <ApplicationIcon>Desktop\TorrentFlow.ico</ApplicationIcon>
