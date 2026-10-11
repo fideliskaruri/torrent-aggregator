@@ -16,9 +16,15 @@
  * already fixed once.
  */
 import { Link } from "react-router";
-import { MediaPoster, MediaPosterCaption, MediaPosterSkeleton } from "@/components/browse/media-poster-card";
+import { MediaPoster, MediaPosterCaption, MediaPosterSkeleton, RAIL_CARD_WIDTH } from "@/components/browse/media-poster-card";
+import { RailStrip } from "@/components/browse/rail";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import type { TitleSimilar } from "./types";
+
+const CARD = cn("group flex shrink-0 snap-start flex-col", RAIL_CARD_WIDTH);
+/** Room for a two-line title and the facts line, so every rail row is the same height. */
+const CAPTION = "block h-[3.75rem] overflow-hidden";
 
 export function MoreLikeThis({
   items,
@@ -27,13 +33,9 @@ export function MoreLikeThis({
 }: {
   items: TitleSimilar[];
   /**
-   * True while the extras round trip is in flight.
-   *
-   * Space reservation mirrors the pattern from `hero-banner.tsx` (which uses
-   * `min-h-[1.5rem]` on the pitch line): the section must occupy the same
-   * vertical footprint before and after the items arrive, or the hero above
-   * it changes height and the Download button shifts under the cursor — the exact
-   * bug that caused accidental navigations to wrong films.
+   * True while the extras round trip is in flight. The skeleton is one rail
+   * row, the same height as the loaded rail whatever the item count, so the
+   * sections below never move when the items arrive.
    */
   loading?: boolean;
   heading?: string;
@@ -42,59 +44,52 @@ export function MoreLikeThis({
 
   if (loading && items.length === 0) {
     return (
-      <section aria-labelledby="title-similar-heading" data-title-similar aria-busy="true">
-        <div className="text-title flex h-lh items-center" aria-hidden>
-          <Skeleton className="h-5 w-28 rounded" />
-        </div>
-        {/* Skeleton grid: same grid-cols and aspect-ratio as the real grid so
-            the section's height matches exactly once items arrive. */}
-        <ul
-          className="mt-3 grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8"
-          aria-hidden
-        >
-          {Array.from({ length: 8 }, (_, i) => (
-            <li key={i}>
-              <MediaPosterSkeleton variant="rail" />
+      <div aria-busy="true" aria-hidden className="[&_[data-rail-arrow]]:hidden">
+        <RailStrip id="title-similar-pending" title={<span className="flex h-lh items-center"><Skeleton className="h-3.5 w-28 rounded" /></span>} itemCount={10} className="py-0 sm:py-0">
+          {Array.from({ length: 10 }, (_, i) => (
+            <li key={i} className={CARD}>
+              <MediaPosterSkeleton variant="rail" caption={false} />
+              <span className={CAPTION}>
+                <span className="mt-2 block">
+                  <Skeleton className="h-3 w-4/5 rounded" />
+                  <Skeleton className="mt-1.5 h-2.5 w-2/5 rounded" />
+                </span>
+              </span>
             </li>
           ))}
-        </ul>
-      </section>
+        </RailStrip>
+      </div>
     );
   }
 
   return (
-    <section aria-labelledby="title-similar-heading" data-title-similar>
-      <h2 id="title-similar-heading" className="text-title">
-        {heading}
-      </h2>
-
-      <ul className="mt-3 grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-        {items.map((item) => (
-          <li key={`${item.workKey}:${item.title}:${item.year ?? ""}`}>
-            <Link
-              to={item.href}
-              data-similar-card
-              className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-            >
-              <MediaPoster
-                variant="rail"
-                src={item.posterUrl}
-                title={item.title}
-                sizes="(min-width: 1024px) 12vw, (min-width: 640px) 22vw, 30vw"
-                className="transition-colors group-hover:border-input"
-              />
-              <MediaPosterCaption
-                title={item.title}
-                subtitle={
-                  [item.year, item.rating != null ? item.rating.toFixed(1) : null]
-                    .filter((part) => part != null)
-                    .join(" · ") || null
-                }
-              />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <RailStrip id="title-similar" title={heading} itemCount={items.length} className="py-0 sm:py-0">
+      {items.map((item) => (
+        <li key={`${item.workKey}:${item.title}:${item.year ?? ""}`} className={CARD}>
+          <Link
+            to={item.href}
+            data-similar-card
+            data-rail-card
+            className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <MediaPoster
+              variant="rail"
+              src={item.posterUrl}
+              title={item.title}
+              sizes="(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px"
+              className="transition-colors group-hover:border-input"
+            />
+            <span className={CAPTION}><MediaPosterCaption
+              title={item.title}
+              subtitle={
+                [item.year, item.rating != null ? item.rating.toFixed(1) : null]
+                  .filter((part) => part != null)
+                  .join(" · ") || null
+              }
+            /></span>
+          </Link>
+        </li>
+      ))}
+    </RailStrip>
   );
 }
