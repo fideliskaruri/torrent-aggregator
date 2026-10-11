@@ -136,7 +136,7 @@ export function ActivityContent() {
             title="No sent downloads yet"
             description="Successful manual and automation sends will appear here."
             actionLabel="Open library"
-            actionHref="/watchlist"
+            actionHref="/library"
           />
         ) : (
           <div className="space-y-4" data-activity-groups>

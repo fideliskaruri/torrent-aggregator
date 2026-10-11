@@ -97,7 +97,7 @@ const SETTINGS_HREF = "/settings";
 /** One route list supplies the desktop header and the mobile tabs and sheet. */
 const NAV_CONFIG: readonly NavItem[] = [
   { href: "/", label: "Browse", icon: Clapperboard, desktop: "primary", mobile: "primary" },
-  { href: "/watchlist", label: "Library", icon: Library, desktop: "primary", mobile: "primary" },
+  { href: "/library", label: "Library", icon: Library, desktop: "primary", mobile: "primary" },
   {
     href: DOWNLOADS_HREF,
     label: "Downloads",
@@ -273,7 +273,7 @@ export function titleForRoute(pathname: string): string | null {
   if (navActive(pathname, DOWNLOADS_HREF)) return "Downloads";
   if (navActive(pathname, "/activity")) return "Notifications";
   if (navActive(pathname, NOTIFICATIONS_HREF)) return "Notifications";
-  if (navActive(pathname, "/watchlist")) return "Library";
+  if (navActive(pathname, "/library")) return "Library";
   if (navActive(pathname, REQUESTS_HREF)) return "Requests";
   if (navActive(pathname, SETTINGS_HREF)) return "Settings";
   return null;

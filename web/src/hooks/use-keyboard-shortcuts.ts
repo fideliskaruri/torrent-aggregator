@@ -54,7 +54,7 @@ export function useKeyboardShortcuts() {
         pendingG = false;
         if (e.key === "h") void navigate("/");
         if (e.key === "s") void navigate(SEARCH_HREF);
-        if (e.key === "w") void navigate("/watchlist");
+        if (e.key === "w") void navigate("/library");
         if (e.key === "c") void navigate("/downloads");
         if (e.key === "a") void navigate("/notifications");
         if (e.key === "r") void navigate("/rules");

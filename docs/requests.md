@@ -37,7 +37,7 @@ unreleased or still in cinemas.
   [sources.md](sources.md#browse-cards-and-catalog-ids)). When no catalog id is known, the page says
   "Couldn't match this title to a catalog entry. Search for it to request it." instead of showing a
   Request button.
-- **Library** (`/watchlist`) is the owner's Library page, read-only: it is fed from
+- **Library** (`/library`) is the owner's Library page, read-only: it is fed from
   `GET /api/requester/library` and has no delete, paths, folders or automation. Browse cards carry no
   file quality, episode counts or availability badges for a requester.
 - **Requests** (`/requests`) is one page. The owner sees the inbox of everyone's requests; a requester

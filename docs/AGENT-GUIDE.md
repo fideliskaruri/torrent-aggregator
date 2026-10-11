@@ -335,7 +335,7 @@ deliberate-sabotage marker was left in tracked source. Run it in your gate.
 ## 6. Visual verification harness (already built)
 
 - **`scripts/visual-suite.mjs`** (NEW, wired into `test-all.mjs` as `visual-suite`):
-  - **Part 1 — route sweep:** `/`, `/search`, `/watchlist`, `/downloads`, `/notifications`,
+  - **Part 1 — route sweep:** `/`, `/search`, `/library`, `/downloads`, `/notifications`,
     `/settings`, `/title/rick-and-morty` at 1440×900 and 390×844. Asserts HTTP<400, zero
     console/page errors, no visible `[data-error-state]`, no horizontal overflow, `<main>`
     present. Screenshots to `qa-screens/visual/`.

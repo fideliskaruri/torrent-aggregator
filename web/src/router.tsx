@@ -3,6 +3,7 @@ import {
   createBrowserRouter,
   Navigate,
   isRouteErrorResponse,
+  useLocation,
   useRouteError,
   type RouteObject,
 } from "react-router";
@@ -59,6 +60,12 @@ function RouteBoundary() {
   );
 }
 
+/** The Library used to live at /watchlist; keep old links and bookmarks working. */
+function LibraryRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/library${search}${hash}`} replace />;
+}
+
 const routes: RouteObject[] = [
   {
     path: "/",
@@ -74,7 +81,8 @@ const routes: RouteObject[] = [
           { index: true, ...page(() => import("@/app/page")) },
           { path: "search", ...page(() => import("@/app/search/page")) },
           { path: "everything", ...page(() => import("@/app/everything/page")) },
-          { path: "watchlist", ...page(() => import("@/app/watchlist/page")) },
+          { path: "library", ...page(() => import("@/app/watchlist/page")) },
+          { path: "watchlist", Component: LibraryRedirect },
           { path: "watch/*", element: <Navigate to="/" replace /> },
           { path: "title/:workKey", ...page(() => import("@/app/title/[workKey]/page")) },
           { path: "downloads", ...page(() => import("@/app/downloads/page")) },
