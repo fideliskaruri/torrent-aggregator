@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft,ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ScrollArea,ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -13,6 +11,7 @@ import { EpisodeCard } from "./episode-card";
 import { episodeIntentKey } from "./episode-key";
 import { CARD_WIDTH } from "./episode-card-layout";
 import { pageScrollDelta,railEdges } from "@/components/browse/rail-scroll";
+import { RailArrow } from "@/components/browse/rail-arrow";
 
 export function EpisodeStrip({
   episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction,
@@ -101,27 +100,12 @@ export function EpisodeStrip({
         </p>
       ) : (
         <>
-          <div className="relative mt-3">
-
-            {edges.start ? (
-              <StripArrow direction="left" onClick={() => scrollStrip(-1)} />
-            ) : null}
-            {edges.end ? (
-              <StripArrow direction="right" onClick={() => scrollStrip(1)} />
-            ) : null}
-
-            <ScrollArea
+          <div className="group/rail relative mt-3">
+<ScrollArea
               ref={stripRef}
               className={cn(
                 "sm:[&>[data-slot=scroll-area-viewport]]:snap-x sm:[&>[data-slot=scroll-area-viewport]]:snap-mandatory",
                 "max-sm:[&>[data-slot=scroll-area-viewport]>div]:block!",
-                edges.start && edges.end
-                  ? "sm:[mask-image:linear-gradient(to_right,transparent,black_40px,black_calc(100%-64px),transparent)]"
-                  : edges.end
-                    ? "sm:[mask-image:linear-gradient(to_right,black_calc(100%-64px),transparent)]"
-                    : edges.start
-                      ? "sm:[mask-image:linear-gradient(to_right,transparent,black_40px)]"
-                      : null,
               )}
             >
             <ul
@@ -145,6 +129,8 @@ export function EpisodeStrip({
             </ul>
             <ScrollBar orientation="horizontal" />
             </ScrollArea>
+            <RailArrow direction="left" hidden={!edges.start} onClick={() => scrollStrip(-1)} />
+            <RailArrow direction="right" hidden={!edges.end} onClick={() => scrollStrip(1)} />
           </div>
           {truncated ? (
             <p className="mt-2 text-[12px] text-subtle-foreground">
@@ -156,33 +142,6 @@ export function EpisodeStrip({
 
 
     </>
-  );
-}
-
-function StripArrow({
-  direction,
-  onClick,
-}: {
-  direction: "left" | "right";
-  onClick: () => void;
-}) {
-  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon"
-      aria-hidden
-      tabIndex={-1}
-      data-strip-arrow={direction}
-      onClick={onClick}
-      className={cn(
-        "absolute top-[calc(28%_-_1rem)] z-30 hidden rounded-full bg-card text-muted-foreground shadow-md hover:text-foreground lg:inline-flex dark:bg-card",
-        direction === "left" ? "-left-3" : "-right-3",
-      )}
-    >
-      <Icon aria-hidden />
-    </Button>
   );
 }
 
