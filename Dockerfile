@@ -10,7 +10,7 @@ RUN pnpm build
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS publish
 ARG TARGETARCH
 WORKDIR /src
-COPY Directory.Build.props ./
+COPY Directory.Build.props Directory.Packages.props ./
 COPY backend/ backend/
 RUN dotnet publish backend/src/Api -c Release -a $TARGETARCH \
     --self-contained false -p:UseAppHost=false -o /out
