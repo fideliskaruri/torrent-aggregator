@@ -6,7 +6,7 @@ export function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
   return (
     <PageSkeletonFrame
       aria-label="Loading library"
-      className={cn("container-app min-w-0 space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] transition-opacity duration-150 sm:py-8 sm:pb-8", !visible && "opacity-0")}
+      className={cn("container-app min-w-0 space-y-6 py-6 transition-opacity duration-150 sm:py-8", !visible && "opacity-0")}
     >
       <h1 className="sr-only">Library</h1>
       <div className="flex items-start justify-between gap-3">

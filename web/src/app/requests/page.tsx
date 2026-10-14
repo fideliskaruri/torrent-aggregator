@@ -30,7 +30,7 @@ export default function RequestsPage() {
 
   return (
     <div
-      className="container-app max-w-4xl min-w-0 space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] sm:py-8 sm:pb-8"
+      className="container-app max-w-4xl min-w-0 space-y-6 py-6 sm:py-8"
       data-requests-page={reviewing ? "inbox" : "mine"}
       {...(reviewing ? { "data-owner-requests": "" } : {})}
     >

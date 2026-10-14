@@ -445,7 +445,11 @@ body {
   color: var(--text-secondary);
 }
 
-/* Scrollbars */
+/* Scrollbars. `scrollbar-color` inherits, so this covers every scroller. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
