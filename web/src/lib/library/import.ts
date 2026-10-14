@@ -8,6 +8,16 @@ export interface ImportCandidate {
   episodeId: string | null;
   season: number | null;
   episode: number | null;
+  workKey: string;
+  posterUrl?: string | null;
+}
+
+/** What the file name parser read, before any catalog lookup. */
+export interface ParsedName {
+  title: string;
+  year: number | null;
+  seasons: number[];
+  episodes: number[];
 }
 
 export interface ImportItem {
@@ -16,6 +26,8 @@ export interface ImportItem {
   bytes: number;
   group: "Confident" | "NeedsPick" | "Unmatched";
   candidates: ImportCandidate[];
+  parsed?: ParsedName | null;
+  parents?: ParsedName[];
   sidecars: { path: string }[];
   alreadyInLibrary: boolean;
   message: string | null;

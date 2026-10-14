@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { FolderOpen, FolderSearch } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { FolderPicker } from "@/components/settings/folder-picker";
@@ -12,39 +12,29 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import {
   libraryRequest,
-  type ImportItem,
   type ImportResultItem,
   type ImportScan,
   type ImportScanSummary,
 } from "@/lib/library/import";
 import {
-  type CandidatePick,
-  CandidatePicker,
-  ImportGroup,
-  ImportResult,
-  ImportRow,
-} from "./folder-import-presentation";
+  buildShelves,
+  defaultPicks,
+  shelfStatus,
+  type ImportPick,
+  type ImportShelf,
+} from "@/lib/library/import-shelves";
+import { ImportResult, ImportSection, ImportShelfCard } from "./folder-import-presentation";
 
-type Pick = CandidatePick;
-type GroupKey = "confident" | "needsPick" | "unmatched" | "owned";
+type Pick = ImportPick;
 
-const GROUPS: { key: GroupKey; title: string; description: string }[] = [
-  { key: "needsPick", title: "Needs a pick", description: "Choose the right title or episode, or leave the file alone." },
-  { key: "confident", title: "Ready", description: "These matched one title. Clear any you don't want." },
-  { key: "unmatched", title: "Unmatched", description: "No title matched. These files are left alone." },
-  { key: "owned", title: "Already in your library", description: "Nothing to do for these." },
+const SECTIONS: { key: string; title: string; collapsible: boolean; holds: (shelf: ImportShelf) => boolean }[] = [
+  { key: "found", title: "Found", collapsible: false, holds: (s) => ["needsPick", "ready"].includes(shelfStatus(s)) },
+  { key: "unmatched", title: "Not recognised, left alone", collapsible: true, holds: (s) => shelfStatus(s) === "unmatched" },
+  { key: "owned", title: "Already in your library", collapsible: true, holds: (s) => shelfStatus(s) === "owned" },
 ];
 
-function groupOf(item: ImportItem): GroupKey {
-  if (item.alreadyInLibrary) return "owned";
-  if (item.group === "Confident") return "confident";
-  if (item.group === "NeedsPick" && item.candidates.some((c) => c.kind === "Film" || c.episodeId)) return "needsPick";
-  return "unmatched";
-}
-
-function choice(item: ImportItem, index: number): Pick {
-  const candidate = item.candidates[index];
-  return candidate ? { workId: candidate.workId, episodeId: candidate.episodeId } : null;
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
 }
 
 /** Pick a folder, scan it, review the matches and import with one mode. Nothing changes before confirm. */
@@ -95,7 +85,7 @@ export function FolderImport() {
         if (cancelled) return;
         setPollError(null);
         setScan(next);
-        if (next.state === "complete") setPicks(defaultPicks(next));
+        if (next.state === "complete") setPicks(defaultPicks(next.items));
       } catch (error) {
         if (!cancelled) setPollError(error instanceof Error ? error.message : "Lost track of the scan.");
       }
@@ -146,12 +136,13 @@ export function FolderImport() {
     setPollError(null);
   }
 
-  const grouped = useMemo(() => {
-    const map = new Map<GroupKey, ImportItem[]>(GROUPS.map((g) => [g.key, []]));
-    for (const item of scan?.items ?? []) map.get(groupOf(item))?.push(item);
-    return map;
-  }, [scan]);
+  const shelves = useMemo(() => buildShelves(scan?.items ?? []), [scan]);
+  const needPick = useMemo(
+    () => shelves.reduce((sum, shelf) => sum + shelf.counts.needsPick, 0),
+    [shelves],
+  );
   const selected = Object.entries(picks).filter((entry): entry is [string, NonNullable<Pick>] => entry[1] !== null);
+  const setPick = useCallback((itemId: string, pick: Pick) => setPicks((current) => ({ ...current, [itemId]: pick })), []);
 
   async function confirm() {
     if (!scanId) return;
@@ -244,36 +235,46 @@ export function FolderImport() {
       ) : null}
 
       {scan?.state === "complete" && scan.items.length > 0 ? (
-        <div className="space-y-4" data-import-review>
-          <p className="text-[13px] text-subtle-foreground">
-            Found {scan.items.length} {scan.items.length === 1 ? "video" : "videos"}. Nothing changes until you confirm.
-          </p>
-          {GROUPS.map((group) => {
-            const items = grouped.get(group.key) ?? [];
-            if (items.length === 0) return null;
+        <div className="space-y-5" data-import-review>
+          {SECTIONS.map((section) => {
+            const held = shelves.filter(section.holds);
+            if (held.length === 0) return null;
+            const files = held.reduce((sum, shelf) => sum + shelf.items.length, 0);
             return (
-              <ImportGroup key={group.key} id={group.key} title={group.title} description={group.description} count={items.length}>
-                {items.map((item) => (
-                      <ImportRow key={item.id} item={item}>
-                        {group.key === "confident" || group.key === "needsPick" ? (
-                          <CandidatePicker item={item} pick={picks[item.id] ?? null}
-                            onPick={(pick) => setPicks((current) => ({ ...current, [item.id]: pick }))} />
-                        ) : null}
-                      </ImportRow>
-                    ))}
-              </ImportGroup>
+              <ImportSection key={section.key} id={section.key} title={section.title} collapsible={section.collapsible}
+                count={`${plural(held.length, "title", "titles")}, ${plural(files, "file", "files")}`}>
+                {held.map((shelf) => (
+                  <ImportShelfCard key={shelf.key} shelf={shelf} picks={picks} onPick={setPick} />
+                ))}
+              </ImportSection>
             );
           })}
 
-          <div className="flex flex-wrap items-center gap-2">
+          {!shelves.some(SECTIONS[0].holds) ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border pt-4" data-import-nothing>
+              <p className="mr-auto min-w-0 text-sm text-muted-foreground">
+                Nothing new to import. Every file here is already in your library or could not be recognised.
+              </p>
+              <Button type="button" variant="secondary" size="sm" onClick={reset}>Done</Button>
+            </div>
+          ) : (
+          <div
+            className="sticky bottom-0 z-10 -mx-4 -mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-b-xl border-t border-border bg-card px-4 py-3 max-md:bottom-[calc(var(--mobile-nav-h)+var(--safe-bottom))] sm:-mx-5 sm:-mb-5 sm:px-5"
+            data-import-actions
+          >
             <Button type="button" size="sm" disabled={selected.length === 0} onClick={() => setConfirming(true)} data-import-confirm>
-              Import {selected.length} {selected.length === 1 ? "file" : "files"}
+              Import {plural(selected.length, "file", "files")}
             </Button>
             <Button type="button" variant="ghost" size="sm" onClick={reset}>Cancel</Button>
-            {selected.length === 0 ? (
-              <span className="text-xs text-subtle-foreground">Pick at least one file to import.</span>
-            ) : null}
+            <span className="min-w-0 text-xs text-subtle-foreground">
+              {selected.length === 0
+                ? "Pick at least one file to import."
+                : needPick > 0
+                  ? `${plural(needPick, "file needs", "files need")} a pick. Nothing changes until you confirm.`
+                  : "Nothing changes until you confirm."}
+            </span>
           </div>
+          )}
         </div>
       ) : null}
 
@@ -290,10 +291,4 @@ export function FolderImport() {
       </ConfirmDialog>
     </div>
   );
-}
-
-function defaultPicks(scan: ImportScan): Record<string, Pick> {
-  const picks: Record<string, Pick> = {};
-  for (const item of scan.items) picks[item.id] = groupOf(item) === "confident" ? choice(item, 0) : null;
-  return picks;
 }

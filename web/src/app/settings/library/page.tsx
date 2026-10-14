@@ -8,7 +8,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 export default function LibrarySettingsPage() {
   useDocumentTitle("Import a folder");
   return (
-    <div className="container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8">
+    <div className="container-app max-w-3xl space-y-5 py-6 pb-24 sm:py-8">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link to="/settings"><ChevronLeft aria-hidden />Settings</Link>
       </Button>

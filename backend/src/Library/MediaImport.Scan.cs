@@ -237,8 +237,9 @@ public sealed partial class MediaImport
     {
         var title = work.Names.FirstOrDefault(n => n.Label == NameLabel.English)?.Value ??
             work.Names.FirstOrDefault()?.Value ?? work.Work.WorkKey;
+        var poster = work.Work.PosterUrl;
         if (work.Work.Kind == WorkKind.Film)
-            return [new(work.Work.Id, title, work.Work.Year, WorkKind.Film, null, null, null, work.Work.WorkKey)];
+            return [new(work.Work.Id, title, work.Work.Year, WorkKind.Film, null, null, null, work.Work.WorkKey, poster)];
         var seasons = parsed.Seasons.IsEmpty ? parents.FirstOrDefault(p => !p.Seasons.IsEmpty)?.Seasons ?? [] : parsed.Seasons;
         var episodes = work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed &&
             (parsed.AbsoluteNumbers.Contains(e.AbsoluteNumber ?? -1) ||
@@ -252,9 +253,9 @@ public sealed partial class MediaImport
                 .OrderBy(e => work.Seasons.Single(s => s.Id == e.SeasonId).Number).ThenBy(e => e.Number).Take(200)];
         }
         return episodes.Length == 0
-            ? [new(work.Work.Id, title, work.Work.Year, WorkKind.Series, null, null, null, work.Work.WorkKey)]
+            ? [new(work.Work.Id, title, work.Work.Year, WorkKind.Series, null, null, null, work.Work.WorkKey, poster)]
             : [.. episodes.Select(e => new ImportCandidate(work.Work.Id, title, work.Work.Year, WorkKind.Series,
-                e.Id, work.Seasons.Single(s => s.Id == e.SeasonId).Number, e.Number, work.Work.WorkKey))];
+                e.Id, work.Seasons.Single(s => s.Id == e.SeasonId).Number, e.Number, work.Work.WorkKey, poster))];
     }
 
     private static string Reason(bool already, ImmutableArray<ImportCandidate> candidates,

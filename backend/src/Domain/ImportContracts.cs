@@ -4,7 +4,7 @@ namespace TorrentFlow.Domain;
 
 public sealed record ImportScanInput(string Path);
 public sealed record ImportCandidate(string WorkId, string Title, int? Year, WorkKind Kind,
-    string? EpisodeId, int? Season, int? Episode, string WorkKey);
+    string? EpisodeId, int? Season, int? Episode, string WorkKey, string? PosterUrl = null);
 public sealed record ImportSidecar(string Path, long Bytes, DateTimeOffset MtimeUtc);
 public sealed record ImportReviewItem(string Id, string Path, long Bytes, DateTimeOffset MtimeUtc,
     ParsedRelease Parsed, ImmutableArray<ParsedRelease> Parents, ImportConfidence Group,
