@@ -68,7 +68,12 @@ Name: "autostart"; Description: "Start TorrentFlow when I sign in to Windows (ru
 
 [InstallDelete]
 ; Web assets have hashed names; clear the old set so updates do not pile up stale files.
+; The previous build's assets are moved aside first and restored after install (see KeepPreviousAssets),
+; so a tab left open across an update can still load its page chunks.
 Type: filesandordirs; Name: "{app}\wwwroot"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\wwwroot-previous"
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
@@ -88,6 +93,62 @@ Filename: "{app}\{#AppExe}"; Description: "Open {#AppName}"; WorkingDir: "{app}"
 Filename: "{app}\{#AppExe}"; Parameters: "--background"; WorkingDir: "{app}"; Flags: nowait; Check: IsUpdate
 
 [Code]
+const
+  PreviousAssets = '{app}\wwwroot-previous';
+  CurrentAssets = '{app}\wwwroot\assets';
+
+// Before files are replaced: drop the generation kept last time from the live folder, then keep
+// exactly the build being replaced. Hashed names never collide, so current + previous stay bounded.
+procedure SetAsidePreviousAssets;
+var
+  Rec: TFindRec;
+  Previous, Current: String;
+begin
+  Previous := ExpandConstant(PreviousAssets);
+  Current := ExpandConstant(CurrentAssets);
+  if DirExists(Previous) and DirExists(Current) then
+    if FindFirst(Previous + '\*', Rec) then
+    try
+      repeat
+        if Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then
+          DeleteFile(Current + '\' + Rec.Name);
+      until not FindNext(Rec);
+    finally
+      FindClose(Rec);
+    end;
+  DelTree(Previous, True, True, True);
+  if DirExists(Current) then
+    RenameFile(Current, Previous);
+end;
+
+// After the new build is in place: put the previous build's chunks back next to it.
+procedure RestorePreviousAssets;
+var
+  Rec: TFindRec;
+  Previous, Current: String;
+begin
+  Previous := ExpandConstant(PreviousAssets);
+  Current := ExpandConstant(CurrentAssets);
+  if not (DirExists(Previous) and DirExists(Current)) then
+    Exit;
+  if FindFirst(Previous + '\*', Rec) then
+  try
+    repeat
+      if Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then
+        FileCopy(Previous + '\' + Rec.Name, Current + '\' + Rec.Name, True);
+    until not FindNext(Rec);
+  finally
+    FindClose(Rec);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    SetAsidePreviousAssets
+  else if CurStep = ssPostInstall then
+    RestorePreviousAssets;
+end;
 function IsUpdate: Boolean;
 begin
   Result := ExpandConstant('{param:UPDATE|0}') = '1';
