@@ -33,6 +33,7 @@ export function DownloadFilters({ page, children }: { page: Model; children: Rea
   return (
     <Tabs value={page.mediaTab} onValueChange={(value) => page.setMediaTab(value as typeof page.mediaTab)}
       className="min-w-0 gap-4">
+      <div className="min-w-0 space-y-3 md:sticky md:top-[var(--header-h)] md:z-30 md:border-b md:border-border md:bg-[var(--bg)] md:py-2" data-downloads-toolbar>
       <ScrollArea className="min-w-0">
         <TabsList aria-label="Media type" className="group-data-horizontal/tabs:h-auto" data-media-tabs>
           {DOWNLOAD_TABS.map((tab) => (
@@ -44,7 +45,6 @@ export function DownloadFilters({ page, children }: { page: Model; children: Rea
         </TabsList>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
-      <TabsContent value={page.mediaTab} className="min-w-0 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2 sm:max-w-md sm:flex-1">
             <InputGroup className="h-auto min-w-0 flex-1">
@@ -80,6 +80,8 @@ export function DownloadFilters({ page, children }: { page: Model; children: Rea
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
+      </div>
+      <TabsContent value={page.mediaTab} className="min-w-0 space-y-4">
         {children}
       </TabsContent>
     </Tabs>

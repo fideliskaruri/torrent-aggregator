@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { DataList } from "@/components/tf/data-list";
 import { BulkBar } from "@/components/tf/bulk-bar";
@@ -75,6 +75,18 @@ export function WatchlistList({
     });
   }, [mediaType, query, selectedItems]);
   const selection = useSelection(filtered, KEY);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const filterKey = `${activeStatus}|${mediaType}|${query}`;
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
+    const root = rootRef.current;
+    if (!root) return;
+    const headerHeight = document.querySelector(".app-header")?.getBoundingClientRect().height ?? 0;
+    const top = root.getBoundingClientRect().top;
+    if (top < headerHeight) window.scrollTo({ top: window.scrollY + top - headerHeight });
+  }, [filterKey]);
   const clearFilters = () => {
     setQuery("");
     setMediaType("all");
@@ -114,35 +126,35 @@ export function WatchlistList({
   );
 
   return (
-    <div className="space-y-4" data-library-list>
-      <div className="space-y-3" data-library-filter-bar>
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-          <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
-            <span>Search titles</span>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              className="min-h-11"
-              aria-label="Search titles"
-              type="search"
-            />
-          </label>
-          <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
-            <span>Type</span>
-            <select
-              value={mediaType}
-              onChange={(event) => setMediaType(event.currentTarget.value)}
-              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Filter by type"
-              data-library-type
-            >
-              {TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
+    <div ref={rootRef} className="space-y-4" data-library-list>
+      <div className="results-toolbar space-y-2" data-library-filter-bar>
+        <div className="flex min-w-0 gap-2">
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            className="h-11 min-w-0 flex-1 sm:h-9"
+            placeholder="Search your library"
+            aria-label="Search titles"
+            type="search"
+          />
+          <select
+            value={mediaType}
+            onChange={(event) => setMediaType(event.currentTarget.value)}
+            className="h-11 w-32 shrink-0 rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-40"
+            aria-label="Filter by type"
+            data-library-type
+          >
+            {TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
         </div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status" data-library-status-chips>
+        <div
+          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
+          role="group"
+          aria-label="Filter by status"
+          data-library-status-chips
+        >
           {visibleStatuses.map((value) => (
             <Button
               key={value}
@@ -150,7 +162,7 @@ export function WatchlistList({
               variant={activeStatus === value ? "secondary" : "ghost"}
               aria-pressed={activeStatus === value}
               onClick={() => setStatus(value)}
-              className="min-h-11 px-3 text-xs"
+              className="min-h-11 shrink-0 px-3 text-xs sm:min-h-8"
               data-library-status-chip={value}
             >
               {LIBRARY_STATUS_LABELS[value]}

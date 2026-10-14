@@ -22,7 +22,7 @@ export default function WatchlistPage() {
       frame={(node) => <div className="container-app py-6 sm:py-8">{node}</div>}
     >
       {() => (
-        <div className="container-app min-w-0 space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] sm:py-8 sm:pb-8" data-library-page={readOnly ? "read-only" : "manage"}>
+        <div className="container-app min-w-0 space-y-6 py-6 sm:py-8" data-library-page={readOnly ? "read-only" : "manage"}>
           <TfPageHeader
             title="Library"
             description={libraryPageSummary(watchlist.items)}
