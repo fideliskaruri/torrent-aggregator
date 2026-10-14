@@ -38,7 +38,7 @@ export interface TitleOwned {
   resolution: number | null;
 }
 
-export type TitleTransferState = "looking" | "waiting_english" | "waiting_season_list" | "queued" | "downloading" | "downloaded" | "failed";
+export type TitleTransferState = "looking" | "waiting_english" | "waiting_sources" | "waiting_season_list" | "queued" | "downloading" | "downloaded" | "failed";
 
 export interface TitleEpisodeTransfer {
   status: "queued" | "downloading" | "downloaded" | "failed";

@@ -60,7 +60,9 @@ internal static class TitleTransfers
             if (download is null)
                 return member.ReasonCode == WaitReason.OwnerPickRequired
                     ? new("failed", "failed", 0, null, null, member.ReasonText)
-                    : new("queued", WaitingState(member), 0, null, null, null);
+                    : WaitingState(member) == "waiting_sources"
+                        ? new("queued", "waiting_sources", 0, null, null, null, null, member.ReasonText)
+                        : new("queued", WaitingState(member), 0, null, null, null);
 
             var live = snapshot.Live.FirstOrDefault(item => item.DownloadId == download.Id);
             var state = DownloadRowView.State(false, member.IsPaused(), member.State == TargetState.Filing, live);
@@ -109,6 +111,8 @@ internal static class TitleTransfers
     {
         WaitReason.MetadataUnavailable => "waiting_season_list",
         WaitReason.MappingUncertain => "waiting_english",
+        _ when target.State == TargetState.Waiting && target.ReasonCode is WaitReason.WaitingForSeeders or
+            WaitReason.NoResults or WaitReason.RejectedCandidates or WaitReason.SourceFailure => "waiting_sources",
         _ => "looking",
     };
 }

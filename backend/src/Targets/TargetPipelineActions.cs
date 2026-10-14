@@ -142,6 +142,9 @@ public sealed partial class TargetPipeline
     {
         if (reason is WaitReason.FileBusy or WaitReason.DownloadCap or WaitReason.NoDriveSpace or WaitReason.DriveOffline)
             return now.AddMinutes(5);
+        // Metadata timeouts and source errors are about the network right now, not about how old the title is.
+        if (reason is WaitReason.WaitingForSeeders or WaitReason.SourceFailure or WaitReason.MetadataUnavailable)
+            return now.AddMinutes(row.Origin is IntentOrigin.Owner or IntentOrigin.Request ? 10 : 45);
         if (row.ExpectedAt is not { } expected)
             return now.AddMinutes(reason == WaitReason.WaitingForSeeders ? 45 : 60);
         if (expected > now) return expected.AddMinutes(5);

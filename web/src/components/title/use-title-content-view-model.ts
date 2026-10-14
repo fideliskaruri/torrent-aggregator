@@ -149,14 +149,17 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
       caps.canSeeTransfers &&
       titleTransfer.state !== "looking" &&
       titleTransfer.state !== "waiting_english" &&
-      titleTransfer.state !== "waiting_season_list",
+      titleTransfer.state !== "waiting_season_list" &&
+      titleTransfer.state !== "waiting_sources",
     error: titleTransfer?.status === "failed" ? titleTransfer.error : null,
   };
   const downloadLabel = downloadControl.label;
   const titleLooking =
     showDownload &&
     caps.canManage &&
-    (titleTransfer?.state === "looking" || titleTransfer?.state === "waiting_english");
+    (titleTransfer?.state === "looking" ||
+      titleTransfer?.state === "waiting_english" ||
+      titleTransfer?.state === "waiting_sources");
   const titleWanted = useWantedRows(titleLooking);
   const titleWantedRow = titleLooking
     ? titleWanted.rows.find((r) => r.workKey === payload.workKey && r.season == null) ?? null

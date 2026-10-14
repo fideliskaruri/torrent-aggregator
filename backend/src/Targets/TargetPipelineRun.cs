@@ -161,6 +161,10 @@ public sealed partial class TargetPipeline
             var result = await discovery.RunAsync(work, targetScope, policy, lane,
                 false, lifetime.Token, actualTargets: rows, owned: owned, excludedHashes: blocked);
             var plannedAt = DateTimeOffset.UtcNow;
+            logger.LogInformation("Search {WorkKey} ({Targets} item(s), {Lane}): {Candidates} candidate(s), {Assigned} picked, " +
+                "{Rejected} rejected, waiting for seeders {Waiting}.", work.Work.WorkKey, rows.Length, lane,
+                result.Find.Candidates.Length, result.Plan.Assignments.Length, result.Plan.Rejections.Length,
+                result.WaitingForSeeders);
             await CommitAsync(store, [.. rows.Select(row => new RowWrite(new AttemptRow { Id = $"plan:{row.Id}:{Guid.NewGuid():N}", TargetId = row.Id, WorkId = row.WorkId, ReleaseHash = null, ActorUserId = row.CreatedBy, Kind = AttemptKind.Plan, StartedAt = plannedAt, EndedAt = plannedAt, Outcome = "planned", ReasonCode = null, ReasonText = null, Decision = null, LegacyContext = JsonSerializer.SerializeToElement(new { lane, result.Plan.Assignments, result.Plan.Rejections,
                     result.Plan.UncoveredTargetIds }), BatchId = row.BatchId, DownloadId = null, DeadlineAt = null, Swap = null }, null, null))],
                 [], lifetime.Token);

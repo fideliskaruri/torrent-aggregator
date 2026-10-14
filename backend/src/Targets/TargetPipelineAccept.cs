@@ -79,6 +79,24 @@ public sealed partial class TargetPipeline
                     continue;
                 var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";
                 ids.Add(id);
+                if (old is not null && old.State is TargetState.Waiting or TargetState.Wanted &&
+                    old.ReasonCode != WaitReason.Paused)
+                {
+                    // A manual Download on an item parked by an earlier failed search searches again now,
+                    // instead of answering "Already queued" until the old retry time (often a day later).
+                    writes.Add(new(old with
+                    {
+                        State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
+                        ResumeState = null, LeaseToken = null, LeaseUntil = null, ClickedAt = now,
+                        Origin = old.Origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter
+                            ? origin : old.Origin,
+                        ResolutionFloor = input.Quality ?? old.ResolutionFloor,
+                        PreferredResolution = input.Quality ?? old.PreferredResolution,
+                        UpdatedAt = now, Version = old.Version + 1,
+                    }, old.Version, null));
+                    queued++;
+                    continue;
+                }
                 if (old is not null && old.State is not (TargetState.Removed or TargetState.Done))
                 {
                     continue;
