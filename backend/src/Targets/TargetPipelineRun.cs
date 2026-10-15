@@ -55,12 +55,14 @@ public sealed partial class TargetPipeline
             t.State == TargetState.Waiting && t.NextTryAt <= now &&
                 t.ReasonCode != WaitReason.Paused &&
                 t.ResumeState is not (TargetState.Filing or TargetState.Fetching)))
+            // A picked source is searched on its own: discovery fetches only that release for the whole group.
             .GroupBy(t => (t.WorkId, SeasonId: t.EpisodeId is null ? null :
-                episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.SeasonId));
+                episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.SeasonId, t.PickedReleaseHash));
         foreach (var group in due)
         {
             if (flights.Count >= maximumScopes) break;
-            var groupKey = $"{group.Key.WorkId}:{group.Key.SeasonId ?? "film"}";
+            var groupKey = $"{group.Key.WorkId}:{group.Key.SeasonId ?? "film"}" +
+                (group.Key.PickedReleaseHash is { } picked ? ":pick:" + picked : "");
             if (flights.ContainsKey(groupKey)) continue;
             var rows = group.ToImmutableArray();
             flights[groupKey] = RunScopeAsync(rows, ct);

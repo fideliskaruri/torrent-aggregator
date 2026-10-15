@@ -26,10 +26,8 @@ public sealed partial class TargetPipeline
                 throw new ArgumentException("Pick a source for an item still waiting to download.");
             var release = (await store.ListAsync<ReleaseRow>(row => row.Id == releaseHash, ct)).SingleOrDefault()
                 ?? throw new ArgumentException("That source is no longer in the search results. Search again.");
-            if (release.Parsed.Unsafe || release.Parsed.Cam || release.Parsed.Sample ||
-                target.ResolutionFloor is { } floor &&
-                    (release.Parsed.Quality.Resolution is not { } resolution || resolution < floor))
-                throw new ArgumentException("This source does not meet the title's safety or quality requirements.");
+            if (release.Parsed.Unsafe || release.Parsed.Cam || release.Parsed.Sample)
+                throw new ArgumentException("This source is a sample, camera recording, or unsafe file. Pick another.");
             if (target.PickedReleaseHash == releaseHash && target.State == TargetState.Wanted)
                 return new(true, 1, 0, [targetId], "1 queued");
             var now = DateTimeOffset.UtcNow;

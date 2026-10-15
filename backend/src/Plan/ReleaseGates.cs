@@ -93,7 +93,8 @@ public sealed partial class ReleasePlanner
             return new(candidate.Release.Id, target.Id, "wrong_target_work", "The target belongs to a different title.");
         if (target.PickedReleaseHash is { } picked && picked != candidate.Release.Id)
             return new(candidate.Release.Id, target.Id, "owner_pick", "The owner chose a different source for this item.");
-        if (target.MinListedSeeders is { } minimum && (candidate.TrustedSeeders ?? -1) < minimum)
+        var ownerPick = target.PickedReleaseHash == candidate.Release.Id;
+        if (!ownerPick && target.MinListedSeeders is { } minimum && (candidate.TrustedSeeders ?? -1) < minimum)
             return new(candidate.Release.Id, target.Id, "minimum_seeders", "This source does not meet the rule's minimum seed count.");
         if (target.State == TargetState.Removed || target.IsPaused() ||
             target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
@@ -118,7 +119,7 @@ public sealed partial class ReleasePlanner
         if (!pack && episode is not null && !Coordinates(parsed, episode, season!, input.Work))
             return new(candidate.Release.Id, target.Id, "wrong_episode", "The source numbers do not identify this exact episode.");
         var floor = target.ResolutionFloor ?? input.Preference?.ResolutionFloor;
-        if (floor is not null && (parsed.Quality.Resolution is not { } resolution || resolution < floor))
+        if (!ownerPick && floor is not null && (parsed.Quality.Resolution is not { } resolution || resolution < floor))
             return new(candidate.Release.Id, target.Id, "quality_floor", $"This item requires at least {floor}p.");
         return null;
     }

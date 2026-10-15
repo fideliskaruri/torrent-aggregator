@@ -88,7 +88,8 @@ public sealed partial class ReleasePlanner : IPlan
             {
                 if (target.PickedReleaseHash is { } picked && picked != release.Id)
                 { Refuse("owner_pick", "The owner chose a different source for this item.", target.Id); continue; }
-                if (target.MinListedSeeders is { } minimum &&
+                var ownerPick = target.PickedReleaseHash == release.Id;
+                if (!ownerPick && target.MinListedSeeders is { } minimum &&
                     (candidate.TrustedSeeders ?? -1) < minimum)
                 { Refuse("minimum_seeders", "This source does not meet the rule's minimum seed count.", target.Id); continue; }
                 if (target.WorkId != input.Work!.Work.Id)
@@ -132,7 +133,7 @@ public sealed partial class ReleasePlanner : IPlan
                 var fileResolution = parsed.Quality.Resolution ??
                     (fileParses.All(p => p?.Quality.Resolution is not null) ? fileParses.Min(p => p!.Quality.Resolution) : null);
                 var resolution = parsed.Quality.Resolution;
-                if (floor is not null && (resolution is null || resolution < floor))
+                if (!ownerPick && floor is not null && (resolution is null || resolution < floor))
                 { Refuse("quality_floor", $"This item requires at least {floor}p.", target.Id); continue; }
                 var language = AudioLanguage(input);
                 if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
@@ -142,9 +143,9 @@ public sealed partial class ReleasePlanner : IPlan
                 var selection = SelectFiles(target.Id, kept, files.Value, metadata, input.Work);
                 var selectedIndices = selection.Select(f => f.FileIndex).ToHashSet();
                 var bytes = files.Value.Where(f => selectedIndices.Contains(f.Index)).Aggregate(0d, (sum, f) => sum + f.Bytes);
-                if (cap is not null && bytes > cap)
+                if (!ownerPick && cap is not null && bytes > cap)
                 { Refuse("size_cap", "The selected item's video exceeds your size limit.", target.Id); continue; }
-                var implausible = kept.Any(f => !Plausible(f.Bytes, runtime, fileResolution));
+                var implausible = kept.Any(f => ownerPick ? f.Bytes < 1024 * 1024 : !Plausible(f.Bytes, runtime, fileResolution));
                 if (implausible)
                 { Refuse("implausible_size", "The video's size is not plausible for its runtime and quality.", target.Id); continue; }
                 options.Add(new(candidate, target, selection, metadata?.PieceLength,
