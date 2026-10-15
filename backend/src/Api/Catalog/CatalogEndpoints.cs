@@ -197,7 +197,7 @@ internal static class CatalogEndpoints
         if (external is { Length: > 0 } && string.IsNullOrWhiteSpace(provider))
             return Json(new { error = "A supported title provider is required." }, 400);
         var result = await Resolve(workKey, h, metadata, ct);
-        if (result.Work is not { } w) return UnknownTitle(workKey, h);
+        if (result.Work is not { } w) return UnknownTitle(workKey, h, result.Failure);
         var season = Season(w, h);
         var actor = ActorId(h);
         var watch = await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.WorkId == w.Work.Id && i.UserId == actor, ct);
@@ -258,7 +258,7 @@ internal static class CatalogEndpoints
         return mine.Length == 0 ? null : new { resolution = mine.Max(f => f.Resolution) };
     }
 
-    private static IResult UnknownTitle(string workKey, HttpContext h)
+    private static IResult UnknownTitle(string workKey, HttpContext h, Failure? failure)
     {
         var title = Param(h, "t")?.Trim() ?? workKey;
         var type = Param(h, "type");
@@ -278,7 +278,8 @@ internal static class CatalogEndpoints
                 cursorSeason = (int?)null, cursorEpisode = (int?)null,
                 addPayload = new { mediaType = type ?? "movie", externalId = "work:" + workKey, title,
                     posterUrl = (string?)null, synopsis = (string?)null, rating = (double?)null, workKey },
-            }, known = false, generatedAt = DateTimeOffset.UtcNow,
+            }, known = false, failure = failure is null ? null : new { failure.Code, failure.Message },
+            generatedAt = DateTimeOffset.UtcNow,
         });
     }
 

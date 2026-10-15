@@ -27,6 +27,17 @@ internal sealed partial class Catalog
                 l.Status == LinkStatus.Verified && SameId(l,
                     new(primary.Provider, primary.ExternalId, primary.ProviderKind)))?.WorkId;
             var duplicates = new List<WorkSnapshot>();
+            // A sequel resolved on its own before it became a season of this work would block the season link forever.
+            // Absorb it while nothing references it.
+            var sequels = new List<WorkSnapshot>();
+            foreach (var id in existingLinks.Where(l => l.Status == LinkStatus.Verified && l.IsPrimary &&
+                    l.SeasonId is null && l.WorkId != anchorWorkId && !directWorkIds.Contains(l.WorkId) &&
+                    proposed.Links.Any(p => p.Status == LinkStatus.Verified && p.SeasonId is not null &&
+                        SameId(l, new(p.Provider, p.ExternalId, p.ProviderKind))))
+                .Select(l => l.WorkId).Distinct().ToArray())
+                if (await SnapshotAsync(id, ct) is { } sequel && sequel.Work.Kind == proposed.Work.Kind &&
+                    !await HasReferencesAsync(sequel, ct)) sequels.Add(sequel);
+            matchingWorkIds = [.. matchingWorkIds.Where(id => sequels.All(s => s.Work.Id != id))];
             if (directWorkIds.Length > 1)
             {
                 var snapshots = new List<WorkSnapshot>();
@@ -50,16 +61,30 @@ internal sealed partial class Catalog
                 existingLinks = [.. existingLinks.Where(l => duplicates.All(d => d.Work.Id != l.WorkId))];
             }
             else if (anchorWorkId is null && matchingWorkIds.Length > 1) return null;
+            duplicates.AddRange(sequels);
+            existingLinks = [.. existingLinks.Where(l => sequels.All(s => s.Work.Id != l.WorkId))];
             var previous = anchorWorkId is not null ? await SnapshotAsync(anchorWorkId, ct) :
                 matchingWorkIds.Length == 1 ? await SnapshotAsync(matchingWorkIds[0], ct) : null;
             if (previous is null && matchingWorkIds.Length == 1)
                 previous = await SnapshotAsync(matchingWorkIds[0], ct);
             if (previous is null)
             {
+                await using var insert = await db.Database.BeginTransactionAsync(ct);
+                var absorbed = duplicates.SelectMany(d => d.Links).Select(l => l.Id).ToArray();
+                if (absorbed.Length > 0)
+                    await db.WorkLinks.Where(l => absorbed.Contains(l.Id))
+                        .ExecuteUpdateAsync(s => s.SetProperty(l => l.Status, LinkStatus.Suggested), ct);
+                db.RemoveRange(duplicates.SelectMany(d => d.Names.Cast<StoreRow>().Concat(d.Links)
+                    .Concat(d.Episodes).Concat(d.Seasons)).Concat(duplicates.Select(d => d.Work)));
                 db.AddRange(proposed.Links.Cast<StoreRow>().Concat(proposed.Names).Concat(proposed.Seasons)
                     .Concat(proposed.Episodes).Prepend(proposed.Work));
-                try { await db.SaveChangesAsync(ct); }
+                try
+                {
+                    await db.SaveChangesAsync(ct);
+                    await insert.CommitAsync(ct);
+                }
                 catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex)) { return null; }
+                Forget(duplicates.Select(d => d.Work.Id).Append(proposed.Work.Id).ToHashSet());
                 return proposed;
             }
             if (proposed.Work.RefreshedAt is null && previous.Work.RefreshedAt is not null)
@@ -235,15 +260,7 @@ internal sealed partial class Catalog
                 await transaction.CommitAsync(ct);
             }
             catch (DbUpdateException ex) when (ProviderHttp.Conflict(ex)) { return null; }
-            if (duplicates.Count > 0)
-            {
-                var changedIds = duplicates.Select(d => d.Work.Id).Append(work.Id).ToHashSet();
-                foreach (var cached in partialAnswers.Where(p => p.Value.Result.Work is { } snapshot &&
-                    changedIds.Contains(snapshot.Work.Id)))
-                    partialAnswers.TryRemove(cached);
-                foreach (var cached in resolvedQueries.Where(p => changedIds.Contains(p.Value.WorkId)))
-                    resolvedQueries.TryRemove(cached);
-            }
+            if (duplicates.Count > 0) Forget(duplicates.Select(d => d.Work.Id).Append(work.Id).ToHashSet());
             return new(work, [.. names.OrderBy(n => n.Ordinal)], [.. links],
                 [.. seasons.OrderBy(s => s.Number)], [.. episodes]);
 
@@ -265,6 +282,15 @@ internal sealed partial class Catalog
             }
         }
         finally { commits.Release(); }
+    }
+
+    private void Forget(HashSet<string> changedIds)
+    {
+        foreach (var cached in partialAnswers.Where(p => p.Value.Result.Work is { } snapshot &&
+            changedIds.Contains(snapshot.Work.Id)))
+            partialAnswers.TryRemove(cached);
+        foreach (var cached in resolvedQueries.Where(p => changedIds.Contains(p.Value.WorkId)))
+            resolvedQueries.TryRemove(cached);
     }
 
 }
