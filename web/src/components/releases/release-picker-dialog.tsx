@@ -260,8 +260,8 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
           </TabsList>
           </div>
 
-          <TabsContent value="search" className="min-h-0">
-            <div className="min-h-0 max-h-full space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
+          <TabsContent value="search" className="flex min-h-0 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
               <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submit} role="search" data-release-pick-search>
                 <label htmlFor="release-pick-query" className="sr-only">Search for sources</label>
                 <Input
@@ -315,8 +315,8 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
             </div>
           </TabsContent>
 
-          <TabsContent value="previous" className="min-h-0">
-            <div className="min-h-0 max-h-full space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
+          <TabsContent value="previous" className="flex min-h-0 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
               {previousState.kind === "idle" ? (
                 <div role="status" aria-live="polite" aria-label="Loading previous sources" data-previous-sources-loading>
                   <p className="mb-3 flex items-center gap-2 text-[13px] text-muted-foreground">

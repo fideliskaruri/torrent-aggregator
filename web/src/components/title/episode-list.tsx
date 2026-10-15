@@ -8,8 +8,6 @@ import { episodeListView,episodeSeasonCountLabel,type EpisodeListLoadState } fro
 import { type TitleAction,type TitleActionStatus } from "./title-actions";
 import { canOfferSeasonGrab,type SeasonGrabStatus,} from "./season-grab-state";
 import type { TitleSeason } from "./types";
-import { seasonProgressLabel,type SeasonProgress } from "./season-progress";
-import { SeasonProgressMeter } from "./season-progress-meter";
 
 import { ButtonBody } from "./button-body";
 import { EpisodeStrip } from "./episode-strip";
@@ -17,7 +15,6 @@ export { episodeIntentKey } from "./episode-key";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
-    seasonProgress?: Record<number, SeasonProgress>;
   season: number | null;
   episodes: EpisodeRowModel[];
     episodeTotal?: number;
@@ -37,7 +34,6 @@ export interface EpisodeListProps {
 
 export function EpisodeList({
   seasons,
-  seasonProgress = {},
   season,
   episodes,
   episodeTotal,
@@ -64,10 +60,7 @@ export function EpisodeList({
     season != null
       ? episodeSeasonCountLabel(Math.max(episodeTotal ?? 0, episodes.length), loadState, season)
       : null;
-  const activeProgress =
-    season != null && !busy && view.kind !== "loading" ? seasonProgress[season] ?? null : null;
-  const activeProgressLabel = activeProgress ? seasonProgressLabel(activeProgress) : null;
-  const seasonLineLabel = activeProgressLabel;
+
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
@@ -106,7 +99,7 @@ export function EpisodeList({
               </span>
             ) : null}
 
-            {seasonCountLabel && !(activeProgressLabel && activeProgress?.aired != null) ? (
+            {seasonCountLabel ? (
               <p
                 data-season-count
                 className="text-[12px] tabular-nums text-subtle-foreground"
@@ -115,13 +108,6 @@ export function EpisodeList({
               </p>
             ) : null}
 
-            {activeProgress && seasonLineLabel ? (
-              <SeasonProgressMeter
-                progress={activeProgress}
-                label={seasonLineLabel}
-                data-season-progress
-              />
-            ) : null}
           </div>
 
           {showSeasonGrab && canDownload && season != null ? (

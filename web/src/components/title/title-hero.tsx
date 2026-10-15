@@ -6,7 +6,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
 import { WatchStateChip } from "./watch-state";
-import { SeasonProgressMeter } from "./season-progress-meter";
 import { RatingMetaLine } from "./title-hero-meta";
 
 
@@ -15,7 +14,7 @@ import { TitleHeroDetails } from "./title-hero-details";
 import type { TitleContentViewModel } from "./use-title-content-view-model";
 
 export function TitleHero({ model }: { model: TitleContentViewModel }) {
-  const { payload, title, nothingBelowHero, backdrop, gated, titlePending, heroExtrasPending, releaseGate, metaScore, metaYear, extras, seasonCount, showProgress, showProgressText } = model;
+  const { payload, title, nothingBelowHero, backdrop, gated, titlePending, releaseGate, metaScore, metaYear, extras, seasonCount } = model;
   return (
     <>
       <header
@@ -138,18 +137,6 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
                     <Link to={extras.partOf.href}>{extras.partOf.title}</Link>
                   </Button>
                 </p>
-              ) : null}
-
-
-              {showProgress && showProgressText ? (
-                <SeasonProgressMeter
-                  progress={showProgress}
-                  label={showProgressText}
-                  className="mt-3 text-[13px]"
-                  data-show-progress
-                />
-              ) : payload.isSeries && (titlePending || heroExtrasPending) ? (
-                <div aria-hidden className="mt-3 h-5" data-show-progress-pending />
               ) : null}
 
 

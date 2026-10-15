@@ -4,7 +4,6 @@ import { extrasRequestPending } from "./episode-list-state";
 import { libraryHint } from "./library-hint";
 import { mergeEpisodes,mergeSeasons } from "./merge-extras";
 import { ownedLabel } from "./owned-state";
-import { providerAiredFor,seasonProgressFromRows,seasonProgressFromSummary,seasonProgressLabel,showProgressFromSeasons,type SeasonProgress,} from "./season-progress";
 import { useWantedRows } from "@/components/wanted/wanted-actions";
 import { formatReleaseDate,releaseYear } from "./title-hero-meta";
 import { DOWNLOAD_KEY,needsEpisodeDiscovery,shouldRunTitleAction,type TitleAction } from "./title-actions";
@@ -47,20 +46,7 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     transfers: progress?.episodeTransfers,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
-  const rowsCoverSeason = !(onKnownSeason && payload.episodesTruncated);
-  const seasonProgress: Record<number, SeasonProgress> = {};
-  for (const s of seasons) {
-    const aired = providerAiredFor(extras?.airedEpisodes, s.season);
-    seasonProgress[s.season] =
-      s.season === activeSeason && allRows.length > 0 && rowsCoverSeason
-        ? seasonProgressFromRows(allRows, aired)
-        : seasonProgressFromSummary(s, aired);
-  }
 
-  const showProgress = payload.isSeries
-    ? showProgressFromSeasons(seasons.map((s) => seasonProgress[s.season]))
-    : null;
-  const showProgressText = showProgress ? seasonProgressLabel(showProgress) : null;
   const discoverEpisodes = needsEpisodeDiscovery({
     ...payload,
     seasons,
@@ -206,9 +192,6 @@ export function useTitleContentViewModel(state: ReturnType<typeof useTitleConten
     rows,
     allRows,
     truncated,
-    seasonProgress,
-    showProgress,
-    showProgressText,
     discoverEpisodes,
     discoveryPending,
     activeSeasonGrabStatus,
