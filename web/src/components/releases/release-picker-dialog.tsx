@@ -22,6 +22,7 @@ import { sessionAwareFetch } from "@/lib/session-expiry";
 import { toast } from "@/lib/toast";
 import { ReleaseCard, type ReleaseCardData } from "./release-card";
 import { hasNoEnglish } from "./release-language";
+import { qualityLabel } from "@/lib/torrents/quality";
 
 import { PICK_RELEASE_LABEL, releasePickSubject, type ReleasePickTarget } from "./release-picker-store";
 
@@ -51,6 +52,12 @@ type LoadState =
 
 const CHOICES_TTL_MS = 15 * 60_000;
 
+/** The quality tab a release sits under: its resolution, with every 4K variant as one, and 0 for unknown. */
+function qualityKey(release: PickRelease): number {
+  const q = release.quality ?? 0;
+  return q >= 2160 ? 2160 : q;
+}
+
 function failureMessage(body: { message?: string; error?: string } | null, status: number, fallback: string): string {
   const said = body?.message?.trim() || body?.error?.trim();
   if (said) return said;
@@ -70,6 +77,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
   const [pickingToken, setPickingToken] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const [searchStale, setSearchStale] = useState(false);
+  const [qualityTab, setQualityTab] = useState<number | "all">("all");
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
@@ -195,8 +203,16 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
   }
 
   const picking = pickingToken !== null;
-  const releases = state.kind === "ready" ? state.data.releases : [];
+  // The server lists English first and blocked releases last; neither a blocked release nor one without English is the best match.
+  const allReleases = state.kind === "ready" ? state.data.releases : [];
+  const qualityTabs = [...new Set(allReleases.map(qualityKey))]
+    .sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b))
+    .map((key) => ({ key, label: qualityLabel(key) ?? "Unknown", count: allReleases.filter((r) => qualityKey(r) === key).length }));
+  const activeQuality = qualityTab !== "all" && qualityTabs.some((t) => t.key === qualityTab) ? qualityTab : "all";
+  const releases = activeQuality === "all" ? allReleases : allReleases.filter((r) => qualityKey(r) === activeQuality);
   const fitting = releases.filter((release) => release.fits);
+  const first = allReleases.find((release) => release.fits);
+  const bestToken = first && !first.blocked && !hasNoEnglish(first.languages) ? first.token : null;
   const others = releases.filter((release) => !release.fits);
   const scope = target.episode != null ? "this episode" : target.season != null ? "this season" : "this title";
 
@@ -205,8 +221,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
       <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
       <ol className="space-y-2">
         {list.map((release, index) => {
-          // The server lists English first and blocked releases last; neither a blocked release nor one without English is the best match.
-          const best = offset === 0 && index === 0 && release.fits && !release.blocked && !hasNoEnglish(release.languages);
+          const best = release.token === bestToken;
           return (
             <ReleaseCard
               key={release.token}
@@ -261,7 +276,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
           </div>
 
           <TabsContent value="search" className="flex min-h-0 flex-col">
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
+            <div className="shrink-0 space-y-3 border-b border-border px-4 pt-4 pb-3 sm:px-5">
               <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submit} role="search" data-release-pick-search>
                 <label htmlFor="release-pick-query" className="sr-only">Search for sources</label>
                 <Input
@@ -279,6 +294,30 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
                 </Button>
               </form>
 
+              {qualityTabs.length > 1 ? (
+                <Tabs
+                  value={String(activeQuality)}
+                  onValueChange={(value) => setQualityTab(value === "all" ? "all" : Number(value))}
+                  aria-label="Filter by quality"
+                >
+                  <TabsList variant="line" className="h-auto! w-full flex-wrap justify-start" data-release-quality-tabs>
+                    {[{ key: "all" as const, label: "All", count: allReleases.length }, ...qualityTabs].map((t) => (
+                      <TabsTrigger
+                        key={t.key}
+                        value={String(t.key)}
+                        className="flex-none px-2.5 max-md:min-h-11"
+                        data-release-quality-tab={t.key}
+                      >
+                        {t.label}
+                        <span className="tabular-nums text-subtle-foreground">{t.count}</span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              ) : null}
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
               {state.kind === "loading" ? (
                 <div role="status" aria-live="polite" aria-label="Searching" data-release-pick-loading>
                   <p className="mb-3 flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -297,7 +336,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
                 </div>
               ) : state.kind === "error" ? (
                 <TfErrorState title="Couldn't search" message={state.message} onRetry={() => setAttempt((n) => n + 1)} />
-              ) : releases.length === 0 ? (
+              ) : allReleases.length === 0 ? (
                 <TfEmptyState
                   title="Nothing came up for that search"
                   description="Try a shorter name or another spelling, then search again."
