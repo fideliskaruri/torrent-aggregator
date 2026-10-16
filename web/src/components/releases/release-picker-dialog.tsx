@@ -294,7 +294,7 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
                 </Button>
               </form>
 
-              {qualityTabs.length > 1 ? (
+              {qualityTabs.length > 0 ? (
                 <Tabs
                   value={String(activeQuality)}
                   onValueChange={(value) => setQualityTab(value === "all" ? "all" : Number(value))}
