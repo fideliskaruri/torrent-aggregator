@@ -130,10 +130,16 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             var finalCandidates = pool.Values.Select(c => candidateFiles.GetValueOrDefault(c.Release.Id) ?? c)
                 .ToImmutableArray();
             found = found with { Candidates = finalCandidates };
-            var onlyUnseeded = pool.Count > 0 && pool.Values.All(c => c.TrustedSeeders is not > 0) &&
+            // Eligible copies exist but none has a seed: that is a wait for seeders, not "nothing fits".
+            var eligibleUnseeded = plan.Assignments.IsEmpty && !shortlist.Candidates.IsEmpty &&
+                shortlist.Candidates.All(c => c.TrustedSeeders is not > 0);
+            var onlyUnseeded = eligibleUnseeded || pool.Count > 0 && pool.Values.All(c => c.TrustedSeeders is not > 0) &&
                 !shortlist.Rejections.IsEmpty && shortlist.Rejections.All(r => r.Code == "minimum_seeders");
             var waitingForSeeders = onlyUnseeded || timedOut && !plan.Rejections.Any(r =>
                 r.TargetId is not null && r.Code != "uncovered_item");
+            // Nothing was probed and nobody is waiting: surface why the shortlist refused the rest.
+            if (!waitingForSeeders && plan.Assignments.IsEmpty && plan.Rejections.IsEmpty && !shortlist.Rejections.IsEmpty)
+                plan = plan with { Rejections = shortlist.Rejections };
             return new(found, plan, attachments.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase),
                 waitingForSeeders);
         }

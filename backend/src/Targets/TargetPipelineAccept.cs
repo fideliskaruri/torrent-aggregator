@@ -88,6 +88,7 @@ public sealed partial class TargetPipeline
                     {
                         State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                         ResumeState = null, LeaseToken = null, LeaseUntil = null, ClickedAt = now,
+                        SubstantiveMisses = 0,
                         Origin = old.Origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter
                             ? origin : old.Origin,
                         ResolutionFloor = input.Quality ?? old.ResolutionFloor,

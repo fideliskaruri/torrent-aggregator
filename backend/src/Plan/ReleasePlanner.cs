@@ -80,7 +80,10 @@ public sealed partial class ReleasePlanner : IPlan
             if (mapped.Fatal is { } fatal) { Refuse(fatal.Code, fatal.Text); continue; }
             var wantedSeasons = targets.Select(t => input.Work!.Episodes.FirstOrDefault(e => e.Id == t.EpisodeId)?.SeasonId)
                 .Where(id => id is not null).Distinct().ToArray();
+            // Only a pack labelled as a single season is suspect when it holds other seasons; multi-season and
+            // complete-series packs are expected to, and file selection takes just the wanted episodes.
             if (pack && wantedSeasons.Length == 1 && metadata is not null &&
+                !parsed.MultiSeason && parsed.Kind is not (ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries) &&
                 input.Work!.Seasons.FirstOrDefault(s => s.Id == wantedSeasons[0]) is { } requestedSeason &&
                 videos.Any(v => metadata.ParsedFiles.TryGetValue(v.Index, out var fp) && fp.Seasons.Any(s => s != requestedSeason.Number)))
             { Refuse("other_season_file", "The pack contains videos from a different season."); continue; }

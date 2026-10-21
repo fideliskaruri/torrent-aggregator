@@ -100,8 +100,9 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
 
     private (string? Code, string? Reason, ImmutableArray<string> Coverage) Filter(ParsedRelease parsed)
     {
-        var title = SearchQueries.Fold(PackSuffix().Replace(parsed.Title, ""));
-        if (!SearchQueries.IdentityNames(work!).Contains(title, StringComparer.Ordinal))
+        var names = SearchQueries.IdentityNames(work!);
+        if (!names.Contains(SearchQueries.Fold(parsed.Title), StringComparer.Ordinal) &&
+            !names.Contains(SearchQueries.Fold(PackSuffix().Replace(parsed.Title, "")), StringComparer.Ordinal))
             return ("title_mismatch", $"Parsed title '{parsed.Title}' does not match any catalog name at word boundaries.", []);
         var requested = work!.Episodes.Where(e => scope!.EpisodeIds.Contains(e.Id)).ToArray();
         var years = requested.Where(e => e.AirAt.HasValue).Select(e => e.AirAt!.Value.Year)

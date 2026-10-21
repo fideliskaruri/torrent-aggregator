@@ -71,7 +71,8 @@ public sealed partial class ReleasePlanner
             return parsed.ClearlyForeign || parsed.Foreign == ForeignStatus.Yes
                 ? new(release.Id, null, "foreign_language", "This source clearly identifies a foreign language.")
                 : null;
-        if (input.Work is null || !Identity(parsed.Title, input.Work))
+        if (input.Work is null || !Identity(parsed.Title, input.Work) &&
+            !(parsed.Pack && Identity(PackTitleSuffix.Replace(parsed.Title, ""), input.Work)))
             return new(release.Id, null, "wrong_work", "The source name does not match this title's catalog names.");
         if (input.Work.Work.Kind == WorkKind.Film && (parsed.Kind != ReleaseKind.Movie || parsed.Pack ||
             !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty))
@@ -123,6 +124,12 @@ public sealed partial class ReleasePlanner
             return new(candidate.Release.Id, target.Id, "quality_floor", $"This item requires at least {floor}p.");
         return null;
     }
+
+    // "ATLANTIS: Complete", "Show - The Complete TV Series". Only tried after the raw title fails,
+    // so shows really named "... Batch" or "The Collection" still match.
+    private static readonly System.Text.RegularExpressions.Regex PackTitleSuffix = new(
+        @"[\s:,.-]*(?:\bthe\s+)?\b(?:complete(?:\s+(?:tv\s+|cartoon\s+)?(?:series|seasons?|collection|box\s*set))?|full\s+series|tv\s+series|box\s*set|batch|collection)\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static bool Identity(string title, WorkSnapshot work)
     {

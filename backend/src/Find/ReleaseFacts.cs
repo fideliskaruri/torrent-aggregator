@@ -35,7 +35,10 @@ internal sealed class ReleaseFacts(IDbContextFactory<TorrentFlowDbContext> conte
                 if (releases.TryGetValue(hash!, out var previous))
                     db.Entry(previous).CurrentValues.SetValues(previous with
                     {
-                        Parsed = CandidatePool.MergeFlags(previous.Parsed, parsed),
+                        // Re-parse the stored name so parser fixes reach known releases and Parsed stays in step
+                        // with Name; safety flags from earlier and this listing stay sticky.
+                        Parsed = CandidatePool.MergeFlags(
+                            CandidatePool.MergeFlags(parser.Parse(previous.Name), previous.Parsed), parsed),
                         FirstSeenAt = previous.FirstSeenAt < observedAt ? previous.FirstSeenAt : observedAt,
                         LastSeenAt = previous.LastSeenAt > observedAt ? previous.LastSeenAt : observedAt,
                         Magnet = previous.Magnet ?? raw.Magnet, TorrentUri = previous.TorrentUri ?? raw.TorrentUri,
