@@ -10,7 +10,7 @@ internal static partial class SearchQueries
 {
     internal static string Fold(string value)
     {
-        var text = value.Normalize(NormalizationForm.FormKD);
+        var text = value.Replace("&", " and ", StringComparison.Ordinal).Normalize(NormalizationForm.FormKD);
         var result = new StringBuilder();
         foreach (var rune in text.EnumerateRunes())
         {
@@ -44,13 +44,13 @@ internal static partial class SearchQueries
         bool includeYear = false)
     {
         var queries = new List<string>();
+        var episodes = work.Episodes.Where(e => scope.EpisodeIds.Contains(e.Id)).ToArray();
         if (scope.Film)
         {
             queries.Add(includeYear && work.Work.Year is { } year ? $"{name} {year}" : name);
         }
         else
         {
-            var episodes = work.Episodes.Where(e => scope.EpisodeIds.Contains(e.Id)).ToArray();
             if (episodes.Length == 1)
                 foreach (var e in episodes)
                 {
@@ -64,7 +64,31 @@ internal static partial class SearchQueries
                 episodes[0].MappingStatus == MappingStatus.Confirmed)
                 queries.Add($"{name} {absolute:00}");
         }
-        return [.. queries.Distinct(StringComparer.OrdinalIgnoreCase)];
+        var originals = queries.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var variants = new List<string>();
+        if (!scope.Film)
+        {
+            var requestedSeasons = work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id))
+                .OrderBy(s => s.Number).ToArray();
+            foreach (var season in requestedSeasons)
+                variants.Add($"{name} Season {season.Number}");
+            if (episodes.Length == 1)
+            {
+                var episode = episodes[0];
+                var season = work.Seasons.First(s => s.Id == episode.SeasonId);
+                variants.Add($"{name} {season.Number}x{episode.Number:00}");
+            }
+            else if (episodes.Length is >= 2 and <= 4)
+            {
+                foreach (var episode in episodes)
+                {
+                    var season = work.Seasons.First(s => s.Id == episode.SeasonId);
+                    variants.Add($"{name} S{season.Number:00}E{episode.Number:00}");
+                }
+            }
+        }
+        return [.. originals.Concat(variants).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(originals.Length, 8))];
     }
 
     internal static IEnumerable<string> IdentityNames(WorkSnapshot work)
