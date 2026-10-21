@@ -122,6 +122,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
 
     private bool Covers(ParsedRelease parse, EpisodeRow e)
     {
+        if (parse.ThreeDigitSceneEpisode) return false;
         var season = work!.Seasons.First(s => s.Id == e.SeasonId);
         if (season.MappingStatus != MappingStatus.Confirmed || e.MappingStatus != MappingStatus.Confirmed) return false;
         if (!parse.Seasons.IsEmpty)

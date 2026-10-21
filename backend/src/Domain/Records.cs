@@ -22,6 +22,7 @@ public sealed record ParsedRelease(string RawName, string Title, int? Year, Immu
     public ReleaseKind Kind { get; init; } = ReleaseKind.Other;
     public ForeignStatus Foreign { get; init; } = ForeignStatus.Unknown;
     public bool Unsafe { get; init; }
+    public bool ThreeDigitSceneEpisode { get; init; }
     public ImmutableArray<NumberRange> EpisodeRanges { get; init; } = [];
     public ImmutableArray<NumberRange> AbsoluteRanges { get; init; } = [];
 }

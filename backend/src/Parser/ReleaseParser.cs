@@ -30,13 +30,16 @@ public sealed class ReleaseParser : IParser
     private static readonly Regex Scene = R(@"\bS(\d{1,3})\s*E(\d{1,4})(?:v\d+)?(?:\s*(?:[-~]| )\s*(?:S(\d{1,3})\s*)?E?(\d{1,3})\b(?:v\d+)?)?");
     private static readonly Regex SceneMore = R(@"\bS\d{1,3}\s*E\d{1,4}(?:v\d+)?((?:\s*E\d{1,4}(?:v\d+)?)+)");
     private static readonly Regex Cross = R(@"\b(\d{1,2})(?:x|×|х|Ñ…)(\d{1,4})(?:\s*[-~]\s*(?:(\d{1,2})(?:x|×|х|Ñ…))?(\d{1,4}))?\b");
-    private static readonly Regex Season = R(@"\b(?:S|Seasons?|Series|Temporada|Stagione|Sezon)\s*(\d{1,3})(?:v\d+)?\b(?:[-~]\s*(?:S|Seasons?)?\s*(\d{1,3})\b|\s*[-~]\s*(?:S|Seasons?)\s*(\d{1,3})\b)?");
+    private static readonly Regex Season = R(@"\b(?:S|Seasons?|Series|Temporada|Stagione|Sezon|Staffel)\s*(\d{1,3})(?:v\d+)?\b(?:[-~]\s*(?:S|Seasons?)?\s*(\d{1,3})\b|\s*[-~]\s*(?:S|Seasons?)\s*(\d{1,3})\b)?");
+    private static readonly Regex SeasonRange = R(@"\b(?:S|Seasons?|Series|Temporada|Stagione|Sezon|Staffel)\s*(\d{1,3})\s*(?:to|through|[-~])\s*(?:(?:S|Seasons?|Series|Staffel)\s*)?(\d{1,3})\b");
     private static readonly Regex Ordinal = R(@"\b(\d{1,3})(?:st|nd|rd|th)\s+Season\b");
     private static readonly Regex SeasonList = R(@"\b(?:S|Seasons?|Series|Stagione)\s*(\d{1,3}(?:\s*[,/&+]\s*\d{1,3})+)");
     private static readonly Regex SeasonDash = R(@"\b(?:S|Season)\s*(\d{1,3})\s+-\s+(\d{1,4})(?:v\d+)?\b|\b(\d{1,3})(?:st|nd|rd|th)\s+Season\s+-\s+(\d{1,4})(?:v\d+)?\b");
     private static readonly Regex SeasonBareEpisode = R(@"\bS(\d{1,3})\s+(\d{2,3})(?:v\d+)?\b");
-    private static readonly Regex EpisodeWord = R(@"\b(?:Episodes?|Eps?|E)\s*(\d{1,4})(?:v\d+)?(?:\s*[-~]\s*(?:Episodes?|Eps?|E)?\s*(\d{1,4})(?:v\d+)?)?\b");
+    private static readonly Regex EpisodeWord = R(@"\b(?:Episodes?|Eps?|E|Cap[ií]tulos?|Folge)\s*(\d{1,4})(?:v\d+)?(?:\s*[-~]\s*(?:Episodes?|Eps?|E|Cap[ií]tulos?|Folge)?\s*(\d{1,4})(?:v\d+)?)?\b");
+    private static readonly Regex ThreeDigitScene = R(@"\b([1-9])(\d{2})\b");
     private static readonly Regex DashEpisode = R(@"(?:^|\s)-\s*(\d{1,4})(?:v\d+)?(?:\s*[-~]\s*(\d{1,4})(?:v\d+)?)?(?:\s|$|[\[()]|\.(?:mkv|mp4|avi))");
+    private static readonly Regex LeadingEpisode = R(@"^\s*(\d{1,4})(?:v\d+)?\s*-\s+");
     private static readonly Regex BracketEpisode = R(@"[\[(](\d{1,4})(?:v\d+)?(?:\s*[-~]\s*(\d{1,4})(?:v\d+)?)?[\])]");
     private static readonly Regex BareRange = R(@"\b(\d{1,3})\s*[-~]\s*(\d{1,3})\b");
     private static readonly Regex ChineseEpisode = R(@"第\s*(\d{1,4})(?:\s*[-~]\s*(\d{1,4}))?\s*[话話集]");
@@ -135,6 +138,15 @@ public sealed class ReleaseParser : IParser
             coordinates.Add((m.Index, m.Index + m.Length));
         }
         foreach (Match m in Ordinal.Matches(text)) seasons.Add((m.Index, N(m, 1)));
+        foreach (Match m in SeasonRange.Matches(text))
+        {
+            if (Inside(m.Index, coordinates)) continue;
+            var first = N(m, 1);
+            var last = N(m, 2);
+            if (last < first || last - first > 200) continue;
+            for (var season = first; season <= last; season++) seasons.Add((m.Index, season));
+            coordinates.Add((m.Index, m.Index + m.Length));
+        }
         foreach (Match m in Season.Matches(text))
         {
             if (Inside(m.Index, coordinates)) continue;
@@ -206,6 +218,34 @@ public sealed class ReleaseParser : IParser
             AddNumber(m, 1, 2, absolute, absoluteRanges);
             coordinates.Add((m.Index, m.Index + m.Length));
         }
+        if (seasons.Count == 0 && episodes.Count == 0 && absolute.Count == 0 &&
+            episodeRanges.Count == 0 && absoluteRanges.Count == 0)
+        {
+            var leading = LeadingEpisode.Match(text);
+            if (leading.Success && N(leading, 1) != 0 &&
+                N(leading, 1) is not (>= 1900 and <= 2100))
+            {
+                absolute.Add(N(leading, 1));
+                coordinates.Add((leading.Index, leading.Index + leading.Length));
+            }
+        }
+        var compressedSceneEpisode = false;
+        if (seasons.Count == 0 && episodes.Count == 0 && absolute.Count == 0 &&
+            episodeRanges.Count == 0 && absoluteRanges.Count == 0)
+        {
+            foreach (Match m in ThreeDigitScene.Matches(text))
+            {
+                if (m.Index >= technicalStart || N(m, 2) == 0 ||
+                    Resolution.Matches(text).Cast<Match>().Any(r => m.Index >= r.Index && m.Index < r.Index + r.Length) ||
+                    Year.Matches(text).Cast<Match>().Any(y => m.Index >= y.Index && m.Index < y.Index + y.Length))
+                    continue;
+                seasons.Add((m.Index, N(m, 1)));
+                episodes.Add(N(m, 2));
+                coordinates.Add((m.Index, m.Index + m.Length));
+                compressedSceneEpisode = true;
+                break;
+            }
+        }
         if (episodes.Count == 0 && absolute.Count == 0 && episodeRanges.Count == 0 && absoluteRanges.Count == 0 &&
             (group is not null || R(@"\bmini\s*anime\b").IsMatch(text)))
         {
@@ -224,7 +264,27 @@ public sealed class ReleaseParser : IParser
         }
         var seasonNumbers = seasons.OrderBy(x => x.Index).Select(x => x.Number).Distinct().ToImmutableArray();
         var hasEpisodes = episodes.Count + absolute.Count + episodeRanges.Count + absoluteRanges.Count > 0;
-        var scopeText = R(@"\([^)]*\bw/\s*[^)]*\)").Replace(text, "");
+        var markerText = text;
+        var lastEpisodeCoordinateEnd = sceneMatches.Cast<Match>().Concat(Cross.Matches(text).Cast<Match>())
+            .Concat(SceneMore.Matches(text).Cast<Match>()).Select(m => m.Index + m.Length)
+            .DefaultIfEmpty(-1).Max();
+        if (lastEpisodeCoordinateEnd >= 0 && lastEpisodeCoordinateEnd < technicalStart)
+        {
+            var end = Math.Min(technicalStart, text.Length);
+            var titleWords = R(@"[\p{L}\p{N}]+").Matches(text[lastEpisodeCoordinateEnd..end])
+                .Cast<Match>().Select(m => m.Value).ToArray();
+            var hasNonSampleWord = titleWords.Any(word =>
+                !word.Equals("sample", StringComparison.OrdinalIgnoreCase) &&
+                !R(@"^(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$")
+                    .IsMatch(word));
+            if (hasNonSampleWord)
+            {
+                var chars = markerText.ToCharArray();
+                Array.Fill(chars, ' ', lastEpisodeCoordinateEnd, end - lastEpisodeCoordinateEnd);
+                markerText = new string(chars);
+            }
+        }
+        var scopeText = R(@"\([^)]*\bw/\s*[^)]*\)").Replace(markerText, "");
         var special = Special.Match(scopeText);
         var videoEvidence = Source.IsMatch(scopeText) || Codec.IsMatch(scopeText) ||
             Resolution.IsMatch(scopeText) || VideoResolution.IsMatch(scopeText);
@@ -247,8 +307,8 @@ public sealed class ReleaseParser : IParser
         var wholeSeries = WholeSeries.IsMatch(text) ||
             !hasEpisodes && seasonNumbers.Length == 0 && UnqualifiedPack.IsMatch(scopeText) && !titleAdjective;
         var kind = other ? ReleaseKind.Other :
-            wholeSeries ? ReleaseKind.CompleteSeries :
             seasonNumbers.Length > 1 && sceneMatches.Count == 0 && !Cross.IsMatch(text) ? ReleaseKind.MultiSeason :
+            wholeSeries ? ReleaseKind.CompleteSeries :
             seasonNumbers.Contains(0) || R(@"\bmini\s*anime\b").IsMatch(scopeText) ||
                 special.Success && !hasEpisodes && !R(@"\bTV\s*\+\s*SP\b").IsMatch(scopeText) ? ReleaseKind.Special :
             hasEpisodes ? ReleaseKind.Episode :
@@ -306,6 +366,7 @@ public sealed class ReleaseParser : IParser
             markers, language == ForeignStatus.Yes, R(@"\bsample\b").IsMatch(text), cam)
         {
             Kind = kind, Foreign = language, Unsafe = unsafeName,
+            ThreeDigitSceneEpisode = compressedSceneEpisode,
             EpisodeRanges = episodeRanges.Distinct().ToImmutableArray(),
             AbsoluteRanges = absoluteRanges.Distinct().ToImmutableArray()
         };

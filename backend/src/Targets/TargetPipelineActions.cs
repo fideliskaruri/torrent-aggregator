@@ -140,6 +140,12 @@ public sealed partial class TargetPipeline
 
     internal static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now)
     {
+        if (row.Origin == IntentOrigin.Owner &&
+            reason is WaitReason.NoResults or WaitReason.RejectedCandidates)
+        {
+            var multiplier = 1 << Math.Clamp(row.SubstantiveMisses, 0, 7);
+            return now.AddMinutes(Math.Min(24 * 60, 10 * multiplier));
+        }
         if (reason is WaitReason.FileBusy or WaitReason.DownloadCap or WaitReason.NoDriveSpace or WaitReason.DriveOffline)
             return now.AddMinutes(5);
         // Metadata timeouts and source errors are about the network right now, not about how old the title is.

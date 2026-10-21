@@ -131,7 +131,8 @@ public sealed partial class ReleasePlanner
             (n.LinkId is null || work.Links.Any(l => l.Id == n.LinkId && l.Status == LinkStatus.Verified)))
             .Any(n => Normalize(n.Value) == normalized);
     }
-    private static string Normalize(string value) => string.Concat(value.Normalize(NormalizationForm.FormKC)
+    private static string Normalize(string value) => string.Concat(value.Replace("&", " and ", StringComparison.Ordinal)
+        .Normalize(NormalizationForm.FormKC)
         .Where(char.IsLetterOrDigit)).ToLowerInvariant();
     private static bool Finished(WorkSnapshot work, SeasonRow season, DateTimeOffset now)
     {
@@ -162,13 +163,21 @@ public sealed partial class ReleasePlanner
             if (parsed.Sample || parsed.SpecialType is not null || parsed.Unsafe || parsed.Episodes.Length > 1 ||
                 parsed.AbsoluteNumbers.Length > 1 || !parsed.Ranges.IsEmpty ||
                 !parsed.EpisodeRanges.IsEmpty || !parsed.AbsoluteRanges.IsEmpty) continue;
-            if (pack && parsed.Seasons.Any(s => !release.Seasons.IsEmpty && !release.Seasons.Contains(s)))
+            var directory = metadata.ParsedDirectories.GetValueOrDefault(file.Index);
+            if (pack && parsed.ThreeDigitSceneEpisode &&
+                (parsed.Seasons.Length != 1 ||
+                 !release.Seasons.Contains(parsed.Seasons[0]) &&
+                 directory?.Seasons.Contains(parsed.Seasons[0]) != true))
+                continue;
+            if (pack && !parsed.ThreeDigitSceneEpisode &&
+                parsed.Seasons.Any(s => !release.Seasons.IsEmpty && !release.Seasons.Contains(s)))
                 return new([], ("other_season_file", "The pack contains videos from a different season."));
+            var mapped = InheritPackSeason(parsed, directory, work, pack);
             var matches = work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed &&
                 work.Seasons.FirstOrDefault(s => s.Id == e.SeasonId) is { MappingStatus: MappingStatus.Confirmed } season &&
-                Coordinates(parsed, e, season, work)).ToArray();
+                Coordinates(mapped, e, season, work)).ToArray();
             // Seasonless pack videos need a catalog-proven absolute map, not an inferred S1.
-            if (pack && parsed.Seasons.IsEmpty &&
+            if (pack && parsed.Seasons.IsEmpty && mapped.Seasons.IsEmpty &&
                 (parsed.AbsoluteNumbers.Length != 1 || matches.Length != 1 || matches[0].AbsoluteNumber != parsed.AbsoluteNumbers[0]))
                 continue;
             if (matches.Length != 1) continue;
@@ -176,6 +185,29 @@ public sealed partial class ReleasePlanner
             list.Add(file);
         }
         return new(found.Where(p => p.Value.Count == 1).ToDictionary(p => p.Key, p => p.Value[0]), null);
+    }
+
+    private static ParsedRelease InheritPackSeason(ParsedRelease parsed, ParsedRelease? directory,
+        WorkSnapshot work, bool pack)
+    {
+        if (!pack || !parsed.Seasons.IsEmpty || directory?.Seasons.Length != 1 ||
+            !parsed.EpisodeRanges.IsEmpty || !parsed.AbsoluteRanges.IsEmpty || !parsed.Ranges.IsEmpty)
+            return parsed;
+        var hasEpisode = parsed.Episodes.Length == 1 && parsed.AbsoluteNumbers.IsEmpty;
+        var hasAbsolute = parsed.Episodes.IsEmpty && parsed.AbsoluteNumbers.Length == 1;
+        if (!hasEpisode && !hasAbsolute) return parsed;
+        var number = hasEpisode ? parsed.Episodes[0] : parsed.AbsoluteNumbers[0];
+        var seasonNumber = directory.Seasons[0];
+        var season = work.Seasons.FirstOrDefault(s => s.Number == seasonNumber);
+        if (hasAbsolute && work.Work.Anime == true &&
+            season?.ExpectedEpisodeCount is { } count && number > count)
+            return parsed;
+        return parsed with
+        {
+            Seasons = [seasonNumber],
+            Episodes = [number],
+            AbsoluteNumbers = [],
+        };
     }
     private static ImmutableArray<SelectedFile> SelectFiles(string target, TorrentFile[] kept,
         ImmutableArray<TorrentFile> all, PlanFileMetadata? metadata, WorkSnapshot work)

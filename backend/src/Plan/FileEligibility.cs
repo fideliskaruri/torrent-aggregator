@@ -22,6 +22,14 @@ internal static class FileEligibility
     private static readonly Regex Extra = new(
         @"(?:^|[\\/ ._\-\[(])(?:samples?|extras?|featurettes?|bonus|specials?|behind[ ._-]the[ ._-]scenes|deleted[ ._-]scenes|trailers?|NCOP\d*|NCED\d*|creditless|OVA|OAD)(?:[\\/ ._\-\])]|$)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+    private static readonly Regex EpisodeCoordinate = new(
+        @"(?i)\bS\d{1,3}[ ._-]?E\d{1,4}\b|\b\d{1,2}x\d{2,3}\b",
+        RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+    private static readonly Regex Technical = new(
+        @"(?i)\b(?:2160|1080|720|480|360|576)[pi]?\b|\b(?:WEB[- ]?(?:DL|Rip)|Blu[- ]?Ray|BDRip|BRRip|HDTV|DVDRip|DVD|HEVC|AVC|x26[45]|H\.?26[45]|AAC|DDP|EAC3|AC3|DTS|TrueHD|FLAC|MP3|Opus)\b",
+        RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+    private static readonly Regex Words = new(@"[\p{L}\p{N}]+",
+        RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     internal static string Extension(string path)
     {
@@ -29,7 +37,34 @@ internal static class FileEligibility
         return leaf[(leaf.LastIndexOf('.') + 1)..];
     }
     internal static bool IsVideo(TorrentFile file) => Video.Contains(Extension(file.RelativePath));
-    internal static bool IsExtra(TorrentFile file) => Extra.IsMatch(file.RelativePath);
+    internal static bool IsExtra(TorrentFile file)
+    {
+        var path = file.RelativePath.Replace('\\', '/');
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Take(Math.Max(0, segments.Length - 1)).Any(segment => Extra.IsMatch(segment)))
+            return true;
+        if (segments.Length == 0) return false;
+        var leaf = segments[^1];
+        var dot = leaf.LastIndexOf('.');
+        var stem = dot < 0 ? leaf : leaf[..dot];
+        if (stem.TrimEnd(' ', '.', '_', '-').EndsWith("sample", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var coordinates = EpisodeCoordinate.Matches(stem);
+        if (coordinates.Count == 0) return Extra.IsMatch(leaf);
+        var last = coordinates.Cast<Match>().MaxBy(match => match.Index + match.Length)!;
+        var start = last.Index + last.Length;
+        var technicalStart = Technical.Matches(stem).Cast<Match>()
+            .Select(match => match.Index).DefaultIfEmpty(stem.Length).Min();
+        if (start < technicalStart)
+        {
+            var span = stem[start..technicalStart];
+            var hasNonSampleWord = Words.Matches(span).Cast<Match>()
+                .Any(word => !word.Value.Equals("sample", StringComparison.OrdinalIgnoreCase));
+            if (hasNonSampleWord)
+                stem = stem[..start] + new string(' ', technicalStart - start) + stem[technicalStart..];
+        }
+        return Extra.IsMatch(stem);
+    }
     internal static bool IsArchive(TorrentFile file) => Archives.Contains(Extension(file.RelativePath)) ||
         Regex.IsMatch(Extension(file.RelativePath), @"^(?:r\d{2}|\d{3})$", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
     internal static bool IsDisc(TorrentFile file) => Discs.Contains(Extension(file.RelativePath)) ||
