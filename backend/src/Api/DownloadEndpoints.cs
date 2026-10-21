@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -189,6 +190,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     private readonly SemaphoreSlim settingsGate = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
+    private static readonly ConcurrentDictionary<string, ParsedRelease> ParsedReleases = new(StringComparer.Ordinal);
 
     internal async Task<object> ListAsync(CancellationToken ct)
     {
@@ -225,10 +227,11 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             var queued = items.Length > 0
                 ? items.Any(target => DownloadRowView.State(target.State == TargetState.Done,
                     target.IsPaused() || live?.Intent == DownloadIntent.Paused,
-                    target.State == TargetState.Filing, live) == "queued")
+                    target.State == TargetState.Filing, live,
+                    target.State == TargetState.Filing && target.ReasonCode == WaitReason.FilingBlocked) == "queued")
                 : DownloadRowView.State(download.FinishedAt is not null || rawIntent?.State == RawDownloadState.Done,
                     rawIntent?.State == RawDownloadState.Paused || live?.Intent == DownloadIntent.Paused,
-                    false, live) == "queued";
+                    rawIntent?.State == RawDownloadState.Publishing, live) == "queued";
             var downloadPosition = queued ? ++queuePosition : (int?)null;
             var packed = items.Length > 1;
 
@@ -248,7 +251,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     : target.State == TargetState.Done || !packed && download.FinishedAt is not null;
                 var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                     live?.Intent == DownloadIntent.Paused;
-                var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live);
+                var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live,
+                    target?.State == TargetState.Filing && target.ReasonCode == WaitReason.FilingBlocked,
+                    target is null && rawIntent?.State == RawDownloadState.Publishing);
                 var failed = state == "error";
                 var size = target is not null ? selected.Sum(f => f.ExpectedBytes) :
                     selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
@@ -263,14 +268,19 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 var title = work is null ? null : CatalogProjection.Title(new(work,
                     [.. names.Where(n => n.WorkId == work.Id)], [], [], []));
                 var releaseName = release?.Name ?? title ?? download.Hash;
-                var parsed = parser.Parse(releaseName);
-                var rowError = live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
+                var parsed = ParseRelease(releaseName);
+                var rowError = target?.State == TargetState.Filing &&
+                    target.ReasonCode == WaitReason.FilingBlocked ? target.ReasonText :
+                    live?.Failure?.Message ?? (failed ? target?.ReasonText : null);
                 var position = state == "queued" ? downloadPosition : null;
                 var heldStatus = packed && target is not null
                     ? DownloadRowView.HeldStatus(state, live, selected.Select(file => (file.FileIndex, file.Filed)))
                     : null;
                 var rowStatus = heldStatus ??
                     DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
+                if (target?.State == TargetState.Filing && target.ReasonCode == WaitReason.FileBusy &&
+                    rowStatus.Status == "finishing")
+                    rowStatus = rowStatus with { StatusLabel = "Finishing, retrying soon" };
                 var forced = target?.DownloadNow == true || rawIntent?.NowAt is not null;
                 var filesExist = selected.Length > 0 && selected.All(f => f.MediaFileId is not null &&
                     media.Any(m => m.Id == f.MediaFileId && m.MissingSince is null));
@@ -282,6 +292,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     sizeBytes = size, dlspeed = heldStatus is null ? live?.BytesPerSecond ?? 0 : 0, upspeed = 0,
                     eta = heldStatus is null ? live?.Eta?.TotalSeconds : null, peers = live?.Peers ?? 0,
                     status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
+                    error = rowError,
                     category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                     savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),
                     magnet = release?.Magnet, addedAt = download.AddedAt, filesMissing,
@@ -300,7 +311,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     mediaKind = DownloadRowView.MediaKind(work, parsed),
                     groupKey = work?.WorkKey ?? "raw:" + download.Hash,
                     isSeries = DownloadRowView.IsSeries(work, parsed),
-                    actions = DownloadRowView.Actions(rowStatus.Status, forced, target is not null, filesExist),
+                    actions = DownloadRowView.Actions(rowStatus.Status, forced, target is not null, filesExist,
+                        target?.State == TargetState.Filing &&
+                        target.ReasonCode is WaitReason.FilingBlocked or WaitReason.FileBusy),
                 });
             }
 
@@ -316,11 +329,13 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     {
         if (input.OwnerClientType is not (null or "builtin"))
             throw new ArgumentException("Only the built-in client is available.");
+        var retryFiling = input.Action == "retry-filing";
         var action = input.Action switch
         {
             "pause" => TargetAction.Pause, "resume" => TargetAction.Resume,
             "delete" => TargetAction.Remove, "force" => TargetAction.DownloadNow,
-            _ => throw new ArgumentException("Choose pause, resume, delete or force."),
+            "retry-filing" => TargetAction.Acquire,
+            _ => throw new ArgumentException("Choose pause, resume, delete, force or retry filing."),
         };
         if (input.DeleteFiles && action != TargetAction.Remove)
             throw new ArgumentException("Delete files is only available when removing a download.");
@@ -357,8 +372,22 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     !snapshot.Targets.Any(t => t.Id == targetId &&
                         download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase)))
                     throw new ArgumentException("This download no longer has an action.");
+                if (retryFiling)
+                {
+                    await targets.RetryFilingAsync(targetId, ct);
+                    continue;
+                }
                 if (input.DeleteFiles) await targets.DeleteTargetFilesAsync(download.Hash, targetId, ct);
                 await targets.ActionAsync(targetId, action, ct);
+                continue;
+            }
+            if (retryFiling)
+            {
+                var blocked = snapshot.Targets.Where(t => ids.Contains(t.Id, StringComparer.Ordinal) &&
+                    t.State == TargetState.Filing &&
+                    download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (blocked.Length == 0) throw new ArgumentException("This download cannot retry filing.");
+                foreach (var target in blocked) await targets.RetryFilingAsync(target.Id, ct);
                 continue;
             }
             if (ids.Length == 0 && download.RawIntentId is not null)
@@ -374,6 +403,17 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             foreach (var id in ids) await targets.ActionAsync(id, action, ct);
         }
         return new { ok = true };
+    }
+
+    private ParsedRelease ParseRelease(string releaseName)
+    {
+        if (ParsedReleases.Count > 4000) ParsedReleases.Clear();
+        try { return ParsedReleases.GetOrAdd(releaseName, parser.Parse); }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return new ParsedRelease(releaseName, releaseName, null, [], [], [], [], false, false, null,
+                new(null, null, null, null), null, [], false, false, false);
+        }
     }
 
     internal async Task<IResult> KeepAsync(string transferId, CancellationToken ct)

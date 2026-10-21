@@ -6,20 +6,29 @@ using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
+internal sealed class FilingBlockedException(string message) : IOException(message) { }
+
 internal static class DownloadFiling
 {
     internal static async Task FileAsync(TargetStore store, ILibraryDownloadRepository repository, IEngine engine,
         DownloadRow download, EngineSnapshot? snapshot, ImmutableArray<DownloadFileRow> allFiles,
         ImmutableArray<TargetRow> members, SemaphoreSlim stateGate, CancellationToken ct)
     {
-        var retrying = download.Intent == DownloadIntent.Stopped &&
-            members.Any(t => t.State == TargetState.Filing);
-        if (snapshot?.Complete != true && !retrying) return;
+        var readinessAt = DateTimeOffset.UtcNow;
+        var readyTargets = members.Where(t => !t.IsPaused() &&
+            t.State is not (TargetState.Removed or TargetState.Done) &&
+            (t.State == TargetState.Filing && t.ReasonCode != WaitReason.FilingBlocked &&
+                (t.NextTryAt is null || t.NextTryAt <= readinessAt) ||
+             snapshot?.Complete == true && t.State == TargetState.Fetching))
+            .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+        if (readyTargets.Count == 0) return;
 
         var selected = allFiles.Where(f => f.Selected && !f.Filed && f.TargetId is not null &&
-            members.Any(t => t.Id == f.TargetId && !t.IsPaused() &&
-                t.State is not (TargetState.Removed or TargetState.Done)))
+            readyTargets.Contains(f.TargetId))
             .ToArray();
+        var settled = readyTargets.Where(id => members.Any(t => t.Id == id && t.State == TargetState.Filing) &&
+            selected.All(f => f.TargetId != id)).ToHashSet(StringComparer.Ordinal);
+        if (settled.Count > 0) await SettleAsync(store, allFiles, settled, stateGate, ct);
         if (selected.Length == 0) return;
 
         await stateGate.WaitAsync(ct);
@@ -28,7 +37,16 @@ internal static class DownloadFiling
             var latestDownload = (await store.ListAsync<DownloadRow>(row => row.Id == download.Id, ct)).Single();
             var latestTargets = (await store.ListAsync<TargetRow>(null, ct))
                 .Where(t => members.Any(member => member.Id == t.Id)).ToArray();
-            var now = DateTimeOffset.UtcNow;
+            var stageAt = DateTimeOffset.UtcNow;
+            var latestReadyTargets = latestTargets.Where(t => !t.IsPaused() &&
+                t.State is not (TargetState.Removed or TargetState.Done) &&
+                (t.State == TargetState.Filing && t.ReasonCode != WaitReason.FilingBlocked &&
+                    (t.NextTryAt is null || t.NextTryAt <= stageAt) ||
+                 snapshot?.Complete == true && t.State == TargetState.Fetching))
+                .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            selected = [.. selected.Where(f => f.TargetId is { } targetId &&
+                latestReadyTargets.Contains(targetId))];
+            if (selected.Length == 0) return;
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
             if (latestDownload.Intent != DownloadIntent.Stopped)
                 writes.Add(new(latestDownload with { Intent = DownloadIntent.Stopped,
@@ -38,7 +56,7 @@ internal static class DownloadFiling
                 t.State is not (TargetState.Removed or TargetState.Done)))
                 if (target.State != TargetState.Filing || target.ReasonCode is not null || target.ReasonText is not null)
                     writes.Add(new(target with { State = TargetState.Filing, ResumeState = null,
-                        ReasonCode = null, ReasonText = null, NextTryAt = null, UpdatedAt = now,
+                    ReasonCode = null, ReasonText = null, NextTryAt = null, UpdatedAt = stageAt,
                         Version = target.Version + 1 }, target.Version, null));
             if (writes.Count > 0) await TargetPipeline.CommitAsync(store, writes.ToImmutable(), [], ct);
         }
@@ -53,7 +71,7 @@ internal static class DownloadFiling
                     throw new IOException(stopped.Failure?.Message ?? "The download could not stop writing. Trying again.");
             }
             var workIds = selected.Select(f => members.Single(t => t.Id == f.TargetId).WorkId).Distinct().ToArray();
-            if (workIds.Length != 1) throw new IOException("A download cannot file files from multiple catalog works.");
+            if (workIds.Length != 1) throw new FilingBlockedException("A download cannot file files from multiple catalog works.");
             var workId = workIds[0];
             var work = (await store.ListAsync<WorkRow>(row => row.Id == workId, ct)).Single();
             var seasons = await store.ListAsync<SeasonRow>(row => row.WorkId == workId, ct);
@@ -65,23 +83,29 @@ internal static class DownloadFiling
                 [.. await store.ListAsync<EpisodeRow>(row => seasonIds.Contains(row.SeasonId), ct)]);
             var release = (await store.ListAsync<ReleaseRow>(row => row.Id == download.Hash, ct)).Single();
             var prepared = ImmutableArray.CreateBuilder<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)>();
+            // Check every file before moving any, so a blocked file never leaves earlier ones moved and untracked.
             foreach (var binding in selected)
             {
-                var source = binding.PartialPath ?? throw new IOException("A selected download file has no partial path.");
-                var final = binding.FinalPath ?? throw new IOException("A selected download file has no final path.");
+                var source = binding.PartialPath ?? throw new FilingBlockedException("A selected download file has no partial path.");
+                var final = binding.FinalPath ?? throw new FilingBlockedException("A selected download file has no final path.");
                 LibraryPaths.NoLinks(source);
                 LibraryPaths.NoLinks(final);
                 var physical = File.Exists(source) ? source : final;
                 var validation = TorrentFlow.Library.DownloadFiling.ValidatePartial(binding,
                     new(binding.FileIndex, binding.ExpectedBytes, binding.ExpectedBytes, 0, true, physical, true));
-                if (validation is not null) throw new IOException(validation.Message);
+                if (validation is { Code: "FileBusy" }) throw new IOException(validation.Message);
+                if (validation is not null) throw new FilingBlockedException(validation.Message);
+                if (File.Exists(source) && LibraryPaths.PhysicalKey(source) != LibraryPaths.PhysicalKey(final) &&
+                    (File.Exists(final) || Directory.Exists(final)))
+                    throw new FilingBlockedException("A file already uses the library destination. Review it before retrying.");
+            }
+            foreach (var binding in selected)
+            {
+                var source = binding.PartialPath!;
+                var final = binding.FinalPath!;
                 // Handed-over transfers download in place, so their partial path is already the final path.
                 if (File.Exists(source) && LibraryPaths.PhysicalKey(source) != LibraryPaths.PhysicalKey(final))
-                {
-                    if (File.Exists(final) || Directory.Exists(final))
-                        throw new IOException("A file already uses the library destination. Review it before retrying.");
                     File.Move(source, final);
-                }
 
                 var digest = await TorrentFlow.Library.DownloadFiling.DigestAsync(final, ct);
                 var target = members.Single(t => t.Id == binding.TargetId);
@@ -95,7 +119,11 @@ internal static class DownloadFiling
             await stateGate.WaitAsync(ct);
             try
             {
-                var filedWrites = await repository.ProposeFiledAsync(prepared.ToImmutable(), ct);
+                ImmutableArray<RowWrite>? filedWrites;
+                try { filedWrites = await repository.ProposeFiledAsync(prepared.ToImmutable(), ct); }
+                catch (IOException ex) when (ex.Message ==
+                    "The previous library file differs from this download. Review the existing file.")
+                { throw new FilingBlockedException(ex.Message); }
                 if (filedWrites is null) return;
                 var latestDownload = (await store.ListAsync<DownloadRow>(row => row.Id == download.Id, ct)).Single();
                 var latestBindings = await repository.BindingsAsync(ct);
@@ -107,8 +135,15 @@ internal static class DownloadFiling
                 foreach (var target in latestTargets)
                 {
                     var targetFiles = latestBindings.Where(f => f.TargetId == target.Id && f.Role != FileRole.Unwanted);
-                    if (!targetFiles.Any(f => f.Role == FileRole.Video) ||
-                        targetFiles.Any(f => !f.Filed && prepared.All(p => p.Before.Id != f.Id))) continue;
+                    if (!targetFiles.Any(f => f.Role == FileRole.Video))
+                    {
+                        const string reason = "This source has no video file for this episode. Find another source.";
+                        writes.Add(new(target with { State = TargetState.Filing, ResumeState = null,
+                            ReasonCode = WaitReason.FilingBlocked, ReasonText = reason, NextTryAt = null,
+                            UpdatedAt = now, Version = target.Version + 1 }, target.Version, null));
+                        continue;
+                    }
+                    if (targetFiles.Any(f => !f.Filed && prepared.All(p => p.Before.Id != f.Id))) continue;
                     writes.Add(new(target with { State = TargetState.Done, ResumeState = null, ReasonCode = null,
                         ReasonText = null, NextTryAt = null, UpdatedAt = now, Version = target.Version + 1 },
                         target.Version, null));
@@ -143,18 +178,48 @@ internal static class DownloadFiling
             try
             {
                 var now = DateTimeOffset.UtcNow;
+                var selectedTargets = selected.Select(f => f.TargetId).OfType<string>()
+                    .ToHashSet(StringComparer.Ordinal);
                 var latestTargets = (await store.ListAsync<TargetRow>(null, ct))
-                    .Where(t => members.Any(member => member.Id == t.Id) &&
+                    .Where(t => selectedTargets.Contains(t.Id) &&
                         t.State is not (TargetState.Removed or TargetState.Done)).ToArray();
                 var writes = latestTargets.Select(t => new RowWrite(t with
                 {
-                    State = TargetState.Filing, ReasonCode = WaitReason.FileBusy,
-                    ReasonText = $"{ex.Message} Close any app using the file and it will be retried.",
+                    State = TargetState.Filing,
+                    ReasonCode = ex is FilingBlockedException ? WaitReason.FilingBlocked : WaitReason.FileBusy,
+                    ReasonText = ex is FilingBlockedException ? ex.Message :
+                        $"{ex.Message} Close any app using the file and it will be retried.",
+                    NextTryAt = ex is FilingBlockedException ? null : now.AddSeconds(30),
                     UpdatedAt = now, Version = t.Version + 1,
                 }, t.Version, null)).ToImmutableArray();
                 if (!writes.IsEmpty) await TargetPipeline.CommitAsync(store, writes, [], ct);
             }
             finally { stateGate.Release(); }
         }
+    }
+
+    // A filing target with nothing left to move is either already complete or has no video to file.
+    private static async Task SettleAsync(TargetStore store, ImmutableArray<DownloadFileRow> allFiles,
+        IReadOnlySet<string> targetIds, SemaphoreSlim stateGate, CancellationToken ct)
+    {
+        await stateGate.WaitAsync(ct);
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var writes = (await store.ListAsync<TargetRow>(null, ct))
+                .Where(t => targetIds.Contains(t.Id) && t.State == TargetState.Filing)
+                .Select(t =>
+                {
+                    var hasVideo = allFiles.Any(f => f.TargetId == t.Id && f.Role == FileRole.Video && f.Filed);
+                    var next = hasVideo
+                        ? t with { State = TargetState.Done, ResumeState = null, ReasonCode = null, ReasonText = null }
+                        : t with { ReasonCode = WaitReason.FilingBlocked,
+                            ReasonText = "This source has no video file for this episode. Find another source." };
+                    return new RowWrite(next with { NextTryAt = null, UpdatedAt = now, Version = t.Version + 1 },
+                        t.Version, null);
+                }).ToImmutableArray();
+            if (!writes.IsEmpty) await TargetPipeline.CommitAsync(store, writes, [], ct);
+        }
+        finally { stateGate.Release(); }
     }
 }

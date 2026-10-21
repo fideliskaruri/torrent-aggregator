@@ -74,7 +74,8 @@ public sealed partial class TargetPipeline
     {
         var snapshot = await ReadAsync(ct);
         var target = snapshot.Targets.SingleOrDefault(t => t.Id == targetId);
-        if (target is null || target.State != TargetState.Fetching || target.ChosenReleaseHash is null)
+        if (target is null || target.State is not (TargetState.Fetching or TargetState.Filing) ||
+            target.ChosenReleaseHash is null)
             return new(false, 0, 0, [targetId], "Only an unfinished download can find another source.");
         var download = snapshot.Downloads.SingleOrDefault(d => d.Hash == target.ChosenReleaseHash);
         if (download is null) return new(false, 0, 0, [targetId], "Download not found.");
@@ -105,7 +106,10 @@ public sealed partial class TargetPipeline
                 new(new BlockRow { Id = oldBlock?.Id ?? Guid.NewGuid().ToString("N"), Hash = download.Hash, WorkKey = work.WorkKey, Reason = "Owner chose another source", Origin = BlockOrigin.Owner, ReplacedByHash = null, CreatedAt = now, Until = null }, null, oldBlock),
             ], [], ct);
 
-            await DeleteDownloadFilesAsync(download.Hash, ct);
+            if (target.State == TargetState.Filing)
+                await DeleteTargetFilesAsync(download.Hash, target.Id, ct);
+            else
+                await DeleteDownloadFilesAsync(download.Hash, ct);
             var current = await store.ListAsync<TargetRow>(row => row.WorkId == target.WorkId, ct);
             var reset = current.Where(t => targetIds.Contains(t.Id) && t.State == TargetState.Removed)
                 .Select(t => new RowWrite(t with

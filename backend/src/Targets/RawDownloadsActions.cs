@@ -43,7 +43,7 @@ public sealed partial class RawDownloads
                 ?? throw new ArgumentException("This download no longer exists.");
             var download = raw.DownloadId is null ? null :
                 (await store.ListAsync<DownloadRow>(row => row.Id == raw.DownloadId, ct)).SingleOrDefault();
-            if (raw.State is RawDownloadState.Done or RawDownloadState.Removed ||
+            if (raw.State is RawDownloadState.Publishing or RawDownloadState.Done or RawDownloadState.Removed ||
                 download?.FinishedAt is not null)
                 return new(false, 0, 0, [id], "This download is already finished.");
             if (pause == (raw.State == RawDownloadState.Paused))

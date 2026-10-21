@@ -29,7 +29,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     private readonly SemaphoreSlim stateGate = new(1, 1);
     private readonly ConcurrentDictionary<string, Task> flights = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> cancellations = new();
-    private readonly TargetTransfers transfers = new(scopes, engine);
+    private readonly TargetTransfers transfers = new(scopes, engine, logger);
     private int maximumScopes = 8;
     private bool schedulerDisabled;
 
@@ -38,7 +38,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         services.AddSingleton<DiscoveryPlan>();
         services.AddSingleton<RawDownloads>();
         services.AddSingleton<TargetPipeline>(sp => new(sp.GetRequiredService<IServiceScopeFactory>(),
-            sp.GetRequiredService<DiscoveryPlan>(), sp.GetRequiredService<IEngine>(),
+            sp.GetRequiredService<DiscoveryPlan>(),             sp.GetRequiredService<IEngine>(),
             sp.GetRequiredService<RawDownloads>(),
             sp.GetRequiredService<ILogger<TargetPipeline>>())
         {

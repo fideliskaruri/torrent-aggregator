@@ -13,6 +13,24 @@ namespace TorrentFlow.Targets;
 
 public sealed partial class TargetPipeline
 {
+    public async Task<TargetActionReply> RetryFilingAsync(string id, CancellationToken ct)
+    {
+        await stateGate.WaitAsync(ct);
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var old = (await store.ListAsync<TargetRow>(row => row.Id == id, ct)).SingleOrDefault();
+            if (old is null || old.State != TargetState.Filing)
+                return new(false, 0, 0, [id], "This download is no longer waiting to be filed.");
+            var next = old with { ReasonCode = null, ReasonText = null, NextTryAt = null,
+                UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
+            await CommitAsync(store, [new(next, old.Version, null)], [], ct);
+            return new(true, 0, 0, [id], "Filing will be retried.");
+        }
+        finally { stateGate.Release(); }
+    }
+
     public async Task<TargetActionReply> ActionAsync(string id, TargetAction action, CancellationToken ct)
     {
         await stateGate.WaitAsync(ct);
@@ -81,7 +99,8 @@ public sealed partial class TargetPipeline
             if ((await ActionAsync(target.Id, action, ct)).Accepted) ids.Add(target.Id);
         }
         foreach (var raw in snapshot.RawIntents.Where(r => action == TargetAction.Pause
-            ? r.State is not (RawDownloadState.Paused or RawDownloadState.Done or RawDownloadState.Removed)
+            ? r.State is not (RawDownloadState.Paused or RawDownloadState.Publishing or
+                RawDownloadState.Done or RawDownloadState.Removed)
             : r.State == RawDownloadState.Paused))
         {
             if ((await rawDownloads.PauseAsync(raw.Id, action == TargetAction.Pause, ct)).Accepted)

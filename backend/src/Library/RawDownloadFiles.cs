@@ -48,14 +48,20 @@ public static class RawDownloadFiles
 
     public static void CompletePublication(EngineSnapshot snapshot, string root)
     {
-        foreach (var file in snapshot.Files)
+        CompletePublication([.. snapshot.Files.Select(file =>
+            new FileBinding(file.Index, file.PhysicalPath!, file.Selected))], root, snapshot.Hash);
+    }
+
+    public static void CompletePublication(ImmutableArray<FileBinding> bindings, string root, string hash)
+    {
+        foreach (var file in bindings)
         {
-            SafePath(file.PhysicalPath!);
-            if (!LibraryPaths.IsInside(root, file.PhysicalPath!))
+            SafePath(file.AbsolutePath);
+            if (!LibraryPaths.IsInside(root, file.AbsolutePath))
                 throw new IOException("The download file is outside its folder.");
             if (file.Selected)
             {
-                var partial = file.PhysicalPath!;
+                var partial = file.AbsolutePath;
                 var path = partial.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)
                     ? partial[..^".partial".Length] : partial;
                 if (File.Exists(partial) && !string.Equals(partial, path, StringComparison.OrdinalIgnoreCase))
@@ -66,9 +72,9 @@ public static class RawDownloadFiles
                 }
                 if (!File.Exists(path)) throw new IOException("A completed file is missing.");
             }
-            else if (File.Exists(file.PhysicalPath)) File.Delete(file.PhysicalPath!);
+            else if (File.Exists(file.AbsolutePath)) File.Delete(file.AbsolutePath);
         }
-        PruneUnwanted(root, snapshot.Hash);
+        PruneUnwanted(root, hash);
     }
 
     public static void PruneUnwanted(string root, string hash)

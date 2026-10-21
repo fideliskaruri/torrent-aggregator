@@ -6,9 +6,11 @@ internal sealed record DownloadRowStatus(string Status, string StatusLabel);
 
 internal static class DownloadRowView
 {
-    internal static string State(bool done, bool paused, bool filing, EngineSnapshot? live)
+    internal static string State(bool done, bool paused, bool filing, EngineSnapshot? live,
+        bool filingBlocked = false, bool publishing = false)
     {
-        var finishing = !done && !paused && (live?.Complete == true || filing);
+        var finishing = !done && !paused && (live?.Complete == true || filing || publishing);
+        if (filingBlocked) return "error";
         var failed = !finishing && (live?.Failure is not null || live is null && !done && !paused);
         return done ? "complete" : paused ? "paused" : finishing ? "finishing" : failed ? "error" :
             live?.Active == true ? !live.MetadataAvailable ? "metaDL" :
@@ -81,12 +83,14 @@ internal static class DownloadRowView
         return new { resolution, source = quality.Source, label = label.Length == 0 ? null : label };
     }
 
-    internal static object Actions(string status, bool forced, bool servesTarget, bool filesExist) => new
+    internal static object Actions(string status, bool forced, bool servesTarget, bool filesExist,
+        bool retryFiling = false) => new
     {
         pause = status is "downloading" or "queued" or "waiting",
         resume = status == "paused",
         downloadNow = status == "queued" && !forced,
         findAnother = servesTarget && status is not ("ready" or "finishing"),
+        retry = retryFiling,
         open = status == "ready" && filesExist,
         remove = true,
     };

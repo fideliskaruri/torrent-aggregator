@@ -18,7 +18,7 @@ type Selection = {
 type ActionResult = { ok: true } | { ok: false; reason: string };
 
 async function postRowAction(
-  act: "pause" | "resume" | "force",
+  act: Exclude<TorrentRowAction, "find-another-release">,
   torrent: ClientTorrent,
 ): Promise<ActionResult> {
   const response = await send("/api/client/torrents", {
@@ -55,7 +55,7 @@ export function useDownloadRowActions(
     }
     data.invalidateInFlight();
     const label = transferLabel(torrent);
-    const verb = act === "force" ? "start" : act;
+    const verb = act === "force" ? "start" : act === "retry-filing" ? "retry" : act;
     const outcome = await postRowAction(act, torrent);
     void data.load();
     if (!outcome.ok) {
@@ -66,6 +66,11 @@ export function useDownloadRowActions(
     if (act === "force") {
       toast.success(`Started ${label}`);
       ui.setAnnouncement(`Started ${label}.`);
+      return;
+    }
+    if (act === "retry-filing") {
+      toast.success(`Trying ${label} again`);
+      ui.setAnnouncement(`Trying ${label} again.`);
       return;
     }
     ui.setAnnouncement(`${act === "pause" ? "Paused" : "Resumed"} ${label}.`);

@@ -22,6 +22,7 @@ export interface DownloadActions {
   resume: boolean;
   downloadNow: boolean;
   findAnother: boolean;
+  retry?: boolean;
   open: boolean;
   remove: boolean;
 }
@@ -60,4 +61,4 @@ export interface ClientTorrent {
   magnet?: string | null;
 }
 
-export type TorrentRowAction = "pause" | "resume" | "force" | "find-another-release";
+export type TorrentRowAction = "pause" | "resume" | "force" | "retry-filing" | "find-another-release";

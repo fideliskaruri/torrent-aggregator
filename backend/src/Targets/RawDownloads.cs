@@ -4,11 +4,13 @@ using TorrentFlow.Engine;
 using TorrentFlow.Store;
 using TorrentFlow.Library;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using static TorrentFlow.Library.RawDownloadFiles;
 
 namespace TorrentFlow.Targets;
 
-public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory scopes)
+public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory scopes,
+    ILogger<RawDownloads> logger)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private const string Prefix = "raw:";
@@ -130,7 +132,8 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
             var raws = (await store.ListAsync<RawIntentRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             var rows = (await store.ListAsync<DownloadRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             var live = await engine.SnapshotAsync(ct);
-            foreach (var row in rows.Where(r => r.FinishedAt is null && live.All(s => s.Hash != r.Hash)))
+            foreach (var row in rows.Where(r => r.FinishedAt is null && live.All(s => s.Hash != r.Hash) &&
+                raws.Single(raw => raw.Id == r.RawIntentId).State != RawDownloadState.Publishing))
             {
                 var raw = raws.Single(r => r.Id == row.RawIntentId);
                 var release = (await store.ListAsync<ReleaseRow>(r => r.Id == row.Hash, ct)).Single();
@@ -143,7 +146,8 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
             }
             await TargetQueue.ApplyAsync(engine, store, ct);
             foreach (var raw in raws.Where(r => r.DownloadId is not null && r.State != RawDownloadState.Done))
-                await engine.SetIntentAsync(raw.DownloadId!, raw.State != RawDownloadState.Paused, ct);
+                await engine.SetIntentAsync(raw.DownloadId!, raw.State is not
+                    (RawDownloadState.Paused or RawDownloadState.Publishing), ct);
         }
         finally { gate.Release(); }
     }
@@ -157,39 +161,84 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
             var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var rawRows = (await store.ListAsync<RawIntentRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             if (rawRows.Length == 0) return;
-            foreach (var snapshot in await engine.SnapshotAsync(ct))
+            var snapshots = await engine.SnapshotAsync(ct);
+            foreach (var snapshot in snapshots)
             {
-                var raw = rawRows.SingleOrDefault(r => r.Id == snapshot.DownloadId);
-                if (raw is null) continue;
-                var row = (await store.ListAsync<DownloadRow>(d => d.Id == snapshot.DownloadId, ct)).Single();
-                if (snapshot.MetadataAvailable && snapshot.Files.All(f => !f.Selected) && row.FinishedAt is null &&
-                    await engine.MetadataAsync(snapshot.Hash, ct) is { } metadata)
+                try
                 {
-                    await engine.SelectAsync(snapshot.DownloadId, Bindings(snapshot.Hash, raw.ExplicitDirectory!,
-                        metadata, raw.SelectedFiles.ToArray(), recovery: true), ct);
-                    var findStore = scope.ServiceProvider.GetRequiredService<TargetStore>();
-                    var oldRelease = (await findStore.ListAsync<ReleaseRow>(r => r.Id == snapshot.Hash, ct)).Single();
-                    await CommitAsync(findStore, [new(oldRelease with
+                    var raw = rawRows.SingleOrDefault(r => r.Id == snapshot.DownloadId);
+                    if (raw is null) continue;
+                    var row = (await store.ListAsync<DownloadRow>(d => d.Id == snapshot.DownloadId, ct)).Single();
+                    if (snapshot.MetadataAvailable && snapshot.Files.All(f => !f.Selected) && row.FinishedAt is null &&
+                        await engine.MetadataAsync(snapshot.Hash, ct) is { } metadata)
                     {
-                        Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes),
-                    }, null, oldRelease)], [], ct);
-                }
-                if (snapshot.Complete && raw.State != RawDownloadState.Done)
-                {
-                    await PublishAsync(snapshot, raw.ExplicitDirectory!, ct);
-                    await CommitAsync(store, [new(raw with
+                        await engine.SelectAsync(snapshot.DownloadId, Bindings(snapshot.Hash, raw.ExplicitDirectory!,
+                            metadata, raw.SelectedFiles.ToArray(), recovery: true), ct);
+                        var findStore = scope.ServiceProvider.GetRequiredService<TargetStore>();
+                        var oldRelease = (await findStore.ListAsync<ReleaseRow>(r => r.Id == snapshot.Hash, ct)).Single();
+                        await CommitAsync(findStore, [new(oldRelease with
+                        {
+                            Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes),
+                        }, null, oldRelease)], [], ct);
+                    }
+                    if (snapshot.Complete && raw.State != RawDownloadState.Done)
                     {
-                        State = RawDownloadState.Done, UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1,
-                    }, raw.Version, null)], [], ct);
+                        if (raw.State != RawDownloadState.Publishing)
+                        {
+                            var publishing = raw with { State = RawDownloadState.Publishing,
+                                UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1 };
+                            await CommitAsync(store, [new(publishing, raw.Version, null)], [], ct);
+                            raw = publishing;
+                        }
+                        await PublishAsync(snapshot, raw.ExplicitDirectory!, ct);
+                        var done = raw with { State = RawDownloadState.Done,
+                            UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1 };
+                        await CommitAsync(store, [new(done, raw.Version, null)], [], ct);
+                        raw = done;
+                    }
+                    var nextIntent = snapshot.Complete ? DownloadIntent.Stopped :
+                        raw.State == RawDownloadState.Paused ? DownloadIntent.Paused :
+                        snapshot.Active ? DownloadIntent.Run : DownloadIntent.Queued;
+                    if (row.Intent != nextIntent || snapshot.Complete && row.FinishedAt is null)
+                    {
+                        var next = row with { Intent = nextIntent,
+                            FinishedAt = snapshot.Complete ? DateTimeOffset.UtcNow : null,
+                            Version = row.Version + 1 };
+                        await CommitAsync(store, [new(next, row.Version, null)], [], ct);
+                    }
                 }
-                var nextIntent = snapshot.Complete ? DownloadIntent.Stopped :
-                    raw.State == RawDownloadState.Paused ? DownloadIntent.Paused :
-                    snapshot.Active ? DownloadIntent.Run : DownloadIntent.Queued;
-                if (row.Intent != nextIntent || snapshot.Complete && row.FinishedAt is null)
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
                 {
-                    var next = row with { Intent = nextIntent, FinishedAt = snapshot.Complete ? DateTimeOffset.UtcNow : null,
-                        Version = row.Version + 1 };
-                    await CommitAsync(store, [new(next, row.Version, null)], [], ct);
+                    logger.LogError(ex, "Raw download tick failed for {DownloadId}", snapshot.DownloadId);
+                }
+            }
+            var completedSnapshots = snapshots.Select(snapshot => snapshot.DownloadId).ToHashSet(StringComparer.Ordinal);
+            var publishingRows = (await store.ListAsync<RawIntentRow>(null, ct))
+                .Where(raw => raw.Id.StartsWith(Prefix) && raw.State == RawDownloadState.Publishing &&
+                    raw.DownloadId is not null && !completedSnapshots.Contains(raw.DownloadId)).ToArray();
+            foreach (var raw in publishingRows)
+            {
+                try
+                {
+                    var download = (await store.ListAsync<DownloadRow>(row => row.Id == raw.DownloadId, ct)).Single();
+                    var release = (await store.ListAsync<ReleaseRow>(row => row.Id == raw.ReleaseHash, ct)).Single();
+                    var metadata = release.Files ?? throw new IOException("The completed torrent file list is missing.");
+                    var bindings = Bindings(raw.ReleaseHash, raw.ExplicitDirectory!, metadata,
+                        raw.SelectedFiles.ToArray(), recovery: true);
+                    CompletePublication(bindings, raw.ExplicitDirectory!, raw.ReleaseHash);
+                    var now = DateTimeOffset.UtcNow;
+                    await CommitAsync(store, [
+                        new(raw with { State = RawDownloadState.Done, UpdatedAt = now,
+                            Version = raw.Version + 1 }, raw.Version, null),
+                        new(download with { Intent = DownloadIntent.Stopped, FinishedAt = now,
+                            Version = download.Version + 1 }, download.Version, null),
+                    ], [], ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Raw download publication retry failed for {DownloadId}", raw.DownloadId);
                 }
             }
         }
@@ -201,7 +250,9 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
         var stopped = await engine.StopAndReleaseFilesAsync(snapshot.DownloadId, ct);
         if (!stopped.WritesDrained || stopped.Failure is not null)
             throw new IOException(stopped.Failure?.Message ?? "The download could not stop writing.");
-        RawDownloadFiles.CompletePublication(snapshot, root);
+        RawDownloadFiles.CompletePublication(
+            [.. snapshot.Files.Select(file => new FileBinding(file.Index, file.PhysicalPath!, file.Selected))],
+            root, snapshot.Hash);
         await engine.SaveDevStateAsync(ct);
     }
 

@@ -1,4 +1,4 @@
-import { Download, Search, Zap } from "lucide-react";
+import { Download, RotateCw, Search, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
@@ -35,6 +35,12 @@ export function DownloadRowActions({
         <Button type="button" variant="default" size="sm" onClick={() => onAction("resume", torrent)}
           aria-label={`Resume ${title}`} {...rowAttr(kind, "resume")}>
           <Download className="h-3.5 w-3.5" />Resume
+        </Button>
+      ) : null}
+      {torrent.actions.retry ? (
+        <Button type="button" variant="secondary" size="sm" onClick={() => onAction("retry-filing", torrent)}
+          aria-label={`Try ${title} again`} {...rowAttr(kind, "retry-filing")}>
+          <RotateCw className="h-3.5 w-3.5" />Try again
         </Button>
       ) : null}
       {torrent.actions.findAnother ? (

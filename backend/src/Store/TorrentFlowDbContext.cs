@@ -128,7 +128,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
             table.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
             table.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
-            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused')");
+            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked')");
             table.HasCheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
             table.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
             table.HasCheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");
@@ -157,7 +157,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<RawIntentRow>().ToTable("RawIntent", table =>
         {
             table.HasCheckConstraint("CK_RawIntent_selectedFilesJson", "json_valid(\"selectedFilesJson\")");
-            table.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','done','removed')");
+            table.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','publishing','done','removed')");
             table.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
         });
         var rawIntent = modelBuilder.Entity<RawIntentRow>();

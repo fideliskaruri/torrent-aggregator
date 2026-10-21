@@ -80,6 +80,8 @@ internal sealed partial class TargetTransfers
         await gate.WaitAsync(ct);
         try
         {
+            // Background filing holds no gate while moving files; let it finish so deletion sees its result.
+            await Task.WhenAll(filingTasks.Values);
             await stateGate.WaitAsync(ct);
             try { await DeleteFilesCoreAsync(hash, indices, ct); }
             finally { stateGate.Release(); }

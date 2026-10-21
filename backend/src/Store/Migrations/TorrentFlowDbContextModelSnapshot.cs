@@ -1186,7 +1186,7 @@ namespace TorrentFlow.Store.Migrations
                         {
                             t.HasCheckConstraint("CK_RawIntent_selectedFilesJson", "json_valid(\"selectedFilesJson\")");
 
-                            t.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','done','removed')");
+                            t.HasCheckConstraint("CK_RawIntent_state", "\"state\" IN ('fetching','paused','publishing','done','removed')");
 
                             t.HasCheckConstraint("CK_RawIntent_version", "\"version\" >= 0");
 
@@ -2043,7 +2043,7 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
 
-                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused')");
+                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked')");
 
                             t.HasCheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
 

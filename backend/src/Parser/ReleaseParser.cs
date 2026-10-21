@@ -270,7 +270,7 @@ public sealed class ReleaseParser : IParser
         var markers = English.Matches(languageText).Cast<Match>().Concat(Foreign.Matches(languageText).Cast<Match>())
             .Concat(Multi.Matches(languageText).Cast<Match>()).Select(m => m.Value.ToLowerInvariant()).Distinct().ToImmutableArray();
         var cam = Cam.IsMatch(text);
-        var safetyText = R(@"www\.[a-z0-9.-]+\.(?:com|org|net|to|me|tv)|\[[^\]]*\.(?:com|org|net|to|me|tv)[^\]]*\]|[a-z0-9._-]+\.(?:com|org|net|to|me|tv)\.(?:avi|mkv|mp4)").Replace(raw, " ");
+        var safetyText = R(@"www\.[a-z0-9.-]+\.(?:com|org|net|to|me|tv)|\[[^\]]*\.(?:com|org|net|to|me|tv)[^\]]*\]|(?<![a-z0-9._-])[a-z0-9._-]+\.(?:com|org|net|to|me|tv)\.(?:avi|mkv|mp4)").Replace(raw, " ");
         safetyText = R(@"\bNO[- ]RAR\b").Replace(safetyText, " ");
         var softwareIso = R(@"\biso\b").IsMatch(text) && Software.IsMatch(scopeText);
         var unsafeName = Dangerous.IsMatch(safetyText) || cam || softwareIso;
