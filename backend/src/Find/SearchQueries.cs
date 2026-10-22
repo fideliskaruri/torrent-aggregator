@@ -6,9 +6,9 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Find;
 
-internal static partial class SearchQueries
+public static partial class SearchQueries
 {
-    internal static string Fold(string value)
+    public static string Fold(string value)
     {
         var text = value.Replace("&", " and ", StringComparison.Ordinal).Normalize(NormalizationForm.FormKD);
         var result = new StringBuilder();

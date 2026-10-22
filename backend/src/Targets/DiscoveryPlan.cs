@@ -35,7 +35,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
         {
             // An explicit owner pick overrides an earlier find-another block on the same release.
             excludedHashes = excludedHashes?.Remove(picked);
-            found = await find.SelectAsync(request, picked, cancellationToken);
+            found = await find.SelectAsync(request, picked, cancellationToken, ownerPick: true);
             if (onBatch is not null) await onBatch(found);
         }
         else
@@ -152,7 +152,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
 
         async Task<PlanResult> ProbeCandidates(ImmutableArray<Candidate> ranked)
         {
-            foreach (var candidate in ranked.Where(c => c.TrustedSeeders is > 0 &&
+            foreach (var candidate in ranked.Where(c => (c.TrustedSeeders is > 0 ||
+                         targets.All(t => t.PickedReleaseHash == c.Release.Id)) &&
                          c.Release.Files is { } files && !files.IsDefaultOrEmpty))
                 candidateFiles[candidate.Release.Id] = candidate;
 
@@ -161,7 +162,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             var currentPlan = ready.IsEmpty
                 ? new PlanResult([], [], [.. targets.Select(t => t.Id)])
                 : planner.Choose(input with { Pool = ready });
-            var remaining = ranked.Where(c => c.TrustedSeeders is > 0 &&
+            var remaining = ranked.Where(c => (c.TrustedSeeders is > 0 ||
+                targets.All(t => t.PickedReleaseHash == c.Release.Id)) &&
                 !candidateFiles.ContainsKey(c.Release.Id) &&
                 !attemptedMetadata.Contains(c.Release.Id)).ToList();
             while (remaining.Count > 0 && remainingProbeBudget > 0 && currentPlan.UncoveredTargetIds.Length > 0)

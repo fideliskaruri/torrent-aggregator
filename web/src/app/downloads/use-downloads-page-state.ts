@@ -13,6 +13,15 @@ import { downloadLinkFrom } from "./download-link";
 import type { ClientTorrent } from "./types";
 import type { SendError } from "@/lib/api-json";
 
+/** A catalog title the server offers when it can't tell what an added torrent is. */
+export interface TitleChoice {
+  workKey: string;
+  title: string;
+  year?: number | null;
+  kind?: string | null;
+  poster?: string | null;
+}
+
 export type StatusFilter = "all" | "active" | "downloading" | "queued" | "ready" | "paused" | "attention";
 
 export function useDownloadsPageState() {
@@ -36,6 +45,7 @@ export function useDownloadsPageState() {
   const [rawSendValue, setRawSendValue] = useState("");
   const [sendingRaw, setSendingRaw] = useState(false);
   const [rawSendError, setRawSendError] = useState<SendError | null>(null);
+  const [titleChoices, setTitleChoices] = useState<TitleChoice[] | null>(null);
   const [addPanelOpen, setAddPanelOpen] = usePersistedState(
     "tf-downloads-add-open",
     false,
@@ -64,7 +74,7 @@ export function useDownloadsPageState() {
     statusFilter, setStatusFilter, mediaTab, setMediaTab, sort, setSort,
     openSeriesKey, setOpenSeriesKey, selectedSeasonKey, setSelectedSeasonKey,
     rawSendValue, setRawSendValue, sendingRaw, setSendingRaw,
-    rawSendError, setRawSendError, addPanelOpen, toggleAddPanel, rawSendInputRef,
+    rawSendError, setRawSendError, titleChoices, setTitleChoices, addPanelOpen, toggleAddPanel, rawSendInputRef,
     deleting, setDeleting, announcement, setAnnouncement,
     seriesDialogOpenerRef, openGroupTitle, setOpenGroupTitle,
     setSearchParams, downloadLink, resolvedLinkRef,

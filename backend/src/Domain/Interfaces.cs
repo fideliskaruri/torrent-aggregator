@@ -39,7 +39,8 @@ public interface ISources
 /// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: rank releases, call Engine or own Target state.</summary>
 public interface IFind
 {
-    Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken);
+    Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken,
+        bool ownerPick = false);
     IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,
         IAsyncEnumerable<SearchFeedback> feedback, CancellationToken cancellationToken);
     Task<RawSearchResult> SearchRawAsync(RawSearchQuery query, CancellationToken cancellationToken);
@@ -49,6 +50,7 @@ public interface IFind
 public interface IEngine
 {
     Task<ProbeAttachment> AttachProbeAsync(Candidate candidate, CancellationToken cancellationToken);
+    Task<ImmutableArray<TorrentFile>?> MetadataAsync(string hash, CancellationToken cancellationToken);
     Task ReleaseProbeAsync(ProbeHandle handle, CancellationToken cancellationToken);
     Task<EngineResult> ClaimAdmissionAsync(EngineAdmissionClaim claim, CancellationToken cancellationToken);
     Task ReleaseAdmissionClaimAsync(string token, CancellationToken cancellationToken);

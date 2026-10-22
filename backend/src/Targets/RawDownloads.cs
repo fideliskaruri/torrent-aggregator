@@ -9,24 +9,145 @@ using static TorrentFlow.Library.RawDownloadFiles;
 
 namespace TorrentFlow.Targets;
 
+public sealed record RawSendReply(bool Accepted, EngineSnapshot? Snapshot, Failure? Failure,
+    bool NeedsTitle, ImmutableArray<ExternalWorkChoice> Choices, string? Identified,
+    string? Hash, string? WorkKey);
+
 public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScopeFactory scopes,
-    ILogger<RawDownloads> logger)
+    ILogger<RawDownloads> logger, ExternalIdentity externalIdentity)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private const string Prefix = "raw:";
 
-    public async Task<EngineResult> SendAsync(string? magnet, string? torrentUrl, string? name,
-        string actor, bool now, CancellationToken ct)
+    public async Task<RawSendReply> SendAsync(string? magnet, string? torrentUrl, string? name,
+        string actor, bool now, CancellationToken ct, string? workKey = null, bool plain = false)
     {
         var hash = string.IsNullOrWhiteSpace(magnet)
             ? await engine.ResolveTorrentSourceAsync(torrentUrl!, ct)
             : MonoTorrentEngine.NormalizeHash(magnet);
+        if (!plain)
+            return await SendExternalAsync(hash, magnet, torrentUrl, name, workKey, actor, ct);
         await using var scope = scopes.CreateAsyncScope();
         var root = (await scope.ServiceProvider.GetRequiredService<ILibraryPlacement>().RootsAsync(ct))
             .Where(r => r.Enabled && r.Online && !r.ReviewRequired).OrderBy(r => r.Priority).FirstOrDefault()
             ?? throw new InvalidOperationException("Add and confirm a download folder in Settings first.");
         var destination = RawDownloadFiles.Destination(root, hash);
-        return await AddAsync(destination, magnet ?? hash, torrentUrl, name, actor, now, ct);
+        var result = await AddAsync(destination, magnet ?? hash, torrentUrl, name, actor, now, ct);
+        return new(result.Accepted, result.Snapshot, result.Failure, false, [], null, hash, null);
+    }
+
+    private async Task<RawSendReply> SendExternalAsync(string hash, string? magnet, string? torrentUrl,
+        string? name, string? workKey, string actor, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var existing = (await store.ListAsync<DownloadRow>(row => row.Hash == hash, ct)).SingleOrDefault();
+            // A library download of this torrent can still take more episodes; a plain one cannot.
+            if (existing is { RawIntentId: not null })
+                return new(true, (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == existing.Id),
+                    null, false, [], null, hash, workKey);
+        }
+        finally { gate.Release(); }
+
+        var candidate = MonoTorrentEngine.CandidateFor(magnet ?? hash, torrentUrl);
+        var metadata = await engine.MetadataAsync(hash, ct);
+        ProbeHandle? handle = null;
+        if (metadata is null)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(30));
+            try
+            {
+                var attachment = await engine.AttachProbeAsync(candidate, deadline.Token);
+                handle = attachment.Handle;
+                metadata = attachment.Files;
+                if (metadata is null && handle is not null)
+                    metadata = await engine.WaitMetadataAsync(handle, deadline.Token);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                metadata = null;
+            }
+            finally
+            {
+                if (handle is not null) await engine.ReleaseProbeAsync(handle, CancellationToken.None);
+            }
+        }
+
+        var displayName = !string.IsNullOrWhiteSpace(name) ? name : MagnetName(magnet);
+        var identified = await externalIdentity.IdentifyAsync(hash, displayName, metadata, workKey, ct);
+        var originalName = !string.IsNullOrWhiteSpace(name) ? name : displayName;
+        var savedName = !string.IsNullOrWhiteSpace(originalName) &&
+            identified.Parsed.RawName.Equals(originalName, StringComparison.Ordinal)
+                ? originalName : !string.IsNullOrWhiteSpace(identified.Parsed.RawName)
+                    ? identified.Parsed.RawName : hash;
+        var release = candidate.Release with
+        {
+            Name = savedName,
+            Parsed = identified.Parsed,
+            Magnet = magnet,
+            TorrentUri = torrentUrl ?? candidate.Release.TorrentUri,
+            Files = metadata,
+            TotalBytes = metadata?.Sum(f => f.Bytes),
+        };
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var old = (await store.ListAsync<ReleaseRow>(row => row.Id == hash, ct)).SingleOrDefault();
+            var now = DateTimeOffset.UtcNow;
+            release = release with
+            {
+                FirstSeenAt = old?.FirstSeenAt ?? now,
+                LastSeenAt = now,
+                Magnet = release.Magnet ?? old?.Magnet,
+                TorrentUri = release.TorrentUri ?? old?.TorrentUri,
+                Files = release.Files ?? old?.Files,
+                TotalBytes = release.TotalBytes ?? old?.TotalBytes,
+            };
+            // Release rows have no version; record equality on their arrays never matches, so upsert.
+            await CommitAsync(store, [new(release, null, null)], [], ct);
+        }
+
+        var hasSelectedWork = identified.Work is not null &&
+            (!identified.EpisodeIds.IsEmpty || identified.Film);
+        if (!string.IsNullOrWhiteSpace(workKey) && !hasSelectedWork)
+        {
+            // The owner already picked a title; asking again would loop. Say why it can't be filed.
+            var failure = identified.Work is { } picked
+                ? new Failure("episodes_unmatched",
+                    $"The files in this torrent don't match any known episode of {TitleName(picked)}. " +
+                    "Pick another title or keep it as a plain download.", null, true)
+                : new Failure("title_unavailable",
+                    "Couldn't load that title right now. Try again in a moment.", null, false);
+            return new(false, null, failure, false, [], null, hash, workKey);
+        }
+        if (!identified.Confident && string.IsNullOrWhiteSpace(workKey) || !hasSelectedWork)
+            return new(false, null, null, true, identified.Choices, identified.Summary, hash, workKey);
+
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var targets = scope.ServiceProvider.GetRequiredService<TargetPipeline>();
+            var reply = await targets.AcceptPickedAsync(identified.Work!.Work.WorkKey,
+                identified.EpisodeIds, identified.Film, hash, actor, ct);
+            return new(reply.Accepted, null, null, false, [], identified.Summary, hash,
+                identified.Work.Work.WorkKey);
+        }
+    }
+
+    private static string TitleName(WorkSnapshot work) =>
+        (work.Names.OrderBy(n => n.Ordinal).FirstOrDefault(n => n.Label == NameLabel.English)
+            ?? work.Names.OrderBy(n => n.Ordinal).FirstOrDefault())?.Value ?? "this title";
+
+    private static string? MagnetName(string? magnet)
+    {
+        if (string.IsNullOrWhiteSpace(magnet)) return null;
+        foreach (var part in magnet.Split('&').Skip(1))
+            if (part.StartsWith("dn=", StringComparison.OrdinalIgnoreCase))
+                return Uri.UnescapeDataString(part[3..].Replace('+', ' '));
+        return null;
     }
 
     private async Task<EngineResult> AddAsync(string savePath, string magnet, string? torrentUrl,

@@ -8,7 +8,7 @@ import {
 import type { ClientTorrent, TorrentRowAction } from "./types";
 import { transferLabel, transfersLabel } from "./release-display";
 import type { useDownloads } from "./use-downloads";
-import type { useDownloadsPageState } from "./use-downloads-page-state";
+import type { useDownloadsPageState, TitleChoice } from "./use-downloads-page-state";
 
 type Ui = ReturnType<typeof useDownloadsPageState>;
 type Data = ReturnType<typeof useDownloads>;
@@ -113,7 +113,7 @@ export function useDownloadRowActions(
     }
   }
 
-  async function sendRawTorrent() {
+  async function sendRawTorrent(choice: { workKey: string } | { plain: true } | null = null) {
     const parsed = parseTorrentSourceInput(ui.rawSendValue);
     if (!parsed) {
       ui.setRawSendError({ message: TORRENT_SOURCE_INPUT_HINT, field: "source" });
@@ -127,12 +127,18 @@ export function useDownloadRowActions(
       const response = await send("/api/torrent/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...parsed, source: "manual", target: "primary", retention: "keep" }),
+        body: JSON.stringify({ ...parsed, ...choice, source: "manual", target: "primary", retention: "keep" }),
       });
-      const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
-      if (response.ok && body && body.ok !== false) {
-        toast.success(body.message || "Added to downloads");
+      const body = await readJsonBody<{
+        ok?: boolean; message?: string; error?: string;
+        needsTitle?: boolean; choices?: TitleChoice[]; identified?: string | null;
+      }>(response);
+      if (response.ok && body?.needsTitle) {
+        ui.setTitleChoices(body.choices ?? []);
+      } else if (response.ok && body && body.ok !== false) {
+        toast.success(body.identified ? `Added ${body.identified}` : body.message || "Added to downloads");
         ui.setRawSendValue("");
+        ui.setTitleChoices(null);
       } else {
         ui.setRawSendError(sendErrorFromBody(body, response.status));
       }

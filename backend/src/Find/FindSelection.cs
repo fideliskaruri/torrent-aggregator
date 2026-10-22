@@ -5,14 +5,15 @@ namespace TorrentFlow.Find;
 
 internal sealed partial class FindService
 {
-    public async Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken)
+    public async Task<CandidateBatch> SelectAsync(SearchRequest request, string hash,
+        CancellationToken cancellationToken, bool ownerPick = false)
     {
         await using var db = await contexts.CreateDbContextAsync(cancellationToken);
         var release = await db.Releases.AsNoTracking().SingleOrDefaultAsync(r => r.Id == hash, cancellationToken);
         if (release is null) return new(request.SessionId, 1, [], [], true, SearchNamePhase.English, SourceTier.Core);
         var seen = await db.ReleaseObservations.AsNoTracking().Where(o => o.Hash == hash).OrderBy(o => o.Id)
             .ToListAsync(cancellationToken);
-        var pool = new CandidatePool(parser, request.Work, request.Scope);
+        var pool = new CandidatePool(parser, request.Work, request.Scope, ownerPick ? hash : null);
         if (seen.Count == 0)
             pool.Add(new("owner", SourceOutcome.Success, [new(release.Name, hash, release.TotalBytes,
                 null, null, "owner", null, release.Magnet, release.TorrentUri, null, [])], null, null,

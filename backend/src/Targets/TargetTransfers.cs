@@ -16,6 +16,22 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly ConcurrentDictionary<string, Task> filingTasks = new(StringComparer.Ordinal);
 
+    // A saved file list is not enough to start: the engine also needs the torrent's metadata on disk.
+    private async Task CacheMetadataAsync(Candidate candidate, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(60));
+        try
+        {
+            var attachment = await engine.AttachProbeAsync(candidate, deadline.Token);
+            if (attachment.Handle is { } probe) await engine.ReleaseProbeAsync(probe, CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            logger.LogInformation("Metadata for {Hash} did not arrive in time; the start will be retried.", candidate.Release.Id);
+        }
+    }
+
     private async Task CleanRetiredAsync(TargetStore store, ILibraryDownloadRepository repository,
         DownloadRow download, ImmutableArray<DownloadFileRow> files,
         IEnumerable<DownloadTargetRow> links, CancellationToken ct)
@@ -37,6 +53,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         Candidate candidate, ImmutableArray<TorrentFile> metadata, ProbeHandle? handle,
         Func<string, TargetState, WaitReason?, string?, Task> change, SemaphoreSlim stateGate, CancellationToken ct)
     {
+        if (handle is null && await engine.MetadataAsync(assignment.Hash, ct) is null)
+            await CacheMetadataAsync(candidate, ct);
         await gate.WaitAsync(ct);
         Failure? admissionFailure = null;
         try

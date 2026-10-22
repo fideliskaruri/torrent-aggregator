@@ -13,7 +13,9 @@ public sealed partial class ReleasePlanner
         var rejections = new List<Rejection>();
         foreach (var candidate in input.Pool.DistinctBy(c => c.Release.Id, StringComparer.OrdinalIgnoreCase))
         {
-            var common = CandidateNameRejection(candidate, input);
+            var ownerPickedForAll = targets.Length > 0 &&
+                targets.All(t => t.PickedReleaseHash == candidate.Release.Id);
+            var common = CandidateNameRejection(candidate, input, ownerPickedForAll);
             if (common is not null)
             {
                 rejections.Add(common);
@@ -34,7 +36,8 @@ public sealed partial class ReleasePlanner
             if (eligible) accepted.Add(candidate);
         }
         if (accepted.Any(c => c.TrustedSeeders is > 0))
-            accepted = [.. accepted.Where(c => c.TrustedSeeders is > 0)];
+            accepted = [.. accepted.Where(c => c.TrustedSeeders is > 0 ||
+                targets.Length > 0 && targets.All(t => t.PickedReleaseHash == c.Release.Id))];
         var ordered = accepted.OrderBy(c => QualityClass(c))
             .ThenBy(c => QualityDistance(c))
             .ThenByDescending(c => c.TrustedSeeders ?? 0)
@@ -61,7 +64,7 @@ public sealed partial class ReleasePlanner
         }
     }
 
-    private static Rejection? CandidateNameRejection(Candidate candidate, PlanInput input)
+    private static Rejection? CandidateNameRejection(Candidate candidate, PlanInput input, bool ownerPickedForAll)
     {
         var release = candidate.Release;
         var parsed = release.Parsed;
@@ -71,13 +74,13 @@ public sealed partial class ReleasePlanner
             return parsed.ClearlyForeign || parsed.Foreign == ForeignStatus.Yes
                 ? new(release.Id, null, "foreign_language", "This source clearly identifies a foreign language.")
                 : null;
-        if (input.Work is null || !Identity(parsed.Title, input.Work) &&
+        if (input.Work is null || !ownerPickedForAll && !Identity(parsed.Title, input.Work) &&
             !(parsed.Pack && Identity(PackTitleSuffix.Replace(parsed.Title, ""), input.Work)))
             return new(release.Id, null, "wrong_work", "The source name does not match this title's catalog names.");
         if (input.Work.Work.Kind == WorkKind.Film && (parsed.Kind != ReleaseKind.Movie || parsed.Pack ||
             !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty))
             return new(release.Id, null, "wrong_kind", "This is not a single-film source.");
-        if (input.Work.Work.Kind == WorkKind.Film && parsed.Year is { } year &&
+        if (!ownerPickedForAll && input.Work.Work.Kind == WorkKind.Film && parsed.Year is { } year &&
             input.Work.Work.Year is { } expected && year != expected)
             return new(release.Id, null, "wrong_year", $"The source is from {year}; this film was released in {expected}.");
         if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other)

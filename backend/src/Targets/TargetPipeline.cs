@@ -36,6 +36,7 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
     public static IServiceCollection AddTargets(IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<DiscoveryPlan>();
+        services.AddSingleton<ExternalIdentity>();
         services.AddSingleton<RawDownloads>();
         services.AddSingleton<TargetPipeline>(sp => new(sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<DiscoveryPlan>(),             sp.GetRequiredService<IEngine>(),

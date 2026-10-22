@@ -17,12 +17,19 @@ internal static class TorrentSendEndpoints
                 { ok = false, error = message, message, field });
             if (input.ValueKind != JsonValueKind.Object) return Invalid("Provide a torrent or magnet.", "magnet");
             foreach (var (field, max) in new[] { ("magnet", 8192), ("torrentUrl", 2048),
-                ("name", 500), ("infoHash", 64), ("target", 20), ("retention", 20), ("scope", 20) })
+                ("name", 500), ("infoHash", 64), ("target", 20), ("retention", 20), ("scope", 20),
+                ("workKey", 200) })
                 if (input.TryGetProperty(field, out var value) && value.ValueKind != JsonValueKind.Null &&
                     (value.ValueKind != JsonValueKind.String || value.GetString()!.Length > max))
                     return Invalid($"{field} must be a string of at most {max} characters.", field);
+            if (input.TryGetProperty("plain", out var plainValue) &&
+                plainValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return Invalid("plain must be a boolean.", "plain");
             string? Text(string key) => input.TryGetProperty(key, out var value) &&
                 value.ValueKind == JsonValueKind.String ? value.GetString()?.Trim() : null;
+            var plain = input.TryGetProperty("plain", out var plainInput) &&
+                plainInput.ValueKind == JsonValueKind.True;
+            var workKey = Text("workKey");
             var target = Text("target") ?? "primary";
             if (target is not ("primary" or "external")) return Invalid("Choose primary or external.", "target");
             if (target == "external") return Results.BadRequest(new { ok = false, offline = false,
@@ -62,12 +69,17 @@ internal static class TorrentSendEndpoints
             {
                 var now = input.TryGetProperty("forced", out var forced) && forced.ValueKind == JsonValueKind.True;
                 var result = await downloads.SendAsync(magnet, url, Text("name"),
-                    AccessIdentity.Actor(http).UserId, now, ct);
+                    AccessIdentity.Actor(http).UserId, now, ct, workKey, plain);
                 return Results.Json(new { ok = result.Accepted,
-                    message = result.Accepted ? "Added to downloads." : result.Failure?.Message,
+                    message = result.NeedsTitle ? "Choose a title before downloading." :
+                        result.Accepted ? "Added to downloads." : result.Failure?.Message,
                     offline = false, clientType = "builtin", sendTarget = target,
-                    retentionState = "kept", hash = result.Snapshot?.Hash },
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web), statusCode: result.Accepted ? 200 : 502);
+                    retentionState = "kept", needsTitle = result.NeedsTitle, choices = result.Choices,
+                    identified = result.Identified, hash = result.Hash ?? result.Snapshot?.Hash,
+                    workKey = result.WorkKey },
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web),
+                    statusCode: result.NeedsTitle || result.Accepted ? 200
+                        : result.Failure?.NeedsOwner == true ? 422 : 502);
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException ||
                 ex is OperationCanceledException && !ct.IsCancellationRequested)

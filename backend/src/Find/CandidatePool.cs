@@ -4,7 +4,8 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Find;
 
-internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, TargetScope? scope)
+internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, TargetScope? scope,
+    string? ownerPickHash = null)
 {
     private readonly Dictionary<string, Candidate> candidates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, FindRejection> rejections = new(StringComparer.Ordinal);
@@ -36,7 +37,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
             else parse = parser.Parse(raw.Name);
             var coverage = ImmutableArray<string>.Empty;
             if (code is null && work is not null && scope is not null)
-                (code, reason, coverage) = Filter(parse!);
+                (code, reason, coverage) = Filter(parse!, hash!);
             if (code is not null)
             {
                 var rejection = new FindRejection(hash ?? raw.Hash, raw.Name, result.SourceId, query, code, reason!);
@@ -98,16 +99,18 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
                 candidates[hash] = candidate with { ScrapedSeeders = count };
     }
 
-    private (string? Code, string? Reason, ImmutableArray<string> Coverage) Filter(ParsedRelease parsed)
+    private (string? Code, string? Reason, ImmutableArray<string> Coverage) Filter(ParsedRelease parsed,
+        string hash)
     {
         var names = SearchQueries.IdentityNames(work!);
-        if (!names.Contains(SearchQueries.Fold(parsed.Title), StringComparer.Ordinal) &&
+        if (ownerPickHash != hash && !names.Contains(SearchQueries.Fold(parsed.Title), StringComparer.Ordinal) &&
             !names.Contains(SearchQueries.Fold(PackSuffix().Replace(parsed.Title, "")), StringComparer.Ordinal))
             return ("title_mismatch", $"Parsed title '{parsed.Title}' does not match any catalog name at word boundaries.", []);
         var requested = work!.Episodes.Where(e => scope!.EpisodeIds.Contains(e.Id)).ToArray();
         var years = requested.Where(e => e.AirAt.HasValue).Select(e => e.AirAt!.Value.Year)
             .Append(work.Work.Year ?? 0);
-        if (parsed.Year is { } year && work.Work.Year.HasValue && !years.Any(y => Math.Abs(y - year) <= 1))
+        if (ownerPickHash != hash && parsed.Year is { } year && work.Work.Year.HasValue &&
+            !years.Any(y => Math.Abs(y - year) <= 1))
             return ("year_mismatch", $"Source year {year} is outside the catalog year tolerance (one year).", []);
         if (scope!.Film)
             return parsed.Kind == ReleaseKind.Movie

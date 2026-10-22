@@ -282,12 +282,14 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         }
         finally { gate.Release(); }
         Torrent? torrent = await LoadCachedTorrentAsync(hash);
+        byte[]? fetched = null;
         if (torrent is null && candidate.Release.TorrentUri is { } uri)
         {
             try
             {
                 var metadata = await TorrentMetadata.LoadAsync(uri, hash, ct);
                 torrent = metadata.Torrent;
+                fetched = metadata.Torrent is null ? null : metadata.Bytes;
                 link = metadata.Magnet ?? link;
             }
             catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException ||
@@ -303,6 +305,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             if (decoded.TryGetValue("info", out var info) && info is BEncodedDictionary)
             {
                 torrent = Torrent.Load(metadataBytes.Span);
+                fetched = metadataBytes.ToArray();
             }
             else
             {
@@ -314,11 +317,21 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                     encoded["url-list"] = new BEncodedList(link.Webseeds.Select(uri =>
                         (BEncodedValue)new BEncodedString(uri)));
                 torrent = Torrent.Load(encoded);
+                fetched = encoded.Encode();
             }
         }
         await gate.WaitAsync(ct);
         try
         {
+            // Keep fetched metadata so a later start can bind files after the probe is released.
+            if (fetched is not null && torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant() == hash)
+            {
+                try { await AtomicWriteAsync(Path.Combine(directory, $"{hash}.torrent"), fetched); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    log($"Could not cache metadata for {hash}: {ex.Message}");
+                }
+            }
             ThrowIfStopped();
             PruneClaims();
             if (registered.ContainsKey(hash) || claims.Values.Any(c => c.Hash == hash))
@@ -723,7 +736,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             entry.Run && entry.MetadataStalled, entry.Run && entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
             DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
-                entry.Filed.Any(i => !manager.Files[i].BitField.AllTrue)
+                !FiledIntact(entry)
                     ? Fail("file_changed", "A filed file or its boundary data changed. Check the library before resuming.") : null)
         {
             Active = entry.Run,

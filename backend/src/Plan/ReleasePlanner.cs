@@ -20,16 +20,18 @@ public sealed partial class ReleasePlanner : IPlan
         {
             var release = candidate.Release;
             var parsed = release.Parsed;
+            var ownerPickedForAll = targets.Length > 0 &&
+                targets.All(t => t.PickedReleaseHash == release.Id);
             void Refuse(string code, string text, string? target = null) =>
                 rejections.Add(new(release.Id, target, code, text));
             if (release.Id.Length != 40 || release.Id.Any(c => !char.IsAsciiHexDigit(c)))
             { Refuse("invalid_hash", "This source has no valid torrent hash."); continue; }
-            if (!raw && (input.Work is null || !Identity(parsed.Title, input.Work)))
+            if (!raw && (input.Work is null || !ownerPickedForAll && !Identity(parsed.Title, input.Work)))
             { Refuse("wrong_work", "The source name does not match this title's catalog names."); continue; }
             if (!raw && input.Work!.Work.Kind == WorkKind.Film &&
                 (parsed.Kind != ReleaseKind.Movie || parsed.Pack || !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty))
             { Refuse("wrong_kind", "This is not a single-film source."); continue; }
-            if (!raw && input.Work!.Work.Kind == WorkKind.Film &&
+            if (!raw && !ownerPickedForAll && input.Work!.Work.Kind == WorkKind.Film &&
                 parsed.Year is { } year && input.Work.Work.Year is { } expected && year != expected)
             {
                 Refuse("wrong_year", $"The source is from {year}; this film was released in {expected}.");
@@ -158,6 +160,42 @@ public sealed partial class ReleasePlanner : IPlan
             }
         }
         return Select(input, targets, options, rejections);
+    }
+
+    public static ImmutableArray<string> ExternalEpisodeScope(WorkSnapshot work, ParsedRelease release,
+        ImmutableArray<TorrentFile>? files, PlanFileMetadata? metadata, DateTimeOffset now)
+    {
+        var confirmed = work.Episodes.Where(e => e.MappingStatus == MappingStatus.Confirmed &&
+            work.Seasons.FirstOrDefault(s => s.Id == e.SeasonId) is { MappingStatus: MappingStatus.Confirmed })
+            .ToArray();
+        var pack = release.Pack || release.Kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries;
+        if (files is null || files.Value.IsDefaultOrEmpty)
+        {
+            if (release.Kind == ReleaseKind.CompleteSeries || release.MultiSeason && release.Seasons.IsEmpty)
+                return [.. confirmed.Where(e => work.Seasons.First(s => s.Id == e.SeasonId) is { } season &&
+                    Finished(work, season, now)).Select(e => e.Id)];
+            if (pack)
+                return [.. confirmed.Where(e => release.Seasons.Contains(
+                    work.Seasons.First(s => s.Id == e.SeasonId).Number)).Select(e => e.Id)];
+            return [.. confirmed.Where(e => work.Seasons.First(s => s.Id == e.SeasonId) is { } season &&
+                Coordinates(release, e, season, work)).Select(e => e.Id)];
+        }
+
+        var mapping = MapFiles(work, files.Value, metadata, release, pack);
+        if (mapping.Fatal is not null) return [];
+        var videos = files.Value.Where(FileEligibility.IsVideo).Where(f => !FileEligibility.IsExtra(f)).ToArray();
+        return [.. confirmed.Where(e =>
+        {
+            var season = work.Seasons.First(s => s.Id == e.SeasonId);
+            if (pack && !Finished(work, season, now)) return false;
+            if (!pack && !Coordinates(release, e, season, work)) return false;
+            if (!pack && metadata is not null && videos.Any(file =>
+                metadata.ParsedFiles.TryGetValue(file.Index, out var parsed) &&
+                (!parsed.Seasons.IsEmpty || !parsed.Episodes.IsEmpty || !parsed.AbsoluteNumbers.IsEmpty ||
+                 !parsed.Ranges.IsEmpty || !parsed.EpisodeRanges.IsEmpty || !parsed.AbsoluteRanges.IsEmpty) &&
+                !Coordinates(parsed, e, season, work))) return false;
+            return videos.Length == 1 || mapping.Files.ContainsKey(e.Id);
+        }).Select(e => e.Id)];
     }
 
 

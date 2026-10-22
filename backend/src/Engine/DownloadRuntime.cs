@@ -44,7 +44,7 @@ public sealed partial class MonoTorrentEngine
         var ordered = entries.Values.Where(e => !e.Probe && e.WantsRun && !e.Completed &&
                 (e.Bound || !MetadataReady(e.Manager)) &&
                 (!e.Bound || SelectedFiles(e).Length > 0) &&
-                e.Filed.All(i => e.Manager.Files[i].BitField.AllTrue) &&
+                FiledIntact(e) &&
                 (!e.Bound || !SelectedComplete(e)) &&
                 (!queueOrder.TryGetValue(e.Id, out var q) || q.Eligible))
             .OrderBy(e => queueOrder.GetValueOrDefault(e.Id)?.Priority ?? TargetPriority.BackCatalogue)
@@ -156,6 +156,36 @@ public sealed partial class MonoTorrentEngine
         entry.LastReceived = entry.LastUploaded = 0;
         entry.Run = false;
         entry.MetadataStalled = entry.ProgressStalled = false;
+    }
+
+    // A boundary piece shared with a file that is not filed yet cannot verify until that
+    // neighbour downloads. Only pieces owned by filed files alone must still verify, and a
+    // file excused that way must still be on disk at full size.
+    private static bool FiledIntact(Entry entry)
+    {
+        var files = entry.Manager.Files;
+        foreach (var index in entry.Filed)
+        {
+            var file = files[index];
+            if (file.Length == 0) continue;
+            var excused = false;
+            for (var piece = file.StartPieceIndex; piece <= file.EndPieceIndex; piece++)
+            {
+                if (entry.Manager.Bitfield[piece]) continue;
+                var shared = false;
+                for (var other = 0; other < files.Count && !shared; other++)
+                    shared = other != index && files[other].Length > 0 && !entry.Filed.Contains(other) &&
+                        files[other].StartPieceIndex <= piece && files[other].EndPieceIndex >= piece;
+                if (!shared) return false;
+                excused = true;
+            }
+            if (excused)
+            {
+                var info = new FileInfo(file.FullPath);
+                if (!info.Exists || info.Length != file.Length) return false;
+            }
+        }
+        return true;
     }
 
     private static async Task HashCheckBindingsAsync(Entry entry)
