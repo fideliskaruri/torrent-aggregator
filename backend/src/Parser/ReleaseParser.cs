@@ -21,7 +21,7 @@ public sealed class ReleaseParser : IParser
     private static readonly ConcurrentDictionary<string, Regex> Patterns = new(StringComparer.Ordinal);
     private static Regex R(string pattern) => Patterns.GetOrAdd(pattern, static p => new(p,
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
-        TimeSpan.FromMilliseconds(100)));
+        TimeSpan.FromMilliseconds(500)));
 
     private static readonly Regex Spaces = R(@"\s+");
     private static readonly Regex Brackets = R(@"\[[^\]]*\]|\([^)]*\)");

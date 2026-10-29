@@ -58,11 +58,6 @@ internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus
                 continue;
             }
             pending.TryRemove(root.Id, out _);
-            if (DateTimeOffset.UtcNow - item.StartedAt > ProbeDeadline)
-            {
-                StartProbe(root);
-                continue;
-            }
             if (item.Root.Version != root.Version || item.Root.Path != root.Path)
             {
                 StartProbe(root);
