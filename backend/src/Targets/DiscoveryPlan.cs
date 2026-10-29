@@ -305,6 +305,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
         {
             return targets.Where(t => uncovered.Contains(t.Id) &&
                     (candidate.CoveredEpisodeIds.Contains(t.Id, StringComparer.Ordinal) ||
+                     t.EpisodeId is null && work.Work.Kind == WorkKind.Film ||
                      Covers(candidate.Release.Parsed, t)))
                 .Select(t => t.Id).Distinct(StringComparer.Ordinal).Count();
         }
