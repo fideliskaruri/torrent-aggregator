@@ -109,3 +109,5 @@ tools/.import-proof/
 tools/.importui-proof/
 tools/.desktop-proof/
 **/push-vapid.json
+
+.worktrees/

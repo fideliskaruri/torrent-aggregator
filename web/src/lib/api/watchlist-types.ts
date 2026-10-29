@@ -31,7 +31,8 @@ export interface WatchlistItem {
   monitorMode?: string | null;
   newEpisodesSince?: string | null;
   ready?: boolean;
-  libraryState?: "downloading" | "looking" | "downloaded" | "coming_up" | "idle";
+  libraryState?: "downloading" | "looking" | "downloaded" | "coming_up" | "idle" | "waiting_drive" | "no_space" | "needs_you";
+  libraryReason?: string | null;
   hasFiles?: boolean;
   ownedEpisodes?: number | null;
   airedEpisodes?: number | null;

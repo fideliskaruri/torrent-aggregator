@@ -7,7 +7,8 @@ export interface LibraryStateItem {
   cursorEpisode?: number | null;
   fromSeason?: number | null;
   ready?: boolean | null;
-  libraryState?: "downloading" | "looking" | "downloaded" | "coming_up" | "idle";
+  libraryState?: "downloading" | "looking" | "downloaded" | "coming_up" | "idle" | StorageWaitState;
+  libraryReason?: string | null;
   hasFiles?: boolean;
   ownedEpisodes?: number | null;
   airedEpisodes?: number | null;
@@ -51,7 +52,33 @@ export interface LibraryItemState {
   nextLabel: string | null;
 }
 
+/** A download held back by storage: its drive is unplugged, every drive is full, or the owner must act. */
+export type StorageWaitState = "waiting_drive" | "no_space" | "needs_you";
+
+const STORAGE_WAIT_LABELS: Record<StorageWaitState, string> = {
+  waiting_drive: "Waiting for drive",
+  no_space: "No drive has room",
+  needs_you: "Needs you",
+};
+
+export function isStorageWait(state: string | null | undefined): state is StorageWaitState {
+  return state === "waiting_drive" || state === "no_space" || state === "needs_you";
+}
+
+/** The storage hold on a title, labelled with the server's reason when it names the drive. */
+export function libraryStorageWait(
+  item: LibraryStateItem,
+): { state: StorageWaitState; label: string; short: string } | null {
+  const state = item.libraryState;
+  if (!isStorageWait(state)) return null;
+  const short = STORAGE_WAIT_LABELS[state];
+  const reason = item.libraryReason?.trim();
+  return { state, short, label: state === "needs_you" && reason ? `Needs you: ${reason}` : reason || short };
+}
+
+/** Storage holds count as downloads in progress: the title was grabbed and resumes on its own. */
 export function itemLibraryStatus(item: LibraryStateItem): ItemLibraryStatus {
+  if (isStorageWait(item.libraryState)) return "downloading";
   if (item.libraryState) return item.libraryState;
   if (item.ready) return "downloaded";
   if (item.monitored) return "coming_up";
@@ -123,6 +150,8 @@ export function libraryStatusLine(item: LibraryStateItem): {
   text: string;
   title?: string;
 } {
+  const storage = libraryStorageWait(item);
+  if (storage) return { text: storage.label };
   const status = itemLibraryStatus(item);
   const series = isSeriesMediaType(item.mediaType);
 

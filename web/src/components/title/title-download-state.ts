@@ -1,5 +1,18 @@
-import type { TitleEpisodeTransfer, TitleOwned } from "./types";
+import type { TitleEpisodeTransfer, TitleOwned, TitleTransferState } from "./types";
 import type { TitleActionStatus } from "./title-actions";
+
+/** Storage holds read as the server's reason when it names the drive ("Waiting for drive D:"). */
+export function storageWaitLabel(
+  state: TitleTransferState | null | undefined,
+  reason?: string | null,
+): string | null {
+  const text = reason?.trim();
+  if (state === "waiting_drive") return text?.startsWith("Waiting for drive") ? text : "Waiting for drive";
+  if (state === "no_space") return "No drive has room";
+  if (state === "needs_you") return "Needs you";
+  if (state === "checking_files") return "Checking files";
+  return null;
+}
 
 export type TitleDownloadVisualState =
   | "download"
@@ -44,6 +57,9 @@ export function titleDownloadPresentation(target: {
   if (transfer?.status === "failed" || actionStatus === "error") {
     return { onDisk, held, state: "retry", label: "Retry download", progress: null, queuePosition: null };
   }
+  if (transfer?.state === "checking_files") {
+    return { onDisk, held, state: "queued", label: "Checking files", progress: null, queuePosition: null };
+  }
   if (transfer?.status === "downloading") {
     const progress = transfer.progress;
     return {
@@ -57,8 +73,10 @@ export function titleDownloadPresentation(target: {
   }
   if (transfer?.status === "queued") {
     const queuePosition = transfer.queuePosition ?? null;
+    const storageLabel = storageWaitLabel(transfer.state, transfer.reason);
     const label =
-      transfer.state === "looking" || transfer.state === "waiting_season_list"
+      storageLabel ??
+      (transfer.state === "looking" || transfer.state === "waiting_season_list"
         ? "Looking"
         : transfer.state === "waiting_english"
           ? "Waiting for an English source"
@@ -66,7 +84,7 @@ export function titleDownloadPresentation(target: {
             ? "Waiting for sources"
             : queuePosition != null
             ? `Queued #${queuePosition}`
-            : "Queued";
+            : "Queued");
     return { onDisk, held, state: transfer.state === "looking" ? "looking" : "queued", label, progress: null, queuePosition };
   }
   if (

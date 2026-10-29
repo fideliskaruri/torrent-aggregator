@@ -36,7 +36,7 @@ import { SEARCH_HREF } from "@/lib/navigation";
 import { isSeriesMediaType, searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { titlePath } from "@/components/title/work-key";
 import { toast } from "@/lib/toast";
-import { itemLibraryStatus, libraryStatusLine } from "@/components/library/library-state";
+import { itemLibraryStatus, libraryStatusLine, libraryStorageWait } from "@/components/library/library-state";
 import { followLine } from "./card-state";
 import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 import { WatchlistDeleteFiles } from "./watchlist-delete-files";
@@ -130,8 +130,19 @@ export function WatchlistItemCard({
     </>
   );
   const badgeClass = "pointer-events-auto min-w-0 justify-start py-1 leading-none";
+  const storage = libraryStorageWait(item);
   const stateBadge =
-    state === "looking" ? (
+    storage ? (
+      <Link
+        to={storage.state === "no_space" ? "/downloads" : "/settings?tab=folders"}
+        aria-label={`${storage.label}: ${item.title}`}
+        className="flex min-h-11 min-w-0 items-end rounded-md lg:min-h-0"
+      >
+        <Badge variant="solid" className={badgeClass}>
+          <span className="truncate">{storage.short}</span>
+        </Badge>
+      </Link>
+    ) : state === "looking" ? (
       <Link to={searchHref} aria-label={`Pick a copy of ${item.title}`} className="flex min-h-11 min-w-0 items-end rounded-md lg:min-h-0">
         <Badge variant="solid" className={badgeClass}>
           <Search aria-hidden className="size-3 shrink-0" />

@@ -38,7 +38,19 @@ export interface TitleOwned {
   resolution: number | null;
 }
 
-export type TitleTransferState = "looking" | "waiting_english" | "waiting_sources" | "waiting_season_list" | "queued" | "downloading" | "downloaded" | "failed";
+export type TitleTransferState =
+  | "looking"
+  | "waiting_english"
+  | "waiting_sources"
+  | "waiting_season_list"
+  | "waiting_drive"
+  | "no_space"
+  | "needs_you"
+  | "checking_files"
+  | "queued"
+  | "downloading"
+  | "downloaded"
+  | "failed";
 
 export interface TitleEpisodeTransfer {
   status: "queued" | "downloading" | "downloaded" | "failed";
@@ -51,6 +63,8 @@ export interface TitleEpisodeTransfer {
   queuePosition?: number | null;
   /** Owner only, while waiting for a download slot: `queue-full` or `outside-window`. */
   waitReason?: string | null;
+  /** Owner only: the server's plain reason, such as "Waiting for drive D:". */
+  reason?: string | null;
 }
 
 /** Lightweight transfer state used while the title page polls active grabs. */

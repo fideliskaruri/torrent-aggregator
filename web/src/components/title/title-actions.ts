@@ -109,6 +109,10 @@ export function transferStateLabel(
   if (state === "waiting_english") return WAITING_FOR_ENGLISH_LABEL;
   if (state === "waiting_season_list") return WAITING_FOR_SEASON_LIST_LABEL;
   if (state === "waiting_sources") return "Waiting for sources";
+  if (state === "waiting_drive") return "Waiting for drive";
+  if (state === "no_space") return "No drive has room";
+  if (state === "needs_you") return "Needs you";
+  if (state === "checking_files") return "Checking files";
   if (state === "queued") return queuePosition != null ? `Queued #${queuePosition}` : "Queued";
   if (state === "downloading") return "Downloading";
   return null;
