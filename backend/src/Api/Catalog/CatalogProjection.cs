@@ -83,7 +83,7 @@ internal static class CatalogProjection
             .OrderByDescending(target => target.UpdatedAt).FirstOrDefault();
         var downloading = targets.Any(t => t.State is TargetState.Fetching or TargetState.Filing || HasCopy(t));
         var lookingTargets = targets.Where(t =>
-            (t.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting) &&
+            (t.State is TargetState.Wanted or TargetState.Searching) &&
             !HasCopy(t) && t.ReasonCode != WaitReason.PlacementBlocked &&
             (t.ExpectedAt is null || t.ExpectedAt <= now)).ToArray();
         var hasFiles = ready;

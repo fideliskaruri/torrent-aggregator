@@ -114,6 +114,7 @@ internal static class TitleTransfers
     {
         WaitReason.MetadataUnavailable => "waiting_season_list",
         WaitReason.MappingUncertain => "waiting_english",
+        WaitReason.WaitingForSeeders => "waiting_sources",
         WaitReason.DriveOffline => "waiting_drive",
         WaitReason.NoDriveSpace => "no_space",
         WaitReason.PlacementBlocked => "needs_you",

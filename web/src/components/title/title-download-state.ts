@@ -58,12 +58,14 @@ export function titleDownloadPresentation(target: {
   if (transfer?.status === "queued") {
     const queuePosition = transfer.queuePosition ?? null;
     const label =
-      transfer.state === "looking" || transfer.state === "waiting_season_list"
+      transfer.state === "looking"
         ? "Looking"
+        : transfer.state === "waiting_season_list"
+          ? transfer.reason ?? "Reading the torrent's file list"
         : transfer.state === "waiting_english"
           ? "Waiting for an English source"
           : transfer.state === "waiting_sources"
-            ? "Waiting for sources"
+            ? transfer.reason ?? "Waiting for sources"
             : queuePosition != null
             ? `Queued #${queuePosition}`
             : "Queued";
@@ -77,8 +79,10 @@ export function titleDownloadPresentation(target: {
     return {
       onDisk,
       held,
-      state: "looking",
-      label: transfer.state === "waiting_english" ? "Waiting for an English source" : "Looking",
+      state: transfer.state === "looking" ? "looking" : "queued",
+      label: transfer.state === "looking" ? "Looking" :
+        transfer.state === "waiting_english" ? "Waiting for an English source" :
+          transfer.reason ?? "Reading the torrent's file list",
       progress: null,
       queuePosition: null,
     };

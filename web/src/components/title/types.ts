@@ -51,6 +51,8 @@ export interface TitleEpisodeTransfer {
   queuePosition?: number | null;
   /** Owner only, while waiting for a download slot: `queue-full` or `outside-window`. */
   waitReason?: string | null;
+  /** Plain-language reason when this transfer is waiting on a source or metadata. */
+  reason?: string | null;
 }
 
 /** Lightweight transfer state used while the title page polls active grabs. */
