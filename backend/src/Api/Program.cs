@@ -61,6 +61,9 @@ builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddSingleton<OldTorrentHandoff>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OldTorrentHandoff>());
 builder.Services.AddLibrary();
+builder.Services.AddScoped<WatchLaterReadService>();
+builder.Services.AddSingleton<WatchLaterJellyfinSnapshots>();
+builder.Services.AddHostedService<WatchLaterSweepWorker>();
 builder.Services.AddLocalFiles();
 builder.Services.AddDesktop(new DesktopEnvironment(desktop, desktop ? Environment.ProcessPath : null,
     DesktopEnvironment.CurrentVersion(), dataDirectory, (urls ?? "http://127.0.0.1:3940").Split(';')[0], background));

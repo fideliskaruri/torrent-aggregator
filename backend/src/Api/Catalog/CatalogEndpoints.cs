@@ -54,6 +54,7 @@ internal static class CatalogEndpoints
             });
         });
         app.MapGet("/api/watchlist", LibraryEndpoints.List);
+        app.MapWatchLater();
         app.MapPost("/api/watchlist", SaveWatch);
         app.MapPatch("/api/watchlist", SaveWatch);
         app.MapDelete("/api/watchlist", RemoveWatch);

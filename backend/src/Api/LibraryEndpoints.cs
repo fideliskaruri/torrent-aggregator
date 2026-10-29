@@ -16,8 +16,12 @@ internal static class LibraryEndpoints
         ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
         var actor = AccessIdentity.UserId(h);
+        var intent = await db.WatchItems.AsNoTracking().Where(item => item.UserId == actor &&
+            (item.Status != WatchStatus.Planned ||
+             db.Follows.AsNoTracking().Any(follow => follow.WorkId == item.WorkId && follow.Enabled)))
+            .ToListAsync(ct);
         var rows = await LibraryRead.ItemsAsync(actor,
-            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+            [.. intent],
             await db.Targets.AsNoTracking().ToListAsync(ct), inventory, library, ct);
         var works = new List<(WatchItemRow Item, WorkSnapshot Work)>();
         foreach (var item in rows)

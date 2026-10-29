@@ -184,13 +184,7 @@ internal sealed partial class Browse
         var value => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value),
     };
     private static bool InCinemas(WorkSnapshot snapshot, DateTimeOffset now)
-    {
-        if (snapshot.InTheatricalWindow is { } window) return window;
-        var work = snapshot.Work;
-        var home = new[] { work.DigitalAt, work.PhysicalAt }.OfType<DateTimeOffset>().Order().Cast<DateTimeOffset?>().FirstOrDefault();
-        return work.Kind == WorkKind.Film && work.TheatricalAt <= now &&
-            (home is { } at ? at > now : work.TheatricalAt > now.AddDays(-21));
-    }
+        => ReleaseAvailability.InTheatricalWindow(snapshot, now);
     private static int GenreId(string genre) => genre switch
     {
         "action" => 28, "comedy" => 35, "drama" => 18, "thriller" => 53, "horror" => 27,
