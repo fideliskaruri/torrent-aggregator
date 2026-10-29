@@ -51,7 +51,12 @@ internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus
                 continue;
             }
             if (!item.Task.IsCompleted)
+            {
+                // A drive that stops answering is treated as unplugged; the stuck probe is left to finish on its own.
+                if (DateTimeOffset.UtcNow - item.StartedAt > ProbeDeadline)
+                    await ProbeFailedAsync(root, ct);
                 continue;
+            }
             pending.TryRemove(root.Id, out _);
             if (DateTimeOffset.UtcNow - item.StartedAt > ProbeDeadline)
             {

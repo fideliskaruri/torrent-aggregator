@@ -19,8 +19,13 @@ public sealed class StorageStatus : IStorageStatus
 
     public StoragePathStatus Status(string rootPath)
     {
-        lock (gate) return states.TryGetValue(Key(rootPath), out var status)
-            ? status : new(false, null, DateTimeOffset.MinValue);
+        lock (gate)
+            if (states.TryGetValue(Key(rootPath), out var status)) return status;
+        // Before the watcher's first pass, answer from the disk so startup never treats every drive as unplugged.
+        bool exists;
+        try { exists = Directory.Exists(rootPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { exists = false; }
+        return new(exists, null, DateTimeOffset.MinValue);
     }
 
     public void Update(string rootPath, bool online, long? freeBytes)
