@@ -91,6 +91,15 @@ internal static class JellyfinEndpoints
         return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
     }
+    internal static async Task<JellyfinBatchRead> ReadCleanup(HttpContext h, TorrentFlowDbContext db,
+        IEnumerable<(WorkSnapshot Work, System.Collections.Immutable.ImmutableArray<MediaFileRow> Files)> works,
+        CancellationToken ct)
+    {
+        var settings = await Settings(db, ct);
+        var key = SecretFiles.Read(HostPaths.DataDirectory(
+            h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential);
+        return await Adapter.ReadBatchWithStatusAsync(settings, key, works, ct);
+    }
     private static async Task<JellyfinSettings> Settings(TorrentFlowDbContext db, CancellationToken ct) =>
         SettingsCatalog.Read<JellyfinSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "jellyfin", ct));
     private static object Public(JellyfinSettings settings) => new

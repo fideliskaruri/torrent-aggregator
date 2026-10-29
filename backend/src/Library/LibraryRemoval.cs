@@ -21,20 +21,30 @@ public static class LibraryRemoval
 {
     public static LibraryDeletePreview Preview(LibraryDeleteScope scope, string workId, HashSet<string> episodeIds,
         IEnumerable<TargetRow> targets, IEnumerable<DownloadTargetRow> links,
-        IEnumerable<DownloadRow> downloads, ImmutableArray<DownloadFileRow> bindings, ImmutableArray<MediaFileRow> media)
+        IEnumerable<DownloadRow> downloads, ImmutableArray<DownloadFileRow> bindings,
+        ImmutableArray<MediaFileRow> media, bool managedOnly = false)
     {
-        bool Within(string? id) => scope.Kind == "show" || id is not null && episodeIds.Contains(id);
-        var ids = targets.Where(t => t.WorkId == workId && Within(t.EpisodeId)).Select(t => t.Id).ToHashSet();
-        var selectedMedia = media.Where(m => m.WorkId == workId && Within(m.EpisodeId)).ToArray();
         var associations = links.ToArray();
+        var allDownloads = downloads.ToArray();
+        var managedDownloads = allDownloads.Where(d => d.RootId is not null).Select(d => d.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        bool Within(string? id) => scope.Kind == "show" || id is not null && episodeIds.Contains(id);
+        var selectedMedia = media.Where(m => m.WorkId == workId && Within(m.EpisodeId) &&
+            (!managedOnly || m.RootId is not null)).ToArray();
+        var ids = targets.Where(t => t.WorkId == workId && Within(t.EpisodeId) &&
+                (!managedOnly || associations.Any(link => link.TargetId == t.Id &&
+                    managedDownloads.Contains(link.DownloadId)) ||
+                    bindings.Any(file => file.TargetId == t.Id && managedDownloads.Contains(file.DownloadId))))
+            .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
         var downloadIds = associations.Where(l => ids.Contains(l.TargetId)).Select(l => l.DownloadId)
             .Concat(bindings.Where(f => f.TargetId is not null && ids.Contains(f.TargetId)).Select(f => f.DownloadId))
             .Concat(selectedMedia.Select(m => m.DownloadId).OfType<string>()).ToHashSet();
+        if (managedOnly) downloadIds.IntersectWith(managedDownloads);
         var releases = ImmutableArray.CreateBuilder<LibraryDeleteRelease>();
         var blocked = ImmutableArray.CreateBuilder<LibraryDeleteBlocked>();
         var items = ImmutableArray.CreateBuilder<LibraryDeleteItem>();
         var missing = 0;
-        foreach (var download in downloads.Where(d => downloadIds.Contains(d.Id)))
+        foreach (var download in allDownloads.Where(d => downloadIds.Contains(d.Id)))
         {
             var files = bindings.Where(f => f.DownloadId == download.Id).ToArray();
             var shared = associations.Any(l => l.DownloadId == download.Id && !ids.Contains(l.TargetId)) ||
@@ -54,6 +64,7 @@ public static class LibraryRemoval
             missing += files.Count(f => f.Filed && f.FinalPath is not null && !File.Exists(f.FinalPath));
         }
         var unbound = selectedMedia.Where(m => m.DownloadId is null ||
+            managedOnly && !managedDownloads.Contains(m.DownloadId) ||
             bindings.All(f => f.DownloadId != m.DownloadId || f.FileIndex != m.FileIndex)).ToImmutableArray();
         foreach (var external in unbound)
             releases.Add(new(Path.GetFileName(external.Path), File.Exists(external.Path) ? 1 : 0,
@@ -65,7 +76,7 @@ public static class LibraryRemoval
         var fileCount = releases.Sum(r => r.FileCount);
         var totalBytes = releases.Sum(r => r.Bytes);
         var subject = scope.Kind == "show" ? "this title" : scope.Kind == "season" ? $"Season {scope.Season}" :
-            $"S{scope.Season:00}E{scope.Episode:00}";
+            scope.Kind == "episodes" ? "the selected episodes" : $"S{scope.Season:00}E{scope.Episode:00}";
         var size = totalBytes >= 1024 * 1024 * 1024 ? $"{totalBytes / (1024d * 1024 * 1024):0.##} GB" :
             totalBytes >= 1024 * 1024 ? $"{totalBytes / (1024d * 1024):0.##} MB" : $"{totalBytes} bytes";
         var summary = outcome == "deletes" ? $"Deletes {fileCount} files · {size} from {subject}." :

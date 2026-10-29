@@ -220,9 +220,13 @@ USB drives, partitions, mapped folders and Docker mounts, and needs no window, C
 - Only TorrentFlow-managed files (`RootId != null`); track-in-place media is never deleted.
 - Series default to "Delete watched episodes" (the watched episodes' files only); "Delete the whole
   show" is an explicit second choice. Films delete the film.
-- Deletion reuses `POST /api/library/delete` (scope `episode` per watched episode, or `show`/film),
-  `confirm: true`. The server refuses when any affected root is offline (not only the UI), so a
-  split show can't lose its DB rows while its files stay on an unplugged disk.
+- Deletion reuses `POST /api/library/delete` with the suggestion's `workId` and `confirm: true`:
+  films use scope `show`, series use scope `episodes` plus the selected `episodeIds` in one
+  request, or scope `show` for the explicit whole-show choice. The episode batch only removes
+  TorrentFlow-managed files. Each affected root is checked server-side before deletion; an offline
+  root returns 409 and a message
+  such as "Plug in drive E: before deleting this." Partial results identify each deleted or failed
+  source so a split show can't silently lose its DB rows while files stay on an unplugged disk.
 - Downloads banner: `GET /api/library/roots` already gives status; the banner shows when at least
   one target waits with NoDriveSpace or DriveOffline and no root is usable.
 
