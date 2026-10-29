@@ -42,6 +42,9 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
     public DbSet<StorageRootRow> StorageRoots => Set<StorageRootRow>();
     public DbSet<WorkFolderRow> WorkFolders => Set<WorkFolderRow>();
     public DbSet<MediaFileRow> MediaFiles => Set<MediaFileRow>();
+    public DbSet<JellyfinJobRow> JellyfinJobs => Set<JellyfinJobRow>();
+    public DbSet<JellyfinLibraryPathRow> JellyfinLibraryPaths => Set<JellyfinLibraryPathRow>();
+    public DbSet<JellyfinSuggestionDismissalRow> JellyfinSuggestionDismissals => Set<JellyfinSuggestionDismissalRow>();
     public DbSet<FileOperationRow> FileOperations => Set<FileOperationRow>();
     public DbSet<FilePathClaimRow> FilePathClaims => Set<FilePathClaimRow>();
     public DbSet<UserRow> Users => Set<UserRow>();
@@ -318,10 +321,29 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_MediaFile_status", "\"status\" IN ('present','offline','missing')");
             table.HasCheckConstraint("CK_MediaFile_version", "\"version\" >= 0");
             table.HasCheckConstraint("CK_MediaFile_role", "role IN ('video','subtitle','audio')");
+            table.HasCheckConstraint("CK_MediaFile_inspectionState", "\"inspectionState\" IN ('pending','unknown','verified','rejected')");
         });
         var mediaFile = modelBuilder.Entity<MediaFileRow>();
         Json(mediaFile.Property(row => row.Tracks));
+        mediaFile.Property(row => row.InspectionState).HasDefaultValue("pending");
         mediaFile.Property(row => row.Version).IsConcurrencyToken();
+        modelBuilder.Entity<JellyfinJobRow>().ToTable("JellyfinJobs", table =>
+        {
+            table.HasCheckConstraint("CK_JellyfinJobs_kind", "\"kind\" IN ('rescan','inspect','matchfix','subtitles')");
+            table.HasCheckConstraint("CK_JellyfinJobs_payloadJson", "json_valid(\"payloadJson\")");
+            table.HasCheckConstraint("CK_JellyfinJobs_attempts", "\"attempts\" >= 0");
+            table.HasCheckConstraint("CK_JellyfinJobs_state", "\"state\" IN ('pending','done','failed')");
+        });
+        var jellyfinJob = modelBuilder.Entity<JellyfinJobRow>();
+        Json(jellyfinJob.Property(row => row.PayloadJson).HasColumnName("payloadJson"));
+        jellyfinJob.HasIndex(row => new { row.State, row.NextAttemptAt }, "IX_JellyfinJobs_state_nextAttemptAt");
+        modelBuilder.Entity<JellyfinLibraryPathRow>().ToTable("JellyfinLibraryPaths");
+        modelBuilder.Entity<JellyfinLibraryPathRow>()
+            .HasIndex(row => new { row.ServerId, row.LibraryItemId, row.ServerPath }, "IX_JellyfinLibraryPaths_serverId_libraryItemId_serverPath")
+            .IsUnique();
+        modelBuilder.Entity<JellyfinSuggestionDismissalRow>().ToTable("JellyfinSuggestionDismissals");
+        modelBuilder.Entity<JellyfinSuggestionDismissalRow>()
+            .HasKey(row => new { row.UserId, row.WorkId, row.Season, row.Episode });
         modelBuilder.Entity<FileOperationRow>().ToTable("FileOperation", table =>
         {
             table.HasCheckConstraint("CK_FileOperation_kind", "\"kind\" IN ('rename','move','copy','delete','import','relocate')");
@@ -572,6 +594,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
                     },
                     nameof(RequestRow.ScopeData) => "scopeJson",
                     nameof(StorageRootRow.LibraryFolders) => "libraryFoldersJson",
+                    nameof(JellyfinJobRow.PayloadJson) => "payloadJson",
                     _ => char.ToLowerInvariant(property.Name[0]) + property.Name[1..] + (json ? "Json" : ""),
                 };
 

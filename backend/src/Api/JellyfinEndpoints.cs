@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
@@ -9,8 +11,12 @@ namespace TorrentFlow.Api;
 
 internal static class JellyfinEndpoints
 {
-    internal static readonly JellyfinWatchState Adapter = new();
+    internal static JellyfinWatchState Adapter { get; private set; } = null!;
+    private static JellyfinClient Client { get; set; } = null!;
     private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static readonly SemaphoreSlim StatusGate = new(1, 1);
+    private static CachedStatus? statusCache;
+
     internal static IResult TitleJson(object value)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -21,16 +27,19 @@ internal static class JellyfinEndpoints
             if (episode!["watchState"] is null) episode.AsObject().Remove("watchState");
         return Results.Json(node, options);
     }
+
     internal static void MapJellyfin(this RouteGroupBuilder group, string directory)
     {
+        Client = JellyfinClient.Create(directory);
+        Adapter = new JellyfinWatchState(Client);
         group.MapGet("/jellyfin", async (TorrentFlowDbContext db, CancellationToken ct) =>
-            Results.Json(Public(await Settings(db, ct))));
+            await Status(db, directory, ct));
         group.MapPut("/jellyfin", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
         {
             await Gate.WaitAsync(ct);
             try
             {
-                var row = await db.Settings.SingleAsync(s => s.Id == "jellyfin", ct);
+                var row = await db.Settings.SingleAsync(setting => setting.Id == "jellyfin", ct);
                 var old = SettingsCatalog.Read<JellyfinSettings>(row);
                 var server = JellyfinWatchState.ValidateUrl(body.GetProperty("serverUrl").GetString());
                 var user = body.GetProperty("userId").GetString()?.Trim();
@@ -45,9 +54,15 @@ internal static class JellyfinEndpoints
                     credential = SecretFiles.Save(directory, key);
                 }
                 if (credential is null) throw new ArgumentException("Enter a Jellyfin API key.");
-                var settings = new JellyfinSettings(server, credential, user);
+                var userMappings = old.UserMappings;
+                if (userMappings.IsEmpty)
+                {
+                    var owner = await db.Users.AsNoTracking().SingleAsync(item => item.Role == UserRole.Owner, ct);
+                    userMappings = [new JellyfinUserMapping(owner.Id, user)];
+                }
+                var settings = old with { ServerUrl = server, Credential = credential, UserId = user, UserMappings = userMappings };
                 await Save(db, row, settings, ct);
-                return Results.Json(Public(settings));
+                return await Status(db, directory, ct);
             }
             finally { Gate.Release(); }
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
@@ -56,13 +71,167 @@ internal static class JellyfinEndpoints
             await Gate.WaitAsync(ct);
             try
             {
-                var row = await db.Settings.SingleAsync(s => s.Id == "jellyfin", ct);
-                var empty = new JellyfinSettings(null, null, null);
-                await Save(db, row, empty, ct);
-                return Results.Json(Public(empty));
+                var row = await db.Settings.SingleAsync(setting => setting.Id == "jellyfin", ct);
+                await Save(db, row, new JellyfinSettings(null, null, null), ct);
+                return await Status(db, directory, ct);
             }
             finally { Gate.Release(); }
         });
+        group.MapPost("/jellyfin/signin", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
+        {
+            var server = JellyfinWatchState.ValidateUrl(body.TryGetProperty("serverUrl", out var serverValue) ?
+                serverValue.GetString() : null);
+            var username = body.TryGetProperty("username", out var usernameValue) ? usernameValue.GetString()?.Trim() : null;
+            var password = body.TryGetProperty("password", out var passwordValue) ? passwordValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(username) || username.Length > 200 || username.Any(char.IsControl) ||
+                string.IsNullOrEmpty(password) || password.Length > 4096 || password.Any(char.IsControl))
+                return Results.BadRequest(new { message = "Enter your Jellyfin username and password." });
+            try
+            {
+                var authentication = await Client.AuthenticateByName(server, username, password, ct);
+                var row = await db.Settings.SingleAsync(setting => setting.Id == "jellyfin", ct);
+                var old = SettingsCatalog.Read<JellyfinSettings>(row);
+                var owner = await db.Users.AsNoTracking().SingleAsync(user => user.Role == UserRole.Owner, ct);
+                var settings = old with
+                {
+                    ServerUrl = server,
+                    Credential = SecretFiles.Save(directory, authentication.AccessToken),
+                    UserId = authentication.User.Id,
+                    ServerId = authentication.ServerId,
+                    UserMappings = old.UserMappings.IsEmpty
+                        ? [new JellyfinUserMapping(owner.Id, authentication.User.Id)]
+                        : old.UserMappings,
+                };
+                await Save(db, row, settings, ct);
+                return await Status(db, directory, ct);
+            }
+            catch (JellyfinException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.Kind == JellyfinErrorKind.Unauthorized ? 401 : 503);
+            }
+        }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
+        group.MapGet("/jellyfin/users", async (TorrentFlowDbContext db, CancellationToken ct) =>
+        {
+            var settings = await Settings(db, ct);
+            var token = SecretFiles.Read(directory, settings.Credential);
+            try
+            {
+                var user = await CurrentUser(settings, token, ct);
+                if (user?.IsAdmin != true)
+                    return Results.Json(new { message = "Sign in with a Jellyfin admin account to choose watch users." }, statusCode: 403);
+                var users = await Client.GetUsers(settings.ServerUrl!, token!, ct);
+                return Results.Json(users.Where(item => !item.IsDisabled)
+                    .Select(item => new { id = item.Id, name = item.Name, isAdmin = item.IsAdmin }));
+            }
+            catch (JellyfinException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.Kind == JellyfinErrorKind.Unauthorized ? 403 : 503);
+            }
+        });
+        group.MapPatch("/jellyfin/options", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
+        {
+            try
+            {
+                var row = await db.Settings.SingleAsync(setting => setting.Id == "jellyfin", ct);
+                var existing = SettingsCatalog.Read<JellyfinSettings>(row);
+                var settings = existing with
+                {
+                    PublicUrl = body.TryGetProperty("publicUrl", out _) ? OptionalString(body, "publicUrl") : existing.PublicUrl,
+                    PathMappings = body.TryGetProperty("pathMappings", out _) ? ReadMappings(body) : existing.PathMappings,
+                    WatchUserIds = body.TryGetProperty("watchUserIds", out _) ? ReadStringArray(body, "watchUserIds") : existing.WatchUserIds,
+                    UserMappings = body.TryGetProperty("userMappings", out _) ? ReadUserMappings(body) : existing.UserMappings,
+                    SyncLibraries = body.TryGetProperty("syncLibraries", out _) ? RequiredBoolean(body, "syncLibraries") : existing.SyncLibraries,
+                    SuggestNextEpisodes = body.TryGetProperty("suggestNextEpisodes", out _)
+                        ? RequiredInteger(body, "suggestNextEpisodes") : existing.SuggestNextEpisodes,
+                    SubtitleLanguages = body.TryGetProperty("subtitleLanguages", out _)
+                        ? ReadStringArray(body, "subtitleLanguages")
+                            .Select(language => language.Trim().ToLowerInvariant()).ToImmutableArray()
+                        : existing.SubtitleLanguages,
+                };
+                var validation = row with { Value = JsonSerializer.SerializeToElement(settings) };
+                SettingsCatalog.Validate(validation);
+                await Save(db, row, settings, ct);
+                return await Status(db, directory, ct);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(16384));
+        group.MapGet("/jellyfin/mappings/suggest", async (TorrentFlowDbContext db, CancellationToken ct) =>
+        {
+            var settings = await Settings(db, ct);
+            var token = SecretFiles.Read(directory, settings.Credential);
+            if (settings.ServerUrl is null || token is null)
+                return Results.Json(new { message = "Connect to Jellyfin before suggesting folder paths." }, statusCode: 400);
+            try
+            {
+                if (!await IsAdmin(settings, token, ct))
+                    return Results.Json(new { message = "Sign in with a Jellyfin admin account to choose watch users." }, statusCode: 403);
+                var folders = await Client.GetVirtualFolders(settings.ServerUrl, token, ct);
+                var locations = folders.SelectMany(folder => folder.Locations).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var roots = await db.StorageRoots.AsNoTracking().OrderBy(root => root.Priority).ToArrayAsync(ct);
+                var mapper = new JellyfinPathMapper(settings.PathMappings);
+                var result = new List<object>();
+                foreach (var root in roots)
+                {
+                    var mappedPath = mapper.ToJellyfin(root.Path);
+                    var exact = locations.FirstOrDefault(location => SamePath(location, mappedPath ?? root.Path));
+                    if (exact is not null)
+                    {
+                        result.Add(new { rootId = root.Id, localPath = root.Path, suggestedJellyfinPath = exact, verified = true });
+                        continue;
+                    }
+                    if (mappedPath is not null && await DirectoryReadable(Client, settings.ServerUrl, token, mappedPath, ct))
+                    {
+                        result.Add(new { rootId = root.Id, localPath = root.Path, suggestedJellyfinPath = mappedPath, verified = true });
+                        continue;
+                    }
+                    var candidate = locations.Select(location => (Location: location, Score: TrailingFolderMatches(root.Path, location)))
+                        .Where(match => match.Score > 0).OrderByDescending(match => match.Score)
+                        .Select(match => match.Location).FirstOrDefault();
+                    var verified = false;
+                    if (candidate is not null)
+                    {
+                        try { verified = await DirectoryReadable(Client, settings.ServerUrl, token, candidate, ct); }
+                        catch (JellyfinException) { }
+                    }
+                    result.Add(new { rootId = root.Id, localPath = root.Path, suggestedJellyfinPath = candidate, verified });
+                }
+                return Results.Json(result);
+            }
+            catch (JellyfinException ex) { return Results.Json(new { message = ex.Message }, statusCode: ex.Kind == JellyfinErrorKind.Unauthorized ? 403 : 503); }
+        });
+        group.MapPost("/jellyfin/mappings/verify", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
+        {
+            var localPath = OptionalString(body, "localPath");
+            var jellyfinPath = OptionalString(body, "jellyfinPath");
+            if (string.IsNullOrWhiteSpace(localPath) || string.IsNullOrWhiteSpace(jellyfinPath))
+                return Results.BadRequest(new { ok = false, message = "Enter both folder paths." });
+            var settings = await Settings(db, ct);
+            var token = SecretFiles.Read(directory, settings.Credential);
+            if (settings.ServerUrl is null || token is null)
+                return Results.Json(new { ok = false, message = "Connect to Jellyfin before checking a folder." }, statusCode: 400);
+            try
+            {
+                if (!await IsAdmin(settings, token, ct))
+                    return Results.Json(new { ok = false, message = "Sign in with a Jellyfin admin account to check folder paths." }, statusCode: 403);
+                var mapper = new JellyfinPathMapper([new JellyfinPathMapping(localPath, jellyfinPath)]);
+                var mapped = mapper.ToJellyfin(localPath);
+                var exists = mapped is not null && await DirectoryReadable(Client, settings.ServerUrl, token, mapped, ct);
+                return Results.Json(new
+                {
+                    ok = exists,
+                    message = exists ? "Jellyfin can see this folder." : "Jellyfin could not find this folder. Check the path and try again.",
+                });
+            }
+            catch (JellyfinException ex)
+            {
+                if (ex.Kind == JellyfinErrorKind.NotFound)
+                    return Results.Json(new { ok = false, message = "Jellyfin could not find this folder. Check the path and try again." });
+                return Results.Json(new { ok = false, message = ex.Message }, statusCode: ex.Kind == JellyfinErrorKind.Unauthorized ? 403 : 503);
+            }
+        }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
         group.MapPost("/jellyfin/test", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
         {
             var saved = await Settings(db, ct);
@@ -77,35 +246,176 @@ internal static class JellyfinEndpoints
                 "Connected to Jellyfin." : "Could not connect to Jellyfin. Check the server URL, API key and user." });
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
     }
+
     internal static async Task<JellyfinTitleState?> ReadTitle(HttpContext h, TorrentFlowDbContext db, WorkSnapshot work,
-        System.Collections.Immutable.ImmutableArray<MediaFileRow> files, CancellationToken ct)
+        ImmutableArray<MediaFileRow> files, CancellationToken ct)
     {
         var settings = await Settings(db, ct);
         return await Adapter.ReadAsync(settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), work, files, ct);
     }
-    internal static async Task<System.Collections.Immutable.ImmutableDictionary<string, JellyfinTitleState>>
+
+    internal static async Task<ImmutableDictionary<string, JellyfinTitleState>>
         ReadLibrary(HttpContext h, TorrentFlowDbContext db, IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
     {
         var settings = await Settings(db, ct);
         return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
     }
+
     internal static async Task<JellyfinBatchRead> ReadCleanup(HttpContext h, TorrentFlowDbContext db,
-        IEnumerable<(WorkSnapshot Work, System.Collections.Immutable.ImmutableArray<MediaFileRow> Files)> works,
-        CancellationToken ct)
+        IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct)
     {
         var settings = await Settings(db, ct);
         var key = SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential);
         return await Adapter.ReadBatchWithStatusAsync(settings, key, works, ct);
     }
-    private static async Task<JellyfinSettings> Settings(TorrentFlowDbContext db, CancellationToken ct) =>
-        SettingsCatalog.Read<JellyfinSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "jellyfin", ct));
-    private static object Public(JellyfinSettings settings) => new
+
+    private static async Task<IResult> Status(TorrentFlowDbContext db, string directory, CancellationToken ct)
     {
-        settings.ServerUrl, settings.UserId, configured = settings.Credential is not null,
-    };
+        var settings = await Settings(db, ct);
+        var credential = SecretFiles.Read(directory, settings.Credential);
+        var connection = await CheckConnection(settings, credential, ct);
+        var userName = connection.User?.Name;
+        var isAdmin = connection.User?.IsAdmin ?? false;
+        return Results.Json(new
+        {
+            settings.ServerUrl,
+            settings.UserId,
+            configured = settings.Credential is not null,
+            userName,
+            isAdmin,
+            settings.ServerId,
+            serverName = connection.ServerName,
+            publicUrl = settings.PublicUrl ?? settings.ServerUrl,
+            pathMappings = settings.PathMappings,
+            watchUserIds = settings.WatchUserIds,
+            userMappings = settings.UserMappings,
+            syncLibraries = settings.SyncLibraries,
+            suggestNextEpisodes = settings.SuggestNextEpisodes,
+            subtitleLanguages = settings.SubtitleLanguages,
+            connection = connection.State,
+            message = connection.State switch
+            {
+                "ok" => "Connected to Jellyfin.",
+                "unreachable" => "Jellyfin did not answer. Check it is running and the address is right.",
+                "unauthorized" => "Jellyfin did not allow this request. Check the account and its permissions.",
+                _ => "Connect to Jellyfin to use this feature.",
+            },
+        });
+    }
+
+    private static async Task<ConnectionStatus> CheckConnection(JellyfinSettings settings, string? token, CancellationToken ct)
+    {
+        if (settings.ServerUrl is null || token is null)
+            return new("notConfigured", null, null);
+        var key = settings.ServerUrl + "|" + settings.Credential?.FileId + "|" + settings.Credential?.Revision;
+        var cached = statusCache;
+        if (cached is not null && cached.Key == key && cached.ExpiresAt > DateTimeOffset.UtcNow)
+            return cached.Status;
+        await StatusGate.WaitAsync(ct);
+        try
+        {
+            cached = statusCache;
+            if (cached is not null && cached.Key == key && cached.ExpiresAt > DateTimeOffset.UtcNow)
+                return cached.Status;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(1500));
+            ConnectionStatus status;
+            try
+            {
+                var publicInfo = await Client.GetPublicSystemInfo(settings.ServerUrl, timeout.Token);
+                var user = await CurrentUser(settings, token, timeout.Token);
+                var serverName = publicInfo.TryGetProperty("ServerName", out var name) ? name.GetString() : null;
+                status = new("ok", user, serverName);
+            }
+            catch (JellyfinException ex)
+            {
+                status = new(ex.Kind == JellyfinErrorKind.Unauthorized ? "unauthorized" : "unreachable", null, null);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                status = new("unreachable", null, null);
+            }
+            statusCache = new CachedStatus(key, status, DateTimeOffset.UtcNow.AddSeconds(30));
+            return status;
+        }
+        finally { StatusGate.Release(); }
+    }
+
+    private static async Task<JellyfinUser?> CurrentUser(JellyfinSettings settings, string? token, CancellationToken ct)
+    {
+        if (settings.ServerUrl is null || token is null) return null;
+        var user = await Client.GetCurrentUser(settings.ServerUrl, token, ct);
+        return user ?? (settings.UserId is null ? null : await Client.GetUser(settings.ServerUrl, token, settings.UserId, ct));
+    }
+
+    private static async Task<bool> DirectoryReadable(JellyfinClient client, string server, string token,
+        string path, CancellationToken ct)
+    {
+        await client.GetDirectoryContents(server, token, path, ct);
+        return true;
+    }
+
+    private static async Task<bool> IsAdmin(JellyfinSettings settings, string token, CancellationToken ct) =>
+        (await CurrentUser(settings, token, ct))?.IsAdmin == true;
+
+    private static bool SamePath(string first, string second) => JellyfinPathMapper.PathsEqual(first, second);
+
+    private static string Leaf(string path) => path.TrimEnd('\\', '/').Split(['\\', '/']).LastOrDefault() ?? "";
+
+    private static int TrailingFolderMatches(string first, string second)
+    {
+        var left = first.TrimEnd('\\', '/').Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        var right = second.TrimEnd('\\', '/').Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        var count = 0;
+        while (count < left.Length && count < right.Length &&
+            string.Equals(left[^(count + 1)], right[^(count + 1)], StringComparison.OrdinalIgnoreCase)) count++;
+        return count;
+    }
+
+    private static string? OptionalString(JsonElement body, string name) =>
+        body.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value.GetString()?.Trim() : null;
+
+    private static ImmutableArray<JellyfinPathMapping> ReadMappings(JsonElement body)
+    {
+        if (!body.TryGetProperty("pathMappings", out var mappings) || mappings.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("Send a list of folder path mappings.");
+        return [.. mappings.EnumerateArray().Select(mapping => new JellyfinPathMapping(
+            mapping.GetProperty("from").GetString()?.Trim() ?? "",
+            mapping.GetProperty("to").GetString()?.Trim() ?? ""))];
+    }
+
+    private static ImmutableArray<string> ReadStringArray(JsonElement body, string name)
+    {
+        if (!body.TryGetProperty(name, out var values) || values.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException($"Send a list for {name}.");
+        return [.. values.EnumerateArray().Select(value =>
+            value.ValueKind == JsonValueKind.String ? value.GetString()?.Trim() ?? "" :
+            throw new ArgumentException($"Every {name} entry must be text."))];
+    }
+
+    private static ImmutableArray<JellyfinUserMapping> ReadUserMappings(JsonElement body)
+    {
+        if (!body.TryGetProperty("userMappings", out var mappings) || mappings.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("Send a list of TorrentFlow and Jellyfin user mappings.");
+        return [.. mappings.EnumerateArray().Select(mapping => new JellyfinUserMapping(
+            mapping.GetProperty("torrentFlowUserId").GetString()?.Trim() ?? "",
+            mapping.GetProperty("jellyfinUserId").GetString()?.Trim() ?? ""))];
+    }
+
+    private static bool RequiredBoolean(JsonElement body, string name) =>
+        body.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean() : throw new ArgumentException($"Choose whether {name} is on or off.");
+
+    private static int RequiredInteger(JsonElement body, string name) =>
+        body.TryGetProperty(name, out var value) && value.TryGetInt32(out var result)
+            ? result : throw new ArgumentException($"Choose a whole number for {name}.");
+
+    private static async Task<JellyfinSettings> Settings(TorrentFlowDbContext db, CancellationToken ct) =>
+        SettingsCatalog.Read<JellyfinSettings>(await db.Settings.AsNoTracking().SingleAsync(setting => setting.Id == "jellyfin", ct));
+
     private static async Task Save(TorrentFlowDbContext db, SettingRow row, JellyfinSettings settings, CancellationToken ct)
     {
         var next = row with { Value = JsonSerializer.SerializeToElement(settings),
@@ -115,5 +425,9 @@ internal static class JellyfinEndpoints
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
         Adapter.Invalidate();
+        statusCache = null;
     }
+
+    private sealed record ConnectionStatus(string State, JellyfinUser? User, string? ServerName);
+    private sealed record CachedStatus(string Key, ConnectionStatus Status, DateTimeOffset ExpiresAt);
 }

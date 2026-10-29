@@ -16,10 +16,11 @@ public sealed record JellyfinBatchRead(string Status,
 /// <summary>Read-only Jellyfin adapter. No playback writes or inferred local watch history.</summary>
 public sealed class JellyfinWatchState
 {
-    private readonly HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private readonly JellyfinClient client;
     private readonly SemaphoreSlim gate = new(1, 1);
     private MetadataCacheRow? cache;
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+    public JellyfinWatchState(JellyfinClient client) => this.client = client;
     public void Invalidate() => Interlocked.Exchange(ref cache, null);
 
     public static string ValidateUrl(string? value)
@@ -39,11 +40,9 @@ public sealed class JellyfinWatchState
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
         try
         {
-            await GetAsync<JsonElement>(settings.ServerUrl, key,
-                "Users/" + Uri.EscapeDataString(settings.UserId), deadline.Token);
-            return true;
+            return await client.GetUser(settings.ServerUrl, key, settings.UserId, deadline.Token) is not null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is JellyfinException or OperationCanceledException or JsonException or ArgumentException)
         { return false; }
     }
 
@@ -78,27 +77,33 @@ public sealed class JellyfinWatchState
             {
                 var items = new List<Item>();
                 var start = 0;
-                Page page;
+                JellyfinItemsResult page;
                 do
                 {
-                    page = await GetAsync<Page>(server, key, "Items?UserId=" + Uri.EscapeDataString(settings.UserId)
-                        + "&Recursive=true&IncludeItemTypes=Movie,Episode,Series&Fields=ProviderIds,Path,UserData&EnableUserData=true"
-                        + "&Limit=1000&StartIndex=" + start, deadline.Token);
-                    items.AddRange(page.Items);
+                    page = await client.GetItems(server, key, new JellyfinItemQuery
+                    {
+                        UserId = settings.UserId,
+                        Recursive = true,
+                        IncludeItemTypes = ["Movie", "Episode", "Series"],
+                        Fields = ["ProviderIds", "Path", "UserData"],
+                        EnableUserData = true,
+                        Limit = 1000,
+                        StartIndex = start,
+                    }, deadline.Token);
+                    items.AddRange(page.Items.Select(Map));
                     start += page.Items.Length;
                 } while (page.Items.Length > 0 && start < page.TotalRecordCount && start < 100000);
                 if (start < page.TotalRecordCount)
                     return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
-                var next = await GetAsync<Page>(server, key, "Shows/NextUp?UserId=" +
-                    Uri.EscapeDataString(settings.UserId) + "&Fields=ProviderIds,Path,UserData&EnableUserData=true&Limit=1000",
-                    deadline.Token);
+                var next = await client.GetNextUp(server, key, settings.UserId, 1000,
+                    fields: ["ProviderIds", "Path", "UserData"], ct: deadline.Token);
                 var now = DateTimeOffset.UtcNow;
                 snapshot = new MetadataCacheRow
                 {
                     Id = "jellyfin-state",
                     Kind = CacheKind.JellyfinState,
                     CacheKey = cacheKey,
-                    Payload = JsonSerializer.SerializeToElement(new Snapshot([.. items], next.Items)),
+                    Payload = JsonSerializer.SerializeToElement(new Snapshot([.. items], [.. next.Items.Select(Map)])),
                     FetchedAt = now,
                     ExpiresAt = now.AddSeconds(15),
                     Etag = null,
@@ -115,11 +120,11 @@ public sealed class JellyfinWatchState
             foreach (var (work, files) in works)
             {
                 deadline.Token.ThrowIfCancellationRequested();
-                result[work.Work.Id] = Project(data, work, files);
+                result[work.Work.Id] = Project(data, work, files, new JellyfinPathMapper(settings.PathMappings));
             }
             return new("ok", result.ToImmutable());
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is JellyfinException or OperationCanceledException or JsonException or ArgumentException)
         {
             if (locked && cacheKey is not null && !ct.IsCancellationRequested)
             {
@@ -143,12 +148,13 @@ public sealed class JellyfinWatchState
         finally { if (locked) gate.Release(); }
     }
 
-    private static JellyfinTitleState Project(Snapshot data, WorkSnapshot work, ImmutableArray<MediaFileRow> files)
+    private static JellyfinTitleState Project(Snapshot data, WorkSnapshot work, ImmutableArray<MediaFileRow> files,
+        JellyfinPathMapper mapper)
     {
-        var series = Unique(data.Items.Where(i => i.Type == "Series" && ProviderMatch(i, work.Links)));
+        var series = Unique(data.Items.Where(i => i.Type == "Series" && IsOwned(i) && ProviderMatch(i, work.Links)));
         Item? Match(EpisodeRow? episode)
         {
-            var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode")).ToArray();
+            var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode") && IsOwned(i)).ToArray();
             var byId = episode is null ? candidates.Where(i => ProviderMatch(i, work.Links)) :
                 candidates.Where(i => EpisodeProviderMatch(i, episode) || series is not null &&
                     i.SeriesId == series.Id && i.IndexNumber == episode.Number &&
@@ -157,8 +163,9 @@ public sealed class JellyfinWatchState
             if (identified is not null) return identified;
             // A conflicting provider match is not made less ambiguous by a filesystem guess.
             if (byId.Any()) return null;
-            var paths = files.Where(f => f.EpisodeId == episode?.Id).Select(f => NormalizePath(f.Path)).ToHashSet();
-            return Unique(candidates.Where(i => i.Path is not null && paths.Contains(NormalizePath(i.Path))));
+            var paths = files.Where(f => f.EpisodeId == episode?.Id).Select(file => mapper.ToJellyfin(file.Path))
+                .Where(path => path is not null).ToArray();
+            return Unique(candidates.Where(item => item.Path is not null && paths.Any(path => JellyfinPathMapper.PathsEqual(path!, item.Path))));
         }
         var episodes = ImmutableDictionary.CreateBuilder<string, JellyfinProgress>();
         JellyfinNextEpisode? nextUp = null;
@@ -177,17 +184,11 @@ public sealed class JellyfinWatchState
         return new(film?.UserData is null ? null : Progress(film), episodes.ToImmutable(), nextUp);
     }
 
-    private async Task<T> GetAsync<T>(string server, string key, string path, CancellationToken ct)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, ValidateUrl(server) + "/" + path);
-        request.Headers.Authorization = new("MediaBrowser",
-            "Client=\"TorrentFlow\", Device=\"Server\", DeviceId=\"TorrentFlow\", Version=\"0.2\", Token=\"" +
-            key.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        return await JsonSerializer.DeserializeAsync<T>(stream, Json, ct) ?? throw new JsonException();
-    }
+    private static Item Map(JellyfinItemDto item) => new(item.Id ?? "", item.Type ?? "", item.Path,
+        item.ProviderIds, item.SeriesId, item.ParentIndexNumber, item.IndexNumber,
+        item.RunTimeTicks ?? 0, item.UserData is null ? null : new UserData(item.UserData.Played,
+            item.UserData.PlaybackPositionTicks, item.UserData.LastPlayedDate), item.LocationType);
+    private static bool IsOwned(Item item) => !string.Equals(item.LocationType, "Virtual", StringComparison.OrdinalIgnoreCase);
     private static Item? Unique(IEnumerable<Item> source)
     {
         var matches = source.Take(2).ToArray();
@@ -202,14 +203,13 @@ public sealed class JellyfinWatchState
         provider.ToLowerInvariant() is "tmdb" or "tvdb" or "imdb" &&
         item.ProviderIds?.Any(pair => pair.Key.Equals(provider, StringComparison.OrdinalIgnoreCase) &&
             pair.Value.Equals(id, StringComparison.OrdinalIgnoreCase)) == true;
-    private static string NormalizePath(string path) => path.Replace('/', '\\').TrimEnd('\\').ToUpperInvariant();
     private static JellyfinProgress Progress(Item item) => new(item.UserData!.Played,
         !item.UserData.Played && item.UserData.PlaybackPositionTicks > 0 && item.RunTimeTicks > 0
             ? Math.Clamp(100d * item.UserData.PlaybackPositionTicks / item.RunTimeTicks, 0, 100) : null,
         item.UserData.LastPlayedDate);
-    private sealed record Page(Item[] Items, int TotalRecordCount);
     private sealed record Snapshot(Item[] Items, Item[] Next);
     private sealed record Item(string Id, string Type, string? Path, Dictionary<string, string>? ProviderIds,
-        string? SeriesId, int? ParentIndexNumber, int? IndexNumber, long RunTimeTicks, UserData? UserData);
+        string? SeriesId, int? ParentIndexNumber, int? IndexNumber, long RunTimeTicks, UserData? UserData,
+        string? LocationType);
     private sealed record UserData(bool Played, long PlaybackPositionTicks, DateTimeOffset? LastPlayedDate);
 }
