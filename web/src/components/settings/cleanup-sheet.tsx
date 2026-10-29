@@ -101,17 +101,23 @@ export function CleanupSheet({
   async function remove() {
     setDeleting(true);
     const failed: string[] = [];
+    let freed = 0;
+    let done = 0;
     for (const item of chosen) {
       try {
-        await deleteCleanupItem(item, scope);
+        const result = await deleteCleanupItem(item, scope);
+        freed += result.freedBytes;
+        if (result.failedFiles > 0)
+          failed.push(`Some files in ${item.title} could not be deleted. Close any player using them and try again.`);
+        else done += 1;
       } catch (error) {
         failed.push((error as Error).message);
       }
     }
     setDeleting(false);
     setConfirming(false);
-    const done = chosen.length - failed.length;
-    if (done > 0) toast.success(`Deleted ${done} ${done === 1 ? "title" : "titles"}. ${formatBytes(total) ?? ""} freed.`.trim());
+    if (done > 0 || freed > 0)
+      toast.success(`Freed ${formatBytes(freed) ?? "0 B"}${done > 0 ? ` from ${done} ${done === 1 ? "title" : "titles"}` : ""}.`);
     if (failed.length > 0) toast.error(failed.join(" "));
     onDeleted?.();
     void load();

@@ -103,17 +103,34 @@ export function StorageLocations() {
   const isPhone = useMediaQuery("(max-width: 767px)");
   const reorderable = roots.length > 1;
 
-  async function saveOrder(next: StorageRoot[], previous: StorageRoot[]) {
+  const orderWrites = useRef<Promise<void>>(Promise.resolve());
+
+  // Writes run one at a time in the order made, so the last move always wins. Polling stays paused
+  // until the queue drains; a failure reloads the saved order instead of rolling back to a stale copy.
+  function saveOrder(next: StorageRoot[], previous: StorageRoot[]) {
     if (sameOrder(next, previous)) return;
     setRoots(next);
-    const saved = await run(() => reorderStorageRoots(next.map((root) => root.id)));
-    if (!saved) setRoots(previous);
+    pending.current += 1;
+    const ids = next.map((root) => root.id);
+    orderWrites.current = orderWrites.current.then(async () => {
+      try {
+        await reorderStorageRoots(ids);
+      } catch (error) {
+        toast.error((error as Error).message);
+      } finally {
+        pending.current -= 1;
+      }
+      if (pending.current === 0) await refresh();
+    });
   }
 
   function moveBy(index: number, delta: number) {
     const target = index + delta;
-    if (target < 0 || target >= roots.length) return;
-    void saveOrder(move(roots, index, target), roots);
+    const current = latest.current;
+    if (target < 0 || target >= current.length) return;
+    const next = move(current, index, target);
+    latest.current = next;
+    saveOrder(next, current);
   }
 
   if (load.status === "loading" && roots.length === 0) {

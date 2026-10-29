@@ -28,7 +28,7 @@ const GB = 1024 ** 3;
 const ALL_KINDS = LIBRARY_KINDS.map((entry) => entry.kind);
 
 function toGb(bytes: number | null) {
-  return bytes && bytes > 0 ? String(Math.round(bytes / GB)) : "";
+  return bytes && bytes > 0 ? String(Math.max(Number((bytes / GB).toFixed(2)), 0.01)) : "";
 }
 
 function toBytes(value: string): number | null {
@@ -65,8 +65,10 @@ export function StorageLocationDialog({
     setUseAtMost(toGb(root?.maxAllocatedBytes ?? null));
   }, [target, root]);
 
-  const reserve = toBytes(keepFree);
-  const cap = toBytes(useAtMost);
+  const reserveSetting = root?.reserveSetting ?? null;
+  const maxAllocated = root?.maxAllocatedBytes ?? null;
+  const reserve = root && keepFree === toGb(reserveSetting) ? (reserveSetting || null) : toBytes(keepFree);
+  const cap = root && useAtMost === toGb(maxAllocated) ? maxAllocated : toBytes(useAtMost);
   const invalid =
     kinds.length === 0 || Number.isNaN(reserve) || Number.isNaN(cap) || (!root && !path.trim());
 
@@ -88,15 +90,7 @@ export function StorageLocationDialog({
         });
         return;
       }
-      const added = await addStorageRoot(path.trim(), kinds);
-      if (added && (reserve !== null || cap !== null)) {
-        await updateStorageRoot(added, {
-          kinds,
-          reserveBytes: reserve ?? 0,
-          maxAllocatedBytes: cap,
-          enabled: true,
-        });
-      }
+      await addStorageRoot(path.trim(), kinds, reserve ?? 0, cap);
       toast.success(`Added ${path.trim()}`);
     });
     setSaving(false);

@@ -71,8 +71,8 @@ export async function listStorageRoots(): Promise<StorageRoot[]> {
   return [...response.data.roots].sort((a, b) => a.priority - b.priority);
 }
 
-export function addStorageRoot(path: string, kinds: LibraryKind[]) {
-  return rootCall("/api/library/roots", "POST", { path, kinds, reserveBytes: 0 });
+export function addStorageRoot(path: string, kinds: LibraryKind[], reserveBytes = 0, maxAllocatedBytes: number | null = null) {
+  return rootCall("/api/library/roots", "POST", { path, kinds, reserveBytes, maxAllocatedBytes });
 }
 
 export function updateStorageRoot(root: StorageRoot, edit: StorageRootEdit) {
@@ -123,11 +123,23 @@ export async function listCleanup(): Promise<{ jellyfin: CleanupAvailability; it
 
 export type CleanupScope = "watched" | "whole";
 
-export async function deleteCleanupItem(item: CleanupItem, scope: CleanupScope): Promise<void> {
+export interface CleanupDeleteResult {
+  freedBytes: number;
+  failedFiles: number;
+}
+
+export async function deleteCleanupItem(item: CleanupItem, scope: CleanupScope): Promise<CleanupDeleteResult> {
   const body =
     item.kind === "series" && scope === "watched"
       ? { workId: item.workId, scope: "episodes", episodeIds: item.watchedEpisodeIds, confirm: true }
       : { workId: item.workId, scope: "show", confirm: true };
-  const response = await send("/api/library/delete", { method: "POST", body });
-  if (response.error) throw new Error(failureMessage(response.data, `Could not delete ${item.title}.`));
+  const response = await send<{ ok?: boolean; freedBytes?: number; failed?: unknown[] }>("/api/library/delete", {
+    method: "POST",
+    body,
+  });
+  if (response.error || !response.data) throw new Error(failureMessage(response.data, `Could not delete ${item.title}.`));
+  return {
+    freedBytes: response.data.freedBytes ?? 0,
+    failedFiles: response.data.ok === false ? Math.max(response.data.failed?.length ?? 0, 1) : 0,
+  };
 }
