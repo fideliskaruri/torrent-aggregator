@@ -112,7 +112,7 @@ public sealed partial class TargetPipeline
 
     private async Task<TargetRow?> ChangeAsync(string id, string? token, TargetState state, CancellationToken ct,
         WaitReason? reason = null, string? text = null, string? chosen = null, string? newLease = null,
-        long? expectedVersion = null)
+        long? expectedVersion = null, TimeSpan? retryDelay = null)
     {
         await stateGate.WaitAsync(ct);
         try
@@ -134,12 +134,19 @@ public sealed partial class TargetPipeline
             }
             if (!Allowed(old.State, state)) return null;
             var now = DateTimeOffset.UtcNow;
+            var recentSeederWaits = state == TargetState.Waiting && reason == WaitReason.WaitingForSeeders &&
+                old.Origin is IntentOrigin.Owner or IntentOrigin.Request
+                ? (await store.ListAsync<AttemptRow>(attempt => attempt.TargetId == id &&
+                    attempt.Kind == AttemptKind.LegacyEvent && attempt.Outcome == "Waiting" &&
+                    attempt.ReasonCode == WaitReason.WaitingForSeeders.ToString() &&
+                    attempt.StartedAt >= now.AddDays(-7), ct)).Length
+                : 0;
             var next = old with { State = state, ReasonCode = reason, ReasonText = text,
                 ResumeState = state == TargetState.Waiting ? reason == WaitReason.DriveOffline
                     ? TargetState.Fetching : old.State is TargetState.Filing or TargetState.Fetching
                         ? old.State : TargetState.Wanted : null,
                 NextTryAt = state == TargetState.Waiting && reason != WaitReason.PlacementBlocked
-                    ? NextTry(old, reason, now) : null,
+                    ? retryDelay is { } delay ? now.Add(delay) : NextTry(old, reason, now, recentSeederWaits) : null,
                 ChosenReleaseHash = state == TargetState.Wanted ? null : chosen ?? old.ChosenReleaseHash,
                 SubstantiveMisses = old.SubstantiveMisses + (state == TargetState.Waiting &&
                     reason is WaitReason.NoResults or WaitReason.RejectedCandidates or WaitReason.NoHealthyRelease ? 1 : 0),
@@ -218,16 +225,25 @@ public sealed partial class TargetPipeline
         _ => false,
     };
 
-    internal static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now)
+    internal static DateTimeOffset NextTry(TargetRow row, WaitReason? reason, DateTimeOffset now,
+        int recentWaitingForSeederAttempts = 0)
     {
         if (row.Origin == IntentOrigin.Owner &&
             reason is WaitReason.NoResults or WaitReason.RejectedCandidates)
         {
             var multiplier = 1 << Math.Clamp(row.SubstantiveMisses, 0, 7);
-            return now.AddMinutes(Math.Min(24 * 60, 10 * multiplier));
+            return now.AddMinutes(Math.Min(2 * 60, 10 * multiplier));
         }
         if (reason is WaitReason.FileBusy or WaitReason.DownloadCap or WaitReason.NoDriveSpace or WaitReason.DriveOffline)
             return now.AddMinutes(5);
+        if (reason == WaitReason.WaitingForSeeders &&
+            row.Origin is IntentOrigin.Owner or IntentOrigin.Request)
+            return now.AddMinutes(recentWaitingForSeederAttempts switch
+            {
+                <= 0 => 2,
+                1 => 5,
+                _ => 10,
+            });
         // Metadata timeouts and source errors are about the network right now, not about how old the title is.
         if (reason is WaitReason.WaitingForSeeders or WaitReason.SourceFailure or WaitReason.MetadataUnavailable)
             return now.AddMinutes(row.Origin is IntentOrigin.Owner or IntentOrigin.Request ? 10 : 45);

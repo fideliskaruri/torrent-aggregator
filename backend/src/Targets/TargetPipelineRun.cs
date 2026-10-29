@@ -179,7 +179,8 @@ public sealed partial class TargetPipeline
                     if (candidate.Release.Files is not { } files)
                     {
                         foreach (var row in assigned) await ChangeAsync(row.Id, token, TargetState.Waiting,
-                            lifetime.Token, WaitReason.WaitingForSeeders, assignment.Reason, chosen: assignment.Hash);
+                            lifetime.Token, WaitReason.WaitingForSeeders,
+                            "No seeders yet, checking again soon", chosen: assignment.Hash);
                         continue;
                     }
                     if (!await CanRunAsync(lifetime.Token)) continue;
@@ -192,12 +193,15 @@ public sealed partial class TargetPipeline
                 {
                     var rejection = result.Plan.Rejections.FirstOrDefault(r => r.TargetId == row.Id &&
                         r.Code != "uncovered_item");
-                    var waitReason = result.Find.Candidates.IsEmpty ? WaitReason.NoResults :
+                    var waitReason = result.MetadataTimedOut ? WaitReason.MetadataUnavailable :
+                        result.Find.Candidates.IsEmpty ? WaitReason.NoResults :
                         result.WaitingForSeeders ? WaitReason.WaitingForSeeders : WaitReason.RejectedCandidates;
-                    await WaitAsync(row, token, waitReason, rejection?.Explanation ??
-                        (waitReason == WaitReason.WaitingForSeeders
-                            ? "Waiting for a seed or for torrent metadata to become available."
-                            : "No eligible source covers this item. Trying again later."), lifetime.Token);
+                    var text = result.MetadataTimedOut ? "Reading the torrent's file list" :
+                        rejection?.Explanation ?? (waitReason == WaitReason.WaitingForSeeders
+                            ? "No seeders yet, checking again soon"
+                            : "No eligible source covers this item. Trying again later.");
+                    await WaitAsync(row, token, waitReason, text, lifetime.Token,
+                        result.MetadataTimedOut ? TimeSpan.FromSeconds(15) : null);
                 }
             }
             finally
@@ -230,8 +234,9 @@ public sealed partial class TargetPipeline
         }
     }
 
-    private Task<TargetRow?> WaitAsync(TargetRow row, string token, WaitReason reason, string text, CancellationToken ct) =>
-        ChangeAsync(row.Id, token, TargetState.Waiting, ct, reason, text);
+    private Task<TargetRow?> WaitAsync(TargetRow row, string token, WaitReason reason, string text,
+        CancellationToken ct, TimeSpan? retryDelay = null) =>
+        ChangeAsync(row.Id, token, TargetState.Waiting, ct, reason, text, retryDelay: retryDelay);
 
     private async Task ChangeTransferAsync(string id, TargetState state, WaitReason? reason, string? text, CancellationToken ct)
     {

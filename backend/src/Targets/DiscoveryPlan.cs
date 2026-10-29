@@ -4,7 +4,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Targets;
 
-public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
+public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, ProbeRegistry probes)
 {
     private const int MetadataBatchSize = 3;
 
@@ -57,6 +57,10 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
         var attachments = new Dictionary<string, ProbeHandle>(StringComparer.OrdinalIgnoreCase);
         var attemptedMetadata = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var timedOut = false;
+        var metadataDeadline = (DateTimeOffset?)null;
+        var metadataWait = targets.Any(t => t.Origin is IntentOrigin.Owner or IntentOrigin.Request)
+            ? TimeSpan.FromSeconds(12) : TimeSpan.FromSeconds(60);
+        var pendingProbes = new Dictionary<ProbeTicket, Candidate>();
         PlanResult plan = new([], [], [.. targets.Select(t => t.Id)]);
         var shortlist = planner.Shortlist(input);
         var remainingProbeBudget = Math.Clamp(3 * Math.Max(targets.Length, 1), 6, 24);
@@ -141,7 +145,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             if (!waitingForSeeders && plan.Assignments.IsEmpty && plan.Rejections.IsEmpty && !shortlist.Rejections.IsEmpty)
                 plan = plan with { Rejections = shortlist.Rejections };
             return new(found, plan, attachments.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase),
-                waitingForSeeders);
+                waitingForSeeders, timedOut);
         }
         catch
         {
@@ -157,44 +161,144 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
                          c.Release.Files is { } files && !files.IsDefaultOrEmpty))
                 candidateFiles[candidate.Release.Id] = candidate;
 
-            var ready = ranked.Where(c => candidateFiles.ContainsKey(c.Release.Id))
-                .Select(c => candidateFiles[c.Release.Id]).ToImmutableArray();
-            var currentPlan = ready.IsEmpty
-                ? new PlanResult([], [], [.. targets.Select(t => t.Id)])
-                : planner.Choose(input with { Pool = ready });
-            var remaining = ranked.Where(c => (c.TrustedSeeders is > 0 ||
-                targets.All(t => t.PickedReleaseHash == c.Release.Id)) &&
-                !candidateFiles.ContainsKey(c.Release.Id) &&
-                !attemptedMetadata.Contains(c.Release.Id)).ToList();
-            while (remaining.Count > 0 && remainingProbeBudget > 0 && currentPlan.UncoveredTargetIds.Length > 0)
+            var remaining = ranked.Where(NeedsMetadata).ToList();
+            var currentPlan = PlanReady(ranked);
+            try
             {
-                var uncovered = currentPlan.UncoveredTargetIds.ToHashSet(StringComparer.Ordinal);
-                var batch = remaining.Select((candidate, index) =>
-                        (Candidate: candidate, Index: index, Coverage: CoverageCount(candidate, uncovered)))
-                    .OrderByDescending(item => item.Coverage).ThenBy(item => item.Index)
-                    .Take(Math.Min(MetadataBatchSize, remainingProbeBudget)).Select(item => item.Candidate).ToArray();
-                var batchIds = batch.Select(candidate => candidate.Release.Id)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                remaining.RemoveAll(candidate => batchIds.Contains(candidate.Release.Id));
-                attemptedMetadata.UnionWith(batchIds);
-                remainingProbeBudget -= batch.Length;
-                var results = await Task.WhenAll(batch.Select(FetchMetadata));
-                foreach (var result in results)
+                while (true)
                 {
-                    timedOut |= result.TimedOut;
-                    if (result.Candidate is { } candidate)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!currentPlan.Assignments.IsEmpty && currentPlan.UncoveredTargetIds.IsEmpty &&
+                        !HasHigherPendingCandidate(ranked, currentPlan))
+                        break;
+
+                    LaunchProbes(remaining, ranked, currentPlan);
+                    if (pendingProbes.Count == 0) break;
+
+                    var wait = metadataDeadline!.Value - DateTimeOffset.UtcNow;
+                    if (wait <= TimeSpan.Zero)
                     {
-                        candidateFiles[candidate.Release.Id] = candidate;
-                        pool[candidate.Release.Id] = pool.TryGetValue(candidate.Release.Id, out var prior)
-                            ? Merge(prior, candidate) : candidate;
-                        if (result.Handle is { } handle) attachments[candidate.Release.Id] = handle;
+                        timedOut = true;
+                        break;
                     }
+
+                    var timer = Task.Delay(wait, cancellationToken);
+                    var completed = await Task.WhenAny(pendingProbes.Keys.Select(ticket => (Task)ticket.Completion)
+                        .Append(timer));
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (completed == timer)
+                    {
+                        timedOut = pendingProbes.Count > 0;
+                        break;
+                    }
+
+                    var ticket = pendingProbes.Keys.First(key => ReferenceEquals(key.Completion, completed));
+                    var candidate = pendingProbes[ticket];
+                    pendingProbes.Remove(ticket);
+                    var attachment = await probes.TakeAsync(ticket);
+                    timedOut |= attachment.Failure?.Code.Contains("timeout", StringComparison.OrdinalIgnoreCase) == true;
+                    if (attachment.Files is { } files && !files.IsDefaultOrEmpty)
+                    {
+                        var updated = candidate with
+                        {
+                            Release = candidate.Release with
+                            {
+                                Files = files,
+                                TotalBytes = files.Sum(file => file.Bytes),
+                            }
+                        };
+                        candidateFiles[updated.Release.Id] = updated;
+                        pool[updated.Release.Id] = pool.TryGetValue(updated.Release.Id, out var prior)
+                            ? Merge(prior, updated) : updated;
+                        if (attachment.Handle is { } handle) attachments[updated.Release.Id] = handle;
+                    }
+                    else if (attachment.Handle is { } unused)
+                        await engine.ReleaseProbeAsync(unused, CancellationToken.None);
+                    currentPlan = PlanReady(ranked);
                 }
-                ready = ranked.Where(c => candidateFiles.ContainsKey(c.Release.Id))
-                    .Select(c => candidateFiles[c.Release.Id]).ToImmutableArray();
-                if (!ready.IsEmpty) currentPlan = planner.Choose(input with { Pool = ready });
+            }
+            finally
+            {
+                foreach (var ticket in pendingProbes.Keys)
+                    await probes.AbandonAsync(ticket);
+                pendingProbes.Clear();
             }
             return currentPlan;
+        }
+
+        void LaunchProbes(List<Candidate> remaining, ImmutableArray<Candidate> ranked, PlanResult currentPlan)
+        {
+            var uncovered = currentPlan.UncoveredTargetIds.ToHashSet(StringComparer.Ordinal);
+            var blockers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (uncovered.Count == 0)
+            {
+                foreach (var assignment in currentPlan.Assignments)
+                {
+                    var selectedIndex = IndexOf(ranked, assignment.Hash);
+                    if (selectedIndex <= 0) continue;
+                    var assignedTargets = assignment.TargetIds.ToHashSet(StringComparer.Ordinal);
+                    foreach (var candidate in ranked.Take(selectedIndex).Where(NeedsMetadata))
+                    {
+                        if (CoverageCount(candidate, assignedTargets) == 0) continue;
+                        blockers.Add(candidate.Release.Id);
+                        uncovered.UnionWith(assignment.TargetIds);
+                    }
+                }
+            }
+            if (uncovered.Count == 0) return;
+            if (metadataDeadline is null)
+                metadataDeadline = DateTimeOffset.UtcNow.Add(metadataWait);
+            while (pendingProbes.Count < MetadataBatchSize && remainingProbeBudget > 0)
+            {
+                var next = remaining.Select((candidate, index) =>
+                        (Candidate: candidate, Index: index, Coverage: CoverageCount(candidate, uncovered)))
+                    .Where(item => item.Coverage > 0 &&
+                        (blockers.Count == 0 || blockers.Contains(item.Candidate.Release.Id)))
+                    .OrderByDescending(item => item.Coverage).ThenBy(item => item.Index)
+                    .FirstOrDefault();
+                if (next.Candidate is null) break;
+                remaining.Remove(next.Candidate);
+                attemptedMetadata.Add(next.Candidate.Release.Id);
+                remainingProbeBudget--;
+                pendingProbes.Add(probes.Start(next.Candidate), next.Candidate);
+            }
+        }
+
+        static int IndexOf(ImmutableArray<Candidate> ranked, string hash)
+        {
+            for (var index = 0; index < ranked.Length; index++)
+                if (string.Equals(ranked[index].Release.Id, hash, StringComparison.OrdinalIgnoreCase))
+                    return index;
+            return -1;
+        }
+
+        PlanResult PlanReady(ImmutableArray<Candidate> ranked)
+        {
+            var ready = ranked.Where(c => candidateFiles.ContainsKey(c.Release.Id))
+                .Select(c => candidateFiles[c.Release.Id]).ToImmutableArray();
+            return ready.IsEmpty
+                ? new([], [], [.. targets.Select(t => t.Id)])
+                : planner.Choose(input with { Pool = ready });
+        }
+
+        bool NeedsMetadata(Candidate candidate) => (candidate.TrustedSeeders is > 0 ||
+                targets.All(t => t.PickedReleaseHash == candidate.Release.Id)) &&
+            !candidateFiles.ContainsKey(candidate.Release.Id) &&
+            !attemptedMetadata.Contains(candidate.Release.Id);
+
+        bool HasHigherPendingCandidate(ImmutableArray<Candidate> ranked, PlanResult currentPlan)
+        {
+            if (remainingProbeBudget <= 0) return false;
+            foreach (var assignment in currentPlan.Assignments)
+            {
+                var selectedIndex = IndexOf(ranked, assignment.Hash);
+                if (selectedIndex <= 0) continue;
+                var assignedTargets = assignment.TargetIds.ToHashSet(StringComparer.Ordinal);
+                if (ranked.Take(selectedIndex).Any(candidate => NeedsMetadata(candidate) &&
+                        CoverageCount(candidate, assignedTargets) > 0))
+                    return true;
+            }
+            return false;
         }
 
         int CoverageCount(Candidate candidate, HashSet<string> uncovered)
@@ -241,38 +345,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine)
             };
         }
 
-        async Task<(Candidate? Candidate, ProbeHandle? Handle, bool TimedOut)> FetchMetadata(Candidate candidate)
-        {
-            if (candidate.Release.Files is { } existing && !existing.IsDefaultOrEmpty)
-                return (candidate, null, false);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeSpan.FromSeconds(60));
-            try
-            {
-                var attachment = await engine.AttachProbeAsync(candidate, deadline.Token);
-                if (attachment.Handle is null || attachment.Files is null)
-                {
-                    if (attachment.Handle is { } unattached)
-                        await engine.ReleaseProbeAsync(unattached, CancellationToken.None);
-                    return (null, null, attachment.Failure?.Code.Contains("timeout", StringComparison.OrdinalIgnoreCase) == true);
-                }
-                var updated = candidate with
-                {
-                    Release = candidate.Release with
-                    {
-                        Files = attachment.Files,
-                        TotalBytes = attachment.Files.Value.Sum(f => f.Bytes),
-                    }
-                };
-                return (updated, attachment.Handle, false);
-            }
-            catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                return (null, null, true);
-            }
-        }
     }
 }
 
 public sealed record DiscoveryResult(CandidateBatch Find, PlanResult Plan,
-    ImmutableDictionary<string, ProbeHandle> Attachments, bool WaitingForSeeders);
+    ImmutableDictionary<string, ProbeHandle> Attachments, bool WaitingForSeeders, bool MetadataTimedOut);

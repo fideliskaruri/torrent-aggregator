@@ -136,7 +136,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (!claim.Accepted)
             {
                 foreach (var target in targets) await change(target.Id, TargetState.Waiting,
-                    WaitReason.WaitingForSeeders, claim.Failure?.Message ?? "Waiting for the source to become available.");
+                    WaitReason.WaitingForSeeders, "No seeders yet, checking again soon");
                 return;
             }
             try
