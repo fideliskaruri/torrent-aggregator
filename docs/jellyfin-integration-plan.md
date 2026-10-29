@@ -1,4 +1,4 @@
-# Jellyfin and Trakt integration plan
+# Jellyfin integration plan
 
 Status: plan, critic-reviewed (gpt-6.1-sol, 13 findings folded in), awaiting owner review. Feature: to file in Ops
 Tracker (tracker was down on 29 Oct).
@@ -6,6 +6,16 @@ Tracker (tracker was down on 29 Oct).
 Owner's ask (29 Oct): "rn i have to add folder in library manually to jellyfin. is there a way to configure this to be
 automatic? ... for every folder we have, it would just need to hit the jellyfin api and add the folder." Then, on the list
 of eight Jellyfin APIs plus Trakt: "yes, lets do all that."
+
+Owner, 29 Oct (later): "runs on my pc, no docker. not this pc though. don't create an autodeletion functionality. only
+suggested downloads based on available watch state." So:
+- Jellyfin runs natively on the owner's PC. Path mapping stays as an advanced option (needed only when TorrentFlow and
+  Jellyfin see the storage under different paths).
+- **Nothing is deleted automatically, anywhere.** J7 only flags a wrong-audio file and offers **Find another source**;
+  cleanup stays suggestions the owner picks from.
+- **Jellyfin APIs only, no Trakt.** Owner: "drop it", "integrate jellyfin apis only".
+- **J5 suggests, it does not download.** The next episodes after what you watched are shown as suggestions with a
+  Download button; no `WatchAhead` origin, no automatic grabs.
 
 ## What exists today
 
@@ -112,29 +122,20 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
   `playUrl = {PublicUrl}/web/#/details?id={itemId}&serverId={ServerId}`.
 - Title hero: **Play in Jellyfin** as the primary action when the item exists; Download moves to secondary. The
   "Up next S2E5" chip links to that episode in Jellyfin.
-- Already in Jellyfin but not downloaded by TorrentFlow: Hunter, season downloads and watch-ahead count the episode or
+- Already in Jellyfin but not downloaded by TorrentFlow: Hunter, season downloads and suggestions count the episode or
   film as owned. A direct Download click still works ("Download anyway" in the hero menu); never silently refused.
 
-### J5. Watch-driven downloading (stay N episodes ahead)
+### J5. Up next suggestions (nothing downloads by itself)
 
-- The goal is a **window**, not an event: for each series a watch user is in, keep the next `WatchAhead` aired episodes
-  after their furthest watched episode available.
-- `JellyfinWatchPoller` (60 s) per watch user: `GET /Items?UserId=&Recursive=true&IncludeItemTypes=Episode&SortBy=DatePlayed&SortOrder=Descending&Filters=IsPlayed&Fields=ProviderIds,Path`,
-  paged until it reaches the saved checkpoint. Checkpoint is persisted per (ServerId, UserId) as
-  (`LastPlayedDate`, item id) so ties and downtime don't skip plays. Episodes over 50% resumed also count.
-- First connect sets the baseline: past plays only set each series' cursor; nothing is queued for series not played in
-  the last 30 days.
-- Cursor per series (`WatchCursors(ServerId, UserId, WorkId, Season, Episode, UpdatedAt)`). Every Hunter pass (15 min)
-  also re-checks each active cursor, so an episode that airs after you caught up is picked up without a new play.
-- Queues missing episodes that are not owned, in Jellyfin, already queued, removed or paused by the owner, through
-  `AcceptAutomationAsync` with a new `IntentOrigin.WatchAhead`. This is not "unchanged": it needs
-  - a migration for the origin CHECK constraint (`TorrentFlowDbContext.cs:135`),
-  - the automatic-origin checks in `TargetPipelineAccept.cs:19-24,96-100,130-134,211-212` and
-    `TargetPipelineRun.cs:159-161` extended so it uses the background lane, metadata rules and duplicate suppression
-    shared with Hunter.
-- Works for any series you watch, followed or not. Activity log: "Watched S2E3, getting S2E4 and S2E5."
-- Setting: "Stay ahead of what you watch: Off, 1, 2, 3, 5 episodes".
-
+- For each watch user, read played and resumed episodes from Jellyfin (`GET /Items?UserId=&Recursive=true&IncludeItemTypes=Episode&Filters=IsPlayed&SortBy=DatePlayed&SortOrder=Descending&Fields=ProviderIds,Path,SeriesId`,
+  plus `/Shows/NextUp`), limited to series played in the last 30 days.
+- For each such series, the next `WatchAhead` aired episodes after the furthest watched one that are not downloaded,
+  not in Jellyfin and not queued become suggestions. Computed on request with a short cache; no poller, no cursors,
+  no new origin, no automatic grabs.
+- `GET /api/jellyfin/suggestions` -> `[{workId, title, poster, season, episode, episodeTitle, airDate, reason}]`,
+  reason like "You watched S2E3". Home shows an "Up next for you" row; each item has a **Download** button that uses
+  the existing owner download path. Dismiss hides a suggestion.
+- Setting: "Suggest the next 1, 2, 3 or 5 episodes" (Off hides the row).
 ### J6. Safer cleanup
 
 - Needs an admin connection: Jellyfin filters `/Sessions` to the caller's own sessions otherwise, so an empty list
@@ -189,20 +190,6 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
 - No results because no subtitle provider is installed: settings show "Install the OpenSubtitles plugin in Jellyfin
   to get subtitles."
 
-### T1. Trakt watchlist
-
-- Owner creates a Trakt app (trakt.tv/oauth/applications) once and pastes client id and secret; then device sign-in:
-  `POST /oauth/device/code`, show the code and link, poll `/oauth/device/token`. Tokens are secret files; refresh before
-  expiry; a refresh failure shows "Sign in to Trakt again".
-- Every 30 min (skipped when `/sync/last_activities` shows no watchlist change): `GET /sync/watchlist/movies` and
-  `/shows`, following pagination headers. Movie -> follow (Get it when it's out). Show -> follow latest season.
-  Resolved through TMDB ids.
-- Provenance is a flag set, not one origin: a follow records `FromTrakt` and `FromOwner` separately. Any owner action
-  on the follow sets `FromOwner`.
-- Removal only after a complete, successful fetch of every page. Leaving the watchlist clears `FromTrakt`; the follow
-  is removed only when `FromOwner` is unset and nothing was downloaded for it, and its queued (not started) targets
-  are cancelled. Started or finished downloads are never touched.
-
 ## UI (owner reviews designs before build)
 
 Settings > Jellyfin, connected:
@@ -212,7 +199,7 @@ Jellyfin                                   Connected as Fidelis (admin)   [Disco
   Address for your devices  [http://192.168.1.20:8096        ]
   Folders            D:\Torrents\Media -> /media   (Change)
   Libraries          Keep my storage folders in Jellyfin            [on]
-  Watching           Stay ahead of what you watch     [2 episodes v]
+  Watching           Suggest next episodes            [2 episodes v]
   Counts as watched  [x] Fidelis  [x] Guest
   Subtitles          [English x] [+ language]
 ```
@@ -221,7 +208,6 @@ Not connected: Server address, Username, Password, **Sign in**; link "Use an API
 
 Storage row adds one quiet line: "In Jellyfin: Movies, Shows" or "Not in Jellyfin. [Add to Jellyfin]".
 Title hero: **Play in Jellyfin** primary; Download in the menu as "Download anyway".
-Settings > Trakt: Not connected -> **Connect Trakt** dialog with code; connected -> "Watchlist synced 5 min ago, 12 titles".
 
 ## Testing
 
@@ -232,18 +218,13 @@ Settings > Trakt: Not connected -> **Connect Trakt** dialog with code; connected
     untouched; offline root kept; reconnect to a second Jellyfin -> old records ignored.
   - J3: filed film visible in Jellyfin within 30 s without a full scan; Jellyfin stopped during filing -> picked up
     after it restarts, and after a TorrentFlow restart.
-  - J5: mark S1E1 played through the Jellyfin API -> S1E2/S1E3 queued within 70 s; first connect with old history
-    queues nothing; caught up, then a new episode airs -> queued on the next pass.
+  - J5: mark S1E1 played through the Jellyfin API -> S1E2/S1E3 appear in suggestions; nothing is queued.
   - J6: start a playback session through the API -> item excluded and delete refused; Jellyfin stopped -> delete
     refused; non-admin connection -> warning shown.
-  - J7: a file with only non-English audio keeps playing until its replacement is checked, then is swapped; `eng` and
-    `en` both pass; untagged audio is left alone; an owner-picked one is flagged; API key and signed-in token both work.
+  - J7: a file with only non-English audio is flagged with Find another source and never deleted; ng and n`n    both pass; untagged audio is left alone.
   - J8: a deliberately wrong TMDB match is fixed and keeps its other ids; a missing id is left alone.
-- Trakt needs the owner's account: tested live with him.
 - The owner's real Jellyfin is tested last, once he gives the address and how it runs.
 
 ## Open for the owner
 
 1. Where Jellyfin runs (this PC, Docker, another machine) and its address.
-2. Default watch-ahead count (plan: 2).
-3. Trakt: fine to create a Trakt app on your account?
