@@ -122,12 +122,22 @@ public sealed partial class TargetPipeline
             var old = (await store.ListAsync<TargetRow>(target => target.Id == id, ct)).SingleOrDefault();
             if (old is null || old.State == TargetState.Removed || old.IsPaused() ||
                 expectedVersion is not null && old.Version != expectedVersion ||
-                old.LeaseToken != token || old.State == TargetState.Done || old.State == state) return null;
+                old.LeaseToken != token || old.State == TargetState.Done) return null;
+            if (old.State == state)
+            {
+                if (state != TargetState.Waiting || old.ReasonCode != reason) return null;
+                var refreshNow = DateTimeOffset.UtcNow;
+                var refreshed = old with { ReasonText = text,
+                    NextTryAt = reason == WaitReason.PlacementBlocked ? null : NextTry(old, reason, refreshNow),
+                    UpdatedAt = refreshNow, Version = old.Version + 1 };
+                return await store.SaveAsync([new(refreshed, old.Version, null)], [], ct) ? refreshed : null;
+            }
             if (!Allowed(old.State, state)) return null;
             var now = DateTimeOffset.UtcNow;
             var next = old with { State = state, ReasonCode = reason, ReasonText = text,
-                ResumeState = state == TargetState.Waiting ? old.State is TargetState.Filing or TargetState.Fetching
-                    ? old.State : TargetState.Wanted : null,
+                ResumeState = state == TargetState.Waiting ? reason == WaitReason.DriveOffline
+                    ? TargetState.Fetching : old.State is TargetState.Filing or TargetState.Fetching
+                        ? old.State : TargetState.Wanted : null,
                 NextTryAt = state == TargetState.Waiting && reason != WaitReason.PlacementBlocked
                     ? NextTry(old, reason, now) : null,
                 ChosenReleaseHash = state == TargetState.Wanted ? null : chosen ?? old.ChosenReleaseHash,
@@ -170,6 +180,32 @@ public sealed partial class TargetPipeline
                 throw new InvalidOperationException("Storage waits changed before they could be resumed.");
         }
         finally { stateGate.Release(); }
+    }
+
+    public async Task StorageRootOfflineAsync(string rootId, string rootLabel, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var downloads = await store.ListAsync<DownloadRow>(row => row.RootId == rootId && row.FinishedAt == null, ct);
+        var links = await store.ListAsync<DownloadTargetRow>(null, ct);
+        var targets = await store.ListAsync<TargetRow>(null, ct);
+        foreach (var download in downloads)
+        {
+            try { await engine.StopAndReleaseFilesAsync(download.Id, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { logger.LogWarning(ex, "Could not flush download {DownloadId} while its drive went offline", download.Id); }
+            foreach (var target in targets.Where(t => links.Any(l =>
+                         l.DownloadId == download.Id && l.TargetId == t.Id) &&
+                     t.State is TargetState.Fetching or TargetState.Filing))
+                await ChangeAsync(target.Id, target.LeaseToken, TargetState.Waiting, ct,
+                    WaitReason.DriveOffline, $"Waiting for drive {rootLabel}.");
+        }
+    }
+
+    public async Task StorageRootOnlineAsync(CancellationToken ct)
+    {
+        await rawDownloads.RecoverAsync(ct);
+        await WakeStorageWaitsAsync(ct);
     }
 
     private static bool Allowed(TargetState from, TargetState to) => (from, to) switch
