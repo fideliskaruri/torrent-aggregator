@@ -6,6 +6,7 @@ import { DownloadDialogs } from "./download-dialogs";
 import { DownloadFilters } from "./download-filters";
 import { DownloadPageHeader } from "./download-page-header";
 import { DownloadTransferList } from "./download-transfer-list";
+import { StorageBanner } from "./storage-banner";
 import { useDownloadsPage } from "./use-downloads-page";
 
 export default function DownloadsPage() {
@@ -17,6 +18,7 @@ export default function DownloadsPage() {
     <div className="container-app max-w-5xl min-w-0 space-y-4 py-6 sm:py-8">
       <p className="sr-only" role="status" aria-live="polite">{page.announcement}</p>
       <DownloadPageHeader page={page} />
+      <StorageBanner />
       {page.error ? <DownloadClientError page={page} /> : (
         <>
           <DownloadAddPanel page={page} />

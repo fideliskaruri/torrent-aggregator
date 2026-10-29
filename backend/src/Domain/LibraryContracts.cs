@@ -38,7 +38,8 @@ public sealed record LibraryRootInput(string Path, ImmutableArray<LibraryKind> K
     long ReserveBytes, LibraryFolders? Folders = null, long? MaxAllocatedBytes = null, bool Confirmed = false);
 public sealed record LibraryRootResult(StorageRootRow? Root, Failure? Failure);
 public sealed record LibraryRootConfiguration(int Priority, long ReserveBytes, bool Enabled,
-    ImmutableArray<LibraryKind> Kinds, long ExpectedVersion, bool ConfirmIdentity = false, long? MaxAllocatedBytes = null);
+    ImmutableArray<LibraryKind> Kinds, long ExpectedVersion, bool ConfirmIdentity = false, long? MaxAllocatedBytes = null,
+    bool ClearMaxAllocatedBytes = false);
 
 // Only this projection crosses HTTP. Origin is deliberately not part of the public contract.
 public sealed record LibraryMediaView(string Id, string WorkId, string? EpisodeId, string? RootId,

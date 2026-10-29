@@ -159,7 +159,7 @@ internal static class ImportEndpoints
         return new { root.Id, root.Path, root.Kinds, root.Priority, root.Enabled, online,
             root.ReviewRequired, root.LastCheckedAt, root.LastError, root.Version, totalBytes = total,
             freeBytes = free, committedBytes = committed, maxAllocatedBytes = root.MaxAllocatedBytes,
-            usedBytes = used, reserveBytes = reserve, status = state, missingCount = missing,
+            usedBytes = used, reserveBytes = reserve, reserveSetting = root.ReserveBytes, status = state, missingCount = missing,
             label = storage.Label(root.Path) };
     }
 }

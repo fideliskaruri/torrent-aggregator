@@ -175,7 +175,7 @@ public sealed partial class LibraryPlacement
             input.Kinds.Any(k => !Enum.IsDefined(k)) || input.Kinds.Distinct().Count() != input.Kinds.Length)
             return RootFailure("InvalidSettings", "Reload the location, choose valid settings, and try again.");
         var updated = root with { ReserveBytes = input.ReserveBytes,
-            MaxAllocatedBytes = input.MaxAllocatedBytes ?? root.MaxAllocatedBytes,
+            MaxAllocatedBytes = input.ClearMaxAllocatedBytes ? null : input.MaxAllocatedBytes ?? root.MaxAllocatedBytes,
             Enabled = input.Enabled, Kinds = input.Kinds, UpdatedAt = DateTimeOffset.UtcNow,
             Version = root.Version + 1 };
         if (input.ConfirmIdentity)

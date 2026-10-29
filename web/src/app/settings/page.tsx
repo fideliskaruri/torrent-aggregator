@@ -39,7 +39,7 @@ export default function SettingsPage() {
           />
           {!settings.setupComplete ? (
             <div role="status" className="rounded-lg border border-brand/30 bg-brand-dim p-3 text-sm">
-              Choose a download folder and space limit before your first download.
+              Add a storage location before your first download.
             </div>
           ) : null}
           <DownloadSettingsSection

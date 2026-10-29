@@ -638,7 +638,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     }
 
     internal static bool SetupComplete(IEnumerable<StorageRootRow> roots) =>
-        roots.FirstOrDefault(r => r.Priority == 0) is { Enabled: true, MaxAllocatedBytes: > 0 };
+        roots.Any(r => r.Enabled);
 
     // v1 keeps one storage root: the download folder and space limit both live on it.
     private static async Task SaveRootAsync(LibraryPlacement library, JsonElement body, CancellationToken ct)

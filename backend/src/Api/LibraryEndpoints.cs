@@ -61,7 +61,7 @@ internal static class LibraryEndpoints
     private sealed record CleanupRoot(string Id, string Label, bool Online);
     private sealed record CleanupSuggestion(string WorkId, string Title, int? Year, string Kind,
         string? Poster, object Watched, DateTimeOffset? LastPlayedAt, long Bytes, long WatchedBytes,
-        ImmutableArray<CleanupRoot> Roots, bool Deletable);
+        ImmutableArray<CleanupRoot> Roots, bool Deletable, string[] WatchedEpisodeIds);
     private sealed record DeleteInput(string? WatchListItemId, string? Scope, int? Season, int? Episode,
         bool Confirm = false, string[]? EpisodeIds = null, string? WorkId = null);
 
@@ -124,6 +124,7 @@ internal static class LibraryEndpoints
             DateTimeOffset? lastPlayedAt;
             object watched;
             bool fullyWatched;
+            string[] episodeIdsOnDisk;
             if (work.Work.Kind == WorkKind.Film)
             {
                 if (state.Film?.Watched != true) continue;
@@ -131,6 +132,7 @@ internal static class LibraryEndpoints
                 watchedBytes = workFiles.Sum(file => file.Bytes);
                 lastPlayedAt = state.Film.LastPlayedAt;
                 watched = "movie";
+                episodeIdsOnDisk = [];
                 fullyWatched = true;
             }
             else
@@ -147,6 +149,8 @@ internal static class LibraryEndpoints
                     .Select(entry => entry.Value.LastPlayedAt).OfType<DateTimeOffset>()
                     .Select(value => (DateTimeOffset?)value).Max();
                 watched = new { played, total };
+                episodeIdsOnDisk = [.. workFiles.Select(file => file.EpisodeId).OfType<string>()
+                    .Where(watchedEpisodeIds.Contains).Distinct(StringComparer.Ordinal)];
                 fullyWatched = total > 0 && played >= total;
             }
 
@@ -159,7 +163,7 @@ internal static class LibraryEndpoints
                 CatalogProjection.Title(work), work.Work.Year,
                 work.Work.Kind == WorkKind.Film ? "film" : "series", work.Work.PosterUrl,
                 watched, lastPlayedAt, workFiles.Sum(file => file.Bytes), watchedBytes, rootViews,
-                rootIds.All(IsOnline))));
+                rootIds.All(IsOnline), episodeIdsOnDisk)));
         }
 
         return Results.Json(new
