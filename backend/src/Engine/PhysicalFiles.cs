@@ -8,11 +8,7 @@ namespace TorrentFlow.Engine;
 internal static class PhysicalFiles
 {
     internal static long AllocatedBytes(string path)
-    {
-        if (!OperatingSystem.IsWindows() || !File.Exists(path)) return 0;
-        var low = GetCompressedFileSize(path, out var high);
-        return low == uint.MaxValue && Marshal.GetLastPInvokeError() != 0 ? 0 : ((long)high << 32) | low;
-    }
+        => TorrentFlow.Domain.PhysicalFileAllocation.AllocatedBytes(path);
 
     internal static void PrepareBoundaries(TorrentManager manager)
     {
@@ -40,9 +36,6 @@ internal static class PhysicalFiles
                 throw new IOException("The filesystem cannot create sparse engine probe files.");
         }
     }
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetCompressedFileSizeW", SetLastError = true)]
-    private static extern uint GetCompressedFileSize(string path, out uint high);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

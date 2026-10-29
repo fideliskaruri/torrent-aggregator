@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
@@ -79,44 +80,92 @@ internal static class ImportEndpoints
             if (result.Online) await targets.WakeStorageWaitsAsync(ct);
             return Results.Json(result, Json);
         });
-        group.MapGet("/roots", async (ILibraryPlacement library, CancellationToken ct) =>
-            Results.Json(new { roots = (await library.RootsAsync(ct)).OrderBy(r => r.Priority).Select(RootView) }, Json));
-        group.MapPost("/roots", async (HttpContext http, ILibraryPlacement library, CancellationToken ct) =>
-            RootReply(await library.AddRootAsync(await http.Request.ReadFromJsonAsync<LibraryRootInput>(Json, ct) ??
-                throw new ArgumentException("Choose a folder path."), ct)));
+        group.MapGet("/roots", async (ILibraryPlacement library, ILibraryRepository inventory,
+            IStorageStatus storage, CancellationToken ct) =>
+        {
+            var roots = await library.RootsAsync(ct);
+            var media = await inventory.MediaAsync(null, ct);
+            var downloads = await inventory.DownloadsAsync(ct);
+            var bindings = await inventory.BindingsAsync(ct);
+            return Results.Json(new { roots = roots.Select(r => RootView(r, media, downloads, bindings, storage)) }, Json);
+        });
+        group.MapPost("/roots", async (HttpContext http, ILibraryPlacement library,
+            ILibraryRepository inventory, IStorageStatus storage, TargetPipeline targets,
+            CancellationToken ct) =>
+        {
+            var result = await library.AddRootAsync(await http.Request.ReadFromJsonAsync<LibraryRootInput>(Json, ct) ??
+                throw new ArgumentException("Choose a folder path."), ct);
+            if (result.Failure is null) await targets.WakeStorageWaitsAsync(ct);
+            return await RootReplyAsync(result, inventory, storage, ct);
+        });
         group.MapPut("/roots/{id}", async (string id, HttpContext http, ILibraryPlacement library,
-            TargetPipeline targets, CancellationToken ct) =>
+            ILibraryRepository inventory, IStorageStatus storage, TargetPipeline targets, CancellationToken ct) =>
         {
             var result = await library.ConfigureRootAsync(id,
                 await http.Request.ReadFromJsonAsync<LibraryRootConfiguration>(Json, ct) ??
                     throw new ArgumentException("Choose the drive settings."), ct);
             if (result.Failure is null) await targets.WakeStorageWaitsAsync(ct);
-            return RootReply(result);
+            return await RootReplyAsync(result, inventory, storage, ct);
         });
-        group.MapDelete("/roots/{id}", async (string id, ILibraryPlacement library, CancellationToken ct) =>
-            RootReply(await library.RemoveRootAsync(id, ct)));
+        group.MapPut("/roots/order", async (RootOrderInput input, ILibraryPlacement library,
+            TargetPipeline targets, CancellationToken ct) =>
+        {
+            if (input.Ids is null || input.Ids.Length == 0)
+                return Results.BadRequest(new { message = "Send every storage location id once, in the order you want." });
+            var roots = await library.RootsAsync(ct);
+            if (input.Ids.Length != roots.Length || input.Ids.Distinct(StringComparer.Ordinal).Count() != input.Ids.Length ||
+                input.Ids.Any(id => roots.All(root => root.Id != id)))
+                return Results.BadRequest(new { message = "The order must include every storage location id exactly once. Reload the list and try again." });
+            if (!await library.ReorderRootsAsync([.. input.Ids], ct))
+                return Results.Conflict(new { message = "The storage locations changed while saving. Reload and try again." });
+            await targets.WakeStorageWaitsAsync(ct);
+            return Results.Ok(new { roots = input.Ids });
+        });
+        group.MapDelete("/roots/{id}", async (string id, ILibraryPlacement library,
+            ILibraryRepository inventory, IStorageStatus storage, CancellationToken ct) =>
+            await RootReplyAsync(await library.RemoveRootAsync(id, ct), inventory, storage, ct));
         group.MapGet("/owned/{workId}", async (string workId, string? episodeId, bool? film,
             ILibraryPlacement library, CancellationToken ct) =>
             Results.Json(new { items = (await library.OwnedAsync(new(workId,
                 episodeId is null ? [] : [episodeId], film == true), ct)).Select(LibraryPlacement.PublicOwned) }, Json));
     }
 
-    private static IResult RootReply(LibraryRootResult result) =>
-        Results.Json(new { root = result.Root is null ? null : RootView(result.Root), result.Failure }, Json,
-            statusCode: result.Failure is null ? 200 : 409);
-
-    // Free space is read live from the drive; it is never stored.
-    private static object RootView(StorageRootRow root)
+    private static async Task<IResult> RootReplyAsync(LibraryRootResult result,
+        ILibraryRepository inventory, IStorageStatus storage, CancellationToken ct)
     {
-        long? free = null;
-        try { if (root.Online && Directory.Exists(root.Path)) free = new DriveInfo(root.Path).AvailableFreeSpace; }
+        object? view = null;
+        if (result.Root is { } root)
+            view = RootView(root, await inventory.MediaAsync(null, ct), await inventory.DownloadsAsync(ct),
+                await inventory.BindingsAsync(ct), storage);
+        return Results.Json(new { root = view, result.Failure }, Json,
+            statusCode: result.Failure is null ? 200 : result.Failure.Code == "RootConflict" ? 409 : 400);
+    }
+
+    private static object RootView(StorageRootRow root, ImmutableArray<MediaFileRow> media,
+        ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> bindings, IStorageStatus storage)
+    {
+        var observed = storage.Status(root.Path);
+        var online = root.Enabled && !root.ReviewRequired && observed.Online;
+        long? total = null;
+        try { if (online) total = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(root.Path))!).TotalSize; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
-        return new { root.Id, root.Path, root.Kinds, root.Priority, root.ReserveBytes, root.Enabled, root.Online,
-            root.ReviewRequired, root.LastCheckedAt, root.LastError, root.Version, freeBytes = free };
+        var free = online ? observed.FreeBytes : null;
+        var reserve = StorageCapacity.EffectiveReserve(root, total);
+        var committed = StorageCapacity.CommittedBytes(root.Id, downloads, bindings);
+        var used = media.Where(m => m.RootId == root.Id).Sum(m => m.Bytes);
+        var missing = root.ReviewRequired ? media.Count(m => m.RootId == root.Id && m.Status == FilePresence.Missing) : 0;
+        var state = !root.Enabled ? "off" : root.ReviewRequired ? "review" : !online ? "offline" :
+            free is { } available && Math.Max(0, available - reserve) < 1_000_000_000L ? "full" : "online";
+        return new { root.Id, root.Path, root.Kinds, root.Priority, root.Enabled, online,
+            root.ReviewRequired, root.LastCheckedAt, root.LastError, root.Version, totalBytes = total,
+            freeBytes = free, committedBytes = committed, maxAllocatedBytes = root.MaxAllocatedBytes,
+            usedBytes = used, reserveBytes = reserve, status = state, missingCount = missing,
+            label = storage.Label(root.Path) };
     }
 }
 
 internal sealed record ImportDismissInput(string[] ItemIds);
+internal sealed record RootOrderInput(string[] Ids);
 
 internal sealed class ImportJobs(IServiceScopeFactory scopes, IHostApplicationLifetime lifetime)
 {

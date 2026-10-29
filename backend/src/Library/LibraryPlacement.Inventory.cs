@@ -46,7 +46,7 @@ public sealed partial class LibraryPlacement
             else if ((await RootsAsync(ct)).Any(r => LibraryPaths.IsInside(r.Path, file.Path)))
                 return Fail("InvalidMedia", "This file is inside the download folder. Record it with that root.");
             if (folder is null && file.Role == FileRole.Video && file.EpisodeId is not null &&
-                !(await repository.FoldersAsync(ct)).Any(f => f.WorkId == file.WorkId))
+                !(await repository.FoldersAsync(ct)).Any(f => f.WorkId == file.WorkId && f.RootId == file.RootId))
             {
                 var actual = Path.GetDirectoryName(file.Path)!;
                 if (Regex.IsMatch(Path.GetFileName(actual), @"^Season \d+$",

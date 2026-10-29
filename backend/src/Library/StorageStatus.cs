@@ -1,35 +1,31 @@
-using System.Collections.Concurrent;
-
 namespace TorrentFlow.Library;
+
+public sealed record StoragePathStatus(bool Online, long? FreeBytes, DateTimeOffset CheckedAt);
 
 public interface IStorageStatus
 {
     bool IsOnline(string rootPath);
     string Label(string rootPath);
+    StoragePathStatus Status(string rootPath);
+    void Update(string rootPath, bool online, long? freeBytes);
 }
 
 public sealed class StorageStatus : IStorageStatus
 {
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(2);
-    private readonly ConcurrentDictionary<string, (DateTimeOffset CheckedAt, bool Online)> cache =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StoragePathStatus> states = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object gate = new();
 
-    public bool IsOnline(string rootPath)
+    public bool IsOnline(string rootPath) => Status(rootPath).Online;
+
+    public StoragePathStatus Status(string rootPath)
     {
-        try
-        {
-            var now = DateTimeOffset.UtcNow;
-            if (cache.TryGetValue(rootPath, out var cached) && now - cached.CheckedAt < CacheDuration)
-                return cached.Online;
-            var online = Directory.Exists(rootPath);
-            cache[rootPath] = (now, online);
-            return online;
-        }
-        catch
-        {
-            cache[rootPath] = (DateTimeOffset.UtcNow, false);
-            return false;
-        }
+        lock (gate) return states.TryGetValue(Key(rootPath), out var status)
+            ? status : new(false, null, DateTimeOffset.MinValue);
+    }
+
+    public void Update(string rootPath, bool online, long? freeBytes)
+    {
+        lock (gate) states[Key(rootPath)] = new(online, online ? freeBytes : null, DateTimeOffset.UtcNow);
     }
 
     public string Label(string rootPath)
@@ -46,5 +42,11 @@ public sealed class StorageStatus : IStorageStatus
         {
             return rootPath;
         }
+    }
+
+    private static string Key(string path)
+    {
+        try { return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
+        catch { return path; }
     }
 }

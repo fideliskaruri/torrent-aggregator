@@ -2309,8 +2309,13 @@ namespace TorrentFlow.Store.Migrations
                         .IsUnique()
                         .HasFilter("rootId IS NOT NULL");
 
-                    b.HasIndex(new[] { "WorkId" }, "IX_WorkFolder_workId_all")
-                        .IsUnique();
+                    b.HasIndex(new[] { "WorkId" }, "IX_WorkFolder_workId_rootIdISNULL")
+                        .IsUnique()
+                        .HasFilter("rootId IS NULL");
+
+                    b.HasIndex(new[] { "WorkId", "RootId" }, "IX_WorkFolder_workId_rootId_rootIdISNOTNULL")
+                        .IsUnique()
+                        .HasFilter("rootId IS NOT NULL");
 
                     b.ToTable("WorkFolder", null, t =>
                         {

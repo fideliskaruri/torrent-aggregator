@@ -28,11 +28,14 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
         if (!plain)
             return await SendExternalAsync(hash, magnet, torrentUrl, name, workKey, actor, ct);
         await using var scope = scopes.CreateAsyncScope();
-        var root = (await scope.ServiceProvider.GetRequiredService<ILibraryPlacement>().RootsAsync(ct))
-            .Where(r => r.Enabled && r.Online && !r.ReviewRequired).OrderBy(r => r.Priority).FirstOrDefault()
-            ?? throw new InvalidOperationException("Add and confirm a download folder in Settings first.");
-        var destination = RawDownloadFiles.Destination(root, hash);
-        var result = await AddAsync(destination, magnet ?? hash, torrentUrl, name, actor, now, ct);
+        var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
+        var roots = await scope.ServiceProvider.GetRequiredService<ILibraryPlacement>().RootsAsync(ct);
+        var candidates = roots.Where(r => r.Enabled && !r.ReviewRequired && storage.IsOnline(r.Path))
+            .OrderBy(r => r.Priority).ThenBy(r => r.Id, StringComparer.Ordinal)
+            .ToImmutableArray();
+        if (candidates.IsEmpty)
+            throw new InvalidOperationException("No storage location is online. Reconnect a drive or enable a location in Settings.");
+        var result = await AddAsync(candidates, magnet ?? hash, torrentUrl, name, actor, now, ct);
         return new(result.Accepted, result.Snapshot, result.Failure, false, [], null, hash, null);
     }
 
@@ -150,11 +153,10 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
         return null;
     }
 
-    private async Task<EngineResult> AddAsync(string savePath, string magnet, string? torrentUrl,
-        string? name, string actor, bool downloadNow, CancellationToken ct)
+    private async Task<EngineResult> AddAsync(ImmutableArray<StorageRootRow> roots, string magnet,
+        string? torrentUrl, string? name, string actor, bool downloadNow, CancellationToken ct)
     {
         var hash = MonoTorrentEngine.NormalizeHash(magnet);
-        SafePath(savePath);
         await gate.WaitAsync(ct);
         try
         {
@@ -167,9 +169,6 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
             var candidate = MonoTorrentEngine.CandidateFor(magnet,
                 torrentUrl ?? (xs is null ? null : Uri.UnescapeDataString(xs[3..])));
             var metadata = await engine.MetadataAsync(hash, ct);
-            if (metadata is null && Directory.Exists(savePath) &&
-                Directory.EnumerateFileSystemEntries(savePath).Any())
-                throw new ArgumentException("Choose an empty folder for this torrent.");
             var token = Guid.NewGuid().ToString("N");
             var id = Prefix + hash;
             ProbeHandle? handle = null;
@@ -186,7 +185,39 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                     }
                     metadata = await engine.WaitMetadataAsync(handle, deadline.Token);
                 }
-                var bindings = metadata is { } files ? Bindings(hash, savePath, files, []) : [];
+                if (metadata is not { } torrentFiles)
+                    throw new IOException("The torrent file list could not be read. Try again when the source is available.");
+                var libraryRepository = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+                var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
+                var downloads = await libraryRepository.DownloadsAsync(ct);
+                var existingBindings = await libraryRepository.BindingsAsync(ct);
+                var media = await libraryRepository.MediaAsync(null, ct);
+                var bytes = torrentFiles.Sum(file => file.Bytes);
+                StorageRootRow? selectedRoot = null;
+                foreach (var candidateRoot in roots)
+                {
+                    if (!candidateRoot.Enabled || candidateRoot.ReviewRequired ||
+                        !storage.IsOnline(candidateRoot.Path)) continue;
+                    var free = storage.Status(candidateRoot.Path).FreeBytes ?? LibraryPaths.FreeBytes(candidateRoot.Path);
+                    var reserve = StorageCapacity.EffectiveReserve(candidateRoot, null);
+                    var committed = StorageCapacity.CommittedBytes(candidateRoot.Id, downloads, existingBindings);
+                    if (free < reserve || free - reserve < committed || free - reserve - committed < bytes) continue;
+                    if (candidateRoot.MaxAllocatedBytes is { } limit)
+                    {
+                        var used = media.Where(file => file.RootId == candidateRoot.Id &&
+                            file.Status != FilePresence.Missing).Sum(file => file.Bytes);
+                        if (used + committed + bytes > limit) continue;
+                    }
+                    selectedRoot = candidateRoot;
+                    break;
+                }
+                if (selectedRoot is null)
+                    throw new IOException("No storage location has enough room for this torrent. Increase Keep free or Use at most, or free space.");
+                var savePath = RawDownloadFiles.Destination(selectedRoot, hash);
+                SafePath(savePath);
+                if (Directory.Exists(savePath) && Directory.EnumerateFileSystemEntries(savePath).Any())
+                    throw new ArgumentException("A destination file already exists. Choose an empty folder.");
+                var bindings = Bindings(hash, savePath, torrentFiles, []);
                 var claim = await engine.ClaimAdmissionAsync(new(token, hash, id, handle, DateTimeOffset.UtcNow.AddSeconds(90)), ct);
                 if (!claim.Accepted) return claim;
                 var now = DateTimeOffset.UtcNow;
@@ -200,10 +231,15 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                     CreatedAt = now, UpdatedAt = now, Version = 1 };
                 await CommitAsync(store, [new(raw, null, null)], [], ct);
                 var download = new DownloadRow { Id = id, Hash = hash, Intent = DownloadIntent.Run,
-                    RootId = null, AddedAt = now, FinishedAt = null, AdmissionToken = token,
+                    RootId = selectedRoot.Id, AddedAt = now, FinishedAt = null, AdmissionToken = token,
                     ResumeArtifact = null, RawIntentId = id, Version = 1 };
                 await CommitAsync(store, [new(download, null, null)], [], ct);
                 await CommitAsync(store, [new(raw with { DownloadId = id, Version = 2 }, 1, null)], [], ct);
+                var reserved = RawReservationRows(id, bindings, torrentFiles);
+                var downloadRepository = libraryRepository as ILibraryDownloadRepository
+                    ?? throw new InvalidOperationException("The storage reservation repository is unavailable.");
+                if (!reserved.IsEmpty && !await downloadRepository.SavePlacementAsync(reserved, [], ct))
+                    throw new IOException("The raw download's storage reservation could not be saved.");
                 await TargetQueue.ApplyAsync(engine, store, ct);
                 var admission = new EngineAdmission(download, candidate, bindings, token);
                 var result = handle is null ? await engine.StartAsync(admission, ct)
@@ -218,6 +254,8 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                 var persisted = (await store.ListAsync<RawIntentRow>(row => row.Id == id, CancellationToken.None)).SingleOrDefault();
                 if (persisted is not null)
                 {
+                    if (scope.ServiceProvider.GetRequiredService<ILibraryRepository>() is ILibraryDownloadRepository libraryRepository)
+                        await libraryRepository.RemoveDownloadFilesAsync(id, CancellationToken.None);
                     if (persisted.DownloadId is not null)
                     {
                         await CommitAsync(store, [new(persisted with
@@ -250,11 +288,16 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
         {
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var repository = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+            var roots = await repository.RootsAsync(ct);
+            var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
             var raws = (await store.ListAsync<RawIntentRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             var rows = (await store.ListAsync<DownloadRow>(null, ct)).Where(r => r.Id.StartsWith(Prefix)).ToArray();
             var live = await engine.SnapshotAsync(ct);
             foreach (var row in rows.Where(r => r.FinishedAt is null && live.All(s => s.Hash != r.Hash) &&
-                raws.Single(raw => raw.Id == r.RawIntentId).State != RawDownloadState.Publishing))
+                raws.Single(raw => raw.Id == r.RawIntentId).State != RawDownloadState.Publishing &&
+                (r.RootId is null || roots.SingleOrDefault(root => root.Id == r.RootId) is { } root &&
+                    root.Enabled && !root.ReviewRequired && storage.IsOnline(root.Path))))
             {
                 var raw = raws.Single(r => r.Id == row.RawIntentId);
                 var release = (await store.ListAsync<ReleaseRow>(r => r.Id == row.Hash, ct)).Single();
@@ -312,6 +355,7 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                             raw = publishing;
                         }
                         await PublishAsync(snapshot, raw.ExplicitDirectory!, ct);
+                        await RemoveRawReservationsAsync(scope, snapshot.DownloadId, ct);
                         var done = raw with { State = RawDownloadState.Done,
                             UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1 };
                         await CommitAsync(store, [new(done, raw.Version, null)], [], ct);
@@ -348,6 +392,7 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                     var bindings = Bindings(raw.ReleaseHash, raw.ExplicitDirectory!, metadata,
                         raw.SelectedFiles.ToArray(), recovery: true);
                     CompletePublication(bindings, raw.ExplicitDirectory!, raw.ReleaseHash);
+                    await RemoveRawReservationsAsync(scope, download.Id, ct);
                     var now = DateTimeOffset.UtcNow;
                     await CommitAsync(store, [
                         new(raw with { State = RawDownloadState.Done, UpdatedAt = now,
@@ -397,6 +442,7 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                 RawDownloadFiles.DeletePayload(raw.ExplicitDirectory!, hash, paths);
             }
             var row = (await store.ListAsync<DownloadRow>(download => download.Id == raw.DownloadId, ct)).Single();
+            await RemoveRawReservationsAsync(scope, row.Id, ct);
             await CommitAsync(store,
                 [new(raw with { DownloadId = null, Version = raw.Version + 1 }, raw.Version, null)], [], ct);
             await CommitAsync(store, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
@@ -413,6 +459,30 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
     {
         if (!await store.SaveAsync(writes, deletes, ct))
             throw new InvalidOperationException("The download changed during this operation. Retry the action.");
+    }
+
+    private static ImmutableArray<DownloadFileRow> RawReservationRows(string downloadId,
+        ImmutableArray<FileBinding> bindings, ImmutableArray<TorrentFile> files) =>
+        [.. files.Select(file =>
+        {
+            var binding = bindings.Single(b => b.FileIndex == file.Index);
+            var finalPath = binding.AbsolutePath.EndsWith(".partial", StringComparison.OrdinalIgnoreCase)
+                ? binding.AbsolutePath[..^".partial".Length] : binding.AbsolutePath;
+            return new DownloadFileRow
+            {
+                Id = $"{downloadId}:{file.Index}", DownloadId = downloadId, FileIndex = file.Index,
+                Selected = binding.Selected, TargetId = null, PartialPath = binding.Selected ? binding.AbsolutePath : null,
+                FinalPath = finalPath, PhysicalKey = LibraryPaths.PhysicalKey(finalPath), MediaFileId = null,
+                Role = binding.Selected ? FileRole.Video : FileRole.Unwanted,
+                ExpectedBytes = file.Bytes, EnginePath = binding.AbsolutePath, Filed = false,
+            };
+        })];
+
+    private static async Task RemoveRawReservationsAsync(AsyncServiceScope scope, string downloadId, CancellationToken ct)
+    {
+        var repository = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        if (repository is ILibraryDownloadRepository downloads)
+            await downloads.RemoveDownloadFilesAsync(downloadId, ct);
     }
 
 }
