@@ -46,7 +46,8 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         {
             db.DownloadFiles.AddRange(files);
             foreach (var folder in folders)
-                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId, ct)) db.WorkFolders.Add(folder);
+                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId && row.RootId == folder.RootId, ct))
+                    db.WorkFolders.Add(folder);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
@@ -74,7 +75,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
                 db.Entry(current).CurrentValues.SetValues(after);
             }
             foreach (var folder in folders)
-                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId, ct))
+                if (!await db.WorkFolders.AnyAsync(row => row.WorkId == folder.WorkId && row.RootId == folder.RootId, ct))
                     db.WorkFolders.Add(folder);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);

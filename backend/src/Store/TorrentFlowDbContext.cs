@@ -416,7 +416,10 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
         modelBuilder.Entity<DownloadFileRow>().HasIndex(new[] { "MediaFileId" }, "IX_DownloadFile_mediaFileId_all").IsUnique(false);
         modelBuilder.Entity<StorageRootRow>().HasIndex(new[] { "PhysicalKey" }, "IX_StorageRoot_physicalKey_all").IsUnique(true);
         modelBuilder.Entity<StorageRootRow>().HasIndex(new[] { "Enabled", "Priority" }, "IX_StorageRoot_enabled_priority_all").IsUnique(false);
-        modelBuilder.Entity<WorkFolderRow>().HasIndex(new[] { "WorkId" }, "IX_WorkFolder_workId_all").IsUnique(true);
+        modelBuilder.Entity<WorkFolderRow>().HasIndex(new[] { "WorkId", "RootId" }, "IX_WorkFolder_workId_rootId_rootIdISNOTNULL")
+            .IsUnique(true).HasFilter("rootId IS NOT NULL");
+        modelBuilder.Entity<WorkFolderRow>().HasIndex(new[] { "WorkId" }, "IX_WorkFolder_workId_rootIdISNULL")
+            .IsUnique(true).HasFilter("rootId IS NULL");
         modelBuilder.Entity<WorkFolderRow>().HasIndex(new[] { "RootId", "RelativeItemFolder" }, "IX_WorkFolder_rootId_relativeItemFolder_rootIdISNOTNULL").IsUnique(true).HasFilter("rootId IS NOT NULL");
         modelBuilder.Entity<WorkFolderRow>().HasIndex(new[] { "ExternalItemFolder" }, "IX_WorkFolder_externalItemFolder_externalItemFolderISNOTNULL").IsUnique(true).HasFilter("externalItemFolder IS NOT NULL");
         modelBuilder.Entity<MediaFileRow>().HasIndex(new[] { "PhysicalKey" }, "IX_MediaFile_physicalKey_all").IsUnique(true);

@@ -9,7 +9,8 @@ internal static class LibraryModule
         services.AddSingleton<IStorageStatus, StorageStatus>()
             .AddScoped<LibraryPlacement>()
             .AddScoped<ILibraryPlacement>(sp => sp.GetRequiredService<LibraryPlacement>())
-            .AddScoped<MediaImport>().AddSingleton<ImportJobs>();
+            .AddScoped<MediaImport>().AddSingleton<ImportJobs>()
+            .AddHostedService<StorageWatcher>();
 
     internal static Task MapLibraryAsync(this WebApplication app)
     {

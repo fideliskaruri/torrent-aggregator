@@ -11,7 +11,7 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
     internal LibraryRepository(TorrentFlowDbContext db) => this.db = db;
 
     public async Task<ImmutableArray<StorageRootRow>> RootsAsync(CancellationToken ct) =>
-        [.. await db.StorageRoots.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
+        [.. await db.StorageRoots.AsNoTracking().OrderBy(row => row.Priority).ThenBy(row => row.Id).ToListAsync(ct)];
 
     public async Task<ImmutableArray<MediaFileRow>> MediaAsync(string? workId, CancellationToken ct) =>
         [.. await db.MediaFiles.AsNoTracking().Where(row => workId == null || row.WorkId == workId)
@@ -23,17 +23,11 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
     public async Task<ImmutableArray<DownloadFileRow>> BindingsAsync(CancellationToken ct) =>
         [.. await db.DownloadFiles.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
 
+    public async Task<ImmutableArray<DownloadRow>> DownloadsAsync(CancellationToken ct) =>
+        [.. await db.Downloads.AsNoTracking().OrderBy(row => row.Id).ToListAsync(ct)];
+
     public Task<DownloadRow?> DownloadAsync(string hash, CancellationToken ct) =>
         db.Downloads.AsNoTracking().SingleOrDefaultAsync(row => row.Hash == hash, ct);
-
-    public async Task<ImmutableDictionary<string, long>> ReservationsAsync(CancellationToken ct)
-    {
-        var downloads = await db.Downloads.AsNoTracking().Where(row => row.RootId != null)
-            .Select(row => new { row.Id, RootId = row.RootId! }).ToListAsync(ct);
-        var files = await db.DownloadFiles.AsNoTracking().Where(row => row.Selected && !row.Filed).ToListAsync(ct);
-        return downloads.GroupBy(d => d.RootId).ToImmutableDictionary(g => g.Key,
-            g => files.Where(f => g.Any(d => d.Id == f.DownloadId)).Sum(f => f.ExpectedBytes));
-    }
 
     public async Task<bool> SaveRootAsync(StorageRootRow root, long? expectedVersion, CancellationToken ct)
     {
@@ -55,10 +49,16 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
         try
         {
             if (await db.MediaFiles.AnyAsync(row => row.RootId == id, ct) ||
-                await db.WorkFolders.AnyAsync(row => row.RootId == id, ct) ||
-                await db.Downloads.AnyAsync(row => row.RootId == id, ct)) return false;
+                await db.Downloads.AnyAsync(row => row.RootId == id && row.FinishedAt == null, ct)) return false;
             var entity = await db.StorageRoots.SingleOrDefaultAsync(row => row.Id == id, ct);
             if (entity is null || entity.Version != expectedVersion) return false;
+            var folders = await db.WorkFolders.Where(row => row.RootId == id).ToListAsync(ct);
+            db.WorkFolders.RemoveRange(folders);
+            var finishedDownloads = await db.Downloads.Where(row => row.RootId == id && row.FinishedAt != null)
+                .ToListAsync(ct);
+            foreach (var download in finishedDownloads)
+                db.Entry(download).CurrentValues.SetValues(download with
+                { RootId = null, Version = download.Version + 1 });
             var rootPath = entity.Path;
             var operations = await db.FileOperations.AsNoTracking().Where(row =>
                 row.State != FileOperationState.Done && row.State != FileOperationState.Superseded).ToListAsync(ct);
@@ -66,6 +66,40 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
                 path.StartsWith(rootPath.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             if (operations.Any(o => Inside(o.SourcePath) || Inside(o.DestinationPath))) return false;
             db.StorageRoots.Remove(entity);
+            var remainingRoots = await db.StorageRoots.Where(row => row.Id != id)
+                .OrderBy(row => row.Priority).ThenBy(row => row.Id).ToListAsync(ct);
+            for (var priority = 0; priority < remainingRoots.Count; priority++)
+            {
+                var remaining = remainingRoots[priority];
+                if (remaining.Priority == priority) continue;
+                db.Entry(remaining).CurrentValues.SetValues(remaining with
+                { Priority = priority, UpdatedAt = DateTimeOffset.UtcNow, Version = remaining.Version + 1 });
+            }
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException) { return false; }
+        catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 or 5 or 6 }) { return false; }
+        finally { db.ChangeTracker.Clear(); }
+    }
+
+    public async Task<bool> ReorderRootsAsync(ImmutableArray<string> ids, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var roots = await db.StorageRoots.ToListAsync(ct);
+            if (ids.Length != roots.Count || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length ||
+                ids.Any(id => roots.All(root => root.Id != id))) return false;
+            var now = DateTimeOffset.UtcNow;
+            for (var priority = 0; priority < ids.Length; priority++)
+            {
+                var root = roots.Single(row => row.Id == ids[priority]);
+                if (root.Priority == priority) continue;
+                db.Entry(root).CurrentValues.SetValues(root with
+                { Priority = priority, UpdatedAt = now, Version = root.Version + 1 });
+            }
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return true;
@@ -93,7 +127,8 @@ public sealed partial class LibraryRepository : ILibraryDownloadRepository
             }
             if (file.Version == 1) db.MediaFiles.Add(file);
             else db.MediaFiles.Update(file).Property(row => row.Version).OriginalValue = file.Version - 1;
-            if (folder is { Version: 1 }) db.WorkFolders.Add(folder);
+            if (folder is { Version: 1 } && !await db.WorkFolders.AnyAsync(row =>
+                    row.WorkId == folder.WorkId && row.RootId == folder.RootId, ct)) db.WorkFolders.Add(folder);
             else if (folder is not null)
                 db.WorkFolders.Update(folder).Property(row => row.Version).OriginalValue = folder.Version - 1;
             await db.SaveChangesAsync(ct);

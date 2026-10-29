@@ -211,7 +211,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var raw = await db.RawIntents.AsNoTracking().ToListAsync(ct);
         var files = await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct);
         var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
-        var roots = await db.StorageRoots.AsNoTracking().ToListAsync(ct);
+        var roots = await db.StorageRoots.AsNoTracking().OrderBy(r => r.Priority).ThenBy(r => r.Id).ToListAsync(ct);
         var cap = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct))
             .MaxActiveDownloads;
         var nowDownloads = snapshot.Queue.Where(q => q.Now).Select(q => q.DownloadId).ToHashSet(StringComparer.Ordinal);
@@ -577,12 +577,13 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
                 await engine.UpdateSettingsAsync(value, ct);
             }
-            var roots = await db.StorageRoots.AsNoTracking().OrderBy(r => r.Id).ToListAsync(ct);
+            var roots = await db.StorageRoots.AsNoTracking().OrderBy(r => r.Priority).ThenBy(r => r.Id).ToListAsync(ct);
             var scheduler = SettingsCatalog.Read<SchedulerSettings>(
                 await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "scheduler", ct));
             var mediaBytes = await db.MediaFiles.SumAsync(m => m.Bytes, ct);
-            var maximum = roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes;
-            var rootPath = roots.FirstOrDefault(r => r.Enabled)?.Path;
+            var primaryRoot = roots.FirstOrDefault(r => r.Priority == 0);
+            var maximum = primaryRoot?.MaxAllocatedBytes;
+            var rootPath = primaryRoot?.Path;
             var setupComplete = SetupComplete(roots);
             var categories = new[] { "Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other" };
             // The write contract is the editable form, not the richer read-only settings view.
@@ -637,7 +638,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     }
 
     internal static bool SetupComplete(IEnumerable<StorageRootRow> roots) =>
-        roots.FirstOrDefault(r => r.Enabled)?.MaxAllocatedBytes > 0;
+        roots.FirstOrDefault(r => r.Priority == 0) is { Enabled: true, MaxAllocatedBytes: > 0 };
 
     // v1 keeps one storage root: the download folder and space limit both live on it.
     private static async Task SaveRootAsync(LibraryPlacement library, JsonElement body, CancellationToken ct)
@@ -655,7 +656,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         if (path is not null && !Path.IsPathFullyQualified(path))
             throw new ArgumentException("Enter the full folder path, for example D:\\Media.");
         if (path is null && cap is null) return;
-        var current = (await library.RootsAsync(ct)).FirstOrDefault(r => r.Enabled);
+        var current = (await library.RootsAsync(ct)).FirstOrDefault(r => r.Priority == 0);
         if (current is not null && (path is null || string.Equals(Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar),
                 current.Path, StringComparison.OrdinalIgnoreCase)))
         {
@@ -681,7 +682,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             return new { ok = true, message = "Saved downloads restored." };
         }
         return new { dataDirectory = HostPaths.DataDirectory(configuration),
-            downloadDirectory = (await db.StorageRoots.AsNoTracking().OrderBy(r => r.Id)
+            downloadDirectory = (await db.StorageRoots.AsNoTracking().OrderBy(r => r.Priority).ThenBy(r => r.Id)
                 .FirstOrDefaultAsync(r => r.Enabled, ct))?.Path,
             hasMedia = await db.MediaFiles.AnyAsync(m => m.MissingSince == null, ct) };
     }

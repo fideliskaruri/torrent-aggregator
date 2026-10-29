@@ -12,6 +12,7 @@ public interface ILibraryPlacement
     Task<LibraryRootResult> CheckRootAsync(string id, CancellationToken cancellationToken);
     Task<LibraryRootResult> ConfigureRootAsync(string id, LibraryRootConfiguration input, CancellationToken cancellationToken);
     Task<LibraryRootResult> RemoveRootAsync(string id, CancellationToken cancellationToken);
+    Task<bool> ReorderRootsAsync(ImmutableArray<string> ids, CancellationToken cancellationToken);
     Task<Failure?> RecordAsync(MediaFileRow file, WorkFolderRow? folder, CancellationToken cancellationToken);
     Task<int> PruneMissingAsync(DateTimeOffset now, CancellationToken cancellationToken);
 }
@@ -22,12 +23,13 @@ public interface ILibraryRepository
     Task<ImmutableArray<MediaFileRow>> MediaAsync(string? workId, CancellationToken cancellationToken);
     Task<ImmutableArray<WorkFolderRow>> FoldersAsync(CancellationToken cancellationToken);
     Task<ImmutableArray<DownloadFileRow>> BindingsAsync(CancellationToken cancellationToken);
+    Task<ImmutableArray<DownloadRow>> DownloadsAsync(CancellationToken cancellationToken);
     Task<DownloadRow?> DownloadAsync(string hash, CancellationToken cancellationToken);
-    Task<ImmutableDictionary<string, long>> ReservationsAsync(CancellationToken cancellationToken);
     Task<bool> SaveRootAsync(StorageRootRow root, long? expectedVersion, CancellationToken cancellationToken);
     Task<bool> SaveRootCheckAsync(StorageRootRow root, long expectedVersion,
         ImmutableArray<MediaFileRow> media, CancellationToken cancellationToken);
     Task<bool> RemoveRootAsync(string id, long expectedVersion, CancellationToken cancellationToken);
+    Task<bool> ReorderRootsAsync(ImmutableArray<string> ids, CancellationToken cancellationToken);
     Task<bool> RecordAsync(MediaFileRow file, WorkFolderRow? folder, CancellationToken cancellationToken);
     Task<int> PruneMissingAsync(DateTimeOffset before, CancellationToken cancellationToken);
 }
