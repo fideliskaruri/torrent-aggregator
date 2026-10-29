@@ -6,10 +6,12 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Library.Jellyfin;
 
-public sealed record JellyfinProgress(bool Watched, double? InProgress);
+public sealed record JellyfinProgress(bool Watched, double? InProgress, DateTimeOffset? LastPlayedAt);
 public sealed record JellyfinNextEpisode(string EpisodeId, int Season, int Episode);
 public sealed record JellyfinTitleState(JellyfinProgress? Film,
     ImmutableDictionary<string, JellyfinProgress> Episodes, JellyfinNextEpisode? NextUp);
+public sealed record JellyfinBatchRead(string Status,
+    ImmutableDictionary<string, JellyfinTitleState> Items);
 
 /// <summary>Read-only Jellyfin adapter. No playback writes or inferred local watch history.</summary>
 public sealed class JellyfinWatchState
@@ -52,9 +54,14 @@ public sealed class JellyfinWatchState
     public async Task<ImmutableDictionary<string, JellyfinTitleState>> ReadBatchAsync(
         JellyfinSettings settings, string? key,
         IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct)
+        => (await ReadBatchWithStatusAsync(settings, key, works, ct)).Items;
+
+    public async Task<JellyfinBatchRead> ReadBatchWithStatusAsync(
+        JellyfinSettings settings, string? key,
+        IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct)
     {
         if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(settings.UserId) || string.IsNullOrWhiteSpace(key))
-            return ImmutableDictionary<string, JellyfinTitleState>.Empty;
+            return new("off", ImmutableDictionary<string, JellyfinTitleState>.Empty);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
         var locked = false;
@@ -75,14 +82,15 @@ public sealed class JellyfinWatchState
                 do
                 {
                     page = await GetAsync<Page>(server, key, "Items?UserId=" + Uri.EscapeDataString(settings.UserId)
-                        + "&Recursive=true&IncludeItemTypes=Movie,Episode,Series&Fields=ProviderIds,Path&EnableUserData=true"
+                        + "&Recursive=true&IncludeItemTypes=Movie,Episode,Series&Fields=ProviderIds,Path,UserData&EnableUserData=true"
                         + "&Limit=1000&StartIndex=" + start, deadline.Token);
                     items.AddRange(page.Items);
                     start += page.Items.Length;
                 } while (page.Items.Length > 0 && start < page.TotalRecordCount && start < 100000);
-                if (start < page.TotalRecordCount) return ImmutableDictionary<string, JellyfinTitleState>.Empty;
+                if (start < page.TotalRecordCount)
+                    return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
                 var next = await GetAsync<Page>(server, key, "Shows/NextUp?UserId=" +
-                    Uri.EscapeDataString(settings.UserId) + "&Fields=ProviderIds,Path&EnableUserData=true&Limit=1000",
+                    Uri.EscapeDataString(settings.UserId) + "&Fields=ProviderIds,Path,UserData&EnableUserData=true&Limit=1000",
                     deadline.Token);
                 var now = DateTimeOffset.UtcNow;
                 snapshot = new MetadataCacheRow
@@ -100,7 +108,8 @@ public sealed class JellyfinWatchState
                 };
                 cache = snapshot;
             }
-            if (!snapshot.Complete) return ImmutableDictionary<string, JellyfinTitleState>.Empty;
+            if (!snapshot.Complete)
+                return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
             var data = snapshot.Payload.Deserialize<Snapshot>(Json)!;
             var result = ImmutableDictionary.CreateBuilder<string, JellyfinTitleState>();
             foreach (var (work, files) in works)
@@ -108,7 +117,7 @@ public sealed class JellyfinWatchState
                 deadline.Token.ThrowIfCancellationRequested();
                 result[work.Work.Id] = Project(data, work, files);
             }
-            return result.ToImmutable();
+            return new("ok", result.ToImmutable());
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or ArgumentException)
         {
@@ -129,7 +138,7 @@ public sealed class JellyfinWatchState
                     Provider = "jellyfin",
                 };
             }
-            return ImmutableDictionary<string, JellyfinTitleState>.Empty;
+            return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
         }
         finally { if (locked) gate.Release(); }
     }
@@ -196,10 +205,11 @@ public sealed class JellyfinWatchState
     private static string NormalizePath(string path) => path.Replace('/', '\\').TrimEnd('\\').ToUpperInvariant();
     private static JellyfinProgress Progress(Item item) => new(item.UserData!.Played,
         !item.UserData.Played && item.UserData.PlaybackPositionTicks > 0 && item.RunTimeTicks > 0
-            ? Math.Clamp(100d * item.UserData.PlaybackPositionTicks / item.RunTimeTicks, 0, 100) : null);
+            ? Math.Clamp(100d * item.UserData.PlaybackPositionTicks / item.RunTimeTicks, 0, 100) : null,
+        item.UserData.LastPlayedDate);
     private sealed record Page(Item[] Items, int TotalRecordCount);
     private sealed record Snapshot(Item[] Items, Item[] Next);
     private sealed record Item(string Id, string Type, string? Path, Dictionary<string, string>? ProviderIds,
         string? SeriesId, int? ParentIndexNumber, int? IndexNumber, long RunTimeTicks, UserData? UserData);
-    private sealed record UserData(bool Played, long PlaybackPositionTicks);
+    private sealed record UserData(bool Played, long PlaybackPositionTicks, DateTimeOffset? LastPlayedDate);
 }
