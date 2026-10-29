@@ -30,8 +30,16 @@ internal static class EngineModule
         public async Task<ImmutableArray<EngineRecoveryFiles>> ReadAsync(CancellationToken ct)
         {
             await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
-            return await DownloadFiling.RecoveryAsync(repository, ct);
+            var recovery = await DownloadFiling.RecoveryAsync(repository, ct);
+            var downloads = await store.ListAsync<DownloadRow>(null, ct);
+            var roots = await store.ListAsync<StorageRootRow>(null, ct);
+            return [.. recovery.Select(item => item with
+            {
+                StorageRootPath = downloads.FirstOrDefault(download => download.Id == item.DownloadId)?.RootId is { } rootId
+                    ? roots.FirstOrDefault(root => root.Id == rootId)?.Path : null,
+            })];
         }
     }
 

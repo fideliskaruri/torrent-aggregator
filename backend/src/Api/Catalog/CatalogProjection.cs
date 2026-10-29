@@ -77,15 +77,25 @@ internal static class CatalogProjection
         bool HasCopy(TargetRow target) => target.State == TargetState.Waiting &&
             (target.ChosenReleaseHash is not null ||
              target.ReasonCode is WaitReason.DownloadCap or WaitReason.FileBusy or WaitReason.NoDriveSpace or
-                 WaitReason.DriveOffline or WaitReason.WaitingForSeeders);
+                 WaitReason.DriveOffline or WaitReason.PlacementBlocked or WaitReason.WaitingForSeeders);
+        var storageWait = targets.Where(target => target.State == TargetState.Waiting &&
+                target.ReasonCode is WaitReason.DriveOffline or WaitReason.NoDriveSpace or WaitReason.PlacementBlocked)
+            .OrderByDescending(target => target.UpdatedAt).FirstOrDefault();
         var downloading = targets.Any(t => t.State is TargetState.Fetching or TargetState.Filing || HasCopy(t));
         var lookingTargets = targets.Where(t =>
             (t.State is TargetState.Wanted or TargetState.Searching or TargetState.Waiting) &&
-            !HasCopy(t) && (t.ExpectedAt is null || t.ExpectedAt <= now)).ToArray();
+            !HasCopy(t) && t.ReasonCode != WaitReason.PlacementBlocked &&
+            (t.ExpectedAt is null || t.ExpectedAt <= now)).ToArray();
         var hasFiles = ready;
-        var libraryState = downloading ? "downloading" : lookingTargets.Length > 0 ? "looking" :
+        var libraryState = storageWait?.ReasonCode switch
+        {
+            WaitReason.DriveOffline => "waiting_drive",
+            WaitReason.NoDriveSpace => "no_space",
+            WaitReason.PlacementBlocked => "needs_you",
+            _ => downloading ? "downloading" : lookingTargets.Length > 0 ? "looking" :
             hasFiles ? "downloaded" : follow?.Enabled == true || targets.Any(t => t.ExpectedAt > now)
-                ? "coming_up" : "idle";
+                ? "coming_up" : "idle",
+        };
         var airedEpisodes = Series(w)
             ? w.Episodes.Count(e => e.MappingStatus == MappingStatus.Confirmed &&
                 e.AirAt is { } air && air <= now && w.Seasons.Any(s => s.Id == e.SeasonId && s.Number >= 1))
@@ -116,6 +126,7 @@ internal static class CatalogProjection
         airedEpisodes = Series(w) ? (int?)airedEpisodes : null,
         activeEpisodes, nextReleaseAt,
         lookingReason = latestLooking?.ReasonText, lookingSince = earliestLooking,
+        libraryReason = storageWait?.ReasonText,
         };
     }
     private static string? NextReleaseAt(WorkSnapshot w, DateTimeOffset now)

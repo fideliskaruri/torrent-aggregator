@@ -651,11 +651,13 @@ public sealed record EngineSnapshot(string DownloadId, string Hash, bool Metadat
     public DownloadIntent Intent { get; init; }
     public TimeSpan? Eta { get; init; }
     public long UploadedBytes { get; init; }
+    public bool Checking { get; init; }
+    public int? ErrorHResult { get; init; }
 }
 public sealed record ProbeHandle(string Token, string Hash, bool CreatedByProbe, bool ObservesLiveTransfer,
     DateTimeOffset ExpiresAt);
 public sealed record ProbeAttachment(ProbeHandle? Handle, ImmutableArray<TorrentFile>? Files, Failure? Failure);
-public sealed record FileBinding(int FileIndex, string AbsolutePath, bool Selected);
+public sealed record FileBinding(int FileIndex, string AbsolutePath, bool Selected, string? RootPath = null);
 public sealed record EngineAdmission(DownloadRow Download, Candidate Candidate,
     ImmutableArray<FileBinding> Files, string AdmissionToken);
 public sealed record EngineAdmissionClaim(string Token, string Hash, string DownloadId,

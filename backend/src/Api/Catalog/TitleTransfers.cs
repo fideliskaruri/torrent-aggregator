@@ -7,7 +7,8 @@ using TorrentFlow.Targets;
 namespace TorrentFlow.Api.Catalog;
 
 internal sealed record TitleTransfer(string Status, string State, double Progress, string? InfoHash,
-    string? FilePath, string? Error, int? QueuePosition = null, string? WaitReason = null);
+    string? FilePath, string? Error, int? QueuePosition = null, string? WaitReason = null,
+    string? Reason = null);
 
 internal sealed record TitleTransferProjection(TitleTransfer? Film,
     Dictionary<string, TitleTransfer> Seasons, Dictionary<string, TitleTransfer> Episodes);
@@ -59,12 +60,14 @@ internal static class TitleTransfers
                     : new("failed", "failed", 0, download?.Hash, null, "The downloaded file is missing.");
             if (download is null)
                 return member.ReasonCode == WaitReason.OwnerPickRequired
-                    ? new("failed", "failed", 0, null, null, member.ReasonText)
-                    : WaitingState(member) == "waiting_sources"
-                        ? new("queued", "waiting_sources", 0, null, null, null, null, member.ReasonText)
-                        : new("queued", WaitingState(member), 0, null, null, null);
+                    ? new("failed", "failed", 0, null, null, member.ReasonText, Reason: member.ReasonText)
+                    : new("queued", WaitingState(member), 0, null, null, null,
+                        WaitReason: member.ReasonText, Reason: member.ReasonText);
 
             var live = snapshot.Live.FirstOrDefault(item => item.DownloadId == download.Id);
+            if (live?.Checking == true)
+                return new("downloading", "checking_files", 0, download.Hash, null, null,
+                    Reason: member.ReasonText);
             var state = DownloadRowView.State(false, member.IsPaused(), member.State == TargetState.Filing, live);
             if (state == "error")
                 return new("failed", "failed", 0, download.Hash, null, live?.Failure?.Message ?? member.ReasonText);
@@ -111,8 +114,10 @@ internal static class TitleTransfers
     {
         WaitReason.MetadataUnavailable => "waiting_season_list",
         WaitReason.MappingUncertain => "waiting_english",
-        _ when target.State == TargetState.Waiting && target.ReasonCode is WaitReason.WaitingForSeeders or
-            WaitReason.NoResults or WaitReason.RejectedCandidates or WaitReason.SourceFailure => "waiting_sources",
-        _ => "looking",
+        WaitReason.DriveOffline => "waiting_drive",
+        WaitReason.NoDriveSpace => "no_space",
+        WaitReason.PlacementBlocked => "needs_you",
+        _ when target.State is TargetState.Wanted or TargetState.Searching => "looking",
+        _ => "waiting_sources",
     };
 }

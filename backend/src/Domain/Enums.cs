@@ -15,7 +15,7 @@ public enum WaitReason
     NotReleased, MetadataUnavailable, NoResults, RejectedCandidates, NoHealthyRelease,
     SourceCooldown, SourceFailure, WaitingForSeeders, DownloadCap, DownloadWindow,
     NoDriveSpace, DriveOffline, FileBusy, MappingUncertain,
-    OwnerPickRequired, RecoveryMissing, Paused, FilingBlocked
+    OwnerPickRequired, RecoveryMissing, Paused, FilingBlocked, PlacementBlocked
 }
 public enum TargetPriority { Now, OwnerRank, FreshRelease, Request, BackCatalogue, UpgradeWatch }
 public enum ReplacementMode { Upgrade, Replace }

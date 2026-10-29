@@ -152,7 +152,20 @@ public sealed partial class MonoTorrentEngine
         UpdateReceived(entry);
         UpdateUploaded(entry);
         await entry.Manager.StopAsync(TimeSpan.Zero);
-        if (entry.Manager.HasMetadata) await client.DiskManager.FlushAsync(entry.Manager);
+        if (entry.Manager.HasMetadata)
+        {
+            try { await client.DiskManager.FlushAsync(entry.Manager); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                entry.FlushFailed = true;
+                forceBindingHashChecks.Add(Hash(entry.Manager));
+                if (!entry.FlushFailureLogged)
+                {
+                    entry.FlushFailureLogged = true;
+                    log($"Disk flush failed for {entry.Id}; its next recovery will verify bound files: {ex.Message}");
+                }
+            }
+        }
         entry.LastReceived = entry.LastUploaded = 0;
         entry.Run = false;
         entry.MetadataStalled = entry.ProgressStalled = false;

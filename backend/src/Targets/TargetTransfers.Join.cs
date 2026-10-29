@@ -59,9 +59,7 @@ internal sealed partial class TargetTransfers
         if (placement.Failure is { } failure)
         {
             foreach (var target in joined)
-                await change(target.Id, TargetState.Waiting,
-                    failure.Code.Contains("Offline", StringComparison.OrdinalIgnoreCase)
-                        ? WaitReason.DriveOffline : WaitReason.NoDriveSpace, failure.Message);
+                await change(target.Id, TargetState.Waiting, PlacementWaitReason(failure.Code), failure.Message);
             return;
         }
 

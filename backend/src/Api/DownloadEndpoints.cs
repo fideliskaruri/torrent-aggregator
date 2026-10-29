@@ -74,7 +74,12 @@ internal static class DownloadEndpoints
         group.MapGet("/settings/client", async (DownloadsApi api, LibraryPlacement library, CancellationToken ct) =>
             Reply(await api.SettingsAsync(null, library, ct)));
         group.MapPut("/settings/client", async (JsonElement input, DownloadsApi api, LibraryPlacement library,
-            CancellationToken ct) => Reply(await api.SettingsAsync(input, library, ct)));
+            TargetPipeline targets, CancellationToken ct) =>
+        {
+            var result = await api.SettingsAsync(input, library, ct);
+            await targets.WakeStorageWaitsAsync(ct);
+            return Reply(result);
+        });
         group.MapGet("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
             Reply(await api.RecoveryAsync(false, ct)));
         group.MapPost("/settings/download-recovery", async (DownloadsApi api, CancellationToken ct) =>
@@ -185,7 +190,8 @@ internal static class DownloadEndpoints
 }
 
 internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownloads, IEngine engine,
-    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration, IParser parser)
+    IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration, IParser parser,
+    IStorageStatus storage)
 {
     private readonly SemaphoreSlim settingsGate = new(1, 1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -205,6 +211,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var raw = await db.RawIntents.AsNoTracking().ToListAsync(ct);
         var files = await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct);
         var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
+        var roots = await db.StorageRoots.AsNoTracking().ToListAsync(ct);
         var cap = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct))
             .MaxActiveDownloads;
         var nowDownloads = snapshot.Queue.Where(q => q.Now).Select(q => q.DownloadId).ToHashSet(StringComparer.Ordinal);
@@ -251,9 +258,18 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     : target.State == TargetState.Done || !packed && download.FinishedAt is not null;
                 var paused = target?.IsPaused() == true || rawIntent?.State == RawDownloadState.Paused ||
                     live?.Intent == DownloadIntent.Paused;
-                var state = DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live,
-                    target?.State == TargetState.Filing && target.ReasonCode == WaitReason.FilingBlocked,
-                    target is null && rawIntent?.State == RawDownloadState.Publishing);
+                var storageState = target?.State == TargetState.Waiting ? target.ReasonCode switch
+                {
+                    WaitReason.DriveOffline => "waiting_drive",
+                    WaitReason.NoDriveSpace => "no_space",
+                    WaitReason.PlacementBlocked => "needs_you",
+                    _ => null,
+                } : null;
+                var checking = live?.Checking == true;
+                var state = storageState ?? (checking ? "checking_files" :
+                    DownloadRowView.State(done, paused, target?.State == TargetState.Filing, live,
+                        target?.State == TargetState.Filing && target.ReasonCode == WaitReason.FilingBlocked,
+                        target is null && rawIntent?.State == RawDownloadState.Publishing));
                 var failed = state == "error";
                 var size = target is not null ? selected.Sum(f => f.ExpectedBytes) :
                     selected.Length > 0 ? selected.Sum(f => f.ExpectedBytes) :
@@ -276,8 +292,17 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 var heldStatus = packed && target is not null
                     ? DownloadRowView.HeldStatus(state, live, selected.Select(file => (file.FileIndex, file.Filed)))
                     : null;
-                var rowStatus = heldStatus ??
-                    DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError);
+                var driveLabel = download.RootId is { } rootId
+                    ? roots.FirstOrDefault(root => root.Id == rootId)?.Path is { } rootPath
+                        ? storage.Label(rootPath) : null : null;
+                var rowStatus = heldStatus ?? storageState switch
+                {
+                    "waiting_drive" => new("waiting", $"Waiting for drive {driveLabel ?? "drive"}"),
+                    "no_space" => new("waiting", "No drive has room"),
+                    "needs_you" => new("waiting", "Needs you"),
+                    _ when checking => new("waiting", "Checking files"),
+                    _ => DownloadRowView.Status(state, position, full, live?.StalledMetadata == true, rowError),
+                };
                 if (target?.State == TargetState.Filing && target.ReasonCode == WaitReason.FileBusy &&
                     rowStatus.Status == "finishing")
                     rowStatus = rowStatus with { StatusLabel = "Finishing, retrying soon" };
@@ -291,7 +316,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     progress = done ? 1d : size > 0 ? Math.Clamp((double)completed / size, 0, 1) : 0,
                     sizeBytes = size, dlspeed = heldStatus is null ? live?.BytesPerSecond ?? 0 : 0, upspeed = 0,
                     eta = heldStatus is null ? live?.Eta?.TotalSeconds : null, peers = live?.Peers ?? 0,
-                    status = rowStatus.Status, statusLabel = rowStatus.StatusLabel,
+                    status = rowStatus.Status, statusLabel = rowStatus.StatusLabel, state,
+                    reason = target?.ReasonText,
                     error = rowError,
                     category = work?.Kind == WorkKind.Series ? "TV" : "Movies",
                     savePath = rawIntent?.ExplicitDirectory ?? Path.GetDirectoryName(selected.FirstOrDefault()?.FinalPath),

@@ -6,7 +6,8 @@ namespace TorrentFlow.Api;
 internal static class LibraryModule
 {
     internal static IServiceCollection AddLibrary(this IServiceCollection services) =>
-        services.AddScoped<LibraryPlacement>()
+        services.AddSingleton<IStorageStatus, StorageStatus>()
+            .AddScoped<LibraryPlacement>()
             .AddScoped<ILibraryPlacement>(sp => sp.GetRequiredService<LibraryPlacement>())
             .AddScoped<MediaImport>().AddSingleton<ImportJobs>();
 

@@ -5,6 +5,7 @@ using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
 using TorrentFlow.Store;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api;
 
@@ -71,16 +72,27 @@ internal static class ImportEndpoints
             foreach (var item in input.ItemIds) await reviews.DecideAsync(id, item, "dismissed", ct);
             return Results.Ok(new { dismissed = input.ItemIds.Length });
         });
-        group.MapPost("/roots/{id}/rescan", async (string id, MediaImport importer, CancellationToken ct) =>
-            Results.Json(await importer.RescanAsync(id, ct), Json));
+        group.MapPost("/roots/{id}/rescan", async (string id, MediaImport importer, TargetPipeline targets,
+            CancellationToken ct) =>
+        {
+            var result = await importer.RescanAsync(id, ct);
+            if (result.Online) await targets.WakeStorageWaitsAsync(ct);
+            return Results.Json(result, Json);
+        });
         group.MapGet("/roots", async (ILibraryPlacement library, CancellationToken ct) =>
             Results.Json(new { roots = (await library.RootsAsync(ct)).OrderBy(r => r.Priority).Select(RootView) }, Json));
         group.MapPost("/roots", async (HttpContext http, ILibraryPlacement library, CancellationToken ct) =>
             RootReply(await library.AddRootAsync(await http.Request.ReadFromJsonAsync<LibraryRootInput>(Json, ct) ??
                 throw new ArgumentException("Choose a folder path."), ct)));
-        group.MapPut("/roots/{id}", async (string id, HttpContext http, ILibraryPlacement library, CancellationToken ct) =>
-            RootReply(await library.ConfigureRootAsync(id, await http.Request.ReadFromJsonAsync<LibraryRootConfiguration>(Json, ct) ??
-                throw new ArgumentException("Choose the drive settings."), ct)));
+        group.MapPut("/roots/{id}", async (string id, HttpContext http, ILibraryPlacement library,
+            TargetPipeline targets, CancellationToken ct) =>
+        {
+            var result = await library.ConfigureRootAsync(id,
+                await http.Request.ReadFromJsonAsync<LibraryRootConfiguration>(Json, ct) ??
+                    throw new ArgumentException("Choose the drive settings."), ct);
+            if (result.Failure is null) await targets.WakeStorageWaitsAsync(ct);
+            return RootReply(result);
+        });
         group.MapDelete("/roots/{id}", async (string id, ILibraryPlacement library, CancellationToken ct) =>
             RootReply(await library.RemoveRootAsync(id, ct)));
         group.MapGet("/owned/{workId}", async (string workId, string? episodeId, bool? film,

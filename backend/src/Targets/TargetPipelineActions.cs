@@ -128,7 +128,8 @@ public sealed partial class TargetPipeline
             var next = old with { State = state, ReasonCode = reason, ReasonText = text,
                 ResumeState = state == TargetState.Waiting ? old.State is TargetState.Filing or TargetState.Fetching
                     ? old.State : TargetState.Wanted : null,
-                NextTryAt = state == TargetState.Waiting ? NextTry(old, reason, now) : null,
+                NextTryAt = state == TargetState.Waiting && reason != WaitReason.PlacementBlocked
+                    ? NextTry(old, reason, now) : null,
                 ChosenReleaseHash = state == TargetState.Wanted ? null : chosen ?? old.ChosenReleaseHash,
                 SubstantiveMisses = old.SubstantiveMisses + (state == TargetState.Waiting &&
                     reason is WaitReason.NoResults or WaitReason.RejectedCandidates or WaitReason.NoHealthyRelease ? 1 : 0),
@@ -143,6 +144,30 @@ public sealed partial class TargetPipeline
                     new RowWrite(l with { Role = state == TargetState.Fetching ? AssociationRole.Current :
                         AssociationRole.Retired }, null, l))], [], ct);
             return next;
+        }
+        finally { stateGate.Release(); }
+    }
+
+    public async Task WakeStorageWaitsAsync(CancellationToken ct)
+    {
+        await stateGate.WaitAsync(ct);
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var now = DateTimeOffset.UtcNow;
+            var writes = (await store.ListAsync<TargetRow>(target => target.State == TargetState.Waiting &&
+                    (target.ReasonCode == WaitReason.DriveOffline ||
+                     target.ReasonCode == WaitReason.NoDriveSpace ||
+                     target.ReasonCode == WaitReason.PlacementBlocked), ct))
+                .Select(target => new RowWrite(target with
+                {
+                    NextTryAt = now,
+                    UpdatedAt = now,
+                    Version = target.Version + 1,
+                }, target.Version, null)).ToArray();
+            if (writes.Length > 0 && !await store.SaveAsync(writes, [], ct))
+                throw new InvalidOperationException("Storage waits changed before they could be resumed.");
         }
         finally { stateGate.Release(); }
     }

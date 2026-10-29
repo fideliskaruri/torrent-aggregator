@@ -144,9 +144,18 @@ public sealed partial class TargetPipeline
     {
         var settings = await RecoverySettingsAsync(ct);
         if (!settings.Enabled) return;
+        await using var scope = scopes.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
+        var roots = await repository.RootsAsync(ct);
+        var downloads = snapshot.Downloads.ToDictionary(download => download.Id);
         foreach (var live in snapshot.Live.Where(l => l.Active && !l.Complete &&
             (l.StalledMetadata || l.StalledProgress)))
         {
+            if (live.Failure?.Code == "engine_error" ||
+                downloads.TryGetValue(live.DownloadId, out var download) &&
+                roots.SingleOrDefault(root => root.Id == download.RootId) is { } root &&
+                !storage.IsOnline(root.Path)) continue;
             var target = snapshot.Targets.FirstOrDefault(t => t.State == TargetState.Fetching &&
                 t.ChosenReleaseHash == live.Hash);
             if (target is null || swapping.ContainsKey(live.DownloadId)) continue;

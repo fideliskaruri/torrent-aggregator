@@ -13,8 +13,42 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     ILogger<TargetPipeline> logger)
 {
     private const string Prefix = "targets:";
+    private const long SpaceWakeBytes = 1_000_000_000;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly ConcurrentDictionary<string, Task> filingTasks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> noSpaceBaselines = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> engineErrorRestarts = new(StringComparer.Ordinal);
+
+    private static WaitReason PlacementWaitReason(string code) => code switch
+    {
+        nameof(WaitReason.DriveOffline) => WaitReason.DriveOffline,
+        nameof(WaitReason.NoDriveSpace) => WaitReason.NoDriveSpace,
+        nameof(WaitReason.MappingUncertain) => WaitReason.MappingUncertain,
+        _ => WaitReason.PlacementBlocked,
+    };
+
+    private static bool IsDiskFull(EngineSnapshot snapshot) =>
+        snapshot.Failure is { Code: "engine_error" } failure &&
+        (snapshot.ErrorHResult is unchecked((int)0x80070070) or unchecked((int)0x80070027) ||
+            failure.Message.Contains("not enough space", StringComparison.OrdinalIgnoreCase));
+
+    private static long? FreeBytes(string path)
+    {
+        try
+        {
+            var drive = Path.GetPathRoot(path);
+            return drive is null ? null : new DriveInfo(drive).AvailableFreeSpace;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+    }
+
+    private bool SpaceAvailableAgain(string downloadId, StorageRootRow? root)
+    {
+        if (root is null || !noSpaceBaselines.TryGetValue(downloadId, out var baseline) ||
+            FreeBytes(root.Path) is not { } current || current < baseline + SpaceWakeBytes) return false;
+        noSpaceBaselines.TryRemove(downloadId, out _);
+        return true;
+    }
 
     // A saved file list is not enough to start: the engine also needs the torrent's metadata on disk.
     private async Task CacheMetadataAsync(Candidate candidate, CancellationToken ct)
@@ -89,8 +123,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             if (placement.Failure is { } failure)
             {
                 foreach (var target in targets) await change(target.Id, TargetState.Waiting,
-                    failure.Code.Contains("Offline", StringComparison.OrdinalIgnoreCase) ? WaitReason.DriveOffline : WaitReason.NoDriveSpace,
-                    failure.Message);
+                    PlacementWaitReason(failure.Code), failure.Message);
                 return;
             }
             var root = (await library.RootsAsync(ct)).Single(r => r.Id == placement.RootId);
@@ -127,7 +160,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 if (targets.Any(t => fresh.All(f => f.Id != t.Id || f.State != TargetState.Fetching)))
                     throw new IOException("The download intent changed before it could start.");
                 var admission = new EngineAdmission(download, candidate,
-                    [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected))], token);
+                        [.. files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected, root.Path))], token);
                 await TargetQueue.ApplyAsync(engine, store, ct);
                 var result = handle is null ? await engine.StartAsync(admission, ct) :
                     await engine.AdmitFromProbeAsync(handle, admission, ct);
@@ -190,10 +223,25 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
         var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+        var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
+        var roots = await repository.RootsAsync(ct);
         var links = await store.ListAsync<DownloadTargetRow>(null, ct);
         var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToImmutableArray();
-        var bindings = (await repository.BindingsAsync(ct)).Where(f => downloads.Any(d => d.Id == f.DownloadId)).ToImmutableArray();
         var targets = await store.ListAsync<TargetRow>(null, ct);
+        var offlineDownloads = downloads.Where(download => download.RootId is { } rootId &&
+            roots.SingleOrDefault(root => root.Id == rootId) is { } root && !storage.IsOnline(root.Path)).ToArray();
+        foreach (var download in offlineDownloads)
+        {
+            var root = roots.SingleOrDefault(candidate => candidate.Id == download.RootId);
+            await engine.StopAndReleaseFilesAsync(download.Id, ct);
+            foreach (var target in targets.Where(target => links.Any(link =>
+                         link.DownloadId == download.Id && link.TargetId == target.Id) &&
+                     target.State is TargetState.Fetching or TargetState.Filing))
+                await change(target.Id, TargetState.Waiting, WaitReason.DriveOffline,
+                    $"Waiting for drive {storage.Label(root!.Path)}", ct);
+        }
+        downloads = [.. downloads.Except(offlineDownloads)];
+        var bindings = (await repository.BindingsAsync(ct)).Where(f => downloads.Any(d => d.Id == f.DownloadId)).ToImmutableArray();
         foreach (var interrupted in downloads.Where(d => links.Any(l => l.DownloadId == d.Id) &&
             links.Where(l => l.DownloadId == d.Id).All(l => l.Role == AssociationRole.Replacement)))
         {
@@ -233,17 +281,30 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+            var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
+            var roots = await repository.RootsAsync(ct);
             var targets = await store.ListAsync<TargetRow>(null, ct);
             var associations = await store.ListAsync<DownloadTargetRow>(null, ct);
             var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
             await TargetQueue.ApplyAsync(engine, store, ct);
             foreach (var download in downloads)
             {
-                if (filingTasks.ContainsKey(download.Id)) continue;
                 try
                 {
                     var members = targets.Where(t => associations.Any(a =>
                         a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
+                    if (filingTasks.ContainsKey(download.Id)) continue;
+                    var root = roots.SingleOrDefault(candidate => candidate.Id == download.RootId);
+                    if (root is not null && !storage.IsOnline(root.Path))
+                    {
+                        if ((await engine.SnapshotAsync(ct)).Any(snapshot => snapshot.DownloadId == download.Id))
+                            await engine.StopAndReleaseFilesAsync(download.Id, ct);
+                        foreach (var target in members.Where(target =>
+                                     target.State is TargetState.Fetching or TargetState.Filing))
+                            await change(target.Id, TargetState.Waiting, WaitReason.DriveOffline,
+                                $"Waiting for drive {storage.Label(root.Path)}", ct);
+                        continue;
+                    }
                     var files = (await repository.BindingsAsync(ct))
                         .Where(f => f.DownloadId == download.Id).ToImmutableArray();
                     if (members.Length > 0 && members.All(t => t.ChosenReleaseHash != download.Hash))
@@ -274,12 +335,59 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         if (engine is MonoTorrentEngine removedEngine) await removedEngine.SaveDevStateAsync(ct);
                         continue;
                     }
-                    foreach (var retry in members.Where(t => t.State == TargetState.Waiting && !t.IsPaused() &&
-                        t.ResumeState == TargetState.Fetching && t.NextTryAt <= DateTimeOffset.UtcNow))
+                    var live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
+                        snapshot.DownloadId == download.Id);
+                    if (live?.Failure?.Code == "engine_error")
                     {
-                        if ((await engine.SnapshotAsync(ct)).All(s => s.DownloadId != download.Id))
+                        if (IsDiskFull(live))
+                        {
+                            if (FreeBytes(root?.Path ?? "") is { } free) noSpaceBaselines[download.Id] = free;
+                            await engine.StopAndReleaseFilesAsync(download.Id, ct);
+                            foreach (var target in members.Where(target =>
+                                         target.State is TargetState.Fetching or TargetState.Filing))
+                                await change(target.Id, TargetState.Waiting, WaitReason.NoDriveSpace,
+                                    "No drive has room", ct);
+                            continue;
+                        }
+                        // MonoTorrent never leaves error mode by itself (for example after a short USB drop-out).
+                        // Release the manager; the recovery below re-adds it with a bindings-aware hash check.
+                        var errorAt = DateTimeOffset.UtcNow;
+                        if (!engineErrorRestarts.TryGetValue(download.Id, out var lastRestart) ||
+                            errorAt - lastRestart > TimeSpan.FromMinutes(1))
+                        {
+                            engineErrorRestarts[download.Id] = errorAt;
+                            logger.LogWarning("Engine error for download {DownloadId}, restarting it: {Error}",
+                                download.Id, live.Failure.Message);
+                            await engine.StopAndReleaseFilesAsync(download.Id, ct);
+                            live = null;
+                        }
+                    }
+                    var retryNow = DateTimeOffset.UtcNow;
+                    var spaceReady = SpaceAvailableAgain(download.Id, root);
+                    bool Due(TargetRow target) => target.NextTryAt <= retryNow ||
+                        target.ReasonCode == WaitReason.DriveOffline ||
+                        target.ReasonCode == WaitReason.NoDriveSpace && spaceReady;
+                    foreach (var retry in members.Where(target => target.State == TargetState.Waiting &&
+                                 !target.IsPaused() && target.ResumeState == TargetState.Fetching && Due(target)))
+                    {
+                        if (live is null)
+                        {
                             await engine.RecoverAsync([download], files, ct);
+                            live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
+                                snapshot.DownloadId == download.Id);
+                        }
                         await change(retry.Id, TargetState.Fetching, null, null, ct);
+                    }
+                    foreach (var retry in members.Where(target => target.State == TargetState.Waiting &&
+                                 !target.IsPaused() && target.ResumeState == TargetState.Filing && Due(target)))
+                    {
+                        if (live is null)
+                        {
+                            await engine.RecoverAsync([download], files, ct);
+                            live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
+                                snapshot.DownloadId == download.Id);
+                        }
+                        await change(retry.Id, TargetState.Filing, null, null, ct);
                     }
                     members = (await store.ListAsync<TargetRow>(null, ct))
                         .Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
@@ -295,14 +403,13 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         latestDownload = download with { Intent = desired, Version = download.Version + 1 };
                         await TargetPipeline.CommitAsync(store, [new(latestDownload, download.Version, null)], [], ct);
                     }
-                    var live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
                     if (live is null && members.Any(t => t.State == TargetState.Fetching))
                     {
                         await engine.RecoverAsync([latestDownload], files, ct);
                         live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
                     }
                     var selected = files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected &&
-                        !f.Filed && members.Any(t => t.Id == f.TargetId && t.State == TargetState.Fetching)))
+                        !f.Filed && members.Any(t => t.Id == f.TargetId && t.State == TargetState.Fetching), root?.Path))
                         .ToImmutableArray();
                     if (live is not null && selected.Any(f =>
                         live.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.Selected != f.Selected))

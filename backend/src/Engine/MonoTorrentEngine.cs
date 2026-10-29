@@ -31,6 +31,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         public bool MetadataReported { get; set; }
         public bool MetadataStalled { get; set; }
         public bool ProgressStalled { get; set; }
+        public bool FlushFailed { get; set; }
+        public bool FlushFailureLogged { get; set; }
         public long ActiveSince { get; set; }
         public long ProgressSince { get; set; }
         public long ProgressBaseline { get; set; }
@@ -39,12 +41,25 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         public HashSet<int> Filed { get; } = [];
     }
 
+    private static bool StorageRootAvailable(string? path)
+    {
+        if (path is null) return true;
+        try { return Directory.Exists(path); }
+        catch { return false; }
+    }
+
+    private static bool RecoveryStorageAvailable(EngineRecoveryFiles files) =>
+        files.StorageRootPath is { } rootPath
+            ? StorageRootAvailable(rootPath)
+            : files.Files.All(file => StorageRootAvailable(Path.GetPathRoot(file.AbsolutePath)));
+
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly HashMutex hashMutex = new();
     private readonly Dictionary<string, Entry> entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProbeHandle> handles = [];
     private readonly Dictionary<string, EngineAdmissionClaim> claims = [];
     private readonly Dictionary<string, string> registered = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> forceBindingHashChecks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Action<string> log;
     private readonly IEngineFileState? fileState;
     private readonly string directory;
@@ -181,15 +196,23 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             entries.Add(hash, entry);
             registered[hash] = entry.Id;
             WatchCompletion(entry);
-            if (durableFiles.SingleOrDefault(f => f.DownloadId == entry.Id) is { } durable && manager.HasMetadata)
+            var durable = durableFiles.SingleOrDefault(f => f.DownloadId == entry.Id);
+            if (durable is not null && manager.HasMetadata && RecoveryStorageAvailable(durable))
             {
-                await BindAsync(entry, [.. durable.Files.Select(f => new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected))]);
+                await BindAsync(entry, [.. durable.Files.Select(f =>
+                    new FileBinding(f.FileIndex, f.AbsolutePath, f.Selected, durable.StorageRootPath))]);
                 entry.Filed.UnionWith(durable.Files.Where(f => f.Filed).Select(f => f.FileIndex));
                 // Publication changes resume identities. Verify the rebound boundary pieces on replay.
                 await HashCheckBindingsAsync(entry);
             }
-            if (!uncleanRecovery && manager.HasMetadata && entry.Filed.Count == 0) await LoadResumeAsync(manager);
-            if (uncleanRecovery && manager.HasMetadata)
+            else if (durable is not null && !RecoveryStorageAvailable(durable))
+            {
+                entry.Bound = false;
+                entry.WantsRun = false;
+            }
+            if (!uncleanRecovery && entry.Bound && manager.HasMetadata && entry.Filed.Count == 0)
+                await LoadResumeAsync(manager);
+            if (uncleanRecovery && entry.Bound && manager.HasMetadata)
             {
                 await HashCheckBindingsAsync(entry);
                 log($"Unclean shutdown: rechecked {hash}; recovered {manager.Bitfield.TrueCount} verified pieces.");
@@ -553,6 +576,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
                 if (entry.Bound && (forceCheck || recovery && uncleanRecovery || entry.Filed.Count > 0))
                 {
                     await HashCheckBindingsAsync(entry);
+                    forceBindingHashChecks.Remove(hash);
                     log($"Unclean shutdown: rechecked {hash}; recovered {manager.Bitfield.TrueCount} verified pieces.");
                 }
                 else if (entry.Bound && recovery) await LoadResumeAsync(manager);
@@ -596,6 +620,11 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             bindings.Select(b => Path.GetFullPath(b.AbsolutePath)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != bindings.Length ||
             bindings.Any(b => b.FileIndex < 0 || b.FileIndex >= manager.Files.Count || !Path.IsPathFullyQualified(b.AbsolutePath)))
             throw new ArgumentException("Bind every torrent file once to an absolute Library path.");
+        var rootPaths = bindings.Select(binding => binding.RootPath).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (rootPaths.Length > 1 || rootPaths.Any(root => !StorageRootAvailable(root)) ||
+            rootPaths.Length == 0 && bindings.Any(binding => !StorageRootAvailable(Path.GetPathRoot(binding.AbsolutePath))))
+            throw new IOException("Storage folder is offline");
         var occupied = entries.Values.Where(e => !ReferenceEquals(e.Manager, manager))
             .SelectMany(e => e.Manager.Files).Select(f => Path.GetFullPath(f.FullPath))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -745,6 +774,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             Eta = entry.Run && manager.Monitor.DownloadRate > 0
                 ? TimeSpan.FromSeconds((double)Math.Max(0, bytes - completed) / manager.Monitor.DownloadRate) : null,
             UploadedBytes = entry.Uploaded,
+            Checking = manager.State == TorrentState.Hashing,
+            ErrorHResult = manager.Error?.Exception.HResult,
         };
     }
 
@@ -783,19 +814,28 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     public async Task RecoverAsync(ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> files, CancellationToken ct)
     {
+        var recovered = fileState is null ? ImmutableArray<EngineRecoveryFiles>.Empty : await fileState.ReadAsync(ct);
+        var forceChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await gate.WaitAsync(ct);
         try
         {
-            foreach (var download in downloads) registered[download.Hash] = download.Id;
+            foreach (var download in downloads)
+            {
+                registered[download.Hash] = download.Id;
+                if (forceBindingHashChecks.Contains(download.Hash)) forceChecks.Add(download.Hash);
+            }
         }
         finally { gate.Release(); }
         foreach (var download in downloads.Where(d => d.Intent is DownloadIntent.Run or DownloadIntent.Queued or DownloadIntent.Paused))
         {
             var candidate = CandidateFor(download.Hash);
+            var rootPath = recovered.SingleOrDefault(item => item.DownloadId == download.Id)?.StorageRootPath;
             var bindings = files.Where(f => f.DownloadId == download.Id)
                 .Select(f => new FileBinding(f.FileIndex, f.EnginePath ?? f.PartialPath ??
-                    throw new InvalidDataException("A recovered file has no engine binding."), f.Selected)).ToImmutableArray();
-            await StartAsync(new(download with { Intent = DownloadIntent.Paused }, candidate, bindings, download.AdmissionToken), true, ct);
+                    throw new InvalidDataException("A recovered file has no engine binding."), f.Selected,
+                    rootPath)).ToImmutableArray();
+            await StartAsync(new(download with { Intent = DownloadIntent.Paused }, candidate, bindings, download.AdmissionToken),
+                true, ct, forceCheck: forceChecks.Contains(download.Hash));
         }
         await ApplyQueueAsync(new([.. downloads.Select(d => new QueueAdmission(d.Id,
             d.Intent is DownloadIntent.Run or DownloadIntent.Queued))]), ct);
@@ -841,9 +881,13 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     private async Task RemoveManagerAsync(Entry entry, bool keepResume)
     {
-        await entry.Manager.StopAsync(TimeSpan.Zero);
-        if (entry.Manager.HasMetadata) await client.DiskManager.FlushAsync(entry.Manager);
-        if (keepResume && !entry.Probe) await SaveResumeAsync(entry.Manager);
+        if (entry.Manager.Error is not null && entry.Manager.HasMetadata)
+        {
+            entry.FlushFailed = true;
+            forceBindingHashChecks.Add(Hash(entry.Manager));
+        }
+        await StopDownloadAsync(entry);
+        if (keepResume && !entry.Probe && !entry.FlushFailed) await SaveResumeAsync(entry.Manager);
         await client.RemoveAsync(entry.Manager, keepResume ? RemoveMode.KeepAllData : RemoveMode.CacheDataOnly);
     }
 

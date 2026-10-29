@@ -17,7 +17,8 @@ public interface ILibraryDownloadRepository : ILibraryRepository
 }
 
 public sealed record EngineRecoveryBinding(int FileIndex, string AbsolutePath, bool Selected, bool Filed);
-public sealed record EngineRecoveryFiles(string DownloadId, ImmutableArray<EngineRecoveryBinding> Files);
+public sealed record EngineRecoveryFiles(string DownloadId, ImmutableArray<EngineRecoveryBinding> Files,
+    string? StorageRootPath = null);
 public interface IEngineFileState
 {
     Task<ImmutableArray<EngineRecoveryFiles>> ReadAsync(CancellationToken cancellationToken);
