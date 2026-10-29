@@ -13,6 +13,7 @@ suggested downloads based on available watch state." So:
   Jellyfin see the storage under different paths).
 - **Nothing is deleted automatically, anywhere.** J7 only flags a wrong-audio file and offers **Find another source**;
   cleanup stays suggestions the owner picks from.
+- **Our own watchlist instead of Trakt (W1).**
 - **Jellyfin APIs only, no Trakt.** Owner: "drop it", "integrate jellyfin apis only".
 - **J5 suggests, it does not download.** The next episodes after what you watched are shown as suggestions with a
   Download button; no `WatchAhead` origin, no automatic grabs.
@@ -190,6 +191,25 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
 - No results because no subtitle provider is installed: settings show "Install the OpenSubtitles plugin in Jellyfin
   to get subtitles."
 
+### W1. Watchlist (our own, instead of Trakt)
+
+Owner: "just make our own watchlist in app". Today's `/library` (route alias `/watchlist`) is what TorrentFlow is
+getting or keeping, and everything in it downloads. The watchlist is different: titles you want to watch some day.
+Nothing on it downloads by itself.
+
+- Table `WatchlistEntries(Id, WorkId, MediaType, Title, PosterUrl, Year, AddedAt, Note?)`, unique on WorkId.
+- `GET /api/watchlist` -> entries with derived state, one of: `coming` (release date in future, with date),
+  `available` (out, not downloaded), `downloading`, `inLibrary` (downloaded or in Jellyfin), `watched` (every watch
+  user has played the film, or every aired episode of the series). Derived from existing metadata, targets, media
+  files and Jellyfin watch state; never stored.
+- `POST /api/watchlist {workKey}` (idempotent), `DELETE /api/watchlist/{id}`.
+- Title hero and browse/search cards get **Add to watchlist** / **On watchlist** (toggle). Download stays the primary
+  action; the watchlist toggle is secondary.
+- Page `/watchlist` (the old redirect to `/library` is replaced; nav gains "Watchlist"). Sections, in order:
+  Out now (with **Download**), Coming soon (sorted by date), In your library (with **Play in Jellyfin** when J4 knows
+  the item), Watched (collapsed). Empty state points to Search. Phone: one column list; desktop: poster grid.
+- When a `coming` entry becomes `available`, one notification: "Dune: Part Three is out. Download it?" Nothing else.
+- Watched entries are never removed automatically; the owner removes them (bulk "Clear watched" with confirmation).
 ## UI (owner reviews designs before build)
 
 Settings > Jellyfin, connected:
