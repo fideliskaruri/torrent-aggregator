@@ -16,7 +16,7 @@ suggested downloads based on available watch state." So:
 - **Our own watchlist instead of Trakt (W1).**
 - **Jellyfin APIs only, no Trakt.** Owner: "drop it", "integrate jellyfin apis only".
 - **J5 suggests, it does not download.** The next episodes after what you watched are shown as suggestions with a
-  Download button; no `WatchAhead` origin, no automatic grabs.
+  Download button; no new origin, no automatic grabs.
 
 ## What exists today
 
@@ -51,13 +51,12 @@ suggested downloads based on available watch state." So:
    `ItemId`, root id and the exact server-side path. It never removes a path the owner added by hand, never deletes a
    Jellyfin library, and never touches libraries outside its roots. A record that doesn't match the connected server or
    a refetched library is ignored, never acted on.
-5. **One path mapper** for Jellyfin in Docker or on another machine: `{TorrentFlow prefix -> Jellyfin prefix}`, longest
+5. **One two-way path mapper.** Jellyfin runs natively on another Windows PC, so storage is seen through a share (`D:\Torrents\Media` here is `\\THISPC\Media` there; a Jellyfin service cannot see mapped drive letters). `{TorrentFlow prefix <-> Jellyfin prefix}`, longest
    prefix on folder boundaries, keeping the destination's separators and case. Every Jellyfin path use goes through it:
    registration, rescans, watch matching (today `JellyfinWatchState.cs:165,209` compares raw upper-cased paths),
    item lookup and Sessions checks. Suggested from Jellyfin's existing folders, but only saved after the owner confirms
    and Jellyfin can see a test folder we create.
-6. **Never delete before the replacement is in hand.** A file found wrong after download stays put (it can be played
-   meanwhile) until a replacement is downloaded and checked. Owner-picked files are only flagged.
+6. **Wrong files are only flagged.** A file found wrong stays put and playable. Replacing it is an owner action (J7); the old file goes only through the owner's explicit delete.
 7. **Safety reads fail closed.** If Jellyfin is down, slow, or the account can't see every user, playback and watched
    checks count as "unknown", which blocks deletion; they never count as "safe".
 8. **Background Jellyfin work is persisted.** Rescan, inspect, match-fix and subtitle jobs are rows written in the same
@@ -76,7 +75,7 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
 - `GET /api/settings/jellyfin/users` lists `GET /Users` (admin) for the watch-users picker (J6).
 - API key entry stays under "Use an API key instead".
 - New settings fields: `PublicUrl?` (address your devices use; defaults to ServerUrl; used for Play links),
-  `PathMappings[]`, `WatchUserIds[]`, `SyncLibraries` (default on), `WatchAhead` (0 = off, default 2),
+  `PathMappings[]`, `WatchUserIds[]`, `SyncLibraries` (default on), `SuggestNextEpisodes` (0 = off, 1, 2, 3, 5; default 2), `UserMappings[]` ({TorrentFlowUserId, JellyfinUserId}; default owner -> signed-in user),
   `SubtitleLanguages[]` (default empty = off). `SettingsCatalog` default and validation updated; existing rows read
   with defaults.
 - Status line: "Connected as Fidelis (admin)" or "Connected as X. Ask an admin account to turn on library sync."
@@ -98,10 +97,7 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
   - else `POST /Library/VirtualFolders/Paths?refreshLibrary=false` with `{Name, PathInfo:{Path}}`.
   - After all additions in a pass, one `POST /Library/Refresh` so files that already exist get indexed (a new library
     is otherwise empty until Jellyfin's own schedule).
-- Removing a root: `DELETE /Library/VirtualFolders/Paths?name=&path=&refreshLibrary=true` only when the record matches
-  the connected ServerId, a freshly read library ItemId, and the exact path. Anything ambiguous is left alone and shown
-  as "Remove from Jellyfin?" for the owner. An offline or disabled root keeps its Jellyfin path (removing it would make
-  Jellyfin drop watch history).
+- Removing a root never changes Jellyfin by itself. Storage shows "Still in Jellyfin. [Remove from Jellyfin]" and only that click runs `DELETE /Library/VirtualFolders/Paths?name=&path=&refreshLibrary=true`, and only when the record matches the connected ServerId, a freshly read library ItemId and the exact path. An offline or disabled root keeps its Jellyfin path. A location the owner added by hand that maps to the same folder counts as already present (no duplicate).
 - Record: new table `JellyfinLibraryPaths(ServerId, LibraryItemId, LibraryName, RootId, ServerPath, AddedAt)`.
 - `GET /api/library/roots` gains per root `jellyfin: {state: "indexed"|"registered"|"pending"|"failed"|"off", library?,
   message?}`. "Registered" means the path is in Jellyfin; "indexed" means a scan has completed since.
@@ -128,15 +124,16 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
 
 ### J5. Up next suggestions (nothing downloads by itself)
 
-- For each watch user, read played and resumed episodes from Jellyfin (`GET /Items?UserId=&Recursive=true&IncludeItemTypes=Episode&Filters=IsPlayed&SortBy=DatePlayed&SortOrder=Descending&Fields=ProviderIds,Path,SeriesId`,
-  plus `/Shows/NextUp`), limited to series played in the last 30 days.
-- For each such series, the next `WatchAhead` aired episodes after the furthest watched one that are not downloaded,
-  not in Jellyfin and not queued become suggestions. Computed on request with a short cache; no poller, no cursors,
-  no new origin, no automatic grabs.
-- `GET /api/jellyfin/suggestions` -> `[{workId, title, poster, season, episode, episodeTitle, airDate, reason}]`,
-  reason like "You watched S2E3". Home shows an "Up next for you" row; each item has a **Download** button that uses
-  the existing owner download path. Dismiss hides a suggestion.
-- Setting: "Suggest the next 1, 2, 3 or 5 episodes" (Off hides the row).
+- Per TorrentFlow user, through `UserMappings` to their Jellyfin user. For each series that user played in the last 30
+  days (`GET /Items?UserId=&Recursive=true&IncludeItemTypes=Episode&Filters=IsPlayed&SortBy=DatePlayed&SortOrder=Descending&Fields=ProviderIds,Path,SeriesId`,
+  plus `/Shows/NextUp`): take the furthest played episode, then the next `SuggestNextEpisodes` aired, confirmed,
+  season >= 1 episodes after it; drop the ones already owned, in Jellyfin or queued. No season skipping past owned ones.
+- `GET /api/jellyfin/suggestions` -> `[{workKey, title, poster, season, episode, episodeTitle, airDate, reason}]`,
+  reason "You watched S2E3". Loaded after Home renders (never on the Home render path), cached 2 min. Jellyfin
+  unreachable: the row is hidden.
+- Home shows an "Up next for you" row; each item has **Download** (owner) or **Request** (requester) through the
+  existing paths. Dismiss persists in `JellyfinSuggestionDismissals(UserId, WorkId, Season, Episode)`.
+- No poller, no cursors, no new origin, no automatic grabs. Setting "Suggest next episodes: Off, 1, 2, 3, 5".
 ### J6. Safer cleanup
 
 - Needs an admin connection: Jellyfin filters `/Sessions` to the caller's own sessions otherwise, so an empty list
@@ -161,16 +158,13 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
   Language codes are normalized (`en`/`eng`/`English` alike); empty, `und` or missing tags make the result `unknown`.
   Missing streams or a timeout are `unknown`, never "can't be played".
 - Store audio and subtitle languages into `MediaFileRow.Tracks`.
-- `rejected` (no audio in an allowed language):
-  - Automatic pick: a new persisted **replace** operation (not `FindAnotherCoreAsync`, which rejects Done targets, and
-    not library delete, which marks targets Removed and clears watch state). It blocks that release for the title,
-    downloads a replacement for the same episode or film while the old file stays, checks the replacement the same way,
-    then swaps files and removes the old one through the shared delete path (with J6's playback check). If no
-    replacement is found, the old file stays and the title shows "Only Spanish audio found. [Find another source]".
-    Each step is recorded so a crash resumes or rolls back cleanly.
-  - Owner-picked: title page shows the flag with **Find another source**.
-  - Activity: "Charade had Spanish audio only. Getting another source."
-
+- `rejected` (no audio in an allowed language): flagged only, never deleted or replaced by itself. Title page and
+  download row show "Only Spanish audio" with **Find another source** (owner action).
+- Find another source on a filed (`Done`) file: `FindAnotherCoreAsync` refuses Done targets and deletes files, so it
+  is not used. A new owner-triggered path blocks that release for the title and creates an Acquire target for the same
+  episode or film using the existing `TargetKind.Replace` / `ReplaceMediaFileId` fields, keeping the old file. When
+  the new file is filed and checked, the title shows **Keep new** (deletes the old one through the shared delete path
+  with J6's playback check, after a confirmation) or **Keep both**. Activity: "Charade has Spanish audio only."
 ### J8. Fix wrong matches (runs before subtitles, which rely on the match)
 
 - After J7 finds the item, compare its ProviderIds with our verified link (the series item for episodes).
@@ -193,23 +187,32 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
 
 ### W1. Watchlist (our own, instead of Trakt)
 
-Owner: "just make our own watchlist in app". Today's `/library` (route alias `/watchlist`) is what TorrentFlow is
-getting or keeping, and everything in it downloads. The watchlist is different: titles you want to watch some day.
-Nothing on it downloads by itself.
+Owner: "just make our own watchlist in app". The app already has a per-user "watch later" store: `WatchItems` rows with
+`Status = Planned` and no monitoring (the "Because you're watching" rail saves these with "Saved to watch later").
+The watchlist is a proper home for those rows. No new table, no second concept.
 
-- Table `WatchlistEntries(Id, WorkId, MediaType, Title, PosterUrl, Year, AddedAt, Note?)`, unique on WorkId.
-- `GET /api/watchlist` -> entries with derived state, one of: `coming` (release date in future, with date),
-  `available` (out, not downloaded), `downloading`, `inLibrary` (downloaded or in Jellyfin), `watched` (every watch
-  user has played the film, or every aired episode of the series). Derived from existing metadata, targets, media
-  files and Jellyfin watch state; never stored.
-- `POST /api/watchlist {workKey}` (idempotent), `DELETE /api/watchlist/{id}`.
-- Title hero and browse/search cards get **Add to watchlist** / **On watchlist** (toggle). Download stays the primary
-  action; the watchlist toggle is secondary.
-- Page `/watchlist` (the old redirect to `/library` is replaced; nav gains "Watchlist"). Sections, in order:
-  Out now (with **Download**), Coming soon (sorted by date), In your library (with **Play in Jellyfin** when J4 knows
-  the item), Watched (collapsed). Empty state points to Search. Phone: one column list; desktop: poster grid.
-- When a `coming` entry becomes `available`, one notification: "Dune: Part Three is out. Download it?" Nothing else.
-- Watched entries are never removed automatically; the owner removes them (bulk "Clear watched" with confirmation).
+- Membership: the user's `WatchItems` with `Status = Planned` and not monitored. **Add to watchlist** saves Planned,
+  unmonitored (same call the rail uses). Downloading or "Get it when it's out" from the watchlist monitors it, so it
+  moves to Library; the Library page stops listing Planned unmonitored rows (they live on the watchlist).
+- API: `GET /api/watch-later` (new path; `/api/watchlist` stays the Library API). Add and remove reuse the existing
+  `POST`/`DELETE /api/watchlist` calls.
+- State per entry, derived on read, never stored, in this precedence:
+  `downloading` (any active target) > `inLibrary` (any owned file or in Jellyfin) > `available` > `inCinemas` > `coming`.
+  Availability uses the one existing gate (`browseReleaseGate` and the Hunter cinema window), never a separate date
+  check; a dateless film from an earlier year counts as out. Series: `coming` only when the premiere is in the future.
+  `watched` is an extra flag from the user's mapped Jellyfin user: film played, or every aired confirmed season >= 1
+  episode played; a watched series that gets new episodes shows "New episodes" and stays in In your library.
+- Jellyfin unreachable: the last good snapshot is used with a stale flag; entries never move sections on a failed read.
+  A work that can't be loaded shows as "Unavailable" with only **Remove**.
+- Page `/watch-later`, nav label "Watchlist"; the old `/watchlist` redirect to `/library` stays for bookmarks.
+  Sections: Out now (**Download** or **Request**; for a series **Download season 1**), Coming soon (in cinemas and
+  upcoming, by date), In your library (**Play in Jellyfin** when known), Watched (collapsed). Empty state links to
+  Search. Phone one column; desktop poster grid.
+- Title hero: the watchlist toggle is secondary; on cards it lives in the `...` menu.
+- Notification: a sweep (daily and after each metadata refresh) publishes once per entry with
+  `DedupeKey = "watch-later:{watchItemId}:out"` when it becomes available: "Dune: Part Three is out. Download it?"
+  Skipped for followed titles. If a date slips back later, no second notice until it is really out.
+- Nothing on the watchlist is removed automatically; "Clear watched" asks first.
 ## UI (owner reviews designs before build)
 
 Settings > Jellyfin, connected:
@@ -217,9 +220,9 @@ Settings > Jellyfin, connected:
 ```
 Jellyfin                                   Connected as Fidelis (admin)   [Disconnect]
   Address for your devices  [http://192.168.1.20:8096        ]
-  Folders            D:\Torrents\Media -> /media   (Change)
+  Folders            D:\Torrents\Media -> \\THISPC\Media   (Change)
   Libraries          Keep my storage folders in Jellyfin            [on]
-  Watching           Suggest next episodes            [2 episodes v]
+  Suggestions        Suggest next episodes            [2 episodes v]
   Counts as watched  [x] Fidelis  [x] Guest
   Subtitles          [English x] [+ language]
 ```
@@ -227,7 +230,7 @@ Jellyfin                                   Connected as Fidelis (admin)   [Disco
 Not connected: Server address, Username, Password, **Sign in**; link "Use an API key instead".
 
 Storage row adds one quiet line: "In Jellyfin: Movies, Shows" or "Not in Jellyfin. [Add to Jellyfin]".
-Title hero: **Play in Jellyfin** primary; Download in the menu as "Download anyway".
+Title hero primary is whichever applies first: Play in Jellyfin > Download/Request > Get it when it's out. Add to library and the watchlist toggle are secondary; Download becomes "Download anyway" in the menu when Play shows.
 
 ## Testing
 
@@ -241,10 +244,10 @@ Title hero: **Play in Jellyfin** primary; Download in the menu as "Download anyw
   - J5: mark S1E1 played through the Jellyfin API -> S1E2/S1E3 appear in suggestions; nothing is queued.
   - J6: start a playback session through the API -> item excluded and delete refused; Jellyfin stopped -> delete
     refused; non-admin connection -> warning shown.
-  - J7: a file with only non-English audio is flagged with Find another source and never deleted; ng and n`n    both pass; untagged audio is left alone.
-  - J8: a deliberately wrong TMDB match is fixed and keeps its other ids; a missing id is left alone.
+  - J7: a file with only non-English audio is flagged with Find another source and never deleted; eng, en and English
+    all pass; untagged audio is left alone; Keep new deletes the old file only after confirmation.
 - The owner's real Jellyfin is tested last, once he gives the address and how it runs.
 
 ## Open for the owner
 
-1. Where Jellyfin runs (this PC, Docker, another machine) and its address.
+1. Jellyfin's address on your network, an admin login, and the share name it sees the storage under.
