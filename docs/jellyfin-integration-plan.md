@@ -187,6 +187,8 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
   name match, then downloads, not hearing-impaired unless nothing else), `POST /Items/{id}/RemoteSearch/Subtitles/{subtitleId}`.
 - No results because no subtitle provider is installed: settings show "Install the OpenSubtitles plugin in Jellyfin
   to get subtitles."
+- Provider detection uses `GET /Providers/Subtitles/Subtitles` (with `GET /Plugins` as a not-found fallback); subtitle
+  searches receive a three-letter ISO 639-2 code.
 
 ### W1. Watchlist (our own, instead of Trakt)
 

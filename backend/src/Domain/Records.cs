@@ -807,6 +807,7 @@ public sealed record JellyfinSettings(string? ServerUrl, SecretReference? Creden
     public bool SyncLibraries { get; init; } = true;
     public int SuggestNextEpisodes { get; init; } = 2;
     public ImmutableArray<string> SubtitleLanguages { get; init; } = [];
+    public bool SubtitleProviderMissing { get; init; }
     public ImmutableArray<JellyfinUserMapping> UserMappings { get; init; } = [];
     public string? ServerId { get; init; }
     public ImmutableDictionary<string, string> LibraryOverrides { get; init; } =

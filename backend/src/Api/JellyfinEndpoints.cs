@@ -377,6 +377,7 @@ internal static class JellyfinEndpoints
             syncLibraries = settings.SyncLibraries,
             suggestNextEpisodes = settings.SuggestNextEpisodes,
             subtitleLanguages = settings.SubtitleLanguages,
+            subtitleProviderMissing = settings.SubtitleProviderMissing,
             libraryOverrides = settings.LibraryOverrides,
             connection = connection.State,
             message = connection.State switch

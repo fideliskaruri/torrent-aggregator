@@ -244,15 +244,17 @@ public sealed class JellyfinClient
         {
             var providers = await SendAsync<JsonElement>(HttpMethod.Get, serverUrl,
                 "Providers/Subtitles/Subtitles", token, true, null, ct);
-            return providers.ValueKind == JsonValueKind.Array
-                ? providers.GetArrayLength() > 0
-                : providers.TryGetProperty("Items", out var items) && items.ValueKind == JsonValueKind.Array &&
-                  items.GetArrayLength() > 0;
+            if (providers.ValueKind == JsonValueKind.Array) return providers.GetArrayLength() > 0;
+            return providers.ValueKind == JsonValueKind.Object &&
+                providers.TryGetProperty("Items", out var items) && items.ValueKind == JsonValueKind.Array &&
+                items.GetArrayLength() > 0;
         }
         catch (JellyfinException ex) when (ex.Kind == JellyfinErrorKind.NotFound)
         {
             var plugins = await SendAsync<PluginDto[]>(HttpMethod.Get, serverUrl, "Plugins", token, true, null, ct);
-            return plugins.Any(plugin => plugin.Name?.Contains("OpenSubtitles", StringComparison.OrdinalIgnoreCase) == true);
+            return plugins.Any(plugin => plugin.Name is { } name &&
+                new string(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray())
+                    .Contains("opensubtitles", StringComparison.Ordinal));
         }
     }
 
