@@ -15,7 +15,8 @@ namespace TorrentFlow.Api;
 internal sealed record WatchLaterItem(string WatchItemId, string WorkKey, string MediaType,
     string Title, int? Year, string? PosterUrl, string State, DateTimeOffset? AvailableAt,
     bool Watched, bool NewEpisodes, bool Unavailable);
-internal sealed record WatchLaterEntry(string UserId, WatchLaterItem Item);
+internal sealed record WatchLaterEntry(string UserId, WatchLaterItem Item,
+    DateTimeOffset SavedAt = default, DateTimeOffset? OutSince = null);
 internal sealed record WatchLaterResult(ImmutableArray<WatchLaterItem> Items, bool JellyfinStale);
 
 internal sealed class WatchLaterJellyfinSnapshots
@@ -108,7 +109,7 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
             return new WatchLaterEntry(item.UserId, new(item.Id, work.WorkKey, CatalogProjection.Type(snapshot),
                 CatalogProjection.Title(snapshot), work.Year, work.PosterUrl, state,
                 state is "coming" or "inCinemas" ? gate.AvailableAt : null,
-                watched, newEpisodes, false));
+                watched, newEpisodes, false), item.CreatedAt, ReleaseAvailability.OutSince(snapshot));
         }).ToImmutableArray();
         return new(entries, jellyfin.Stale);
     }

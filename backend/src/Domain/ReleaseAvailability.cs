@@ -31,6 +31,17 @@ public static class ReleaseAvailability
         return homeAt is { } date ? date > now : theatricalAt > now.AddDays(-21);
     }
 
+    // When a title became downloadable: its release, or for a film the end of its cinema run.
+    public static DateTimeOffset? OutSince(WorkSnapshot work)
+    {
+        var releaseAt = ReleaseDate(work);
+        if (work.Work.Kind != WorkKind.Film || work.Work.TheatricalAt is not { } theatricalAt) return releaseAt;
+        var homeAt = new[] { work.Work.DigitalAt, work.Work.PhysicalAt }
+            .OfType<DateTimeOffset>().Order().Cast<DateTimeOffset?>().FirstOrDefault();
+        var leftCinemas = homeAt ?? theatricalAt.AddDays(21);
+        return releaseAt > leftCinemas ? releaseAt : leftCinemas;
+    }
+
     public static ReleaseGate BrowseGate(WorkSnapshot work, DateTimeOffset now)
     {
         var releaseAt = ReleaseDate(work);

@@ -26,7 +26,9 @@ internal sealed class WatchLaterSweepWorker(IServiceScopeFactory scopes, ILogger
             var notifications = scope.ServiceProvider.GetRequiredService<NotificationRepository>();
             var entries = await watchLater.ReadAllAsync(ct);
             var published = 0;
-            foreach (var entry in entries.Where(entry => entry.Item.State == "available"))
+            // Only titles that came out after they were saved: telling someone a film they just saved is out is noise.
+            foreach (var entry in entries.Where(entry => entry.Item.State == "available" &&
+                entry.OutSince is { } outSince && outSince > entry.SavedAt))
             {
                 var body = $"{entry.Item.Title} is out. Download it?";
                 if (body.Length > 500) body = body[..500];
