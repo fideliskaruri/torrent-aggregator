@@ -24,12 +24,13 @@ public sealed record JellyfinVirtualFolder(string? Name, string? CollectionType,
 public sealed record JellyfinDirectoryEntry(string? Name, string? Path, string? Type);
 public sealed record JellyfinSession(string? UserId, JellyfinItemDto? NowPlayingItem);
 public sealed record JellyfinRemoteSubtitle(string? Id, string? Name, int? DownloadCount, bool? IsForced,
-    string? ThreeLetterISOLanguageName);
+    string? ThreeLetterISOLanguageName, bool? IsHearingImpaired = null);
 public sealed record JellyfinItemsResult(ImmutableArray<JellyfinItemDto> Items, int TotalRecordCount);
 public sealed record JellyfinItemDto(string? Id, string? Name, string? Type, string? Path,
     string? LocationType, Dictionary<string, string>? ProviderIds, string? SeriesId,
     int? ParentIndexNumber, int? IndexNumber, long? RunTimeTicks, JellyfinUserData? UserData,
-    ImmutableArray<JellyfinMediaSource> MediaSources, bool? IsLocked);
+    ImmutableArray<JellyfinMediaSource> MediaSources, bool? IsLocked, int? ProductionYear = null,
+    bool? LockData = null);
 public sealed record JellyfinUserData(bool Played, long PlaybackPositionTicks, DateTimeOffset? LastPlayedDate);
 public sealed record JellyfinMediaSource(string? Path, ImmutableArray<JellyfinMediaStream> MediaStreams);
 public sealed record JellyfinMediaStream(string? Type, string? Language, int? Index = null, string? Codec = null,
@@ -234,7 +235,25 @@ public sealed class JellyfinClient
             $"Items/{Uri.EscapeDataString(itemId)}/RemoteSearch/Subtitles/{Uri.EscapeDataString(language)}",
             token, true, null, ct);
         return [.. items.Select(item => new JellyfinRemoteSubtitle(item.Id, item.Name, item.DownloadCount,
-            item.IsForced, item.ThreeLetterISOLanguageName))];
+            item.IsForced, item.ThreeLetterISOLanguageName, item.IsHearingImpaired))];
+    }
+
+    public async Task<bool> HasSubtitleProvider(string serverUrl, string token, CancellationToken ct = default)
+    {
+        try
+        {
+            var providers = await SendAsync<JsonElement>(HttpMethod.Get, serverUrl,
+                "Providers/Subtitles/Subtitles", token, true, null, ct);
+            return providers.ValueKind == JsonValueKind.Array
+                ? providers.GetArrayLength() > 0
+                : providers.TryGetProperty("Items", out var items) && items.ValueKind == JsonValueKind.Array &&
+                  items.GetArrayLength() > 0;
+        }
+        catch (JellyfinException ex) when (ex.Kind == JellyfinErrorKind.NotFound)
+        {
+            var plugins = await SendAsync<PluginDto[]>(HttpMethod.Get, serverUrl, "Plugins", token, true, null, ct);
+            return plugins.Any(plugin => plugin.Name?.Contains("OpenSubtitles", StringComparison.OrdinalIgnoreCase) == true);
+        }
     }
 
     public Task DownloadRemoteSubtitle(string serverUrl, string token, string itemId, string subtitleId,
@@ -354,5 +373,6 @@ public sealed class JellyfinClient
     private sealed record SessionDto(string? UserId, JellyfinItemDto? NowPlayingItem);
     private sealed record DirectoryEntryDto(string? Name, string? Path, string? Type);
     private sealed record SubtitleDto(string? Id, string? Name, int? DownloadCount, bool? IsForced,
-        string? ThreeLetterISOLanguageName);
+        string? ThreeLetterISOLanguageName, bool? IsHearingImpaired);
+    private sealed record PluginDto(string? Name);
 }
