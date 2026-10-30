@@ -457,6 +457,8 @@ internal sealed class JellyfinJobWorker : BackgroundService
         {
             ["rescan"] = ProcessRescansAsync,
             ["inspect"] = ProcessInspectionsAsync,
+            ["matchfix"] = ProcessMatchfixesAsync,
+            ["subtitles"] = ProcessSubtitlesAsync,
         };
     }
 
@@ -634,6 +636,10 @@ internal sealed class JellyfinJobWorker : BackgroundService
                     audioLanguages, tracks, ct);
                 if (inspectionState == "rejected")
                     await WriteRejectedActivityAsync(db, file, job, languages, ct);
+                var matchfixPending = await QueueMatchfixIfNeededAsync(db, settings, token, mapper, file, item,
+                    job, ct);
+                if (!matchfixPending)
+                    await QueueSubtitleJobsAsync(db, settings, file, item, tracks, job, ct);
                 await CompleteJobsAsync(db, [job], ct);
             }
             catch (Exception ex) when (ex is JellyfinException or HttpRequestException)
@@ -654,12 +660,497 @@ internal sealed class JellyfinJobWorker : BackgroundService
         }
     }
 
+    private async Task<bool> QueueMatchfixIfNeededAsync(TorrentFlowDbContext db, JellyfinSettings settings, string token,
+        JellyfinPathMapper mapper, MediaFileRow file, JellyfinItemDto item, JellyfinJobRow sourceJob,
+        CancellationToken ct)
+    {
+        if (item.Id is null || item.LockData == true || item.IsLocked == true || file.RootId is null) return false;
+
+        var target = item;
+        if (string.Equals(item.Type, "Episode", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(item.SeriesId)) return false;
+            var series = await client.GetItems(settings.ServerUrl!, token, new JellyfinItemQuery
+            {
+                UserId = settings.UserId,
+                Ids = [item.SeriesId],
+                Fields = ["ProviderIds", "LockData", "Path", "ProductionYear", "Name"],
+                Limit = 1,
+            }, ct);
+            target = series.Items.FirstOrDefault()!;
+            if (target is null || target.Id is null || target.LockData == true || target.IsLocked == true) return false;
+        }
+
+        var targetLocalPath = target.Path is null ? null : mapper.ToLocal(target.Path);
+        if (targetLocalPath is null) return false;
+        var roots = await db.StorageRoots.AsNoTracking().Where(root => root.Enabled).ToArrayAsync(ct);
+        if (!roots.Any(root => IsWithinRoot(file.Path, root.Path) && root.Id == file.RootId) ||
+            !roots.Any(root => IsWithinRoot(targetLocalPath, root.Path)))
+            return false;
+
+        var links = await db.WorkLinks.AsNoTracking().Where(link => link.WorkId == file.WorkId &&
+            link.Status == LinkStatus.Verified &&
+            (link.Provider == "tmdb" || link.Provider == "tvdb" || link.Provider == "imdb"))
+            .ToArrayAsync(ct);
+        var verified = links.GroupBy(link => link.Provider, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().ExternalId, StringComparer.Ordinal);
+        var existing = target.ProviderIds ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var contradicted = false;
+        foreach (var provider in new[] { "tmdb", "tvdb", "imdb" })
+        {
+            if (!verified.TryGetValue(provider, out var held) || string.IsNullOrWhiteSpace(held)) continue;
+            var providerKey = existing.Keys.FirstOrDefault(key => ProviderMatches(key, provider));
+            if (providerKey is null || string.Equals(existing[providerKey], held, StringComparison.OrdinalIgnoreCase))
+                continue;
+            contradicted = true;
+        }
+        if (!contradicted) return false;
+
+        var now = DateTimeOffset.UtcNow;
+        var recentJobs = await db.JellyfinJobs.AsNoTracking().Where(job => job.Kind == "matchfix" &&
+            (job.State == "pending" || job.State == "done" && job.CreatedAt >= now.AddHours(-24)))
+            .ToArrayAsync(ct);
+        if (recentJobs.Any(job => PayloadString(job.PayloadJson, "itemId") == target.Id) ||
+            await HasRecentMatchfixActivityAsync(db, target.Id, now, ct))
+            return true;
+
+        db.JellyfinJobs.Add(new JellyfinJobRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Kind = "matchfix",
+            PayloadJson = JsonSerializer.SerializeToElement(new
+            {
+                itemId = target.Id,
+                mediaItemId = item.Id,
+                mediaFileId = file.Id,
+                workId = file.WorkId,
+            }),
+            TargetId = sourceJob.TargetId,
+            MediaFileId = file.Id,
+            Attempts = 0,
+            NextAttemptAt = now,
+            CreatedAt = now,
+            LastError = null,
+            State = "pending",
+        });
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private static bool ProviderMatches(string jellyfinProvider, string provider) =>
+        provider switch
+        {
+            "tmdb" => jellyfinProvider.Equals("Tmdb", StringComparison.OrdinalIgnoreCase) ||
+                      jellyfinProvider.Equals("TheMovieDb", StringComparison.OrdinalIgnoreCase),
+            "tvdb" => jellyfinProvider.Equals("Tvdb", StringComparison.OrdinalIgnoreCase) ||
+                      jellyfinProvider.Equals("TheTVDB", StringComparison.OrdinalIgnoreCase),
+            "imdb" => jellyfinProvider.Equals("Imdb", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+
+    private static bool IsWithinRoot(string path, string root)
+    {
+        try
+        {
+            var relative = Path.GetRelativePath(Path.GetFullPath(root), Path.GetFullPath(path));
+            return relative == "." || (!Path.IsPathRooted(relative) && relative != ".." &&
+                !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task QueueSubtitleJobsAsync(TorrentFlowDbContext db, JellyfinSettings settings,
+        MediaFileRow file, JellyfinItemDto item, ImmutableArray<MediaTrack> tracks, JellyfinJobRow sourceJob,
+        CancellationToken ct)
+    {
+        if (item.Id is null || settings.SubtitleLanguages.IsDefaultOrEmpty) return;
+        var wanted = settings.SubtitleLanguages.Select(LanguageCodes.Normalize).OfType<string>()
+            .Distinct(StringComparer.Ordinal).ToArray();
+        if (wanted.Length == 0) return;
+        var pending = await db.JellyfinJobs.AsNoTracking().Where(job => job.Kind == "subtitles" &&
+            job.State == "pending" && job.MediaFileId == file.Id).ToArrayAsync(ct);
+        var pendingLanguages = pending.Select(job => PayloadString(job.PayloadJson, "language"))
+            .OfType<string>().Select(LanguageCodes.Normalize).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var missing = wanted.Where(language =>
+            !tracks.Any(track => track.Type.Equals("Subtitle", StringComparison.OrdinalIgnoreCase) &&
+                LanguageCodes.Normalize(track.Language) == language) &&
+            !pendingLanguages.Contains(language)).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var language in missing)
+        {
+            db.JellyfinJobs.Add(new JellyfinJobRow
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = "subtitles",
+                PayloadJson = JsonSerializer.SerializeToElement(new
+                {
+                    itemId = item.Id,
+                    language,
+                    releaseName = Path.GetFileNameWithoutExtension(file.Path),
+                }),
+                TargetId = sourceJob.TargetId,
+                MediaFileId = file.Id,
+                Attempts = 0,
+                NextAttemptAt = now,
+                CreatedAt = now,
+                LastError = null,
+                State = "pending",
+            });
+        }
+        if (missing.Length > 0) await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ProcessSubtitlesAsync(TorrentFlowDbContext db, JellyfinJobRow[] jobs,
+        CancellationToken ct)
+    {
+        var setting = await db.Settings.AsNoTracking().SingleOrDefaultAsync(row => row.Id == "jellyfin", ct);
+        var settings = setting is null ? null : SettingsCatalog.Read<JellyfinSettings>(setting);
+        var token = settings is null ? null : SecretFiles.Read(dataDirectory, settings.Credential);
+        if (settings?.ServerUrl is null || token is null)
+        {
+            await FailJobsAsync(db, jobs, "Connect to Jellyfin to search for subtitles.", ct);
+            return;
+        }
+
+        foreach (var job in jobs)
+        {
+            try
+            {
+                var itemId = PayloadString(job.PayloadJson, "itemId");
+                var language = LanguageCodes.Normalize(PayloadString(job.PayloadJson, "language"));
+                var releaseName = PayloadString(job.PayloadJson, "releaseName") ?? "";
+                var threeLetterLanguage = LanguageCodes.ToThreeLetter(language);
+                var fileId = job.MediaFileId ?? PayloadString(job.PayloadJson, "mediaFileId");
+                if (itemId is null || language is null || threeLetterLanguage is null || fileId is null)
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var file = await db.MediaFiles.AsNoTracking().SingleOrDefaultAsync(row => row.Id == fileId, ct);
+                if (file is null || file.Status != FilePresence.Present ||
+                    file.Tracks.Any(track => track.Type.Equals("Subtitle", StringComparison.OrdinalIgnoreCase) &&
+                        LanguageCodes.Normalize(track.Language) == language))
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var results = await client.RemoteSearchSubtitles(settings.ServerUrl, token, itemId,
+                    threeLetterLanguage, ct);
+                var candidates = results.Where(subtitle => !string.IsNullOrWhiteSpace(subtitle.Id)).ToArray();
+                if (candidates.Length == 0)
+                {
+                    var providerInstalled = await client.HasSubtitleProvider(settings.ServerUrl, token, ct);
+                    await SaveSubtitleProviderStatusAsync(db, !providerInstalled, ct);
+                    logger.LogInformation("Jellyfin returned no {Language} subtitles for {ItemId}; subtitle provider installed: {ProviderInstalled}.",
+                        language, itemId, providerInstalled);
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var nonHearingImpaired = candidates.Where(subtitle => !IsHearingImpaired(subtitle)).ToArray();
+                var pool = nonHearingImpaired.Length == 0 ? candidates : nonHearingImpaired;
+                var best = pool.OrderByDescending(subtitle => ReleaseNameMatches(subtitle.Name, releaseName))
+                    .ThenByDescending(subtitle => subtitle.DownloadCount ?? 0)
+                    .First();
+                await client.DownloadRemoteSubtitle(settings.ServerUrl, token, itemId, best.Id!, ct);
+                await SaveSubtitleProviderStatusAsync(db, false, ct);
+                logger.LogInformation("Downloaded {Language} subtitles for Jellyfin item {ItemId} from {SubtitleName}.",
+                    language, itemId, best.Name);
+                await CompleteJobsAsync(db, [job], ct);
+            }
+            catch (Exception ex) when (ex is JellyfinException or HttpRequestException)
+            {
+                await FailJobsAsync(db, [job], ex.Message, ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                db.ChangeTracker.Clear();
+                await FailJobsAsync(db, [job], "The library file changed while subtitles were being added.", ct);
+            }
+            catch (DbUpdateException ex)
+            {
+                db.ChangeTracker.Clear();
+                logger.LogWarning(ex, "Could not save subtitle status for {MediaFileId}.", job.MediaFileId);
+                await FailJobsAsync(db, [job], "The subtitle update could not be saved.", ct);
+            }
+        }
+    }
+
+    private static bool IsHearingImpaired(JellyfinRemoteSubtitle subtitle)
+    {
+        if (subtitle.IsHearingImpaired == true) return true;
+        if (subtitle.Name?.Contains("hearing impaired", StringComparison.OrdinalIgnoreCase) == true ||
+            subtitle.Name?.Contains("hearing-impaired", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        var tokens = subtitle.Name?.Split(['.', ' ', '-', '_', '[', ']', '(', ')', '{', '}'],
+            StringSplitOptions.RemoveEmptyEntries) ?? [];
+        return tokens.Any(token => token.Equals("SDH", StringComparison.OrdinalIgnoreCase) ||
+            token.Equals("HI", StringComparison.OrdinalIgnoreCase) ||
+            token.Equals("CC", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ReleaseNameMatches(string? subtitleName, string releaseName)
+    {
+        if (string.IsNullOrWhiteSpace(subtitleName) || string.IsNullOrWhiteSpace(releaseName)) return false;
+        var candidate = NormalizeReleaseName(subtitleName);
+        var release = NormalizeReleaseName(releaseName);
+        return release.Length >= 8 && candidate.Contains(release, StringComparison.Ordinal) ||
+            candidate.Length >= 8 && release.Contains(candidate, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeReleaseName(string value) =>
+        new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+    private static async Task SaveSubtitleProviderStatusAsync(TorrentFlowDbContext db, bool missing,
+        CancellationToken ct)
+    {
+        var row = await db.Settings.SingleOrDefaultAsync(setting => setting.Id == "jellyfin", ct);
+        if (row is null) return;
+        var settings = SettingsCatalog.Read<JellyfinSettings>(row);
+        if (settings.SubtitleProviderMissing == missing) return;
+        var next = row with
+        {
+            Value = JsonSerializer.SerializeToElement(settings with { SubtitleProviderMissing = missing }),
+            Revision = row.Revision + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        db.Entry(row).CurrentValues.SetValues(next);
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ProcessMatchfixesAsync(TorrentFlowDbContext db, JellyfinJobRow[] jobs,
+        CancellationToken ct)
+    {
+        var setting = await db.Settings.AsNoTracking().SingleOrDefaultAsync(row => row.Id == "jellyfin", ct);
+        var settings = setting is null ? null : SettingsCatalog.Read<JellyfinSettings>(setting);
+        var token = settings is null ? null : SecretFiles.Read(dataDirectory, settings.Credential);
+        if (settings?.ServerUrl is null || token is null || string.IsNullOrWhiteSpace(settings.UserId))
+        {
+            await FailJobsAsync(db, jobs, "Connect to Jellyfin and choose a user to fix library matches.", ct);
+            return;
+        }
+
+        var mapper = new JellyfinPathMapper(settings.PathMappings);
+        foreach (var job in jobs)
+        {
+            try
+            {
+                var itemId = PayloadString(job.PayloadJson, "itemId");
+                var mediaItemId = PayloadString(job.PayloadJson, "mediaItemId");
+                var mediaFileId = job.MediaFileId ?? PayloadString(job.PayloadJson, "mediaFileId");
+                var workId = PayloadString(job.PayloadJson, "workId");
+                if (itemId is null || mediaItemId is null || mediaFileId is null || workId is null)
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var file = await db.MediaFiles.AsNoTracking().SingleOrDefaultAsync(row => row.Id == mediaFileId, ct);
+                if (file is null || file.Status != FilePresence.Present || file.RootId is null ||
+                    !string.Equals(file.WorkId, workId, StringComparison.Ordinal))
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var mediaItem = await GetItemAsync(settings.ServerUrl, token, settings.UserId, mediaItemId, ct);
+                var target = itemId == mediaItemId
+                    ? mediaItem
+                    : await GetItemAsync(settings.ServerUrl, token, settings.UserId, itemId, ct);
+                if (mediaItem is null || target is null || target.Id is null ||
+                    mediaItem.LockData == true || mediaItem.IsLocked == true ||
+                    target.LockData == true || target.IsLocked == true ||
+                    target.Path is null || mapper.ToLocal(target.Path) is not { } targetPath)
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var roots = await db.StorageRoots.AsNoTracking().Where(root => root.Enabled).ToArrayAsync(ct);
+                if (!roots.Any(root => root.Id == file.RootId && IsWithinRoot(file.Path, root.Path)) ||
+                    !roots.Any(root => IsWithinRoot(targetPath, root.Path)))
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var links = await db.WorkLinks.AsNoTracking().Where(link => link.WorkId == workId &&
+                    link.Status == LinkStatus.Verified &&
+                    (link.Provider == "tmdb" || link.Provider == "tvdb" || link.Provider == "imdb"))
+                    .ToArrayAsync(ct);
+                var verified = links.GroupBy(link => link.Provider, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.First().ExternalId, StringComparer.Ordinal);
+                var existing = target.ProviderIds ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var corrected = new Dictionary<string, string>(existing, StringComparer.OrdinalIgnoreCase);
+                var contradicted = false;
+                foreach (var provider in new[] { "tmdb", "tvdb", "imdb" })
+                {
+                    if (!verified.TryGetValue(provider, out var held) || string.IsNullOrWhiteSpace(held)) continue;
+                    var key = existing.Keys.FirstOrDefault(candidate => ProviderMatches(candidate, provider));
+                    if (key is null || string.Equals(existing[key], held, StringComparison.OrdinalIgnoreCase)) continue;
+                    corrected[key] = held;
+                    contradicted = true;
+                }
+                if (!contradicted)
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                var recentJobs = await db.JellyfinJobs.AsNoTracking().Where(candidate =>
+                    candidate.Id != job.Id && candidate.Kind == "matchfix" &&
+                    candidate.State == "done" && candidate.CreatedAt >= now.AddHours(-24))
+                    .ToArrayAsync(ct);
+                if (recentJobs.Any(candidate => PayloadString(candidate.PayloadJson, "itemId") == itemId))
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+                if (await HasRecentMatchfixActivityAsync(db, itemId, now, ct))
+                {
+                    await QueueInspectionsAfterMatchfixAsync(db, file, job, ct);
+                    continue;
+                }
+
+                var searchProvider = verified.ContainsKey("tmdb") ? "TheMovieDb" :
+                    verified.ContainsKey("tvdb") ? "TheTVDB" :
+                    verified.ContainsKey("imdb") ? "Imdb" : null;
+                if (searchProvider is null)
+                {
+                    await CompleteJobsAsync(db, [job], ct);
+                    continue;
+                }
+                await client.ApplyRemoteSearch(settings.ServerUrl, token, itemId, new
+                {
+                    Name = target.Name,
+                    ProductionYear = target.ProductionYear,
+                    ProviderIds = corrected,
+                    SearchProviderName = searchProvider,
+                }, replaceAllImages: false, ct);
+                await WriteMatchfixActivityAsync(db, file, job, target, ct);
+                await QueueInspectionsAfterMatchfixAsync(db, file, job, ct);
+            }
+            catch (Exception ex) when (ex is JellyfinException or HttpRequestException)
+            {
+                await FailJobsAsync(db, [job], ex.Message, ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                db.ChangeTracker.Clear();
+                await FailJobsAsync(db, [job], "The library file changed while its match was being fixed.", ct);
+            }
+            catch (DbUpdateException ex)
+            {
+                db.ChangeTracker.Clear();
+                logger.LogWarning(ex, "Could not save Jellyfin match fix for {ItemId}.",
+                    PayloadString(job.PayloadJson, "itemId"));
+                await FailJobsAsync(db, [job], "The Jellyfin match fix could not be saved.", ct);
+            }
+        }
+    }
+
+    private async Task<JellyfinItemDto?> GetItemAsync(string server, string token, string userId, string itemId,
+        CancellationToken ct)
+    {
+        var result = await client.GetItems(server, token, new JellyfinItemQuery
+        {
+            UserId = userId,
+            Ids = [itemId],
+            Fields = ["ProviderIds", "LockData", "Path", "ProductionYear", "Name"],
+            Limit = 1,
+        }, ct);
+        return result.Items.FirstOrDefault();
+    }
+
+    private static async Task WriteMatchfixActivityAsync(TorrentFlowDbContext db, MediaFileRow file,
+        JellyfinJobRow job, JellyfinItemDto item, CancellationToken ct)
+    {
+        var work = await db.Works.AsNoTracking().SingleOrDefaultAsync(row => row.Id == file.WorkId, ct);
+        if (work is null) return;
+        var batchId = $"jellyfin-matchfix:{item.Id}:{DateTimeOffset.UtcNow:yyyyMMdd}";
+        if (await db.Attempts.AsNoTracking().AnyAsync(row => row.BatchId == batchId, ct)) return;
+        var names = await db.WorkNames.AsNoTracking().Where(row => row.WorkId == work.Id).ToArrayAsync(ct);
+        var title = NotificationReadModels.Title(work, names);
+        var year = work.Year ?? item.ProductionYear;
+        if (year is not null) title += $" ({year.Value.ToString(CultureInfo.InvariantCulture)})";
+        var targetId = job.TargetId is { } id &&
+            await db.Targets.AsNoTracking().AnyAsync(row => row.Id == id, ct) ? id : null;
+        var now = DateTimeOffset.UtcNow;
+        db.Attempts.Add(new AttemptRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            TargetId = targetId,
+            WorkId = work.Id,
+            ActorUserId = "local",
+            Kind = AttemptKind.LegacyEvent,
+            StartedAt = now,
+            EndedAt = now,
+            Outcome = "Completed",
+            ReasonText = $"Fixed Jellyfin match for {title}.",
+            BatchId = batchId,
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static async Task QueueInspectionsAfterMatchfixAsync(TorrentFlowDbContext db, MediaFileRow matchedFile,
+        JellyfinJobRow job, CancellationToken ct)
+    {
+        var files = await db.MediaFiles.Where(file => file.WorkId == matchedFile.WorkId &&
+            file.Status == FilePresence.Present).ToArrayAsync(ct);
+        var pendingIds = (await db.JellyfinJobs.AsNoTracking().Where(row => row.Kind == "inspect" &&
+                row.State == "pending" && row.MediaFileId != null)
+            .Select(row => row.MediaFileId).ToArrayAsync(ct)).OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var file in files)
+        {
+            db.Entry(file).CurrentValues.SetValues(file with
+            {
+                InspectionState = "pending",
+                Version = file.Version + 1,
+            });
+            if (!pendingIds.Add(file.Id)) continue;
+            db.JellyfinJobs.Add(new JellyfinJobRow
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = "inspect",
+                PayloadJson = JsonSerializer.SerializeToElement(new { mediaFileId = file.Id }),
+                TargetId = job.TargetId,
+                MediaFileId = file.Id,
+                Attempts = 0,
+                NextAttemptAt = now.AddSeconds(60),
+                CreatedAt = now,
+                LastError = null,
+                State = "pending",
+            });
+        }
+        await CompleteJobsAsync(db, [job], ct);
+    }
+
+    private static string? PayloadString(JsonElement payload, string key) =>
+        payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(key, out var value) &&
+        value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static Task<bool> HasRecentMatchfixActivityAsync(TorrentFlowDbContext db, string itemId,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var prefix = $"jellyfin-matchfix:{itemId}:";
+        return db.Attempts.AsNoTracking().AnyAsync(row => row.BatchId != null &&
+            row.BatchId.StartsWith(prefix) && row.StartedAt >= now.AddHours(-24), ct);
+    }
+
     private async Task<JellyfinItemDto?> FindInspectionItemAsync(string server, string token, string userId,
         JellyfinPathMapper mapper, MediaFileRow file, string mappedPath, CancellationToken ct)
     {
         const int pageSize = 500;
         const int maxItems = 100000;
-        var fields = ImmutableArray.Create("Path", "MediaSources", "ProviderIds");
+        var fields = ImmutableArray.Create("Path", "MediaSources", "ProviderIds", "LockData", "ProductionYear");
         if (!string.IsNullOrWhiteSpace(file.JellyfinItemId))
         {
             try

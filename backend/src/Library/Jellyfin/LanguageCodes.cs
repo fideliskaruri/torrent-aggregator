@@ -13,6 +13,14 @@ public static class LanguageCodes
         ["baq"] = "eu", ["bur"] = "my", ["ice"] = "is", ["mac"] = "mk",
         ["mao"] = "mi", ["may"] = "ms", ["tib"] = "bo",
     };
+    private static readonly Dictionary<string, string> SubtitleAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["fra"] = "fre", ["deu"] = "ger", ["nld"] = "dut", ["zho"] = "chi",
+        ["ces"] = "cze", ["ell"] = "gre", ["fas"] = "per", ["ron"] = "rum",
+        ["slk"] = "slo", ["cym"] = "wel", ["sqi"] = "alb", ["hye"] = "arm",
+        ["eus"] = "baq", ["mya"] = "bur", ["isl"] = "ice", ["mkd"] = "mac",
+        ["mri"] = "mao", ["msa"] = "may", ["bod"] = "tib",
+    };
 
     public static string? Normalize(string? language)
     {
@@ -32,6 +40,18 @@ public static class LanguageCodes
             return null;
         if (Aliases.TryGetValue(baseLanguage, out alias)) return alias;
         return Codes.TryGetValue(baseLanguage, out code) ? code : null;
+    }
+
+    public static string? ToThreeLetter(string? language)
+    {
+        var normalized = Normalize(language);
+        if (normalized is null) return null;
+        try
+        {
+            var threeLetter = CultureInfo.GetCultureInfo(normalized).ThreeLetterISOLanguageName.ToLowerInvariant();
+            return SubtitleAliases.GetValueOrDefault(threeLetter, threeLetter);
+        }
+        catch (CultureNotFoundException) { return null; }
     }
 
     private static Dictionary<string, string> BuildCodes()

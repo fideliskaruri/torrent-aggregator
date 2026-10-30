@@ -23,6 +23,7 @@ export type JellyfinStatus = {
   syncLibraries: boolean;
   suggestNextEpisodes: number;
   subtitleLanguages: string[];
+  subtitleProviderMissing: boolean;
   connection: JellyfinConnection;
   message: string;
 };
