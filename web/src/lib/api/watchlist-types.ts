@@ -1,3 +1,5 @@
+import type { MediaInspectionSummary } from "./catalog-types";
+
 export interface JellyfinWatchState {
   watched: boolean;
   inProgress: number | null;
@@ -11,7 +13,7 @@ export interface JellyfinNextUp {
   jellyfinItemId?: string | null;
 }
 
-export interface WatchlistItem {
+export interface WatchlistItem extends MediaInspectionSummary {
   id: string;
   userId?: string;
   workId?: string;

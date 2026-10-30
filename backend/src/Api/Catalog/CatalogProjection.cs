@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Domain;
 
 namespace TorrentFlow.Api.Catalog;
@@ -28,6 +29,22 @@ internal static class CatalogProjection
             e.MappingStatus != MappingStatus.Unavailable)).OrderBy(s => s.Number);
     internal static string[] Aliases(WorkSnapshot w) =>
         [.. w.Names.Select(n => n.Value).Where(n => n != Title(w)).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static string[] AudioLanguageCodes(MediaFileRow file) =>
+        string.IsNullOrWhiteSpace(file.AudioLanguages) ? [] :
+            [.. file.AudioLanguages.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(LanguageCodes.Normalize).OfType<string>().Distinct(StringComparer.Ordinal)];
+    internal static object? RejectedAudio(IEnumerable<MediaFileRow> files)
+    {
+        var languages = files.Where(file => file.InspectionState == "rejected")
+            .SelectMany(AudioLanguageCodes).Distinct(StringComparer.Ordinal).ToArray();
+        return languages.Length == 0 ? null : new { languages };
+    }
+    internal static object MediaFileInspection(MediaFileRow file) => new
+    {
+        mediaFileId = file.Id,
+        inspectionState = file.InspectionState,
+        audioLanguages = AudioLanguageCodes(file),
+    };
     internal static string Href(WorkSnapshot w)
     {
         var link = Primary(w);
@@ -74,6 +91,7 @@ internal static class CatalogProjection
         var targets = (workTargets ?? []).Where(t => t.Kind == TargetKind.Acquire &&
             t.State is not (TargetState.Removed or TargetState.Done)).ToArray();
         var owned = (ownedItems ?? []).ToArray();
+        var mediaFiles = owned.SelectMany(item => item.Videos).DistinctBy(file => file.Id).ToArray();
         bool HasCopy(TargetRow target) => target.State == TargetState.Waiting &&
             (target.ChosenReleaseHash is not null ||
              target.ReasonCode is WaitReason.DownloadCap or WaitReason.FileBusy or WaitReason.NoDriveSpace or
@@ -122,6 +140,8 @@ internal static class CatalogProjection
         latestReleaseMagnet = (string?)null, nextEpisodeHint = (string?)null, item.CreatedAt, item.UpdatedAt,
         seederWaitSince = (string?)null, preferredResolution = preference?.PreferredResolution, ready,
         libraryState, hasFiles,
+        mediaFiles = mediaFiles.Select(MediaFileInspection),
+        rejectedAudio = RejectedAudio(mediaFiles),
         ownedEpisodes = Series(w) ? (int?)ownedEpisodes : null,
         airedEpisodes = Series(w) ? (int?)airedEpisodes : null,
         activeEpisodes, nextReleaseAt,
