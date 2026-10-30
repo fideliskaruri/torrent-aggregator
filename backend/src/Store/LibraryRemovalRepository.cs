@@ -22,9 +22,22 @@ public sealed partial class LibraryRepository
             }
             // Version is a concurrency token, so a media row that changed or vanished fails the delete.
             await QueueDeletedJellyfinJobsAsync(media, ct);
+            var mediaIds = media.Select(file => file.Id).ToArray();
+            // A replacement whose old copy is gone becomes a plain acquire row, in the same commit,
+            // so the file row can't be left behind after its file is deleted from disk.
+            var now = DateTimeOffset.UtcNow;
+            foreach (var target in await db.Targets.Where(row => row.ReplaceMediaFileId != null &&
+                         mediaIds.Contains(row.ReplaceMediaFileId)).ToListAsync(ct))
+                db.Entry(target).CurrentValues.SetValues(target with
+                {
+                    Kind = TargetKind.Acquire,
+                    ReplaceMediaFileId = null,
+                    ReplacementMode = null,
+                    UpdatedAt = now,
+                    Version = target.Version + 1,
+                });
             db.MediaFiles.RemoveRange(media);
             var operationIds = files.Select(file => $"file:{file.Id}").ToArray();
-            var mediaIds = media.Select(file => file.Id).ToArray();
             var operations = await db.FileOperations.Where(row => operationIds.Contains(row.Id) ||
                 (row.MediaFileId != null && mediaIds.Contains(row.MediaFileId))).ToListAsync(ct);
             if (operations.Any(operation => operation.State != FileOperationState.Done)) return false;
