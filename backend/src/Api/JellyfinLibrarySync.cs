@@ -1095,6 +1095,8 @@ internal sealed class JellyfinJobWorker : BackgroundService
             ReasonText = $"Fixed Jellyfin match for {title}.",
             BatchId = batchId,
         });
+        await AddInboxNotificationAsync(db, "library.match", $"Fixed Jellyfin match for {title}",
+            "Jellyfin had matched it to a different title.", work, batchId, ct);
         await db.SaveChangesAsync(ct);
     }
 
@@ -1298,7 +1300,33 @@ internal sealed class JellyfinJobWorker : BackgroundService
             ReasonText = $"{title} has {joined} audio only.",
             BatchId = activityKey,
         });
+        await AddInboxNotificationAsync(db, "library.audio", $"{title} has {joined} audio only",
+            "Open the title to find another source.", work, activityKey, ct);
         await db.SaveChangesAsync(ct);
+    }
+
+    private static async Task AddInboxNotificationAsync(TorrentFlowDbContext db, string kind, string title,
+        string? body, WorkRow work, string dedupeKey, CancellationToken ct)
+    {
+        if (await db.Notifications.AsNoTracking().AnyAsync(row => row.UserId == "local" &&
+                row.DedupeKey == dedupeKey, ct) ||
+            !await db.Users.AsNoTracking().AnyAsync(row => row.Id == "local", ct))
+            return;
+        db.Notifications.Add(new NotificationRow
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            UserId = "local",
+            Kind = kind,
+            Title = title.Length <= 200 ? title : title[..200],
+            Body = body,
+            Link = "/title/" + Uri.EscapeDataString(work.WorkKey),
+            DedupeKey = dedupeKey,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ReadAt = null,
+            PushPending = false,
+            PushAttemptAt = null,
+            PushAttempts = 0,
+        });
     }
 
     private static string? PayloadMediaFileId(JsonElement payload) =>
