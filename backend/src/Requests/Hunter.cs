@@ -145,11 +145,8 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                                 work.Names.FirstOrDefault()?.Value ?? work.Work.WorkKey,
                             work.Work.Year, work.Work.Kind), null, ct);
                         if (extras is null) continue;
-                        var releaseAt = ReleaseDate(extras.Work);
-                        // Same rule as the web release gate: a dateless film from an earlier year is out.
-                        var released = releaseAt is null
-                            ? work.Work.Year is { } year && year < now.Year
-                            : releaseAt <= now;
+                        var releaseAt = ReleaseAvailability.ReleaseDate(extras.Work);
+                        var released = ReleaseAvailability.HunterReleased(extras.Work, now);
                         if (!released || extras.InTheatricalWindow) continue;
 
                         if (await ReadEnabledFollowAsync(follow.Id, ct) is null) continue;
@@ -240,12 +237,6 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
 
     private async Task<FollowRow?> ReadEnabledFollowAsync(string id, CancellationToken ct) =>
         (await repository.ReadAsync<FollowRow>(ct)).FirstOrDefault(f => f.Id == id && f.Enabled);
-
-    private static DateTimeOffset? ReleaseDate(WorkSnapshot work) =>
-        work.PremiereAt ?? work.Work.TheatricalAt ??
-        work.Episodes.Where(e => e.AirAt is not null &&
-                work.Seasons.Any(s => s.Id == e.SeasonId && s.Number > 0))
-            .MinBy(e => e.AirAt)?.AirAt;
 
     private void LogFollowFailure(Exception exception, string followId, string? episodeId) =>
         logger.LogWarning(exception, "Automatic follow {FollowId} failed for episode {EpisodeId}; continuing.",
