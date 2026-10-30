@@ -462,6 +462,10 @@ public sealed record MediaFileRow : StoreRow
     public DateTimeOffset? MissingConfirmedAt { get; init; }
     public DateTimeOffset? VerifiedAt { get; init; }
     public string? ContentDigest { get; init; }
+    public string? JellyfinItemId { get; init; }
+    public string InspectionState { get; init; } = "pending";
+    public DateTimeOffset? InspectedAt { get; init; }
+    public string? AudioLanguages { get; init; }
     public required long Version { get; init; }
 }
 public sealed record FileOperationRow : StoreRow
@@ -793,4 +797,49 @@ public sealed record QualitySettings(int? PreferredResolution, string? AudioLang
 public sealed record RequestSettings(AutoApproveMode AutoApproveMode, int MaxOpenPerRequester);
 public sealed record SchedulerSettings(bool Enabled, int IntervalMinutes, int ActiveScopes,
     int BackgroundScopes, int BackgroundAdapters, int ProbeConcurrency, int BackgroundProbes);
-public sealed record JellyfinSettings(string? ServerUrl, SecretReference? Credential, string? UserId);
+public sealed record JellyfinPathMapping(string From, string To);
+public sealed record JellyfinUserMapping(string TorrentFlowUserId, string JellyfinUserId);
+public sealed record JellyfinSettings(string? ServerUrl, SecretReference? Credential, string? UserId)
+{
+    public string? PublicUrl { get; init; }
+    public ImmutableArray<JellyfinPathMapping> PathMappings { get; init; } = [];
+    public ImmutableArray<string> WatchUserIds { get; init; } = [];
+    public bool SyncLibraries { get; init; } = true;
+    public int SuggestNextEpisodes { get; init; } = 2;
+    public ImmutableArray<string> SubtitleLanguages { get; init; } = [];
+    public ImmutableArray<JellyfinUserMapping> UserMappings { get; init; } = [];
+    public string? ServerId { get; init; }
+}
+
+public sealed record JellyfinJobRow : StoreRow
+{
+    public required string Kind { get; init; }
+    public required JsonElement PayloadJson { get; init; }
+    public string? TargetId { get; init; }
+    public string? MediaFileId { get; init; }
+    public required int Attempts { get; init; }
+    public required DateTimeOffset NextAttemptAt { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+    public string? LastError { get; init; }
+    public required string State { get; init; }
+}
+
+public sealed record JellyfinLibraryPathRow : StoreRow
+{
+    public required string ServerId { get; init; }
+    public required string LibraryItemId { get; init; }
+    public required string LibraryName { get; init; }
+    public required string RootId { get; init; }
+    public required string Kind { get; init; }
+    public required string ServerPath { get; init; }
+    public required DateTimeOffset AddedAt { get; init; }
+}
+
+public sealed record JellyfinSuggestionDismissalRow
+{
+    public required string UserId { get; init; }
+    public required string WorkId { get; init; }
+    public required int Season { get; init; }
+    public required int Episode { get; init; }
+    public required DateTimeOffset DismissedAt { get; init; }
+}

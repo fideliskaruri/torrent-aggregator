@@ -789,6 +789,151 @@ namespace TorrentFlow.Store.Migrations
                         });
                 });
 
+            modelBuilder.Entity("TorrentFlow.Domain.JellyfinJobRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("createdAt");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lastError");
+
+                    b.Property<string>("MediaFileId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mediaFileId");
+
+                    b.Property<string>("NextAttemptAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nextAttemptAt");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("payloadJson");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("targetId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "State", "NextAttemptAt" }, "IX_JellyfinJobs_state_nextAttemptAt");
+
+                    b.ToTable("JellyfinJobs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_JellyfinJobs_attempts", "\"attempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_JellyfinJobs_kind", "\"kind\" IN ('rescan','inspect','matchfix','subtitles')");
+
+                            t.HasCheckConstraint("CK_JellyfinJobs_payloadJson", "json_valid(\"payloadJson\")");
+
+                            t.HasCheckConstraint("CK_JellyfinJobs_state", "\"state\" IN ('pending','done','failed')");
+
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.JellyfinLibraryPathRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("addedAt");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LibraryItemId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("libraryItemId");
+
+                    b.Property<string>("LibraryName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("libraryName");
+
+                    b.Property<string>("RootId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rootId");
+
+                    b.Property<string>("ServerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serverId");
+
+                    b.Property<string>("ServerPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serverPath");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "ServerId", "LibraryItemId", "ServerPath" }, "IX_JellyfinLibraryPaths_serverId_libraryItemId_serverPath")
+                        .IsUnique();
+
+                    b.ToTable("JellyfinLibraryPaths", null, t =>
+                        {
+                            t.Property("Id")
+                                .HasColumnName("id");
+                        });
+                });
+
+            modelBuilder.Entity("TorrentFlow.Domain.JellyfinSuggestionDismissalRow", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("userId");
+
+                    b.Property<string>("WorkId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workId");
+
+                    b.Property<int>("Season")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("season");
+
+                    b.Property<int>("Episode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("episode");
+
+                    b.Property<string>("DismissedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("dismissedAt");
+
+                    b.HasKey("UserId", "WorkId", "Season", "Episode");
+
+                    b.ToTable("JellyfinSuggestionDismissals", (string)null);
+                });
+
             modelBuilder.Entity("TorrentFlow.Domain.MediaFileRow", b =>
                 {
                     b.Property<string>("Id")
@@ -798,6 +943,10 @@ namespace TorrentFlow.Store.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("addedAt");
+
+                    b.Property<string>("AudioLanguages")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audioLanguages");
 
                     b.Property<long?>("BitrateBps")
                         .HasColumnType("INTEGER")
@@ -834,6 +983,21 @@ namespace TorrentFlow.Store.Migrations
                     b.Property<int?>("Height")
                         .HasColumnType("INTEGER")
                         .HasColumnName("height");
+
+                    b.Property<string>("InspectedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("inspectedAt");
+
+                    b.Property<string>("InspectionState")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("pending")
+                        .HasColumnName("inspectionState");
+
+                    b.Property<string>("JellyfinItemId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("jellyfinItemId");
 
                     b.Property<string>("LastSeenAt")
                         .HasColumnType("TEXT")
@@ -956,6 +1120,8 @@ namespace TorrentFlow.Store.Migrations
                             t.HasCheckConstraint("CK_MediaFile_fileIndex", "\"fileIndex\" >= 0");
 
                             t.HasCheckConstraint("CK_MediaFile_height", "\"height\" >= 0");
+
+                            t.HasCheckConstraint("CK_MediaFile_inspectionState", "\"inspectionState\" IN ('pending','unknown','verified','rejected')");
 
                             t.HasCheckConstraint("CK_MediaFile_origin", "\"origin\" IN ('downloaded','imported','adopted')");
 

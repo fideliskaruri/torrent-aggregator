@@ -30,7 +30,36 @@ public static class SettingsCatalog
         var value = row.Value.Deserialize(type, StoreJson.Options) ?? throw new ArgumentException("Settings must not be null.");
         if (value is ImmutableArray<SourceSettings> sources && sources.IsDefault)
             throw new ArgumentException("Sources must be an array.");
+        if (value is JellyfinSettings jellyfin) ValidateJellyfin(jellyfin);
         ValidateSecrets(value);
+    }
+
+    private static void ValidateJellyfin(JellyfinSettings settings)
+    {
+        if (settings.PublicUrl is { } publicUrl &&
+            (!Uri.TryCreate(publicUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") ||
+             !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)))
+            throw new ArgumentException("Enter an HTTP or HTTPS address for your Jellyfin devices.");
+        if (settings.PathMappings.IsDefault || settings.WatchUserIds.IsDefault || settings.SubtitleLanguages.IsDefault ||
+            settings.UserMappings.IsDefault)
+            throw new ArgumentException("Jellyfin options must use lists, even when they are empty.");
+        if (settings.PathMappings.Any(mapping => string.IsNullOrWhiteSpace(mapping.From) ||
+                string.IsNullOrWhiteSpace(mapping.To) || mapping.From.Any(char.IsControl) || mapping.To.Any(char.IsControl)))
+            throw new ArgumentException("Enter both folder paths for every Jellyfin path mapping.");
+        if (settings.WatchUserIds.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200 || id.Any(char.IsControl)))
+            throw new ArgumentException("Choose valid Jellyfin users.");
+        if (settings.SuggestNextEpisodes is not (0 or 1 or 2 or 3 or 5))
+            throw new ArgumentException("Choose 0, 1, 2, 3 or 5 suggested episodes.");
+        if (settings.SubtitleLanguages.Any(language => language.Length is < 2 or > 3 ||
+                !language.All(char.IsAsciiLetter)))
+            throw new ArgumentException("Use two- or three-letter subtitle language codes.");
+        if (settings.ServerId is { Length: > 200 })
+            throw new ArgumentException("The Jellyfin server identifier is too long.");
+        if (settings.UserMappings.Any(mapping => string.IsNullOrWhiteSpace(mapping.TorrentFlowUserId) ||
+                string.IsNullOrWhiteSpace(mapping.JellyfinUserId) || mapping.TorrentFlowUserId.Length > 200 ||
+                mapping.JellyfinUserId.Length > 200 || mapping.TorrentFlowUserId.Any(char.IsControl) ||
+                mapping.JellyfinUserId.Any(char.IsControl)))
+            throw new ArgumentException("Choose a Jellyfin user for every TorrentFlow user mapping.");
     }
 
     private static void ValidateSecrets(object value)
@@ -66,7 +95,17 @@ public static class SettingsCatalog
             Row("quality", new QualitySettings(1080, "en", null)),
             Row("requests", new RequestSettings(AutoApproveMode.None, 100)),
             Row("scheduler", new SchedulerSettings(!schedulerDisabled, 1, 8, 2, 8, 10, 2)),
-            Row("jellyfin", new JellyfinSettings(null, null, null)),
+            Row("jellyfin", new JellyfinSettings(null, null, null)
+            {
+                PublicUrl = null,
+                PathMappings = [],
+                WatchUserIds = [],
+                SyncLibraries = true,
+                SuggestNextEpisodes = 2,
+                SubtitleLanguages = [],
+                UserMappings = [],
+                ServerId = null,
+            }),
             Row("recovery", new RecoverySettings()),
         ];
 
