@@ -25,6 +25,14 @@ export interface MediaFileInspection {
   mediaFileId: string;
   inspectionState: MediaFileInspectionState;
   audioLanguages: string[];
+  replacement?: MediaFileReplacement | null;
+}
+
+export interface MediaFileReplacement {
+  targetId: string;
+  state: "looking" | "downloading" | "ready" | "failed";
+  mediaFileId: string | null;
+  inspectionState: MediaFileInspectionState | null;
 }
 
 export interface RejectedAudioSummary {

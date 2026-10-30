@@ -68,7 +68,99 @@ internal static class LibraryEndpoints
         group.MapGet("/cleanup", Cleanup);
         group.MapMethods("/delete", ["GET", "POST"], Delete);
         group.MapPost("/ondemand", OnDemand);
+        group.MapPost("/files/{mediaFileId}/find-another", FindAnother);
+        group.MapPost("/files/{mediaFileId}/keep-new", KeepNew);
+        group.MapPost("/files/{mediaFileId}/keep-both", KeepBoth);
     }
+
+    private sealed record KeepNewInput(bool DeleteAnyway = false);
+
+    private static async Task<IResult> FindAnother(string mediaFileId, HttpContext http,
+        TargetPipeline targets, CancellationToken ct)
+    {
+        var targetId = await targets.FindAnotherForLibraryFileAsync(mediaFileId,
+            AccessIdentity.UserId(http), ct);
+        return targetId is null
+            ? Results.NotFound(new { ok = false, error = "File not found." })
+            : Results.Ok(new { ok = true, targetId });
+    }
+
+    private static async Task<IResult> KeepNew(string mediaFileId, HttpContext http,
+        TorrentFlowDbContext db, ILibraryRepository library, TargetPipeline targets, CancellationToken ct)
+    {
+        var oldFile = await db.MediaFiles.AsNoTracking().SingleOrDefaultAsync(file =>
+            file.Id == mediaFileId && file.Role == FileRole.Video &&
+            file.Status == FilePresence.Present && file.MissingSince == null, ct);
+        if (oldFile is null) return Results.NotFound(new { ok = false, error = "File not found." });
+
+        var replacementTargets = await db.Targets.AsNoTracking().Where(target =>
+            target.Kind == TargetKind.Replace && target.ReplaceMediaFileId == oldFile.Id).ToListAsync(ct);
+        var targetIds = replacementTargets.Select(target => target.Id).ToArray();
+        var replacementBindings = targetIds.Length == 0 ? [] :
+            await db.DownloadFiles.AsNoTracking().Where(binding => targetIds.Contains(binding.TargetId) &&
+                binding.Role == FileRole.Video && binding.Filed && binding.MediaFileId != null).ToListAsync(ct);
+        var replacementMediaIds = replacementBindings.Select(binding => binding.MediaFileId!).ToArray();
+        var replacementFiles = replacementMediaIds.Length == 0 ? [] :
+            await db.MediaFiles.AsNoTracking().Where(file => replacementMediaIds.Contains(file.Id) &&
+                file.Role == FileRole.Video && file.Status == FilePresence.Present &&
+                file.MissingSince == null).ToListAsync(ct);
+        var ready = replacementTargets.Where(target => target.State == TargetState.Done)
+            .SelectMany(target => replacementBindings.Where(binding => binding.TargetId == target.Id)
+                .Select(binding => (Target: target, File: replacementFiles.SingleOrDefault(file =>
+                    file.Id == binding.MediaFileId))))
+            .Where(item => item.File is not null)
+            .OrderByDescending(item => item.Target.UpdatedAt).FirstOrDefault();
+        if (ready.Target is null || ready.File is null)
+            return Results.Json(new { ok = false, error = "The new copy isn't ready yet.",
+                message = "The new copy isn't ready yet.", reason = "not-ready" }, statusCode: 409);
+
+        var sourceBinding = (await library.BindingsAsync(ct))
+            .FirstOrDefault(binding => binding.MediaFileId == oldFile.Id && binding.Role == FileRole.Video);
+        var sourceTarget = sourceBinding?.TargetId is { } sourceTargetId
+            ? await db.Targets.AsNoTracking().SingleOrDefaultAsync(target =>
+                target.Id == sourceTargetId, ct) : null;
+        var preview = LibraryRemoval.PreviewFile(oldFile, sourceTarget,
+            [.. await db.DownloadTargets.AsNoTracking().ToListAsync(ct)],
+            await library.DownloadsAsync(ct), await library.BindingsAsync(ct));
+        if (preview.Plan.Outcome != "deletes")
+            return Results.Json(new { ok = false, error = "Nothing to delete.",
+                message = preview.Plan.Summary, reason = preview.Plan.Outcome }, statusCode: 409);
+
+        KeepNewInput input;
+        try
+        {
+            input = await http.Request.ReadFromJsonAsync<KeepNewInput>(ct) ?? new();
+        }
+        catch (JsonException ex)
+        {
+            return Results.BadRequest(new { ok = false, error = ex.Message });
+        }
+        LibraryDeleteResult result;
+        try { result = await targets.DeleteLibraryAsync(preview, ct, input.DeleteAnyway); }
+        catch (JellyfinDeleteRefusedException ex) { return DeleteRefusal(ex); }
+        if (!result.Ok) return Results.Json(result, statusCode: 409);
+        if (!await targets.ClearReplacementsAsync(oldFile.Id, ct))
+            return Results.Json(new { ok = false, error = "The replacement changed while deleting the old file.",
+                message = "The old file was deleted, but the replacement link changed. Refresh the title.",
+                reason = "changed" }, statusCode: 409);
+        return Results.Ok(new { ok = true });
+    }
+
+    private static async Task<IResult> KeepBoth(string mediaFileId, TorrentFlowDbContext db,
+        TargetPipeline targets, CancellationToken ct)
+    {
+        var exists = await db.MediaFiles.AsNoTracking().AnyAsync(file =>
+            file.Id == mediaFileId && file.Role == FileRole.Video, ct);
+        if (!exists) return Results.NotFound(new { ok = false, error = "File not found." });
+        return await targets.ClearReplacementsAsync(mediaFileId, ct)
+            ? Results.Ok(new { ok = true })
+            : Results.Json(new { ok = false, error = "The replacement changed. Try again.",
+                reason = "changed" }, statusCode: 409);
+    }
+
+    internal static IResult DeleteRefusal(JellyfinDeleteRefusedException ex) =>
+        Results.Json(new { ok = false, error = "Refused", message = ex.Message, reason = ex.Reason },
+            statusCode: 409);
 
     private sealed record CleanupRoot(string Id, string Label, bool Online);
     private sealed record CleanupSuggestion(string WorkId, string Title, int? Year, string Kind,
@@ -290,7 +382,7 @@ internal static class LibraryEndpoints
         try { result = await targets.DeleteLibraryAsync(preview, ct, input.DeleteAnyway); }
         catch (JellyfinDeleteRefusedException ex)
         {
-            return Results.Json(new { ok = false, error = "Refused", message = ex.Message, reason = ex.Reason }, statusCode: 409);
+            return DeleteRefusal(ex);
         }
         if (result.Ok)
         {
