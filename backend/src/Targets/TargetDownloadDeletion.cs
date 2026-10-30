@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Library.Jellyfin;
 using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Store;
 
@@ -53,6 +54,17 @@ public sealed partial class TargetPipeline
         await libraryDeletionGate.WaitAsync(ct);
         try
         {
+            var playback = await playbackGuard.ReadAsync(ct);
+            if (playback.Status != JellyfinPlaybackReadStatus.NotConfigured)
+            {
+                if (playback.Status != JellyfinPlaybackReadStatus.Available)
+                    throw new JellyfinDeleteRefusedException("Couldn't check Jellyfin playback. Try again.");
+                var deletingPaths = preview.Items.SelectMany(item => item.Paths)
+                    .Concat(preview.UnboundMedia.Select(file => file.Path));
+                if (deletingPaths.Any(path => playback.PlayingPaths.Any(playing =>
+                        JellyfinPathMapper.PathsEqual(path, playing))))
+                    throw new JellyfinDeleteRefusedException("This is playing in Jellyfin right now. Stop it and try again.");
+            }
             var result = await LibraryRemoval.DeleteAsync(preview,
                 (item, token) => transfers.DeleteFilesAsync(item.Download.Hash, item.FileIndices, stateGate, token),
                 async (media, token) =>

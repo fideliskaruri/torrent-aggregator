@@ -99,13 +99,22 @@ public sealed partial class TargetPipeline
                 return await QueueUnmappedScopeAsync(store, work, input, actor, audioLanguage, now, ct);
             }
             var scope = new TargetScope(work.Id, [.. selected.Select(e => e.Id)], film);
-            var owned = await serviceScope.ServiceProvider.GetRequiredService<ILibraryPlacement>()
-                .OwnedAsync(scope, ct);
+            var library = serviceScope.ServiceProvider.GetRequiredService<ILibraryPlacement>();
+            var owned = await library.OwnedAsync(scope, ct);
+            var jellyfinOwnedEpisodes = ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal);
+            if (!film && input.Season is not null && input.Episode is null)
+            {
+                var media = await serviceScope.ServiceProvider.GetRequiredService<ILibraryRepository>()
+                    .MediaAsync(work.Id, ct);
+                var jellyfin = await jellyfinOwnedStateReader.ReadAsync(resolved.Work!, media, ct);
+                if (jellyfin?.EpisodeItemIds is { } itemIds)
+                    jellyfinOwnedEpisodes = itemIds.Keys.ToImmutableHashSet(StringComparer.Ordinal);
+            }
             var items = film ? new string?[] { null } : selected.Select(e => (string?)e.Id).ToArray();
             var existing = await store.ListAsync<TargetRow>(row => row.WorkId == work.Id, ct);
             var batch = Guid.NewGuid().ToString("N");
             var result = BuildTargetWrites(items, owned, existing, work, selected, actor, origin,
-                ruleId, maxBytes, input.Quality, minSeeders, batch, now, pickedHash);
+                ruleId, maxBytes, input.Quality, minSeeders, batch, now, pickedHash, jellyfinOwnedEpisodes);
             if (result.Writes.Length > 0) await CommitAsync(store, result.Writes, [], ct);
             foreach (var id in result.SearchingIds)
                 if (cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
@@ -120,7 +129,7 @@ public sealed partial class TargetPipeline
     private static AcceptWrites BuildTargetWrites(string?[] items, ImmutableArray<OwnedItem> owned,
         TargetRow[] existing, WorkRow work, EpisodeRow[] selected, string actor,
         IntentOrigin origin, string? ruleId, long? maxBytes, int? quality, int? minSeeders,
-        string batch, DateTimeOffset now, string? pickedHash)
+        string batch, DateTimeOffset now, string? pickedHash, ImmutableHashSet<string> jellyfinOwnedEpisodes)
     {
         var writes = ImmutableArray.CreateBuilder<RowWrite>();
         var ids = ImmutableArray.CreateBuilder<string>();
@@ -129,7 +138,12 @@ public sealed partial class TargetPipeline
         var queued = 0;
         foreach (var episodeId in items)
         {
-            if (owned.Any(o => o.EpisodeId == episodeId)) { ownedCount++; continue; }
+            if (owned.Any(o => o.EpisodeId == episodeId) ||
+                episodeId is not null && jellyfinOwnedEpisodes.Contains(episodeId))
+            {
+                ownedCount++;
+                continue;
+            }
             var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId);
             if (old is not null && origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
                 continue;

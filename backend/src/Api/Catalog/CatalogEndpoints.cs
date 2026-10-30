@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Requests;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
@@ -208,7 +209,8 @@ internal static class CatalogEndpoints
         var ownedItems = await library.OwnedAsync(new(w.Work.Id, [], false), ct);
         var owned = ownedItems.SelectMany(i => i.Videos).ToImmutableArray();
         watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(actor, w.Work.Id, owned);
-        var jellyfin = await JellyfinEndpoints.ReadTitle(h, db, w, owned, ct);
+        var jellyfinRead = await JellyfinEndpoints.ReadTitle(h, db, w, owned, ct);
+        var jellyfin = jellyfinRead.State;
         var episodes = w.Episodes.Where(e => e.MappingStatus != MappingStatus.Unavailable &&
             w.Seasons.FirstOrDefault(s => s.Id == e.SeasonId)?.Number == season).ToArray();
         int? Id(string provider) => Number(w.Links.FirstOrDefault(l => l.Provider == provider && l.Status == LinkStatus.Verified)?.ExternalId);
@@ -227,6 +229,7 @@ internal static class CatalogEndpoints
             owned = Owned(owned, null),
             downloadFraction = (double?)null, transfer = transfers.Film,
             watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
+            jellyfin = jellyfinRead.Playback,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
             {
                 season = s.Number, knownEpisodes = s.ExpectedEpisodeCount ?? w.Episodes.Count(e => e.SeasonId == s.Id),
@@ -243,6 +246,7 @@ internal static class CatalogEndpoints
                 nextUp = false, fromPack = false,
                 transfer = transfers.Episodes.GetValueOrDefault($"S{season:00}E{e.Number:00}"),
                 watchState = jellyfin?.Episodes.GetValueOrDefault(e.Id),
+                jellyfinItemId = jellyfin?.EpisodeItemIds?.GetValueOrDefault(e.Id),
             }), episodesTruncated = episodes.Length > 200,
             library = new
             {
@@ -565,7 +569,12 @@ internal static class CatalogEndpoints
                 await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct),
                 await db.Downloads.AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct),
                 await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
-            var deleted = await targets.DeleteLibraryAsync(preview, ct);
+            LibraryDeleteResult deleted;
+            try { deleted = await targets.DeleteLibraryAsync(preview, ct); }
+            catch (JellyfinDeleteRefusedException ex)
+            {
+                return Json(new { error = "Refused", message = ex.Message }, 409);
+            }
             if (!deleted.Ok) return Json(deleted, 409);
             scopeActionNeeded = true;
         }

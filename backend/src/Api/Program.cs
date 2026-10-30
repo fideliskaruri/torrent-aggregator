@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 using TorrentFlow.Api;
 using TorrentFlow.Api.Access;
@@ -11,6 +12,7 @@ using TorrentFlow.Api.Requests;
 using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Api.Automation;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Requests;
 using TorrentFlow.Store;
 
@@ -49,6 +51,14 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
+builder.Services.AddSingleton(_ => JellyfinClient.Create(dataDirectory));
+builder.Services.AddSingleton<JellyfinWatchState>();
+builder.Services.AddSingleton<IJellyfinOwnedStateReader>(sp => new JellyfinOwnedStateReader(
+    sp.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>(),
+    sp.GetRequiredService<JellyfinWatchState>(), dataDirectory));
+builder.Services.AddSingleton<IJellyfinPlaybackGuard>(sp => new JellyfinPlaybackGuard(
+    sp.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>(),
+    sp.GetRequiredService<JellyfinClient>(), dataDirectory));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
 builder.Services.AddSources();
