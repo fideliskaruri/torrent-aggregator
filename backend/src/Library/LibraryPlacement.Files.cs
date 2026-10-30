@@ -18,6 +18,10 @@ public sealed partial class LibraryPlacement
         foreach (var target in input.Targets.Where(t => selected.Any(s => s.TargetId == t.Id)))
         {
             var targetFiles = selected.Where(s => s.TargetId == target.Id).ToImmutableArray();
+            var replacedFile = target.Kind == TargetKind.Replace && target.ReplaceMediaFileId is { } replacedId
+                ? media.FirstOrDefault(existing => existing.Id == replacedId) : null;
+            var replacedTargetId = replacedFile is null ? null : bindings.FirstOrDefault(binding =>
+                binding.MediaFileId == replacedFile.Id && binding.Role == FileRole.Video)?.TargetId;
             if (!targetFiles.Any(s => s.Role == FileRole.Video))
                 return Reject("MappingUncertain", "Every selected item needs its own video.");
             var episode = target.EpisodeId is null ? null : work.Episodes.SingleOrDefault(e => e.Id == target.EpisodeId);
@@ -30,8 +34,33 @@ public sealed partial class LibraryPlacement
                 var file = input.Files.Single(f => f.Index == selection.FileIndex);
                 var final = LibraryPaths.Within(itemFolder, mapped[file.Index]);
                 var key = LibraryPaths.PhysicalKey(final);
-                if (!used.Add(key) || File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".partial") ||
-                    bindings.Any(b => b.PhysicalKey == key) || media.Any(m => m.PhysicalKey == key))
+                var collision = used.Contains(key) || File.Exists(final) || Directory.Exists(final) ||
+                    File.Exists(final + ".partial") || bindings.Any(b => b.PhysicalKey == key) ||
+                    media.Any(m => m.PhysicalKey == key);
+                var replacesSamePath = replacedFile is not null &&
+                    (replacedFile.PhysicalKey == key || replacedTargetId is not null &&
+                        bindings.Any(binding => binding.TargetId == replacedTargetId &&
+                            binding.PhysicalKey == key));
+                if (collision && replacesSamePath)
+                {
+                    var directory = Path.GetDirectoryName(final)!;
+                    var stem = Path.GetFileNameWithoutExtension(final);
+                    var extension = Path.GetExtension(final);
+                    for (var copy = 2; copy < 1000; copy++)
+                    {
+                        var candidate = Path.Combine(directory, $"{stem} (copy {copy}){extension}");
+                        var candidateKey = LibraryPaths.PhysicalKey(candidate);
+                        if (used.Contains(candidateKey) || File.Exists(candidate) || Directory.Exists(candidate) ||
+                            File.Exists(candidate + ".partial") || bindings.Any(b => b.PhysicalKey == candidateKey) ||
+                            media.Any(existing => existing.PhysicalKey == candidateKey))
+                            continue;
+                        final = candidate;
+                        key = candidateKey;
+                        collision = false;
+                        break;
+                    }
+                }
+                if (collision || !used.Add(key))
                     return Reject("FileCollision", "A file already uses the destination name. Review the duplicate before downloading.");
                 output.Add(new DownloadFileRow
                 {

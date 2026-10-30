@@ -103,7 +103,8 @@ public sealed partial class ReleasePlanner
         if (target.State == TargetState.Removed || target.IsPaused() ||
             target.State == TargetState.Done && target.Kind == TargetKind.Acquire)
             return new(candidate.Release.Id, target.Id, "inactive_target", "This item is not asking for a download.");
-        if (input.Owned.Any(o => o.WorkId == target.WorkId && o.EpisodeId == target.EpisodeId &&
+        if (target.Kind != TargetKind.Replace && input.Owned.Any(o =>
+            o.WorkId == target.WorkId && o.EpisodeId == target.EpisodeId &&
             o.Videos.Any(v => v.Role == FileRole.Video &&
                 (v.Status is FilePresence.Present or FilePresence.Offline ||
                  v.Status == FilePresence.Missing && v.MissingConfirmedAt is null))))

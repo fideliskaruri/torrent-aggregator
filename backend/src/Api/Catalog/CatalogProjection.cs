@@ -33,17 +33,63 @@ internal static class CatalogProjection
         string.IsNullOrWhiteSpace(file.AudioLanguages) ? [] :
             [.. file.AudioLanguages.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(LanguageCodes.Normalize).OfType<string>().Distinct(StringComparer.Ordinal)];
-    internal static object? RejectedAudio(IEnumerable<MediaFileRow> files)
+    internal sealed record MediaFileReplacement(string TargetId, string State,
+        string? MediaFileId, string? InspectionState);
+    internal static IReadOnlyDictionary<string, MediaFileReplacement> Replacements(
+        IEnumerable<TargetRow> targets, IEnumerable<DownloadFileRow> bindings,
+        IEnumerable<MediaFileRow> mediaFiles)
     {
-        var languages = files.Where(file => file.InspectionState == "rejected")
+        var filesById = mediaFiles.Where(file => file.Role == FileRole.Video &&
+                file.Status == FilePresence.Present && file.MissingSince is null)
+            .ToDictionary(file => file.Id, StringComparer.Ordinal);
+        var bindingsByTarget = bindings.Where(binding => binding.Role == FileRole.Video &&
+                binding.Filed && binding.MediaFileId is not null)
+            .ToLookup(binding => binding.TargetId, StringComparer.Ordinal);
+        var result = new Dictionary<string, MediaFileReplacement>(StringComparer.Ordinal);
+        foreach (var target in targets.Where(target => target.Kind == TargetKind.Replace &&
+                     target.ReplaceMediaFileId is not null)
+                 .OrderByDescending(target => target.UpdatedAt).ThenByDescending(target => target.Id,
+                     StringComparer.Ordinal))
+        {
+            var readyFile = target.State == TargetState.Done
+                ? bindingsByTarget[target.Id].Select(binding => filesById.GetValueOrDefault(binding.MediaFileId!))
+                    .OfType<MediaFileRow>().FirstOrDefault()
+                : null;
+            var state = target.State switch
+            {
+                TargetState.Wanted or TargetState.Searching or TargetState.Waiting => "looking",
+                TargetState.Fetching or TargetState.Filing => "downloading",
+                TargetState.Done when readyFile is not null => "ready",
+                _ => "failed",
+            };
+            result.TryAdd(target.ReplaceMediaFileId!, new(target.Id, state,
+                state == "ready" ? readyFile!.Id : null,
+                state == "ready" ? readyFile!.InspectionState : null));
+        }
+        return result;
+    }
+    internal static object? RejectedAudio(IEnumerable<MediaFileRow> files,
+        IEnumerable<MediaFileRow>? allPresentFiles = null)
+    {
+        var selected = files.Where(file => file.Role == FileRole.Video &&
+            file.Status == FilePresence.Present && file.MissingSince is null).ToArray();
+        var present = selected.Concat((allPresentFiles ?? []).Where(file => file.Role == FileRole.Video &&
+                file.Status == FilePresence.Present && file.MissingSince is null))
+            .DistinctBy(file => file.Id).ToArray();
+        var languages = selected.Where(file => file.InspectionState == "rejected" &&
+                !present.Any(other => other.Id != file.Id && other.WorkId == file.WorkId &&
+                    other.EpisodeId == file.EpisodeId &&
+                    other.InspectionState is "verified" or "unknown" or "pending"))
             .SelectMany(AudioLanguageCodes).Distinct(StringComparer.Ordinal).ToArray();
         return languages.Length == 0 ? null : new { languages };
     }
-    internal static object MediaFileInspection(MediaFileRow file) => new
+    internal static object MediaFileInspection(MediaFileRow file,
+        IReadOnlyDictionary<string, MediaFileReplacement>? replacements = null) => new
     {
         mediaFileId = file.Id,
         inspectionState = file.InspectionState,
         audioLanguages = AudioLanguageCodes(file),
+        replacement = replacements?.GetValueOrDefault(file.Id),
     };
     internal static string Href(WorkSnapshot w)
     {
@@ -85,7 +131,8 @@ internal static class CatalogProjection
     };
     internal static object Watch(WatchItemRow item, WorkSnapshot w, bool ready, FollowRow? follow = null,
         WorkPreferenceRow? preference = null, IEnumerable<TargetRow>? workTargets = null,
-        IEnumerable<OwnedItem>? ownedItems = null)
+        IEnumerable<OwnedItem>? ownedItems = null,
+        IReadOnlyDictionary<string, MediaFileReplacement>? replacements = null)
     {
         var now = DateTimeOffset.UtcNow;
         var targets = (workTargets ?? []).Where(t => t.Kind == TargetKind.Acquire &&
@@ -140,7 +187,7 @@ internal static class CatalogProjection
         latestReleaseMagnet = (string?)null, nextEpisodeHint = (string?)null, item.CreatedAt, item.UpdatedAt,
         seederWaitSince = (string?)null, preferredResolution = preference?.PreferredResolution, ready,
         libraryState, hasFiles,
-        mediaFiles = mediaFiles.Select(MediaFileInspection),
+        mediaFiles = mediaFiles.Select(file => MediaFileInspection(file, replacements)),
         rejectedAudio = RejectedAudio(mediaFiles),
         ownedEpisodes = Series(w) ? (int?)ownedEpisodes : null,
         airedEpisodes = Series(w) ? (int?)airedEpisodes : null,

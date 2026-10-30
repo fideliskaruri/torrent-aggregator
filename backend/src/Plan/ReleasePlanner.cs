@@ -103,7 +103,7 @@ public sealed partial class ReleasePlanner : IPlan
                     .SelectMany(o => o.Videos).Where(v => v.Role == FileRole.Video &&
                         (v.Status is FilePresence.Present or FilePresence.Offline ||
                          v.Status == FilePresence.Missing && v.MissingConfirmedAt is null)).ToArray();
-                if (owned.Length > 0)
+                if (target.Kind != TargetKind.Replace && owned.Length > 0)
                 { Refuse("already_owned", "This item is already in your library.", target.Id); continue; }
                 if (target.State == TargetState.Removed || target.IsPaused() ||
                     target.State == TargetState.Done && target.Kind == TargetKind.Acquire)

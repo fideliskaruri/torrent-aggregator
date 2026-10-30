@@ -211,6 +211,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         var raw = await db.RawIntents.AsNoTracking().ToListAsync(ct);
         var files = await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct);
         var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
+        var replacements = CatalogProjection.Replacements(snapshot.Targets, files, media);
         var roots = await db.StorageRoots.AsNoTracking().OrderBy(r => r.Priority).ThenBy(r => r.Id).ToListAsync(ct);
         var cap = SettingsCatalog.Read<EngineSettings>(await db.Settings.AsNoTracking().SingleAsync(s => s.Id == "engine", ct))
             .MaxActiveDownloads;
@@ -332,8 +333,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
                     workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
                     posterUrl = work?.PosterUrl,
-                    mediaFiles = inspectedFiles.Select(CatalogProjection.MediaFileInspection),
-                    rejectedAudio = CatalogProjection.RejectedAudio(inspectedFiles),
+                    mediaFiles = inspectedFiles.Select(file =>
+                        CatalogProjection.MediaFileInspection(file, replacements)),
+                    rejectedAudio = CatalogProjection.RejectedAudio(inspectedFiles, media),
                     season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
                     episode = episode?.Number ??
                         (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),

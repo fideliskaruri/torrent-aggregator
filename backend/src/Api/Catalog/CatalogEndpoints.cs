@@ -208,6 +208,14 @@ internal static class CatalogEndpoints
         var transfers = await TitleTransfers.ReadAsync(w.Work.Id, pipeline, db, ct);
         var ownedItems = await library.OwnedAsync(new(w.Work.Id, [], false), ct);
         var owned = ownedItems.SelectMany(i => i.Videos).ToImmutableArray();
+        var workTargets = await db.Targets.AsNoTracking().Where(target =>
+            target.WorkId == w.Work.Id).ToListAsync(ct);
+        var replacementTargetIds = workTargets.Where(target => target.Kind == TargetKind.Replace)
+            .Select(target => target.Id).ToArray();
+        var replacementBindings = replacementTargetIds.Length == 0 ? [] :
+            await db.DownloadFiles.AsNoTracking().Where(binding =>
+                replacementTargetIds.Contains(binding.TargetId)).ToListAsync(ct);
+        var replacements = CatalogProjection.Replacements(workTargets, replacementBindings, owned);
         watch ??= owned.IsEmpty ? null : LibraryRead.OwnedItem(actor, w.Work.Id, owned);
         var jellyfinRead = await JellyfinEndpoints.ReadTitle(h, db, w, owned, ct);
         var jellyfin = jellyfinRead.State;
@@ -226,8 +234,8 @@ internal static class CatalogEndpoints
             isSeries = CatalogProjection.Series(w), overview = w.Work.Synopsis, w.Work.Rating, w.Work.RatingSource,
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
-            owned = Owned(owned, null),
-            rejectedAudio = CatalogProjection.RejectedAudio(owned),
+            owned = Owned(owned, null, replacements, owned),
+            rejectedAudio = CatalogProjection.RejectedAudio(owned, owned),
             downloadFraction = (double?)null, transfer = transfers.Film,
             watchState = jellyfin?.Film,
             jellyfinNextUp = jellyfin?.NextUp is { } next ? new
@@ -247,7 +255,8 @@ internal static class CatalogEndpoints
             episodes = episodes.Take(200).Select(e => new
             {
                 season, episode = e.Number, label = $"S{season:00}E{e.Number:00}",
-                availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null, owned = Owned(owned, e.Id),
+                availability = owned.Any(f => f.EpisodeId == e.Id) ? "ready" : null,
+                owned = Owned(owned, e.Id, replacements, owned),
                 infoHash = (string?)null, filePath = (string?)null, downloadFraction = (double?)null,
                 nextUp = false, fromPack = false,
                 transfer = transfers.Episodes.GetValueOrDefault($"S{season:00}E{e.Number:00}"),
@@ -263,14 +272,16 @@ internal static class CatalogEndpoints
         });
     }
     // An item is owned when a MediaFile is present for it, whatever its origin; the resolution is the best owned file's.
-    private static object? Owned(ImmutableArray<MediaFileRow> files, string? episodeId)
+    private static object? Owned(ImmutableArray<MediaFileRow> files, string? episodeId,
+        IReadOnlyDictionary<string, CatalogProjection.MediaFileReplacement>? replacements = null,
+        IEnumerable<MediaFileRow>? allPresentFiles = null)
     {
         var mine = files.Where(f => f.EpisodeId == episodeId).ToArray();
         return mine.Length == 0 ? null : new
         {
             resolution = mine.Max(f => f.Resolution),
-            mediaFiles = mine.Select(CatalogProjection.MediaFileInspection),
-            rejectedAudio = CatalogProjection.RejectedAudio(mine),
+            mediaFiles = mine.Select(file => CatalogProjection.MediaFileInspection(file, replacements)),
+            rejectedAudio = CatalogProjection.RejectedAudio(mine, allPresentFiles),
         };
     }
 
@@ -555,10 +566,17 @@ internal static class CatalogEndpoints
         ILibraryPlacement library, CancellationToken ct)
     {
         var owned = await library.OwnedAsync(new(w.Work.Id, [], w.Work.Kind == WorkKind.Film), ct);
+        var targets = await db.Targets.AsNoTracking().Where(target => target.WorkId == w.Work.Id).ToListAsync(ct);
+        var replacementIds = targets.Where(target => target.Kind == TargetKind.Replace)
+            .Select(target => target.Id).ToArray();
+        var bindings = replacementIds.Length == 0 ? [] :
+            await db.DownloadFiles.AsNoTracking().Where(binding => replacementIds.Contains(binding.TargetId))
+                .ToListAsync(ct);
+        var media = owned.SelectMany(item => item.Videos).ToArray();
         return CatalogProjection.Watch(item, w, !owned.IsEmpty,
             await db.Follows.AsNoTracking().SingleOrDefaultAsync(f => f.WorkId == w.Work.Id, ct),
             await db.WorkPreferences.AsNoTracking().SingleOrDefaultAsync(p => p.WorkId == w.Work.Id, ct),
-            await db.Targets.AsNoTracking().Where(t => t.WorkId == w.Work.Id).ToListAsync(ct), owned);
+            targets, owned, CatalogProjection.Replacements(targets, bindings, media));
     }
     private static async Task<IResult> RemoveWatch(HttpContext h, TorrentFlowDbContext db,
         ILibraryRepository inventory, ILibraryPlacement library, TargetPipeline targets,
@@ -598,7 +616,7 @@ internal static class CatalogEndpoints
             }
             catch (JellyfinDeleteRefusedException ex)
             {
-                return Json(new { error = "Refused", message = ex.Message, reason = ex.Reason }, 409);
+                return LibraryEndpoints.DeleteRefusal(ex);
             }
             if (!deleted.Ok) return Json(deleted, 409);
             scopeActionNeeded = true;
