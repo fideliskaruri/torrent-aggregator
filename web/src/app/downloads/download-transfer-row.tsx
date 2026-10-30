@@ -23,6 +23,7 @@ import type { ClientTorrent } from "./types";
 import { transferTitleParts } from "./download-transfer-title";
 import { DownloadRowActions } from "./download-row-actions";
 import { SearchingBadge } from "./searching-badge";
+import { audioCheckSummary } from "@/lib/library/audio-check";
 import { WantedMenuActions } from "./wanted-menu-actions";
 import type { WantedGroup } from "./wanted-groups";
 import type { useDownloads } from "./use-downloads";
@@ -67,6 +68,7 @@ export function DownloadTransferRow({
   const card = kind === "episode";
   const pct = progressPercent(t.progress);
   const badge = rowStateBadge(t);
+  const audio = audioCheckSummary(t, t.isSeries && (t.mediaFiles?.length ?? 0) > 1);
   const busy = openingHash === t.transferId;
   // A pack's largest file is one episode of many, so a pack only gets Show in folder.
   const canOpen = openFolder && t.actions.open;
@@ -167,6 +169,14 @@ export function DownloadTransferRow({
                   {badge.label}
                 </Badge>
                 {!card ? <SearchingBadge groups={wantedGroups} /> : null}
+                {audio.label ? (
+                  <Badge
+                    variant={audio.kind === "wrong-audio" || audio.kind === "failed" ? "danger" : "info"}
+                    data-row-audio={audio.kind}
+                  >
+                    {audio.label}
+                  </Badge>
+                ) : null}
                 {/*
                   One quality tag at most (resolution).
  Source tags, peers and

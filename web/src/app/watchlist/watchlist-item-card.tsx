@@ -39,6 +39,7 @@ import { isSeriesMediaType, searchCategoryForMediaType } from "@/lib/metadata/me
 import { titlePath } from "@/components/title/work-key";
 import { toast } from "@/lib/toast";
 import { itemLibraryStatus, libraryStatusLine, libraryStorageWait } from "@/components/library/library-state";
+import { audioCheckSummary } from "@/lib/library/audio-check";
 import { followLine } from "./card-state";
 import { removeFromLibraryCopy } from "@/lib/library/remove-copy";
 import { WatchlistDeleteFiles } from "./watchlist-delete-files";
@@ -91,6 +92,7 @@ export function WatchlistItemCard({
           item.mediaType;
   const removeCopy = removeFromLibraryCopy(item.title);
   const hasFiles = Boolean(item.hasFiles || item.ready);
+  const audio = audioCheckSummary(item, isSeriesMediaType(item.mediaType));
 
   async function remove() {
     setRemoving(true);
@@ -130,6 +132,14 @@ export function WatchlistItemCard({
             {mediaTypeLabel}
             <span aria-hidden> · </span>
             <span data-card-state>{status.text}</span>
+            {audio.label ? (
+              <span
+                data-card-audio={audio.kind}
+                className={cn("block whitespace-normal break-words font-medium", audio.kind === "wrong-audio" || audio.kind === "failed" ? "text-destructive" : "text-info")}
+              >
+                {audio.label}
+              </span>
+            ) : null}
           </span>
         }
       />

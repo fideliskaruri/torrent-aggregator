@@ -1,6 +1,6 @@
 
 import type { AvailabilityState } from "@/lib/browse";
-import type { CatalogCardData } from "@/lib/api/catalog-types";
+import type { CatalogCardData, MediaInspectionSummary } from "@/lib/api/catalog-types";
 import type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 export type { JellyfinNextUp, JellyfinWatchState } from "@/lib/api/watchlist-types";
 
@@ -34,8 +34,8 @@ export interface TitleEpisode {
   owned?: TitleOwned | null;
 }
 
-/** An owned item: the best owned file's resolution, null when the file names none. */
-export interface TitleOwned {
+/** An owned item: the best owned file's resolution, null when the file names none, plus Jellyfin's audio check. */
+export interface TitleOwned extends MediaInspectionSummary {
   resolution: number | null;
 }
 

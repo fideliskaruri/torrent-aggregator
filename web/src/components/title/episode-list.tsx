@@ -30,6 +30,8 @@ export interface EpisodeListProps {
     onFindAnother?: (hash: string, episodeLabel: string, season: number, episode: number, packed: boolean) => void;
     onPickRelease?: (season: number, episode: number) => void;
     onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
+    /** Set when the viewer may manage files; enables the audio-check actions. */
+    onFilesChanged?: () => void;
 }
 
 export function EpisodeList({
@@ -49,6 +51,7 @@ export function EpisodeList({
   onFindAnother,
   onPickRelease,
   onWantedAction,
+  onFilesChanged,
 }: EpisodeListProps) {
   const { canDownload } = useCapabilities();
 
@@ -151,6 +154,7 @@ export function EpisodeList({
         onFindAnother={onFindAnother}
         onPickRelease={onPickRelease}
         onWantedAction={onWantedAction}
+        onFilesChanged={onFilesChanged}
       />
 
     </section>

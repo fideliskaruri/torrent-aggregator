@@ -257,6 +257,11 @@ export function JellyfinConnected({ status, onChange }: { status: JellyfinStatus
             </SelectContent>
           </Select>
         </div>
+        {status.subtitleLanguages.length > 0 && status.subtitleProviderMissing ? (
+          <p className="text-sm text-warning" role="status" data-jellyfin-subtitle-provider-missing>
+            Install the OpenSubtitles plugin in Jellyfin to get subtitles.
+          </p>
+        ) : null}
       </Group>
 
       <ConfirmDialog open={confirmOff} onOpenChange={(next) => !leaving && setConfirmOff(next)} title="Disconnect Jellyfin?"

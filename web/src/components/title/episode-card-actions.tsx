@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { MoreHorizontal,RotateCw,Search,X } from "lucide-react";
+import { AudioLines,Check,Copy,MoreHorizontal,RotateCw,Search,X } from "lucide-react";
 import { PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import type { EpisodeRowModel } from "./merge-extras";
 import type { TitleAction,TitleActionStatus } from "./title-actions";
 import type { TitleDownloadPresentation } from "./title-download-state";
 import { CARD_ACTION_PILL,CARD_ACTION_SLOT } from "./episode-card-layout";
+import { useAudioCheckActions } from "./audio-check-notice";
+import type { AudioCheck } from "@/lib/library/audio-check";
 
 interface MoreMenuItem {
   label: string;
@@ -79,6 +81,8 @@ export function EpisodeCardActions({
   available,
   requesterLabel,
   presentation,
+  audio,
+  onFilesChanged,
 }: {
   episode: EpisodeRowModel;
   canDownload: boolean;
@@ -102,8 +106,25 @@ export function EpisodeCardActions({
   available: boolean;
   requesterLabel: string | null;
   presentation: TitleDownloadPresentation;
+  audio: AudioCheck;
+  onFilesChanged?: () => void;
 }) {
+  const audioActions = useAudioCheckActions(audio, episode.label, onFilesChanged ?? (() => undefined));
   const menuItems: MoreMenuItem[] = [];
+  if (onFilesChanged && audioActions.canFind) {
+    menuItems.push({
+      label: audio.kind === "failed" ? "Look for another copy again" : "Find another source",
+      icon: <AudioLines />,
+      onSelect: audioActions.findAnother,
+      dataAttribute: "data-episode-audio-find",
+    });
+  }
+  if (onFilesChanged && audioActions.canChoose) {
+    menuItems.push(
+      { label: "Keep new copy", icon: <Check />, onSelect: audioActions.askKeepNew, dataAttribute: "data-episode-audio-keep-new" },
+      { label: "Keep both copies", icon: <Copy />, onSelect: audioActions.keepBoth, dataAttribute: "data-episode-audio-keep-both" },
+    );
+  }
   if (offerFindSource && sourceHash) {
     menuItems.push({
       label: FIND_ANOTHER_SOURCE_LABEL,
@@ -151,6 +172,7 @@ export function EpisodeCardActions({
         </span>
       ) : canDownload && ownedText && episode.owned ? (
         <span className={CARD_ACTION_SLOT}>
+          {moreMenu}
           <OwnedQuality
             variant="row"
             owned={episode.owned}
@@ -218,6 +240,7 @@ export function EpisodeCardActions({
           {requesterLabel}
         </Badge>
       ) : null}
+      {audioActions.dialog}
     </>
   );
 }

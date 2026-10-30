@@ -30,6 +30,7 @@ export function TitleSections({ model }: { model: TitleContentViewModel }) {
             onFindAnother={caps.canDownload ? handleFindEpisodeSource : undefined}
             onPickRelease={caps.canDownload ? handlePickEpisodeRelease : undefined}
             onWantedAction={caps.canDownload ? handleWantedAction : undefined}
+            onFilesChanged={caps.canManage ? model.onLibraryChanged : undefined}
           />
 
         ) : null}

@@ -1,3 +1,5 @@
+import type { MediaInspectionSummary } from "@/lib/api/catalog-types";
+
 export type DownloadStatus =
   | "downloading"
   | "queued"
@@ -27,7 +29,7 @@ export interface DownloadActions {
   remove: boolean;
 }
 
-export interface ClientTorrent {
+export interface ClientTorrent extends MediaInspectionSummary {
   hash: string;
   name: string;
   progress: number;

@@ -7,6 +7,8 @@ import { ButtonBody } from "./button-body";
 import { requestTitleFor } from "./title-payload";
 import { LibraryControls } from "./library-controls";
 import { OwnedQuality } from "./owned-quality";
+import { AudioCheckNotice } from "./audio-check-notice";
+import { audioCheck } from "@/lib/library/audio-check";
 import { RequestAction } from "@/components/requests/request-action";
 import { WantedActions } from "@/components/wanted/wanted-actions";
 import { parseRequestState } from "@/lib/requests";
@@ -71,10 +73,15 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                 ) : null}
 
                 {ownedFilm && payload.owned ? (
-                  <OwnedQuality
-                    variant="title"
-                    owned={payload.owned}
-                  />
+                  <>
+                    <OwnedQuality
+                      variant="title"
+                      owned={payload.owned}
+                    />
+                    {caps.canManage ? (
+                      <AudioCheckNotice check={audioCheck(payload.owned)} name={title} onChanged={onLibraryChanged} />
+                    ) : null}
+                  </>
                 ) : !caps.canDownload ? (
                   gated ? null : (
                     <RequestAction

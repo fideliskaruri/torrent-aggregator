@@ -14,7 +14,7 @@ import { pageScrollDelta,railEdges } from "@/components/browse/rail-scroll";
 import { RailArrow } from "@/components/browse/rail-arrow";
 
 export function EpisodeStrip({
-  episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction,
+  episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction, onFilesChanged,
 }: {
   episodes: EpisodeRowModel[];
   truncated: boolean;
@@ -27,6 +27,7 @@ export function EpisodeStrip({
   onFindAnother?: (hash: string, episodeLabel: string, season: number, episode: number, packed: boolean) => void;
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
+  onFilesChanged?: () => void;
 }) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const viewport = useCallback(
@@ -124,6 +125,7 @@ export function EpisodeStrip({
                   onFindAnother={onFindAnother}
                   onPickRelease={onPickRelease}
                   onWantedAction={onWantedAction}
+                  onFilesChanged={onFilesChanged}
                 />
               ))}
             </ul>

@@ -20,6 +20,7 @@ import { transferStateLabel,type TitleAction,type TitleActionStatus,} from "./ti
 import { EpisodeCardActions } from "./episode-card-actions";
 import { CARD_WIDTH } from "./episode-card-layout";
 import { titleDownloadPresentation } from "./title-download-state";
+import { audioCheck, audioCheckLabel } from "@/lib/library/audio-check";
 function progressPercent(fraction: number | null | undefined): number {
   if (fraction == null || !Number.isFinite(fraction)) return 0;
   return Math.round(Math.min(1, Math.max(0, fraction)) * 100);
@@ -32,6 +33,7 @@ function EpisodeCardImpl({
   onFindAnother,
   onPickRelease,
   onWantedAction,
+  onFilesChanged,
 }: {
   episode: EpisodeRowModel;
     gated?: boolean;
@@ -40,6 +42,7 @@ function EpisodeCardImpl({
   onFindAnother?: (hash: string, episodeLabel: string, season: number, episode: number, packed: boolean) => void;
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
+  onFilesChanged?: () => void;
 }) {
   const { canDownload, canSeePaths } = useCapabilities();
   const { openFolder } = useFeatures();
@@ -61,6 +64,9 @@ function EpisodeCardImpl({
   const onDisk = presentation.onDisk;
   const held = presentation.held;
   const ownedText = ownedLabel(episode.owned);
+  const audio = onFilesChanged ? audioCheck(episode.owned) : ({ kind: "ok" } as const);
+  const audioLabel = audioCheckLabel(audio);
+  const audioProblem = audio.kind === "wrong-audio" || audio.kind === "failed";
   const downloadDisplayLabel = presentation.label;
   const waitingForEnglish = transfer?.state === "waiting_english" && onPickRelease != null;
   const waitingForSeasonList = transfer?.state === "waiting_season_list";
@@ -144,7 +150,7 @@ function EpisodeCardImpl({
   const mobileMeta = [
     airDate,
     watchStateLabel(episode.watchState),
-    canDownload ? (ownedText ?? downloadDisplayLabel) : requesterLabel,
+    canDownload ? (audioLabel ?? ownedText ?? downloadDisplayLabel) : requesterLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -173,11 +179,15 @@ function EpisodeCardImpl({
 
       <span
         data-episode-unaired={unaired || undefined}
-        className="mt-2 hidden min-h-5 items-center text-[12px] tabular-nums text-subtle-foreground sm:flex"
+        data-episode-audio={audioLabel ? audio.kind : undefined}
+        className={cn(
+          "mt-2 hidden min-h-5 items-center text-[12px] tabular-nums sm:flex",
+          audioLabel ? (audioProblem ? "font-medium text-destructive" : "font-medium text-info") : "text-subtle-foreground",
+        )}
       >
         {unaired
           ? airDate ? `Airs ${airDate}` : "Not aired yet"
-          : waitingForEnglish || waitingForSeasonList ? downloadDisplayLabel : desktopFacts}
+          : audioLabel ?? (waitingForEnglish || waitingForSeasonList ? downloadDisplayLabel : desktopFacts)}
       </span>
     </span>
   );
@@ -278,6 +288,8 @@ function EpisodeCardImpl({
             available={available}
             requesterLabel={requesterLabel}
             presentation={presentation}
+            audio={audio}
+            onFilesChanged={onFilesChanged}
           />
         </>
       )}
