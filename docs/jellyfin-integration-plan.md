@@ -99,9 +99,12 @@ portable Jellyfin; UI checked with Playwright at 390, 768 and 1280 px.
     is otherwise empty until Jellyfin's own schedule).
 - Removing a root never changes Jellyfin by itself. Storage shows "Still in Jellyfin. [Remove from Jellyfin]" and only that click runs `DELETE /Library/VirtualFolders/Paths?name=&path=&refreshLibrary=true`, and only when the record matches the connected ServerId, a freshly read library ItemId and the exact path. An offline or disabled root keeps its Jellyfin path. A location the owner added by hand that maps to the same folder counts as already present (no duplicate).
 - Record: new table `JellyfinLibraryPaths(ServerId, LibraryItemId, LibraryName, RootId, ServerPath, AddedAt)`.
-- `GET /api/library/roots` gains per root `jellyfin: {state: "indexed"|"registered"|"pending"|"failed"|"off", library?,
-  message?}`. "Registered" means the path is in Jellyfin; "indexed" means a scan has completed since.
+- `GET /api/library/roots` gains per root `jellyfin: {state: "indexed"|"registered"|"pending"|"failed"|"off",
+  libraries: string[], message?}`. Removed roots with retained Jellyfin paths are exposed as `removed-root` by
+  `GET /api/jellyfin/orphan-paths`. "Registered" means the path is in Jellyfin; "indexed" means a scan has completed since.
   Storage settings row shows "In Jellyfin: Movies, Shows" or the failure with **Add to Jellyfin** (retry).
+- Backend indexing status uses Jellyfin's item count as its signal: a root is `indexed` when a returned item path maps
+  inside one of its kind folders; an empty registered folder remains `registered`.
 
 ### J3. Fast pickup of new files
 

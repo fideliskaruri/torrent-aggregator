@@ -100,7 +100,7 @@ public sealed class JellyfinClient
     public async Task<JellyfinServerInfo> GetSystemInfo(string serverUrl, string token, CancellationToken ct = default)
     {
         var response = await SendAsync<SystemInfoDto>(HttpMethod.Get, serverUrl, "System/Info", token, true, null, ct);
-        return new(response.ServerName, response.ServerId, response.Version);
+        return new(response.ServerName, response.Id, response.Version);
     }
 
     public async Task<JellyfinAuthentication> AuthenticateByName(string serverUrl, string username, string password,
@@ -343,7 +343,7 @@ public sealed class JellyfinClient
         parameters.Where(pair => pair.Value is not null)
             .Select(pair => Uri.EscapeDataString(pair.Name) + "=" + Uri.EscapeDataString(pair.Value!)));
 
-    private sealed record SystemInfoDto(string? ServerName, string? ServerId, string? Version);
+    private sealed record SystemInfoDto(string? ServerName, string? Id, string? Version);
     private sealed record AuthenticationDto(string? AccessToken, string? ServerId, UserDto? User);
     private sealed record UserDto(string? Id, string? Name, UserPolicyDto? Policy);
     private sealed record UserPolicyDto(bool IsAdministrator, bool IsDisabled);

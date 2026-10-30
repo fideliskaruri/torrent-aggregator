@@ -13,6 +13,7 @@ using TorrentFlow.Api.Notifications;
 using TorrentFlow.Api.Automation;
 using TorrentFlow.Requests;
 using TorrentFlow.Store;
+using TorrentFlow.Library.Jellyfin;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
@@ -49,6 +50,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 builder.Services.AddStore(Path.Combine(dataDirectory, "torrentflow.db"));
+builder.Services.AddSingleton(JellyfinClient.Create(dataDirectory));
 TorrentFlow.Metadata.MetadataModule.AddMetadata(builder.Services, dataDirectory);
 builder.Services.AddAccess();
 builder.Services.AddSources();
@@ -60,7 +62,7 @@ TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configur
 builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddSingleton<OldTorrentHandoff>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OldTorrentHandoff>());
-builder.Services.AddLibrary();
+builder.Services.AddLibrary(dataDirectory);
 builder.Services.AddScoped<WatchLaterReadService>();
 builder.Services.AddSingleton<WatchLaterJellyfinSnapshots>();
 builder.Services.AddHostedService<WatchLaterSweepWorker>();
