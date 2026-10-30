@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
 using TorrentFlow.Library.Jellyfin;
@@ -250,6 +251,18 @@ internal static class JellyfinEndpoints
             return Results.Json(new { ok, status = ok ? "ok" : "unavailable", message = ok ?
                 "Connected to Jellyfin." : "Could not connect to Jellyfin. Check the server URL, API key and user." });
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
+    }
+
+    internal static void MapJellyfinSuggestions(this WebApplication app, string directory, JellyfinClient client)
+    {
+        var suggestions = new JellyfinSuggestionService(client, directory);
+        app.MapGet("/api/jellyfin/suggestions", async (HttpContext http, TorrentFlowDbContext db, CancellationToken ct) =>
+            Results.Json(await suggestions.ReadAsync(db, AccessIdentity.UserId(http),
+                AccessIdentity.Role(http) == "owner", ct)));
+        app.MapPost("/api/jellyfin/suggestions/dismiss", async (HttpContext http, TorrentFlowDbContext db,
+            JsonElement body, CancellationToken ct) =>
+            await suggestions.DismissAsync(db, AccessIdentity.UserId(http), body, ct))
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
     }
 
     internal static async Task<JellyfinTitleRead> ReadTitle(HttpContext h, TorrentFlowDbContext db, WorkSnapshot work,
