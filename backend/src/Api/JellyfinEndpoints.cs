@@ -14,7 +14,7 @@ internal static class JellyfinEndpoints
 {
     internal sealed record JellyfinTitleRead(JellyfinTitleState? State, object? Playback);
     internal static JellyfinWatchState Adapter { get; private set; } = null!;
-    private static JellyfinClient Client { get; set; } = null!;
+    internal static JellyfinClient Client { get; private set; } = null!;
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly SemaphoreSlim StatusGate = new(1, 1);
     private static CachedStatus? statusCache;
@@ -34,7 +34,7 @@ internal static class JellyfinEndpoints
     }
 
     internal static void MapJellyfin(this RouteGroupBuilder group, string directory,
-        JellyfinClient client, JellyfinWatchState adapter)
+        JellyfinClient client, JellyfinWatchState adapter, JellyfinLibrarySync sync)
     {
         Client = client;
         Adapter = adapter;
@@ -67,7 +67,7 @@ internal static class JellyfinEndpoints
                     userMappings = [new JellyfinUserMapping(owner.Id, user)];
                 }
                 var settings = old with { ServerUrl = server, Credential = credential, UserId = user, UserMappings = userMappings };
-                await Save(db, row, settings, ct);
+                await Save(db, row, settings, sync, ct);
                 return await Status(db, directory, ct);
             }
             finally { Gate.Release(); }
@@ -78,7 +78,7 @@ internal static class JellyfinEndpoints
             try
             {
                 var row = await db.Settings.SingleAsync(setting => setting.Id == "jellyfin", ct);
-                await Save(db, row, new JellyfinSettings(null, null, null), ct);
+                await Save(db, row, new JellyfinSettings(null, null, null), sync, ct);
                 return await Status(db, directory, ct);
             }
             finally { Gate.Release(); }
@@ -108,7 +108,7 @@ internal static class JellyfinEndpoints
                         ? [new JellyfinUserMapping(owner.Id, authentication.User.Id)]
                         : old.UserMappings,
                 };
-                await Save(db, row, settings, ct);
+                await Save(db, row, settings, sync, ct);
                 return await Status(db, directory, ct);
             }
             catch (JellyfinException ex)
@@ -146,6 +146,7 @@ internal static class JellyfinEndpoints
                     PathMappings = body.TryGetProperty("pathMappings", out _) ? ReadMappings(body) : existing.PathMappings,
                     WatchUserIds = body.TryGetProperty("watchUserIds", out _) ? ReadStringArray(body, "watchUserIds") : existing.WatchUserIds,
                     UserMappings = body.TryGetProperty("userMappings", out _) ? ReadUserMappings(body) : existing.UserMappings,
+                    LibraryOverrides = body.TryGetProperty("libraryOverrides", out _) ? ReadLibraryOverrides(body) : existing.LibraryOverrides,
                     SyncLibraries = body.TryGetProperty("syncLibraries", out _) ? RequiredBoolean(body, "syncLibraries") : existing.SyncLibraries,
                     SuggestNextEpisodes = body.TryGetProperty("suggestNextEpisodes", out _)
                         ? RequiredInteger(body, "suggestNextEpisodes") : existing.SuggestNextEpisodes,
@@ -156,7 +157,7 @@ internal static class JellyfinEndpoints
                 };
                 var validation = row with { Value = JsonSerializer.SerializeToElement(settings) };
                 SettingsCatalog.Validate(validation);
-                await Save(db, row, settings, ct);
+                await Save(db, row, settings, sync, ct);
                 return await Status(db, directory, ct);
             }
             catch (Exception ex) when (ex is ArgumentException or JsonException or InvalidOperationException or KeyNotFoundException)
@@ -374,6 +375,7 @@ internal static class JellyfinEndpoints
             syncLibraries = settings.SyncLibraries,
             suggestNextEpisodes = settings.SuggestNextEpisodes,
             subtitleLanguages = settings.SubtitleLanguages,
+            libraryOverrides = settings.LibraryOverrides,
             connection = connection.State,
             message = connection.State switch
             {
@@ -484,6 +486,21 @@ internal static class JellyfinEndpoints
             mapping.GetProperty("jellyfinUserId").GetString()?.Trim() ?? ""))];
     }
 
+    private static ImmutableDictionary<string, string> ReadLibraryOverrides(JsonElement body)
+    {
+        if (!body.TryGetProperty("libraryOverrides", out var overrides) ||
+            overrides.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Send a library name map for Jellyfin folder types.");
+        var result = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in overrides.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String)
+                throw new ArgumentException("Every Jellyfin library name must be text.");
+            result[property.Name] = property.Value.GetString()?.Trim() ?? "";
+        }
+        return result.ToImmutable();
+    }
+
     private static bool RequiredBoolean(JsonElement body, string name) =>
         body.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? value.GetBoolean() : throw new ArgumentException($"Choose whether {name} is on or off.");
@@ -495,7 +512,8 @@ internal static class JellyfinEndpoints
     private static async Task<JellyfinSettings> Settings(TorrentFlowDbContext db, CancellationToken ct) =>
         SettingsCatalog.Read<JellyfinSettings>(await db.Settings.AsNoTracking().SingleAsync(setting => setting.Id == "jellyfin", ct));
 
-    private static async Task Save(TorrentFlowDbContext db, SettingRow row, JellyfinSettings settings, CancellationToken ct)
+    private static async Task Save(TorrentFlowDbContext db, SettingRow row, JellyfinSettings settings,
+        JellyfinLibrarySync sync, CancellationToken ct)
     {
         var next = row with { Value = JsonSerializer.SerializeToElement(settings),
             Revision = row.Revision + 1, UpdatedAt = DateTimeOffset.UtcNow };
@@ -505,6 +523,7 @@ internal static class JellyfinEndpoints
         catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("Settings changed. Try again."); }
         Adapter.Invalidate();
         statusCache = null;
+        sync.RequestSync();
     }
 
     private sealed record ConnectionStatus(string State, JellyfinUser? User, string? ServerName);

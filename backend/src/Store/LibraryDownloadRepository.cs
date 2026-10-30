@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Domain;
@@ -140,6 +141,7 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             db.DownloadFiles.RemoveRange(bindings);
             await db.SaveChangesAsync(ct);
             var media = await db.MediaFiles.Where(row => row.DownloadId == downloadId).ToListAsync(ct);
+            await QueueDeletedJellyfinJobsAsync(media, ct);
             db.MediaFiles.RemoveRange(media);
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -148,5 +150,47 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
         catch (DbUpdateException ex) when (ex.InnerException is SqliteException { SqliteErrorCode: 19 or 5 or 6 })
         { return false; }
         finally { db.ChangeTracker.Clear(); }
+    }
+
+    internal async Task QueueDeletedJellyfinJobsAsync(IReadOnlyCollection<MediaFileRow> media,
+        CancellationToken ct)
+    {
+        if (media.Count == 0) return;
+        var setting = await db.Settings.AsNoTracking().SingleOrDefaultAsync(row => row.Id == "jellyfin", ct);
+        if (setting is null) return;
+        var settings = SettingsCatalog.Read<JellyfinSettings>(setting);
+        if (settings.ServerUrl is null || settings.Credential is null) return;
+
+        var mediaIds = media.Select(file => file.Id).ToArray();
+        var bindings = await db.DownloadFiles.AsNoTracking()
+            .Where(file => file.MediaFileId != null && mediaIds.Contains(file.MediaFileId))
+            .ToArrayAsync(ct);
+        var replacementTargets = await db.Targets.AsNoTracking()
+            .Where(target => target.ReplaceMediaFileId != null && mediaIds.Contains(target.ReplaceMediaFileId))
+            .ToArrayAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var group in media.GroupBy(file =>
+        {
+            var binding = bindings.FirstOrDefault(item => item.MediaFileId == file.Id);
+            return binding?.TargetId ?? replacementTargets.FirstOrDefault(target => target.ReplaceMediaFileId == file.Id)?.Id;
+        }))
+        {
+            var paths = group.Select(file => Path.GetDirectoryName(file.Path)).OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (paths.Length == 0) continue;
+            db.JellyfinJobs.Add(new JellyfinJobRow
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = "rescan",
+                PayloadJson = JsonSerializer.SerializeToElement(new { paths, updateType = "Deleted" }),
+                TargetId = group.Key,
+                MediaFileId = null,
+                Attempts = 0,
+                NextAttemptAt = now,
+                CreatedAt = now,
+                LastError = null,
+                State = "pending",
+            });
+        }
     }
 }

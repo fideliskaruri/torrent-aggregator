@@ -70,7 +70,7 @@ TorrentFlow.Targets.TargetPipeline.AddTargets(builder.Services, builder.Configur
 builder.Services.AddSingleton<DownloadsApi>();
 builder.Services.AddSingleton<OldTorrentHandoff>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OldTorrentHandoff>());
-builder.Services.AddLibrary();
+builder.Services.AddLibrary(dataDirectory);
 builder.Services.AddScoped<WatchLaterReadService>();
 builder.Services.AddSingleton<WatchLaterJellyfinSnapshots>();
 builder.Services.AddHostedService<WatchLaterSweepWorker>();

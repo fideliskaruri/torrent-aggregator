@@ -41,7 +41,7 @@ public static class SettingsCatalog
              !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)))
             throw new ArgumentException("Enter an HTTP or HTTPS address for your Jellyfin devices.");
         if (settings.PathMappings.IsDefault || settings.WatchUserIds.IsDefault || settings.SubtitleLanguages.IsDefault ||
-            settings.UserMappings.IsDefault)
+            settings.UserMappings.IsDefault || settings.LibraryOverrides is null)
             throw new ArgumentException("Jellyfin options must use lists, even when they are empty.");
         if (settings.PathMappings.Any(mapping => string.IsNullOrWhiteSpace(mapping.From) ||
                 string.IsNullOrWhiteSpace(mapping.To) || mapping.From.Any(char.IsControl) || mapping.To.Any(char.IsControl)))
@@ -55,6 +55,9 @@ public static class SettingsCatalog
             throw new ArgumentException("Use two- or three-letter subtitle language codes.");
         if (settings.ServerId is { Length: > 200 })
             throw new ArgumentException("The Jellyfin server identifier is too long.");
+        if (settings.LibraryOverrides.Any(pair => !Enum.TryParse<LibraryKind>(pair.Key, true, out _) ||
+                string.IsNullOrWhiteSpace(pair.Value) || pair.Value.Length > 100 || pair.Value.Any(char.IsControl)))
+            throw new ArgumentException("Choose a valid library name for each Jellyfin folder type.");
         if (settings.UserMappings.Any(mapping => string.IsNullOrWhiteSpace(mapping.TorrentFlowUserId) ||
                 string.IsNullOrWhiteSpace(mapping.JellyfinUserId) || mapping.TorrentFlowUserId.Length > 200 ||
                 mapping.JellyfinUserId.Length > 200 || mapping.TorrentFlowUserId.Any(char.IsControl) ||

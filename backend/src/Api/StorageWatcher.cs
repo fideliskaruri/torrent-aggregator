@@ -9,7 +9,7 @@ using TorrentFlow.Targets;
 namespace TorrentFlow.Api;
 
 internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus status,
-    TargetPipeline targets, ILogger<StorageWatcher> logger) : BackgroundService
+    TargetPipeline targets, JellyfinLibrarySync jellyfinSync, ILogger<StorageWatcher> logger) : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProbeDeadline = TimeSpan.FromSeconds(3);
@@ -87,7 +87,11 @@ internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus
                 if (check.Root is { } initialized && initialized.Online && !initialized.ReviewRequired)
                 {
                     status.Update(root.Path, true, probe.FreeBytes);
-                    if (!root.Online) await targets.StorageRootOnlineAsync(ct);
+                    if (!root.Online)
+                    {
+                        await targets.StorageRootOnlineAsync(ct);
+                        jellyfinSync.RequestSync();
+                    }
                     else if (initializing) await targets.WakeStorageWaitsAsync(ct);
                 }
                 else status.Update(root.Path, false, null);
@@ -122,6 +126,7 @@ internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus
                 {
                     status.Update(recovered.Path, true, probe.FreeBytes);
                     await targets.StorageRootOnlineAsync(ct);
+                    jellyfinSync.RequestSync();
                 }
                 else status.Update(root.Path, false, null);
                 continue;

@@ -21,6 +21,7 @@ public sealed partial class LibraryRepository
                 else db.DownloadFiles.Remove(current);
             }
             // Version is a concurrency token, so a media row that changed or vanished fails the delete.
+            await QueueDeletedJellyfinJobsAsync(media, ct);
             db.MediaFiles.RemoveRange(media);
             var operationIds = files.Select(file => $"file:{file.Id}").ToArray();
             var mediaIds = media.Select(file => file.Id).ToArray();

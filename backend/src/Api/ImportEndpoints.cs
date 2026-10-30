@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using TorrentFlow.Api.Access;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
@@ -15,7 +16,7 @@ internal static class ImportEndpoints
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
 
-    internal static void MapImports(this WebApplication app)
+    internal static void MapImports(this WebApplication app, JellyfinLibrarySync jellyfinSync)
     {
         var group = app.MapGroup("/api/library").AddEndpointFilter(async (context, next) =>
         {
@@ -87,7 +88,9 @@ internal static class ImportEndpoints
             var media = await inventory.MediaAsync(null, ct);
             var downloads = await inventory.DownloadsAsync(ct);
             var bindings = await inventory.BindingsAsync(ct);
-            return Results.Json(new { roots = roots.Select(r => RootView(r, media, downloads, bindings, storage)) }, Json);
+            var jellyfin = await jellyfinSync.GetStatusesAsync(roots, ct);
+            return Results.Json(new { roots = roots.Select((root, index) =>
+                RootView(root, media, downloads, bindings, storage, jellyfin[index])) }, Json);
         });
         group.MapPost("/roots", async (HttpContext http, ILibraryPlacement library,
             ILibraryRepository inventory, IStorageStatus storage, TargetPipeline targets,
@@ -96,7 +99,8 @@ internal static class ImportEndpoints
             var result = await library.AddRootAsync(await http.Request.ReadFromJsonAsync<LibraryRootInput>(Json, ct) ??
                 throw new ArgumentException("Choose a folder path."), ct);
             if (result.Failure is null) await targets.WakeStorageWaitsAsync(ct);
-            return await RootReplyAsync(result, inventory, storage, ct);
+            if (result.Failure is null) jellyfinSync.RequestSync();
+            return await RootReplyAsync(result, inventory, storage, jellyfinSync, ct);
         });
         group.MapPut("/roots/{id}", async (string id, HttpContext http, ILibraryPlacement library,
             ILibraryRepository inventory, IStorageStatus storage, TargetPipeline targets, CancellationToken ct) =>
@@ -105,7 +109,8 @@ internal static class ImportEndpoints
                 await http.Request.ReadFromJsonAsync<LibraryRootConfiguration>(Json, ct) ??
                     throw new ArgumentException("Choose the drive settings."), ct);
             if (result.Failure is null) await targets.WakeStorageWaitsAsync(ct);
-            return await RootReplyAsync(result, inventory, storage, ct);
+            if (result.Failure is null) jellyfinSync.RequestSync();
+            return await RootReplyAsync(result, inventory, storage, jellyfinSync, ct);
         });
         group.MapPut("/roots/order", async (RootOrderInput input, ILibraryPlacement library,
             TargetPipeline targets, CancellationToken ct) =>
@@ -123,7 +128,36 @@ internal static class ImportEndpoints
         });
         group.MapDelete("/roots/{id}", async (string id, ILibraryPlacement library,
             ILibraryRepository inventory, IStorageStatus storage, CancellationToken ct) =>
-            await RootReplyAsync(await library.RemoveRootAsync(id, ct), inventory, storage, ct));
+        {
+            var result = await library.RemoveRootAsync(id, ct);
+            if (result.Failure is null) jellyfinSync.RequestSync();
+            return await RootReplyAsync(result, inventory, storage, jellyfinSync, ct);
+        });
+        group.MapPost("/roots/{id}/jellyfin/sync", async (string id, ILibraryPlacement library,
+            CancellationToken ct) =>
+        {
+            var root = (await library.RootsAsync(ct)).SingleOrDefault(item => item.Id == id);
+            if (root is null) return Results.NotFound(new { message = "This storage location no longer exists." });
+            if (!root.Enabled) return Results.Conflict(new { message = "Turn on this storage location before syncing it to Jellyfin." });
+            var status = await jellyfinSync.SyncNowAsync(id, ct);
+            return Results.Json(new { jellyfin = new { state = status.State, libraries = status.Libraries, status.Message } }, Json,
+                statusCode: status.State == "failed" ? 503 : 200);
+        });
+        group.MapPost("/roots/{id}/jellyfin/remove", async (string id, CancellationToken ct) =>
+        {
+            try { return Results.Json(await jellyfinSync.RemoveRootPathsAsync(id, ct), Json); }
+            catch (JellyfinException ex)
+            {
+                return Results.Json(new { removed = 0, ignored = 0, message = ex.Message },
+                    statusCode: ex.Kind == JellyfinErrorKind.Unauthorized ? 403 : 503);
+            }
+        });
+        app.MapGet("/api/jellyfin/orphan-paths", async (HttpContext http, CancellationToken ct) =>
+        {
+            if (AccessIdentity.Actor(http).Role != UserRole.Owner) return Results.StatusCode(403);
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Json(new { paths = await jellyfinSync.OrphanPathsAsync(ct) }, Json);
+        });
         group.MapGet("/owned/{workId}", async (string workId, string? episodeId, bool? film,
             ILibraryPlacement library, CancellationToken ct) =>
             Results.Json(new { items = (await library.OwnedAsync(new(workId,
@@ -131,18 +165,23 @@ internal static class ImportEndpoints
     }
 
     private static async Task<IResult> RootReplyAsync(LibraryRootResult result,
-        ILibraryRepository inventory, IStorageStatus storage, CancellationToken ct)
+        ILibraryRepository inventory, IStorageStatus storage, JellyfinLibrarySync jellyfinSync,
+        CancellationToken ct)
     {
         object? view = null;
         if (result.Root is { } root)
+        {
+            var statuses = await jellyfinSync.GetStatusesAsync([root], ct);
             view = RootView(root, await inventory.MediaAsync(null, ct), await inventory.DownloadsAsync(ct),
-                await inventory.BindingsAsync(ct), storage);
+                await inventory.BindingsAsync(ct), storage, statuses[0]);
+        }
         return Results.Json(new { root = view, result.Failure }, Json,
             statusCode: result.Failure is null ? 200 : result.Failure.Code == "RootConflict" ? 409 : 400);
     }
 
     private static object RootView(StorageRootRow root, ImmutableArray<MediaFileRow> media,
-        ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> bindings, IStorageStatus storage)
+        ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> bindings, IStorageStatus storage,
+        JellyfinRootStatus jellyfin)
     {
         var observed = storage.Status(root.Path);
         var online = root.Enabled && !root.ReviewRequired && observed.Online;
@@ -160,7 +199,8 @@ internal static class ImportEndpoints
             root.ReviewRequired, root.LastCheckedAt, root.LastError, root.Version, totalBytes = total,
             freeBytes = free, committedBytes = committed, maxAllocatedBytes = root.MaxAllocatedBytes,
             usedBytes = used, reserveBytes = reserve, reserveSetting = root.ReserveBytes, status = state, missingCount = missing,
-            label = storage.Label(root.Path) };
+            label = storage.Label(root.Path),
+            jellyfin = new { state = jellyfin.State, libraries = jellyfin.Libraries, message = jellyfin.Message } };
     }
 }
 

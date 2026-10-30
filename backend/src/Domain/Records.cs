@@ -809,6 +809,8 @@ public sealed record JellyfinSettings(string? ServerUrl, SecretReference? Creden
     public ImmutableArray<string> SubtitleLanguages { get; init; } = [];
     public ImmutableArray<JellyfinUserMapping> UserMappings { get; init; } = [];
     public string? ServerId { get; init; }
+    public ImmutableDictionary<string, string> LibraryOverrides { get; init; } =
+        ImmutableDictionary<string, string>.Empty;
 }
 
 public sealed record JellyfinJobRow : StoreRow

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using TorrentFlow.Domain;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -160,6 +161,7 @@ internal static class DownloadFiling
                     writes.Add(new(latestDownload with { Intent = DownloadIntent.Stopped,
                         FinishedAt = now, Version = latestDownload.Version + 1 }, latestDownload.Version, null));
                 writes.AddRange(filedWrites.Value);
+                writes.AddRange(await RescanJobWritesAsync(store, prepared.ToImmutable(), ct));
                 await TargetPipeline.CommitAsync(store, writes.ToImmutable(), [], ct);
                 if (allFiled)
                     try
@@ -221,5 +223,36 @@ internal static class DownloadFiling
             if (!writes.IsEmpty) await TargetPipeline.CommitAsync(store, writes, [], ct);
         }
         finally { stateGate.Release(); }
+    }
+
+    private static async Task<ImmutableArray<RowWrite>> RescanJobWritesAsync(TargetStore store,
+        ImmutableArray<(DownloadFileRow Before, DownloadFileRow After, MediaFileRow Media)> filed,
+        CancellationToken ct)
+    {
+        var settingsRow = (await store.ListAsync<SettingRow>(row => row.Id == "jellyfin", ct)).SingleOrDefault();
+        if (settingsRow is null) return [];
+        var settings = SettingsCatalog.Read<JellyfinSettings>(settingsRow);
+        if (settings.ServerUrl is null || settings.Credential is null) return [];
+        var now = DateTimeOffset.UtcNow;
+        return [.. filed.Where(item => item.Before.TargetId is not null)
+            .GroupBy(item => item.Before.TargetId!, StringComparer.Ordinal)
+            .Select(group => new RowWrite(new JellyfinJobRow
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = "rescan",
+                PayloadJson = JsonSerializer.SerializeToElement(new
+                {
+                    paths = group.Select(item => Path.GetDirectoryName(item.Media.Path)!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    updateType = "Created",
+                }),
+                TargetId = group.Key,
+                MediaFileId = null,
+                Attempts = 0,
+                NextAttemptAt = now,
+                CreatedAt = now,
+                LastError = null,
+                State = "pending",
+            }, null, null))];
     }
 }
