@@ -611,6 +611,12 @@ internal sealed class JellyfinJobWorker : BackgroundService
                 var source = item.MediaSources.IsDefaultOrEmpty ? null : item.MediaSources.FirstOrDefault(media =>
                     media.Path is not null && JellyfinPathMapper.PathsEqual(media.Path, mappedPath));
                 var streams = source?.MediaStreams.IsDefault == false ? source.MediaStreams : [];
+                if (streams.IsEmpty && job.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-30))
+                {
+                    // Indexed but not probed yet; Jellyfin reads the streams shortly after adding the item.
+                    await FailJobsAsync(db, [job], "Jellyfin has not read this file's tracks yet.", ct);
+                    continue;
+                }
                 var tracks = streams.Select((stream, index) => (stream, index))
                     .Where(pair => IsTrackType(pair.stream.Type))
                     .Select(pair => new MediaTrack(pair.stream.Index ?? pair.index, pair.stream.Type!,
@@ -638,6 +644,12 @@ internal sealed class JellyfinJobWorker : BackgroundService
             {
                 db.ChangeTracker.Clear();
                 await FailJobsAsync(db, [job], "The library file changed while it was being inspected.", ct);
+            }
+            catch (DbUpdateException ex)
+            {
+                db.ChangeTracker.Clear();
+                logger.LogWarning(ex, "Could not save the inspection of {MediaFileId}.", job.MediaFileId);
+                await FailJobsAsync(db, [job], "The inspection could not be saved.", ct);
             }
         }
     }
@@ -780,16 +792,18 @@ internal sealed class JellyfinJobWorker : BackgroundService
             _ => string.Join(", ", displayLanguages[..^1]) + " and " + displayLanguages[^1],
         };
         var now = DateTimeOffset.UtcNow;
+        var targetId = job.TargetId is { } jobTarget &&
+            await db.Targets.AsNoTracking().AnyAsync(row => row.Id == jobTarget, ct) ? jobTarget : null;
         db.Attempts.Add(new AttemptRow
         {
             Id = Guid.NewGuid().ToString("N"),
-            TargetId = job.TargetId ?? "media:" + file.Id,
+            TargetId = targetId,
             WorkId = work.Id,
             ActorUserId = "local",
             Kind = AttemptKind.LegacyEvent,
             StartedAt = now,
             EndedAt = now,
-            Outcome = "Completed",
+            Outcome = "Rejected",
             ReasonText = $"{title} has {joined} audio only.",
             BatchId = activityKey,
         });

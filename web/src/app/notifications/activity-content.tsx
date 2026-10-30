@@ -16,6 +16,7 @@ import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_BATCH_SIZE,
   activityKindLabel,
+  activityStatusBadge,
   boundedActivityItems,
   groupActivityByDay,
   mergeActivityPages,
@@ -156,6 +157,7 @@ export function ActivityContent() {
                         item.category,
                       );
                       const kindLabel = activityKindLabel(item);
+                      const badge = activityStatusBadge(item.status);
                       return (
                         <li
                           key={item.id}
@@ -163,7 +165,7 @@ export function ActivityContent() {
                           data-activity-type={item.type}
                           data-activity-status={item.status}
                         >
-                          <Badge variant="success" className="mt-0.5 self-start">Sent</Badge>
+                          <Badge variant={badge.variant} className="mt-0.5 self-start">{badge.label}</Badge>
                           <div className="min-w-0">
                             <p className="truncate text-[13px] font-medium text-foreground">
                               {item.title}

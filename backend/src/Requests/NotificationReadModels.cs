@@ -67,7 +67,8 @@ public static class NotificationReadModels
                 ReasonText = "Download ready", Decision = null, LegacyContext = null, BatchId = null,
                 DownloadId = d.Id, DeadlineAt = null, Swap = null,
             }));
-        foreach (var attempt in attempts.Where(a => (a.Kind != AttemptKind.LegacyEvent || a.TargetId is not null) &&
+        foreach (var attempt in attempts.Where(a => (a.Kind != AttemptKind.LegacyEvent || a.TargetId is not null ||
+            a.BatchId?.StartsWith("jellyfin-rejected:", StringComparison.Ordinal) == true) &&
             a.ActorUserId is null or "local"))
         {
             var work = works.FirstOrDefault(w => w.Id == attempt.WorkId);

@@ -15,7 +15,7 @@ function formatActivityKind(
   value: string | null | undefined,
 ): string | null {
   const raw = clean(value);
-  if (!raw) return null;
+  if (!raw || raw.toLowerCase() === "legacyevent") return null;
 
   const words = raw
     .replace(/([a-z\d])([A-Z])/g, "$1 $2")
@@ -35,6 +35,33 @@ export function activityKindLabel(item: {
   context?: string | null;
 }): string | null {
   return clean(item.context) ?? formatActivityKind(item.kind);
+}
+
+export type ActivityBadgeVariant = "default" | "success" | "danger" | "info";
+
+export function activityStatusBadge(status: string | null | undefined): {
+  label: string;
+  variant: ActivityBadgeVariant;
+} {
+  switch (clean(status)?.toLowerCase()) {
+    case "completed":
+      return { label: "Done", variant: "success" };
+    case "sent":
+      return { label: "Sent", variant: "success" };
+    case "rejected":
+      return { label: "Wrong audio", variant: "danger" };
+    case "failed":
+      return { label: "Failed", variant: "danger" };
+    case "searching":
+    case "wanted":
+      return { label: "Looking", variant: "info" };
+    case "waiting":
+      return { label: "Waiting", variant: "default" };
+    case "planned":
+      return { label: "Planned", variant: "default" };
+    default:
+      return { label: "Update", variant: "default" };
+  }
 }
 
 export const ACTIVITY_BATCH_SIZE = 20;
