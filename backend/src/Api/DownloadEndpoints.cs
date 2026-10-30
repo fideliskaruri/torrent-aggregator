@@ -246,6 +246,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             {
                 var libraryFile = media.FirstOrDefault(m => m.DownloadId == download.Id && m.Role == FileRole.Video &&
                     (target is null || m.EpisodeId == target.EpisodeId));
+                var inspectedFiles = media.Where(m => m.DownloadId == download.Id && m.Role == FileRole.Video &&
+                    (target is null || m.EpisodeId == target.EpisodeId)).ToArray();
                 var work = works.FirstOrDefault(w => w.Id == (target?.WorkId ?? libraryFile?.WorkId));
                 var episode = episodes.FirstOrDefault(e => e.Id == (target?.EpisodeId ?? libraryFile?.EpisodeId));
                 var season = seasons.FirstOrDefault(s => s.Id == episode?.SeasonId);
@@ -330,6 +332,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                     workTitle = title ?? (string.IsNullOrWhiteSpace(parsed.Title) ? null : parsed.Title), workYear = work?.Year,
                     workMediaType = work is null ? null : work.Kind == WorkKind.Series ? "tv" : "movie",
                     posterUrl = work?.PosterUrl,
+                    mediaFiles = inspectedFiles.Select(CatalogProjection.MediaFileInspection),
+                    rejectedAudio = CatalogProjection.RejectedAudio(inspectedFiles),
                     season = season?.Number ?? (parsed.Seasons.IsEmpty ? null : parsed.Seasons[0]),
                     episode = episode?.Number ??
                         (parsed.Episodes.IsEmpty ? parsed.AbsoluteNumbers.IsEmpty ? null : parsed.AbsoluteNumbers[0] : parsed.Episodes[0]),

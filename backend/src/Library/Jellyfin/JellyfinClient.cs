@@ -32,7 +32,9 @@ public sealed record JellyfinItemDto(string? Id, string? Name, string? Type, str
     ImmutableArray<JellyfinMediaSource> MediaSources, bool? IsLocked);
 public sealed record JellyfinUserData(bool Played, long PlaybackPositionTicks, DateTimeOffset? LastPlayedDate);
 public sealed record JellyfinMediaSource(string? Path, ImmutableArray<JellyfinMediaStream> MediaStreams);
-public sealed record JellyfinMediaStream(string? Type, string? Language);
+public sealed record JellyfinMediaStream(string? Type, string? Language, int? Index = null, string? Codec = null,
+    int? Channels = null, string? ChannelLayout = null, bool? IsDefault = null, bool? IsForced = null,
+    string? DisplayTitle = null);
 
 public sealed record JellyfinItemQuery
 {

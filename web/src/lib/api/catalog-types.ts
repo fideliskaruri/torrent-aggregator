@@ -19,4 +19,21 @@ export interface CatalogCardData {
   action: CatalogCardAction;
 }
 
+export type MediaFileInspectionState = "pending" | "unknown" | "verified" | "rejected";
+
+export interface MediaFileInspection {
+  mediaFileId: string;
+  inspectionState: MediaFileInspectionState;
+  audioLanguages: string[];
+}
+
+export interface RejectedAudioSummary {
+  languages: string[];
+}
+
+export interface MediaInspectionSummary {
+  mediaFiles?: MediaFileInspection[];
+  rejectedAudio?: RejectedAudioSummary | null;
+}
+
 export type ActionStatus = "idle" | "pending" | "done" | "error";

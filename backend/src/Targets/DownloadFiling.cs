@@ -244,6 +244,7 @@ internal static class DownloadFiling
                 {
                     paths = group.Select(item => Path.GetDirectoryName(item.Media.Path)!)
                         .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    mediaFileIds = group.Select(item => item.Media.Id).Distinct(StringComparer.Ordinal).ToArray(),
                     updateType = "Created",
                 }),
                 TargetId = group.Key,

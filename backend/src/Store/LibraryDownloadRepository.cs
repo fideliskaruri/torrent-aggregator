@@ -182,7 +182,12 @@ public sealed partial class LibraryRepository : ILibraryPlacementProposalReposit
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Kind = "rescan",
-                PayloadJson = JsonSerializer.SerializeToElement(new { paths, updateType = "Deleted" }),
+                PayloadJson = JsonSerializer.SerializeToElement(new
+                {
+                    paths,
+                    mediaFileIds = group.Select(file => file.Id).Distinct(StringComparer.Ordinal).ToArray(),
+                    updateType = "Deleted",
+                }),
                 TargetId = group.Key,
                 MediaFileId = null,
                 Attempts = 0,

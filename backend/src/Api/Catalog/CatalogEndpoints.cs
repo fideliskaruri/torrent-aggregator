@@ -227,6 +227,7 @@ internal static class CatalogEndpoints
             w.Work.PosterUrl, w.Work.BackdropUrl, releaseDate = CatalogProjection.Release(w),
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
             owned = Owned(owned, null),
+            rejectedAudio = CatalogProjection.RejectedAudio(owned),
             downloadFraction = (double?)null, transfer = transfers.Film,
             watchState = jellyfin?.Film,
             jellyfinNextUp = jellyfin?.NextUp is { } next ? new
@@ -265,7 +266,12 @@ internal static class CatalogEndpoints
     private static object? Owned(ImmutableArray<MediaFileRow> files, string? episodeId)
     {
         var mine = files.Where(f => f.EpisodeId == episodeId).ToArray();
-        return mine.Length == 0 ? null : new { resolution = mine.Max(f => f.Resolution) };
+        return mine.Length == 0 ? null : new
+        {
+            resolution = mine.Max(f => f.Resolution),
+            mediaFiles = mine.Select(CatalogProjection.MediaFileInspection),
+            rejectedAudio = CatalogProjection.RejectedAudio(mine),
+        };
     }
 
     private static IResult UnknownTitle(string workKey, HttpContext h, Failure? failure)
