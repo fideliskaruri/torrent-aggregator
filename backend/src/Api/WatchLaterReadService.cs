@@ -34,14 +34,14 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
 {
     public async Task<WatchLaterResult> ReadAsync(string userId, CancellationToken ct)
     {
-        var projected = await ProjectAsync(await CandidatesAsync(userId, ct), ct);
+        var projected = await ProjectAsync(await CandidatesAsync(userId, ct), userId, ct);
         return new([.. projected.Entries.Select(entry => entry.Item)], projected.JellyfinStale);
     }
 
     public async Task<ImmutableArray<WatchLaterEntry>> ReadAllAsync(CancellationToken ct)
     {
         var candidates = await CandidatesAsync(null, ct);
-        return (await ProjectAsync(candidates, ct)).Entries;
+        return (await ProjectAsync(candidates, null, ct)).Entries;
     }
 
     private async Task<WatchItemRow[]> CandidatesAsync(string? userId, CancellationToken ct)
@@ -52,7 +52,7 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
         return await query.OrderByDescending(item => item.UpdatedAt).ThenBy(item => item.Id).ToArrayAsync(ct);
     }
 
-    private async Task<ProjectedEntries> ProjectAsync(WatchItemRow[] candidates, CancellationToken ct)
+    private async Task<ProjectedEntries> ProjectAsync(WatchItemRow[] candidates, string? userId, CancellationToken ct)
     {
         if (candidates.Length == 0) return new([], false);
         var workIds = candidates.Select(item => item.WorkId).Distinct(StringComparer.Ordinal).ToArray();
@@ -88,7 +88,7 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
         var filesByWorkLookup = media.Where(file => file.Role == FileRole.Video &&
                 file.Status is FilePresence.Present or FilePresence.Offline)
             .ToLookup(file => file.WorkId, StringComparer.Ordinal);
-        var jellyfin = await ReadJellyfinAsync(snapshots, filesByWorkLookup, ct);
+        var jellyfin = await ReadJellyfinAsync(snapshots, filesByWorkLookup, userId, ct);
         var now = DateTimeOffset.UtcNow;
         var entries = candidates.Select(item =>
         {
@@ -114,7 +114,7 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
     }
 
     private async Task<JellyfinRead> ReadJellyfinAsync(WorkSnapshot[] works,
-        ILookup<string, MediaFileRow> filesByWork, CancellationToken ct)
+        ILookup<string, MediaFileRow> filesByWork, string? userId, CancellationToken ct)
     {
         JellyfinSettings settings;
         try
@@ -125,6 +125,9 @@ internal sealed class WatchLaterReadService(TorrentFlowDbContext db,
             if (settings.ServerUrl is null || settings.Credential is null ||
                 string.IsNullOrWhiteSpace(settings.UserId))
                 return new(ImmutableDictionary<string, JellyfinTitleState>.Empty, false);
+            var mapped = settings.UserMappings.FirstOrDefault(mapping =>
+                string.Equals(mapping.TorrentFlowUserId, userId, StringComparison.Ordinal))?.JellyfinUserId;
+            if (!string.IsNullOrWhiteSpace(mapped)) settings = settings with { UserId = mapped };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {

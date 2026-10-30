@@ -35,9 +35,7 @@ public sealed class JellyfinPathMapper
             return tail.Length == 0 ? destination : prefix + destinationSeparator + tail;
         }
 
-        var targetStyles = reverse ? mappings.Select(mapping => IsWindowsPath(mapping.From)) :
-            mappings.Select(mapping => IsWindowsPath(mapping.To));
-        if (targetStyles.Distinct().Count() == 1 && IsWindowsPath(path) == targetStyles.First()) return path;
+        // With mappings set, an unmapped path is not reachable from the other side (Jellyfin may be on another PC).
         return null;
     }
 
@@ -67,6 +65,5 @@ public sealed class JellyfinPathMapper
         return normalized.Length > 1 ? normalized.TrimEnd('/') : normalized;
     }
 
-    private static bool IsWindowsPath(string path) => Regex.IsMatch(path, @"^[A-Za-z]:[\\/]|^(?:\\\\|//)");
     private static char Separator(string path) => path.Contains('\\') && !path.Contains('/') ? '\\' : '/';
 }
