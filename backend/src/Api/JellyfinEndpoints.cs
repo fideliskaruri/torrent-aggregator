@@ -167,7 +167,7 @@ internal static class JellyfinEndpoints
             try
             {
                 if (!await IsAdmin(settings, token, ct))
-                    return Results.Json(new { message = "Sign in with a Jellyfin admin account to choose watch users." }, statusCode: 403);
+                    return Results.Json(new { message = "Sign in with a Jellyfin admin account to find your folders in Jellyfin." }, statusCode: 403);
                 var folders = await Client.GetVirtualFolders(settings.ServerUrl, token, ct);
                 var locations = folders.SelectMany(folder => folder.Locations).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 var roots = await db.StorageRoots.AsNoTracking().OrderBy(root => root.Priority).ToArrayAsync(ct);
@@ -279,8 +279,12 @@ internal static class JellyfinEndpoints
         var connection = await CheckConnection(settings, credential, ct);
         var userName = connection.User?.Name;
         var isAdmin = connection.User?.IsAdmin ?? false;
+        var people = await db.Users.AsNoTracking().OrderBy(user => user.Role == UserRole.Owner ? 0 : 1)
+            .ThenBy(user => user.Name).Select(user => new { id = user.Id, name = user.Name, owner = user.Role == UserRole.Owner })
+            .ToArrayAsync(ct);
         return Results.Json(new
         {
+            people,
             settings.ServerUrl,
             settings.UserId,
             configured = settings.Credential is not null,
