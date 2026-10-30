@@ -58,9 +58,9 @@ export function SeasonSwitcher(props: SeasonSwitcherProps) {
           <Label
             key={option.value}
             {...option.attrs}
-            className="h-11 min-w-[44px] cursor-pointer justify-center rounded-full border border-border bg-background px-3.5 text-[13px] font-normal tabular-nums text-muted-foreground transition-colors hover:border-input hover:text-foreground has-data-checked:border-brand has-data-checked:bg-brand-dim has-data-checked:text-foreground has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
+            className="relative h-11 min-w-[44px] cursor-pointer justify-center rounded-full border border-border bg-background px-3.5 text-[13px] font-normal tabular-nums text-muted-foreground transition-colors hover:border-input hover:text-foreground has-data-checked:border-brand has-data-checked:bg-brand-dim has-data-checked:text-foreground has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
           >
-            <RadioGroupItem value={option.value} aria-label={option.label} className="sr-only" />
+            <RadioGroupItem value={option.value} aria-label={option.label} className="absolute inset-0 size-full opacity-0 after:hidden" />
             {option.label}
           </Label>
         ))}

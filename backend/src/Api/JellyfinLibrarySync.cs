@@ -19,6 +19,7 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
     ILogger<JellyfinLibrarySync> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(30);
+    private const string TurnedOffMessage = "This storage location is turned off.";
     private readonly Channel<bool> requests = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         FullMode = BoundedChannelFullMode.DropWrite,
@@ -57,8 +58,10 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
             return [.. roots.Select(_ => new JellyfinRootStatus("off", [], "Connect to Jellyfin to add storage folders."))];
         return [.. roots.Select(root =>
         {
-            if (!root.Enabled) return new JellyfinRootStatus("off", [], "This storage location is turned off.");
-            return statuses.GetValueOrDefault(root.Id, new JellyfinRootStatus("pending", []));
+            if (!root.Enabled) return new JellyfinRootStatus("off", [], TurnedOffMessage);
+            var cached = statuses.GetValueOrDefault(root.Id);
+            return cached is null || cached.Message == TurnedOffMessage
+                ? new JellyfinRootStatus("pending", []) : cached;
         })];
     }
 
@@ -148,7 +151,7 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
             ct.ThrowIfCancellationRequested();
             if (!root.Enabled)
             {
-                statuses[root.Id] = new("off", [], "This storage location is turned off.");
+                statuses[root.Id] = new("off", [], TurnedOffMessage);
                 continue;
             }
             if (!root.Online || root.ReviewRequired)
@@ -298,7 +301,7 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
         var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
         var roots = await db.StorageRoots.AsNoTracking().ToArrayAsync(ct);
         foreach (var root in roots)
-            statuses[root.Id] = !root.Enabled ? new("off", [], "This storage location is turned off.")
+            statuses[root.Id] = !root.Enabled ? new("off", [], TurnedOffMessage)
                 : new("failed", statuses.GetValueOrDefault(root.Id)?.Libraries ?? [], message);
     }
 

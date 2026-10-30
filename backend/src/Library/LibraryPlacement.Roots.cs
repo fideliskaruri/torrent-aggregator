@@ -197,6 +197,8 @@ public sealed partial class LibraryPlacement
             return RootFailure("RootConflict", "The storage settings changed. Reload them and try again.");
         if (input.ConfirmIdentity) storage.Update(root.Path, true, ReadFreeBytes(root.Path));
         else if (!input.Enabled) storage.Update(root.Path, false, null);
+        else if (!root.Enabled && updated is { Online: true, ReviewRequired: false } && QuickIdentityMatches(updated))
+            storage.Update(root.Path, true, ReadFreeBytes(root.Path));
         return new(updated, null);
     }
 
@@ -233,5 +235,16 @@ public sealed partial class LibraryPlacement
     {
         try { return LibraryPaths.FreeBytes(path); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+    }
+
+    private static bool QuickIdentityMatches(StorageRootRow root)
+    {
+        try
+        {
+            LibraryPaths.NoLinks(root.Path);
+            return Directory.Exists(root.Path) && LibraryPaths.Volume(root.Path) == root.VolumeSerial &&
+                StorageIdentity.MarkerMatches(root.Path, root.Id, root.VolumeSerial);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
     }
 }
