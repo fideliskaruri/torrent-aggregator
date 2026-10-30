@@ -39,6 +39,7 @@
 
 import {
   Activity,
+  Bookmark,
   Clapperboard,
   HardDriveDownload,
   Inbox,
@@ -98,6 +99,7 @@ const SETTINGS_HREF = "/settings";
 const NAV_CONFIG: readonly NavItem[] = [
   { href: "/", label: "Browse", icon: Clapperboard, desktop: "primary", mobile: "primary" },
   { href: "/library", label: "Library", icon: Library, desktop: "primary", mobile: "primary" },
+  { href: "/watch-later", label: "Watchlist", icon: Bookmark, role: "canManage", desktop: "primary", mobile: "more" },
   {
     href: DOWNLOADS_HREF,
     label: "Downloads",

@@ -83,6 +83,7 @@ const routes: RouteObject[] = [
           { path: "everything", ...page(() => import("@/app/everything/page")) },
           { path: "library", ...page(() => import("@/app/watchlist/page")) },
           { path: "watchlist", Component: LibraryRedirect },
+          { path: "watch-later", ...page(() => import("@/app/watch-later/page")) },
           { path: "watch/*", element: <Navigate to="/" replace /> },
           { path: "title/:workKey", ...page(() => import("@/app/title/[workKey]/page")) },
           { path: "downloads", ...page(() => import("@/app/downloads/page")) },

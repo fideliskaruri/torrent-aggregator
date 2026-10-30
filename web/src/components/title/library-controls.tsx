@@ -12,7 +12,7 @@
  */
 import { useLayoutEffect, useRef, useState } from "react";
 import { send as apiSend } from "@/lib/api";
-import { BellPlus, Check, Loader2, Plus, X } from "lucide-react";
+import { BellPlus, Bookmark, BookmarkCheck, Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,6 +151,39 @@ export function LibraryControls({
     ).then(() => setConfirmingRemove(false));
   };
 
+  // Saved, not wanted yet: nothing is fetched until the owner chooses to.
+  const saveForLater = () =>
+    void send(
+      () =>
+        apiSend("/api/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...library.addPayload, status: "planned", monitored: false }),
+        }),
+      "Could not save this to your watchlist",
+      "Saved to your watchlist",
+    );
+
+  // Only the watchlist entry goes. No confirm flag, so files are never
+  // touched; an entry that has files on disk is refused with a 409.
+  const unsave = () => {
+    if (!itemId) return;
+    void send(
+      async () => {
+        const res = await apiSend(`/api/watchlist?id=${encodeURIComponent(itemId)}`, {
+          method: "DELETE",
+        });
+        if (res.status !== 409) return res;
+        throw new Error(
+          `${title ?? "This title"} has files on disk. Remove it from Library if you want the files gone too.`,
+        );
+      },
+      "Could not remove this from your watchlist",
+      "Removed from your watchlist",
+      "add",
+    );
+  };
+
   // Only interrupt when there is something to decide. A film has no season to
   // start from, so a dialog would be a confirmation step wearing a question's
   // clothes.
@@ -170,15 +203,46 @@ export function LibraryControls({
     if (focusLibraryControl()) event.preventDefault();
   };
 
-  if (!isSeries && (!settled || (!library.inLibrary && !gated))) return null;
+  if (!isSeries && !settled) return null;
 
   const filmWaiting = !isSeries && gated;
+  const showAdd = isSeries || gated;
+  const onWatchlist = library.inLibrary && !library.monitored;
+
+  // Also offered once saved: a saved title is not followed yet, and the add
+  // payload upserts the same entry with monitored on.
+  const addButton = showAdd ? (
+    <Button
+      ref={addButtonRef}
+      type="button"
+      size={filmWaiting ? "lg" : "sm"}
+      variant={filmWaiting ? "default" : "secondary"}
+      data-add-to-library
+      data-title-watch-release={filmWaiting || undefined}
+      aria-label={
+        filmWaiting ? `Get it when it's out${title ? `, ${title}` : ""}` : undefined
+      }
+      disabled={busy}
+      onClick={onAddPressed}
+      className={`min-h-[44px] w-full justify-center md:w-auto${filmWaiting ? " md:min-w-[12rem]" : ""}`}
+    >
+      {busy ? (
+        <Loader2 className="animate-spin" aria-hidden />
+      ) : filmWaiting ? (
+        <BellPlus aria-hidden />
+      ) : (
+        <Plus aria-hidden />
+      )}
+      {filmWaiting ? "Get it when it's out" : "Add to library"}
+    </Button>
+  ) : null;
 
   return (
     <div
       data-title-library
       className="flex w-full min-w-0 flex-wrap items-center gap-2 md:w-auto"
     >
+      {onWatchlist ? addButton : null}
       {library.inLibrary ? (
         <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto">
           {ownedShown ? null : (
@@ -186,8 +250,8 @@ export function LibraryControls({
               className="min-h-[44px] gap-1.5 rounded-lg bg-card px-3 py-2 font-normal [&>svg]:size-3.5!"
               data-in-library
             >
-              <Check aria-hidden />
-              {filmWaiting ? "We'll get it when it's out" : "In Library"}
+              {onWatchlist ? <BookmarkCheck aria-hidden /> : <Check aria-hidden />}
+              {onWatchlist ? "On your watchlist" : filmWaiting ? "We'll get it when it's out" : "In Library"}
             </Badge>
           )}
           {itemId ? (
@@ -198,45 +262,40 @@ export function LibraryControls({
               variant="ghost"
               data-remove-from-library
               aria-label={
-                filmWaiting
-                  ? `Stop waiting for ${title ?? "this title"}`
-                  : "Remove from library"
+                onWatchlist
+                  ? `Remove ${title ?? "this title"} from your watchlist`
+                  : filmWaiting
+                    ? `Stop waiting for ${title ?? "this title"}`
+                    : "Remove from library"
               }
               disabled={busy}
-              onClick={() => setConfirmingRemove(true)}
+              onClick={onWatchlist ? unsave : () => setConfirmingRemove(true)}
               className="min-h-[44px] text-muted-foreground"
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
-              {filmWaiting ? "Stop" : "Remove"}
+              {filmWaiting && !onWatchlist ? "Stop" : "Remove"}
             </Button>
           ) : null}
         </div>
       ) : (
-        <Button
-          ref={addButtonRef}
-          type="button"
-          size={filmWaiting ? "lg" : "sm"}
-          variant={filmWaiting ? "default" : "secondary"}
-          data-add-to-library
-          data-title-watch-release={filmWaiting || undefined}
-          aria-label={
-            filmWaiting ? `Get it when it's out${title ? `, ${title}` : ""}` : undefined
-          }
-          disabled={busy}
-          onClick={onAddPressed}
-          className={`min-h-[44px] w-full justify-center md:w-auto${filmWaiting ? " md:min-w-[12rem]" : ""}`}
-        >
-          {busy ? (
-            <Loader2 className="animate-spin" aria-hidden />
-          ) : filmWaiting ? (
-            <BellPlus aria-hidden />
-          ) : (
-            <Plus aria-hidden />
-          )}
-          {filmWaiting ? "Get it when it's out" : "Add to library"}
-        </Button>
+        <>
+          {addButton}
+          <Button
+            ref={showAdd ? undefined : addButtonRef}
+            type="button"
+            size={showAdd && !filmWaiting ? "sm" : "lg"}
+            variant="secondary"
+            data-watch-later-save
+            aria-label={`Watch later${title ? `, ${title}` : ""}`}
+            disabled={busy}
+            onClick={saveForLater}
+            className="min-h-[44px] w-full justify-center md:w-auto"
+          >
+            {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Bookmark aria-hidden />}
+            Watch later
+          </Button>
+        </>
       )}
-
       <LibraryAddDialog
         subject={subject}
         title={title}
