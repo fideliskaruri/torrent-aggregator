@@ -566,7 +566,7 @@ internal sealed class JellyfinJobWorker : BackgroundService
             return;
         }
         var qualityRow = await db.Settings.AsNoTracking().SingleOrDefaultAsync(row => row.Id == "quality", ct);
-        var globalLanguage = qualityRow is null ? "en" :
+        var globalLanguage = qualityRow is null ? null :
             SettingsCatalog.Read<QualitySettings>(qualityRow).AudioLanguage;
 
         foreach (var job in jobs)
@@ -621,7 +621,7 @@ internal sealed class JellyfinJobWorker : BackgroundService
                     .Distinct(StringComparer.Ordinal).ToArray();
                 var audioLanguages = languages.Length == 0 ? null : string.Join(',', languages);
                 var inspectionState = InspectionState(streams.Length, audioStreams, languages,
-                    await InspectionLanguageAsync(db, job, file, globalLanguage, ct));
+                    await InspectionLanguagesAsync(db, job, file, globalLanguage, ct));
                 await SaveInspectionAsync(db, file.Id, inspectionState, item.Id,
                     audioLanguages, tracks, ct);
                 if (inspectionState == "rejected")
@@ -700,37 +700,39 @@ internal sealed class JellyfinJobWorker : BackgroundService
         string.Equals(type, "Audio", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(type, "Subtitle", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Verified when any audio track is an accepted language; rejected only when every track is
+    /// tagged and none is accepted. A null accepted set means any language is fine.</summary>
     private static string InspectionState(int streamCount, MediaTrack[] audioStreams, string[] languages,
-        string? desiredLanguage)
+        IReadOnlySet<string>? accepted)
     {
-        if (streamCount == 0 || audioStreams.Length == 0 || audioStreams.Any(track => track.Language is null))
-            return "unknown";
-        if (string.Equals(desiredLanguage, "any", StringComparison.OrdinalIgnoreCase) ||
-            languages.Contains(desiredLanguage, StringComparer.Ordinal))
-            return "verified";
+        if (streamCount == 0 || audioStreams.Length == 0) return "unknown";
+        if (accepted is null || languages.Any(accepted.Contains)) return "verified";
+        if (audioStreams.Any(track => track.Language is null)) return "unknown";
         return "rejected";
     }
 
-    private static async Task<string?> InspectionLanguageAsync(TorrentFlowDbContext db, JellyfinJobRow job,
-        MediaFileRow file, string? globalLanguage, CancellationToken ct)
+    /// <summary>The audio languages this file may have. "auto" means English or the title's own language,
+    /// so Japanese-only anime is not flagged.</summary>
+    private static async Task<IReadOnlySet<string>?> InspectionLanguagesAsync(TorrentFlowDbContext db,
+        JellyfinJobRow job, MediaFileRow file, string? globalLanguage, CancellationToken ct)
     {
         var target = string.IsNullOrWhiteSpace(job.TargetId) ? null :
             await db.Targets.AsNoTracking().SingleOrDefaultAsync(row => row.Id == job.TargetId, ct);
+        string? selected = null;
         if (target?.BatchId is { Length: > 0 } batchId)
-        {
-            var selected = await db.ScopeIntents.AsNoTracking()
+            selected = await db.ScopeIntents.AsNoTracking()
                 .Where(row => row.BatchId == batchId && row.WorkId == file.WorkId)
                 .Select(row => row.Policy.AudioLanguage).FirstOrDefaultAsync(ct);
-            if (!string.IsNullOrWhiteSpace(selected) &&
-                !selected.Equals("auto", StringComparison.OrdinalIgnoreCase))
-                return selected.Equals("any", StringComparison.OrdinalIgnoreCase) ? "any" :
-                    LanguageCodes.Normalize(selected) ?? "en";
-        }
-        if (string.IsNullOrWhiteSpace(globalLanguage) ||
-            globalLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase))
-            return "en";
-        return globalLanguage.Equals("any", StringComparison.OrdinalIgnoreCase) ? "any" :
-            LanguageCodes.Normalize(globalLanguage) ?? "en";
+        if (string.IsNullOrWhiteSpace(selected) || selected.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            selected = globalLanguage;
+        if (string.Equals(selected, "any", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return new HashSet<string>(StringComparer.Ordinal) { LanguageCodes.Normalize(selected) ?? "en" };
+        var original = await db.Works.AsNoTracking().Where(row => row.Id == file.WorkId)
+            .Select(row => row.OriginalLanguage).FirstOrDefaultAsync(ct);
+        var languages = new HashSet<string>(StringComparer.Ordinal) { "en" };
+        if (LanguageCodes.Normalize(original) is { } code) languages.Add(code);
+        return languages;
     }
 
     private static async Task SaveInspectionAsync(TorrentFlowDbContext db, string mediaFileId,
