@@ -27,6 +27,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { PlaybackUncheckedNote } from "@/components/tf/playback-unchecked-note";
+import { PlaybackUncheckedError } from "@/lib/api/delete-refusal";
 import { MediaPoster, MediaPosterCaption } from "@/components/browse/media-poster-card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -62,12 +64,14 @@ export function WatchlistItemCard({
   item: WatchlistItem;
   readOnly: boolean;
   onUpdate: UpdateWatchlistItem;
-  onRemove: (id: string) => Promise<void>;
+  onRemove: (id: string, deleteAnyway?: boolean) => Promise<void>;
   onRefresh: () => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [deleteFilesOpen, setDeleteFilesOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [unchecked, setUnchecked] = useState<string | null>(null);
   const titleHref = item.workKey?.trim()
     ? titlePath(item.workKey, {
         title: item.title,
@@ -91,11 +95,13 @@ export function WatchlistItemCard({
   async function remove() {
     setRemoving(true);
     try {
-      await onRemove(item.id);
+      await onRemove(item.id, unchecked != null);
       setConfirmRemove(false);
+      setUnchecked(null);
       toast.success("Removed from library");
-    } catch {
-      toast.error("Could not remove this title. Try again.");
+    } catch (error) {
+      if (error instanceof PlaybackUncheckedError) setUnchecked(error.message);
+      else toast.error(error instanceof Error ? error.message : "Could not remove this title. Try again.");
     } finally {
       setRemoving(false);
     }
@@ -210,19 +216,13 @@ export function WatchlistItemCard({
               <Link to={searchHref}>Search manually</Link>
             </DropdownMenuItem>
             {!readOnly && hasFiles ? (
-              <WatchlistDeleteFiles
-                item={item}
-                onDeleted={onRefresh}
-                renderTrigger={(open) => (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => open()}
-                    data-delete-files
-                  >
-                    Delete files
-                  </DropdownMenuItem>
-                )}
-              />
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => setDeleteFilesOpen(true)}
+                data-delete-files
+              >
+                Delete files
+              </DropdownMenuItem>
             ) : null}
             {!readOnly ? (
               <DropdownMenuItem
@@ -245,17 +245,30 @@ export function WatchlistItemCard({
           onUpdate={onUpdate}
         />
       ) : null}
+      {!readOnly && hasFiles ? (
+        <WatchlistDeleteFiles
+          item={item}
+          onDeleted={onRefresh}
+          open={deleteFilesOpen}
+          onOpenChange={setDeleteFilesOpen}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirmRemove}
-        onOpenChange={setConfirmRemove}
+        onOpenChange={(open) => {
+          setConfirmRemove(open);
+          if (!open) setUnchecked(null);
+        }}
         contentData={{ "data-remove-from-library": true }}
         title={removeCopy.title}
         description={removeCopy.body}
         variant="destructive"
         busy={removing}
-        confirmLabel={removeCopy.confirmLabel}
+        confirmLabel={unchecked != null ? "Delete anyway" : removeCopy.confirmLabel}
         onConfirm={() => void remove()}
-      />
+      >
+        {unchecked != null ? <PlaybackUncheckedNote message={unchecked} /> : null}
+      </ConfirmDialog>
     </article>
   );
 }

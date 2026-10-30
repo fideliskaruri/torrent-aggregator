@@ -17,6 +17,8 @@ import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { PlaybackUncheckedNote } from "@/components/tf/playback-unchecked-note";
+import { deleteFailure, PlaybackUncheckedError } from "@/lib/api/delete-refusal";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { LibraryAddDialog } from "./library-add-dialog";
 import {
@@ -46,6 +48,8 @@ export interface LibraryControlsProps {
 
 type Phase = "idle" | "pending";
 
+class FilesOnDiskError extends Error {}
+
 export function LibraryControls({
   library,
   isSeries,
@@ -60,6 +64,7 @@ export function LibraryControls({
   const [phase, setPhase] = useState<Phase>("idle");
   const [asking, setAsking] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [unchecked, setUnchecked] = useState<string | null>(null);
   const isMobile = useMediaQuery("(max-width: 767px)");
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const removeButtonRef = useRef<HTMLButtonElement>(null);
@@ -97,26 +102,34 @@ export function LibraryControls({
     failure: string,
     success = "Added to library",
     focusAfter: "add" | "remove" = "remove",
-  ) {
+  ): Promise<"done" | "failed" | "unchecked"> {
     setPhase("pending");
     try {
       const res = await request();
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error || `${failure} (${res.status})`);
+        const body: unknown = await res.json().catch(() => null);
+        throw deleteFailure(body, `${failure} (${res.status})`);
       }
       setPhase("idle");
       toast.success(success);
       pendingFocusRef.current = focusAfter;
       onChanged();
+      return "done";
     } catch (err) {
       setPhase("idle");
+      if (err instanceof PlaybackUncheckedError) {
+        setUnchecked(err.message);
+        return "unchecked";
+      }
+      if (err instanceof FilesOnDiskError) {
+        setConfirmingRemove(true);
+        return "failed";
+      }
       // A failure belongs next to nothing on the page — it belongs in a toast
       // that names what went wrong, so the hero layout never jumps to make room
       // for a red line and the message cannot strand itself away from its cause.
       toast.error(err instanceof Error ? err.message : failure);
+      return "failed";
     }
   }
 
@@ -140,15 +153,20 @@ export function LibraryControls({
   const itemId = library.watchListItemId;
   const remove = () => {
     if (!itemId) return;
+    const anyway = unchecked != null ? "&deleteAnyway=true" : "";
     void send(
       () =>
-        apiSend(`/api/watchlist?id=${encodeURIComponent(itemId)}&confirm=true`, {
+        apiSend(`/api/watchlist?id=${encodeURIComponent(itemId)}&confirm=true${anyway}`, {
           method: "DELETE",
         }),
       "Could not remove this from your library",
       "Removed from library",
       "add",
-    ).then(() => setConfirmingRemove(false));
+    ).then((outcome) => {
+      if (outcome === "unchecked") return;
+      setConfirmingRemove(false);
+      setUnchecked(null);
+    });
   };
 
   // Saved, not wanted yet: nothing is fetched until the owner chooses to.
@@ -165,7 +183,8 @@ export function LibraryControls({
     );
 
   // Only the watchlist entry goes. No confirm flag, so files are never
-  // touched; an entry that has files on disk is refused with a 409.
+  // touched. An entry that turns out to have files on disk is refused with a
+  // 409, so offer the full removal, which says what it deletes and asks first.
   const unsave = () => {
     if (!itemId) return;
     void send(
@@ -174,9 +193,7 @@ export function LibraryControls({
           method: "DELETE",
         });
         if (res.status !== 409) return res;
-        throw new Error(
-          `${title ?? "This title"} has files on disk. Remove it from Library if you want the files gone too.`,
-        );
+        throw new FilesOnDiskError();
       },
       "Could not remove this from your watchlist",
       "Removed from your watchlist",
@@ -208,6 +225,8 @@ export function LibraryControls({
   const filmWaiting = !isSeries && gated;
   const showAdd = isSeries || gated;
   const onWatchlist = library.inLibrary && !library.monitored;
+  // Owned files mean removing deletes them, so it always asks first.
+  const savedOnly = onWatchlist && !ownedShown;
 
   // Also offered once saved: a saved title is not followed yet, and the add
   // payload upserts the same entry with monitored on.
@@ -262,14 +281,14 @@ export function LibraryControls({
               variant="ghost"
               data-remove-from-library
               aria-label={
-                onWatchlist
+                savedOnly
                   ? `Remove ${title ?? "this title"} from your watchlist`
                   : filmWaiting
                     ? `Stop waiting for ${title ?? "this title"}`
                     : "Remove from library"
               }
               disabled={busy}
-              onClick={onWatchlist ? unsave : () => setConfirmingRemove(true)}
+              onClick={savedOnly ? unsave : () => setConfirmingRemove(true)}
               className="min-h-[44px] text-muted-foreground"
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
@@ -309,7 +328,10 @@ export function LibraryControls({
 
       <ConfirmDialog
         open={confirmingRemove}
-        onOpenChange={setConfirmingRemove}
+        onOpenChange={(open) => {
+          setConfirmingRemove(open);
+          if (!open) setUnchecked(null);
+        }}
         contentData={{ "data-remove-library-dialog": true }}
         confirmData={{ "data-remove-library-confirm": true }}
         onCloseAutoFocus={returnFocus}
@@ -317,9 +339,11 @@ export function LibraryControls({
         description={removeFromLibraryCopy(title).body}
         variant="destructive"
         busy={busy}
-        confirmLabel={removeFromLibraryCopy(title).confirmLabel}
+        confirmLabel={unchecked != null ? "Delete anyway" : removeFromLibraryCopy(title).confirmLabel}
         onConfirm={remove}
-      />
+      >
+        {unchecked != null ? <PlaybackUncheckedNote message={unchecked} /> : null}
+      </ConfirmDialog>
     </div>
   );
 }

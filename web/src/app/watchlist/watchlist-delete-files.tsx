@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { PlaybackUncheckedNote } from "@/components/tf/playback-unchecked-note";
+import { deleteFailure, PlaybackUncheckedError } from "@/lib/api/delete-refusal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDeletePlan, deleteLibraryFiles } from "@/lib/api/watchlist";
 import type { DeletePlan, WatchlistItem } from "@/lib/api/watchlist-types";
@@ -18,23 +20,34 @@ function queryFor(item: WatchlistItem, scope: DeleteScope) {
 export function WatchlistDeleteFiles({
   item,
   onDeleted,
-  renderTrigger,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   item: WatchlistItem;
   onDeleted: () => void;
-  renderTrigger?: (open: () => void) => ReactNode;
+  /** Pass both to open the dialog from elsewhere, such as a menu that unmounts when it closes. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : ownOpen;
+  const setOpen = (next: boolean) => {
+    if (!controlled) setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [scope, setScope] = useState<DeleteScope>({ kind: "show" });
   const [plan, setPlan] = useState<DeletePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [unchecked, setUnchecked] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let active = true;
     setPlan(null);
     setError(null);
+    setUnchecked(null);
     void getDeletePlan(queryFor(item, scope)).then((response) => {
       if (!active) return;
       if (!response.ok || !response.data?.ok || !response.data.plan) {
@@ -61,25 +74,27 @@ export function WatchlistDeleteFiles({
         scope: scope.kind,
         ...(scope.kind === "season" ? { season: scope.season } : {}),
         confirm: true,
+        ...(unchecked != null ? { deleteAnyway: true } : {}),
       });
-      if (!response.ok || !response.data?.ok) throw response.error;
-      toast.success(response.data.freedFiles ? `Deleted ${response.data.freedFiles} files` : "Removed the source record");
+      if (!response.ok || !response.data?.ok)
+        throw deleteFailure(response.data, "Could not delete these files. Nothing else changed. Try again.");
+      toast.success(response.data.freedFiles ? `Deleted ${response.data.freedFiles} file${response.data.freedFiles === 1 ? "" : "s"}` : "Removed the source record");
       setOpen(false);
       onDeleted();
-    } catch {
-      toast.error("Could not delete these files. Nothing else changed. Try again.");
+    } catch (error) {
+      if (error instanceof PlaybackUncheckedError) setUnchecked(error.message);
+      else toast.error(error instanceof Error ? error.message : "Could not delete these files. Nothing else changed. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
   return <>
-    {renderTrigger
-      ? renderTrigger(() => setOpen(true))
+    {controlled ? null
       : <Button type="button" variant="ghost" size="icon-sm" className="text-subtle-foreground hover:text-destructive" aria-label="Delete downloaded files" onClick={() => setOpen(true)} data-delete-files>
         <Trash2 className="size-4" />
       </Button>}
-    <ConfirmDialog open={open} onOpenChange={setOpen} contentData={{ "data-delete-files-dialog": true }} title="Delete downloaded files?" description={plan?.summary ?? "Review what is on disk before confirming."} variant="destructive" busy={busy} confirmDisabled={plan?.outcome !== "deletes"} confirmLabel={plan?.outcome === "deletes" ? `Delete ${plan.fileCount} file${plan.fileCount === 1 ? "" : "s"}` : plan?.outcome === "nothing-held" ? "Nothing to delete" : "Delete files"} onConfirm={() => void confirm()}>
+    <ConfirmDialog open={open} onOpenChange={setOpen} contentData={{ "data-delete-files-dialog": true }} title="Delete downloaded files?" description="Review what is on disk before confirming." variant="destructive" busy={busy} confirmDisabled={plan?.outcome !== "deletes"} confirmLabel={plan?.outcome === "deletes" ? unchecked != null ? "Delete anyway" : `Delete ${plan.fileCount} file${plan.fileCount === 1 ? "" : "s"}` : plan?.outcome === "nothing-held" ? "Nothing to delete" : "Delete files"} onConfirm={() => void confirm()}>
       {scopes.length > 1 ? <Select value={scope.kind} onValueChange={(value) => {
         const selected = scopes.find((option) => option.value === value);
         if (selected) setScope(selected.scope);
@@ -88,6 +103,7 @@ export function WatchlistDeleteFiles({
         {error ?? (!plan ? "Checking what is on disk…" : plan.summary)}
         {plan?.releases.length ? <ul className="mt-2 list-inside list-disc text-xs text-subtle-foreground">{plan.releases.map((release) => <li key={release.name}>{release.name}</li>)}</ul> : null}
       </div>
+      {unchecked != null ? <PlaybackUncheckedNote message={unchecked} /> : null}
     </ConfirmDialog>
   </>;
 }

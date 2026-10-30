@@ -19,4 +19,8 @@ public interface IJellyfinPlaybackGuard
     Task<JellyfinPlaybackRead> ReadAsync(CancellationToken ct);
 }
 
-public sealed class JellyfinDeleteRefusedException(string message) : Exception(message);
+public sealed class JellyfinDeleteRefusedException(string message, string reason) : Exception(message)
+{
+    /// <summary>"playing" can never be overridden; "playback-unknown" can, with an explicit confirmation.</summary>
+    public string Reason { get; } = reason;
+}

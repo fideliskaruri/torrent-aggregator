@@ -78,11 +78,13 @@ public static class LibraryRemoval
         var subject = scope.Kind == "show" ? "this title" : scope.Kind == "season" ? $"Season {scope.Season}" :
             scope.Kind == "episodes" ? "the selected episodes" : $"S{scope.Season:00}E{scope.Episode:00}";
         var size = totalBytes >= 1024 * 1024 * 1024 ? $"{totalBytes / (1024d * 1024 * 1024):0.##} GB" :
-            totalBytes >= 1024 * 1024 ? $"{totalBytes / (1024d * 1024):0.##} MB" : $"{totalBytes} bytes";
-        var summary = outcome == "deletes" ? $"Deletes {fileCount} files · {size} from {subject}." :
+            totalBytes >= 1024 * 1024 ? $"{totalBytes / (1024d * 1024):0.#} MB" :
+            totalBytes >= 1024 ? $"{totalBytes / 1024d:0} KB" : $"{totalBytes} bytes";
+        var summary = outcome == "deletes" ? $"Deletes {fileCount} file{(fileCount == 1 ? "" : "s")} ({size}) from {subject}." :
             outcome == "blocked" ? "These files also belong to other episodes or need a separate removal operation. They will be left in place." :
             $"No files held for {subject}. Nothing to delete.";
-        if (outcome == "deletes" && blocked.Count > 0) summary += $" {blocked.Count} sources will be left in place.";
+        if (outcome == "deletes" && blocked.Count > 0)
+            summary += $" {blocked.Count} source{(blocked.Count == 1 ? "" : "s")} will be left in place.";
         return new(new(scope, outcome, fileCount, totalBytes, missing, releases.ToImmutable(), blocked.ToImmutable(), summary),
             items.ToImmutable(), unbound, activeIds);
     }

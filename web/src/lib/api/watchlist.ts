@@ -1,10 +1,11 @@
 import { get, send } from "@/lib/api";
 import type { DeletePlan } from "./watchlist-types";
 
-export function removeWatchlistItem(id: string) {
-  return send<{ ok?: boolean }>(`/api/watchlist?id=${encodeURIComponent(id)}&confirm=true`, {
-    method: "DELETE",
-  });
+export function removeWatchlistItem(id: string, deleteAnyway = false) {
+  return send<{ ok?: boolean }>(
+    `/api/watchlist?id=${encodeURIComponent(id)}&confirm=true${deleteAnyway ? "&deleteAnyway=true" : ""}`,
+    { method: "DELETE" },
+  );
 }
 
 export function getDeletePlan(query: string) {
@@ -18,6 +19,7 @@ export function deleteLibraryFiles(body: {
   scope: "show" | "season";
   season?: number;
   confirm: true;
+  deleteAnyway?: boolean;
 }) {
   return send<{
     ok?: boolean;

@@ -17,6 +17,8 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { formatBytes } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { PlaybackUncheckedNote } from "@/components/tf/playback-unchecked-note";
+import { PlaybackUncheckedError } from "@/lib/api/delete-refusal";
 import {
   deleteCleanupItem,
   listCleanup,
@@ -64,6 +66,7 @@ export function CleanupSheet({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [retry, setRetry] = useState<{ message: string; items: CleanupItem[] } | null>(null);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -98,30 +101,41 @@ export function CleanupSheet({
     });
   }
 
-  async function remove() {
+  async function remove(list: CleanupItem[] = chosen, deleteAnyway = false) {
     setDeleting(true);
     const failed: string[] = [];
+    const unchecked: CleanupItem[] = [];
+    let uncheckedMessage = "";
     let freed = 0;
     let done = 0;
-    for (const item of chosen) {
+    for (const item of list) {
       try {
-        const result = await deleteCleanupItem(item, scope);
+        const result = await deleteCleanupItem(item, scope, deleteAnyway);
         freed += result.freedBytes;
         if (result.failedFiles > 0)
           failed.push(`Some files in ${item.title} could not be deleted. Close any player using them and try again.`);
         else done += 1;
       } catch (error) {
-        failed.push((error as Error).message);
+        if (error instanceof PlaybackUncheckedError) {
+          unchecked.push(item);
+          uncheckedMessage = error.message;
+        } else failed.push((error as Error).message);
       }
     }
     setDeleting(false);
-    setConfirming(false);
+    if (unchecked.length > 0) setRetry({ message: uncheckedMessage, items: unchecked });
+    else {
+      setConfirming(false);
+      setRetry(null);
+    }
     if (done > 0 || freed > 0)
       toast.success(`Freed ${formatBytes(freed) ?? "0 B"}${done > 0 ? ` from ${done} ${done === 1 ? "title" : "titles"}` : ""}.`);
     if (failed.length > 0) toast.error(failed.join(" "));
-    onDeleted?.();
-    void load();
-    setSelected(new Set());
+    if (done > 0 || freed > 0 || failed.length > 0) {
+      onDeleted?.();
+      void load();
+    }
+    setSelected(new Set(unchecked.map((item) => item.workId)));
   }
 
   return (
@@ -172,16 +186,28 @@ export function CleanupSheet({
         </SheetFooter>
       </SheetContent>
 
-      <AlertDialog open={confirming} onOpenChange={(value) => (!deleting ? setConfirming(value) : undefined)}>
+      <AlertDialog
+        open={confirming}
+        onOpenChange={(value) => {
+          if (deleting) return;
+          setConfirming(value);
+          if (!value) setRetry(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {chosen.length} {chosen.length === 1 ? "title" : "titles"}?
+              {retry
+                ? `Delete ${retry.items.length === 1 ? retry.items[0].title : `${retry.items.length} titles`} anyway?`
+                : `Delete ${chosen.length} ${chosen.length === 1 ? "title" : "titles"}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {formatBytes(total)} of files from disk. You can download them again later.
+              {retry
+                ? retry.items.length === 1 ? "Nothing has been deleted yet." : "Nothing has been deleted for these titles yet."
+                : `This removes ${formatBytes(total)} of files from disk. You can download them again later.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {retry ? <PlaybackUncheckedNote message={retry.message} /> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -189,10 +215,10 @@ export function CleanupSheet({
               disabled={deleting}
               onClick={(event) => {
                 event.preventDefault();
-                void remove();
+                void (retry ? remove(retry.items, true) : remove());
               }}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? "Deleting…" : retry ? "Delete anyway" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

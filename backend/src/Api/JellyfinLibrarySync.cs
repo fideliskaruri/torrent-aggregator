@@ -156,7 +156,9 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
                 var existing = recordedPaths.Where(path => path.RootId == root.Id)
                     .Select(path => path.LibraryName).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
                 statuses[root.Id] = existing.IsEmpty
-                    ? new("pending", [], "Reconnect this storage location to sync its folders.")
+                    ? new("pending", [], root.ReviewRequired
+                        ? "Confirm this storage location in Storage settings to sync its folders."
+                        : "Reconnect this storage location to sync its folders.")
                     : new("registered", existing);
                 continue;
             }
@@ -347,6 +349,7 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
         var records = await db.JellyfinLibraryPaths.Where(path => path.RootId == rootId).ToArrayAsync(ct);
         var removed = 0;
         var ignored = 0;
+        var failed = 0;
         foreach (var record in records)
         {
             ct.ThrowIfCancellationRequested();
@@ -357,14 +360,27 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
                 ignored++;
                 continue;
             }
-            await client.RemoveVirtualFolderPath(settings.ServerUrl, token, library.Name, record.ServerPath, ct);
+            // Jellyfin removes by exact string and silently ignores a mismatch, so send its own spelling.
+            var location = library.Locations.First(path => JellyfinPathMapper.PathsEqual(path, record.ServerPath));
+            await client.RemoveVirtualFolderPath(settings.ServerUrl, token, library.Name, location, ct);
+            libraries = await client.GetVirtualFolders(settings.ServerUrl, token, ct);
+            var stillThere = libraries.Any(folder => folder.ItemId == record.LibraryItemId &&
+                folder.Locations.Any(path => JellyfinPathMapper.PathsEqual(path, record.ServerPath)));
+            if (stillThere)
+            {
+                failed++;
+                continue;
+            }
             db.JellyfinLibraryPaths.Remove(record);
             removed++;
         }
         if (removed > 0) await db.SaveChangesAsync(ct);
         if (removed > 0) statuses[rootId] = new("pending", [], "Folders were removed from Jellyfin.");
-        return new { removed, ignored, message = removed > 0 ? "Recorded Jellyfin folders were removed." :
-            "No matching folders were removed. The server, library or exact path did not match." };
+        var message = failed > 0
+            ? $"Jellyfin kept {failed} folder{(failed == 1 ? "" : "s")}. Remove {(failed == 1 ? "it" : "them")} in Jellyfin's library settings."
+            : removed > 0 ? "Recorded Jellyfin folders were removed."
+            : "No matching folders were removed. The server, library or exact path did not match.";
+        return new { removed, ignored, failed, message };
     }
 
     private static JellyfinVirtualFolder? FindContainingLibrary(IEnumerable<JellyfinVirtualFolder> folders,

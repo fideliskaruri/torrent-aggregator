@@ -49,7 +49,7 @@ export function WatchlistList({
     fromEpisode?: number;
     preferredResolution?: number | null;
   }) => Promise<WatchlistItem | null>;
-  onRemove: (id: string) => Promise<void>;
+  onRemove: (id: string, deleteAnyway?: boolean) => Promise<void>;
   onRemoveMany: (ids: string[]) => Promise<void>;
   onRefresh: () => void;
 }) {

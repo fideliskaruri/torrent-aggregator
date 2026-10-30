@@ -4,6 +4,7 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { parseLibrary } from "@/lib/requests";
 import { toast } from "@/lib/toast";
 import { removeWatchlistItem } from "@/lib/api/watchlist";
+import { deleteFailure } from "@/lib/api/delete-refusal";
 import type { WatchlistItem, WatchlistResponse } from "@/lib/api/watchlist-types";
 
 type LibraryRow = {
@@ -95,14 +96,14 @@ export function useWatchlist(ownerSession: boolean, readOnly: boolean) {
     }
   }
 
-  async function remove(id: string) {
-    const response = await removeWatchlistItem(id);
-    if (!response.ok) throw response.error;
+  async function remove(id: string, deleteAnyway = false) {
+    const response = await removeWatchlistItem(id, deleteAnyway);
+    if (!response.ok) throw deleteFailure(response.data, "Could not remove this title. Try again.");
     source.refetch();
   }
 
   async function removeMany(ids: string[]) {
-    const responses = await Promise.allSettled(ids.map(removeWatchlistItem));
+    const responses = await Promise.allSettled(ids.map((id) => removeWatchlistItem(id)));
     source.refetch();
     const failed = responses.find((result) =>
       result.status === "rejected" || !result.value.ok,

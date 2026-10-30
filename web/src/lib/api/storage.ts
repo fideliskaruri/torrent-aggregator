@@ -1,4 +1,5 @@
 import { get, send } from "@/lib/api";
+import { deleteFailure } from "@/lib/api/delete-refusal";
 
 export type LibraryKind = "Movies" | "TV" | "Anime" | "AnimeMovies";
 export type StorageStatus = "online" | "offline" | "full" | "review" | "off";
@@ -128,16 +129,20 @@ export interface CleanupDeleteResult {
   failedFiles: number;
 }
 
-export async function deleteCleanupItem(item: CleanupItem, scope: CleanupScope): Promise<CleanupDeleteResult> {
+export async function deleteCleanupItem(
+  item: CleanupItem,
+  scope: CleanupScope,
+  deleteAnyway = false,
+): Promise<CleanupDeleteResult> {
   const body =
     item.kind === "series" && scope === "watched"
-      ? { workId: item.workId, scope: "episodes", episodeIds: item.watchedEpisodeIds, confirm: true }
-      : { workId: item.workId, scope: "show", confirm: true };
+      ? { workId: item.workId, scope: "episodes", episodeIds: item.watchedEpisodeIds, confirm: true, deleteAnyway }
+      : { workId: item.workId, scope: "show", confirm: true, deleteAnyway };
   const response = await send<{ ok?: boolean; freedBytes?: number; failed?: unknown[] }>("/api/library/delete", {
     method: "POST",
     body,
   });
-  if (response.error || !response.data) throw new Error(failureMessage(response.data, `Could not delete ${item.title}.`));
+  if (response.error || !response.data) throw deleteFailure(response.data, `Could not delete ${item.title}.`);
   return {
     freedBytes: response.data.freedBytes ?? 0,
     failedFiles: response.data.ok === false ? Math.max(response.data.failed?.length ?? 0, 1) : 0,

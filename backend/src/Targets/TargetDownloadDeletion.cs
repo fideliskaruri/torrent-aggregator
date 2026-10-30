@@ -49,22 +49,27 @@ public sealed partial class TargetPipeline
         if (!indices.IsEmpty) await transfers.DeleteFilesAsync(hash, indices, stateGate, ct);
     }
 
-    public async Task<LibraryDeleteResult> DeleteLibraryAsync(LibraryDeletePreview preview, CancellationToken ct)
+    public async Task<LibraryDeleteResult> DeleteLibraryAsync(LibraryDeletePreview preview, CancellationToken ct,
+        bool deleteWithoutPlaybackCheck = false)
     {
         await libraryDeletionGate.WaitAsync(ct);
         try
         {
             var playback = await playbackGuard.ReadAsync(ct);
-            if (playback.Status != JellyfinPlaybackReadStatus.NotConfigured)
+            if (playback.Status == JellyfinPlaybackReadStatus.Available)
             {
-                if (playback.Status != JellyfinPlaybackReadStatus.Available)
-                    throw new JellyfinDeleteRefusedException("Couldn't check Jellyfin playback. Try again.");
                 var deletingPaths = preview.Items.SelectMany(item => item.Paths)
                     .Concat(preview.UnboundMedia.Select(file => file.Path));
                 if (deletingPaths.Any(path => playback.PlayingPaths.Any(playing =>
                         JellyfinPathMapper.PathsEqual(path, playing))))
-                    throw new JellyfinDeleteRefusedException("This is playing in Jellyfin right now. Stop it and try again.");
+                    throw new JellyfinDeleteRefusedException(
+                        "This is playing in Jellyfin right now. Stop it and try again.", "playing");
             }
+            else if (playback.Status != JellyfinPlaybackReadStatus.NotConfigured && !deleteWithoutPlaybackCheck)
+                throw new JellyfinDeleteRefusedException(playback.Status == JellyfinPlaybackReadStatus.NotAdmin
+                    ? "Jellyfin only shows what's playing to an admin, so we can't check. Delete anyway if nobody is watching it."
+                    : "Couldn't reach Jellyfin to check nobody is watching this. Delete anyway if nobody is.",
+                    "playback-unknown");
             var result = await LibraryRemoval.DeleteAsync(preview,
                 (item, token) => transfers.DeleteFilesAsync(item.Download.Hash, item.FileIndices, stateGate, token),
                 async (media, token) =>

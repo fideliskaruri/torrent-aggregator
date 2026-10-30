@@ -421,10 +421,13 @@ internal static class CatalogEndpoints
         WorkSnapshot? w;
         if (h.Request.Method == "PATCH")
         {
+            var id = Text(body, "id");
+            // Saved-for-later rows are hidden from the library list but still editable by their own id.
             prior = (await LibraryRead.ItemsAsync(actor,
-                [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+                [.. await LibraryEndpoints.VisibleIntentAsync(db, actor, ct)],
                 await db.Targets.AsNoTracking().ToListAsync(ct),
-                inventory, library, ct)).FirstOrDefault(i => i.Id == Text(body, "id"));
+                inventory, library, ct)).FirstOrDefault(i => i.Id == id) ??
+                await db.WatchItems.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id && i.UserId == actor, ct);
             if (prior is null) return Json(new { error = "Not found" }, 404);
             w = (await metadata.GetWorkAsync(prior.WorkId, false, ct)).Work;
         }
@@ -552,10 +555,17 @@ internal static class CatalogEndpoints
     {
         if (string.IsNullOrWhiteSpace(Param(h, "id"))) return Json(new { error = "Provide the item's id." }, 400);
         var actor = ActorId(h);
-        var item = (await LibraryRead.ItemsAsync(actor,
-            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+        var id = Param(h, "id")!;
+        var visible = await LibraryRead.ItemsAsync(actor,
+            [.. await LibraryEndpoints.VisibleIntentAsync(db, actor, ct)],
             await db.Targets.AsNoTracking().ToListAsync(ct),
-            inventory, library, ct)).FirstOrDefault(i => i.Id == Param(h, "id"));
+            inventory, library, ct);
+        // A saved-for-later row is not in the library list, but its work can still own files there,
+        // so it resolves to that work's library item and the file check below still applies.
+        var savedWorkId = await db.WatchItems.AsNoTracking().Where(i => i.Id == id && i.UserId == actor)
+            .Select(i => i.WorkId).SingleOrDefaultAsync(ct);
+        var item = visible.FirstOrDefault(i => i.Id == id) ??
+            (savedWorkId is null ? null : visible.FirstOrDefault(i => i.WorkId == savedWorkId));
         var scopeActionNeeded = false;
         if (item is not null && !(await inventory.MediaAsync(item.WorkId, ct)).IsEmpty)
         {
@@ -570,10 +580,14 @@ internal static class CatalogEndpoints
                 await db.Downloads.AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct),
                 await inventory.BindingsAsync(ct), await inventory.MediaAsync(item.WorkId, ct));
             LibraryDeleteResult deleted;
-            try { deleted = await targets.DeleteLibraryAsync(preview, ct); }
+            try
+            {
+                deleted = await targets.DeleteLibraryAsync(preview, ct,
+                    bool.TryParse(Param(h, "deleteAnyway"), out var anyway) && anyway);
+            }
             catch (JellyfinDeleteRefusedException ex)
             {
-                return Json(new { error = "Refused", message = ex.Message }, 409);
+                return Json(new { error = "Refused", message = ex.Message, reason = ex.Reason }, 409);
             }
             if (!deleted.Ok) return Json(deleted, 409);
             scopeActionNeeded = true;
@@ -603,7 +617,9 @@ internal static class CatalogEndpoints
             if (follow is not null)
                 db.Entry(follow).CurrentValues.SetValues(follow with
                     { Enabled = false, UpdatedAt = DateTimeOffset.UtcNow, Version = follow.Version + 1 });
-            if (item is not null) db.WatchItems.Remove(item);
+            // A synthetic library item can sit over a hidden planned row; removing the title clears both.
+            db.WatchItems.RemoveRange(await db.WatchItems
+                .Where(i => i.UserId == actor && (i.Id == id || i.WorkId == workId)).ToListAsync(ct));
             try
             {
                 await db.SaveChangesAsync(ct);

@@ -17,12 +17,8 @@ internal static class LibraryEndpoints
         ILibraryRepository inventory, ILibraryPlacement library, CancellationToken ct)
     {
         var actor = AccessIdentity.UserId(h);
-        var intent = await db.WatchItems.AsNoTracking().Where(item => item.UserId == actor &&
-            (item.Status != WatchStatus.Planned ||
-             db.Follows.AsNoTracking().Any(follow => follow.WorkId == item.WorkId && follow.Enabled)))
-            .ToListAsync(ct);
         var rows = await LibraryRead.ItemsAsync(actor,
-            [.. intent],
+            [.. await VisibleIntentAsync(db, actor, ct)],
             await db.Targets.AsNoTracking().ToListAsync(ct), inventory, library, ct);
         var works = new List<(WatchItemRow Item, WorkSnapshot Work)>();
         foreach (var item in rows)
@@ -48,6 +44,14 @@ internal static class LibraryEndpoints
         return Results.Json(new { items }, CatalogProjection.Json);
     }
 
+    // A planned row whose follow is off is hidden; the list and every lookup by id must agree on that.
+    internal static Task<List<WatchItemRow>> VisibleIntentAsync(TorrentFlowDbContext db, string actor,
+        CancellationToken ct) =>
+        db.WatchItems.AsNoTracking().Where(item => item.UserId == actor &&
+            (item.Status != WatchStatus.Planned ||
+             db.Follows.AsNoTracking().Any(follow => follow.WorkId == item.WorkId && follow.Enabled)))
+            .ToListAsync(ct);
+
     internal static void MapLibraryActions(this WebApplication app)
     {
         var group = app.MapGroup("/api/library").AddEndpointFilter(async (context, next) =>
@@ -68,7 +72,7 @@ internal static class LibraryEndpoints
         string? Poster, object Watched, DateTimeOffset? LastPlayedAt, long Bytes, long WatchedBytes,
         ImmutableArray<CleanupRoot> Roots, bool Deletable, string[] WatchedEpisodeIds);
     private sealed record DeleteInput(string? WatchListItemId, string? Scope, int? Season, int? Episode,
-        bool Confirm = false, string[]? EpisodeIds = null, string? WorkId = null);
+        bool Confirm = false, string[]? EpisodeIds = null, string? WorkId = null, bool DeleteAnyway = false);
 
     private static async Task<IResult> Cleanup(HttpContext http, TorrentFlowDbContext db,
         ILibraryRepository inventory, IStorageStatus storage, IJellyfinPlaybackGuard playbackGuard,
@@ -224,7 +228,7 @@ internal static class LibraryEndpoints
                 message = "Choose a title, season or episode to delete.", reason = "bad-scope" });
         var actor = AccessIdentity.UserId(http);
         var libraryItems = await LibraryRead.ItemsAsync(actor,
-            [.. await db.WatchItems.AsNoTracking().Where(i => i.UserId == actor).ToListAsync(ct)],
+            [.. await VisibleIntentAsync(db, actor, ct)],
             await db.Targets.AsNoTracking().ToListAsync(ct),
             library, placement, ct);
         var item = libraryItems.SingleOrDefault(i =>
@@ -280,10 +284,10 @@ internal static class LibraryEndpoints
                 }, statusCode: 409);
         }
         LibraryDeleteResult result;
-        try { result = await targets.DeleteLibraryAsync(preview, ct); }
+        try { result = await targets.DeleteLibraryAsync(preview, ct, input.DeleteAnyway); }
         catch (JellyfinDeleteRefusedException ex)
         {
-            return Results.Json(new { ok = false, error = "Refused", message = ex.Message }, statusCode: 409);
+            return Results.Json(new { ok = false, error = "Refused", message = ex.Message, reason = ex.Reason }, statusCode: 409);
         }
         if (result.Ok)
         {
