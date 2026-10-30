@@ -78,11 +78,13 @@ internal static class LibraryEndpoints
     private static async Task<IResult> FindAnother(string mediaFileId, HttpContext http,
         TargetPipeline targets, CancellationToken ct)
     {
-        var targetId = await targets.FindAnotherForLibraryFileAsync(mediaFileId,
+        var result = await targets.FindAnotherForLibraryFileAsync(mediaFileId,
             AccessIdentity.UserId(http), ct);
-        return targetId is null
+        if (result.TargetId is not null) return Results.Ok(new { ok = true, targetId = result.TargetId });
+        return result.Error is null
             ? Results.NotFound(new { ok = false, error = "File not found." })
-            : Results.Ok(new { ok = true, targetId });
+            : Results.Json(new { ok = false, error = result.Error, message = result.Error, reason = "busy" },
+                statusCode: 409);
     }
 
     private static async Task<IResult> KeepNew(string mediaFileId, HttpContext http,
@@ -97,29 +99,25 @@ internal static class LibraryEndpoints
             target.Kind == TargetKind.Replace && target.ReplaceMediaFileId == oldFile.Id).ToListAsync(ct);
         var targetIds = replacementTargets.Select(target => target.Id).ToArray();
         var replacementBindings = targetIds.Length == 0 ? [] :
-            await db.DownloadFiles.AsNoTracking().Where(binding => targetIds.Contains(binding.TargetId) &&
-                binding.Role == FileRole.Video && binding.Filed && binding.MediaFileId != null).ToListAsync(ct);
-        var replacementMediaIds = replacementBindings.Select(binding => binding.MediaFileId!).ToArray();
+            await db.DownloadFiles.AsNoTracking().Where(binding => binding.TargetId != null &&
+                targetIds.Contains(binding.TargetId)).ToListAsync(ct);
+        var replacementMediaIds = replacementBindings.Select(binding => binding.MediaFileId)
+            .OfType<string>().ToArray();
         var replacementFiles = replacementMediaIds.Length == 0 ? [] :
-            await db.MediaFiles.AsNoTracking().Where(file => replacementMediaIds.Contains(file.Id) &&
-                file.Role == FileRole.Video && file.Status == FilePresence.Present &&
-                file.MissingSince == null).ToListAsync(ct);
-        var ready = replacementTargets.Where(target => target.State == TargetState.Done)
-            .SelectMany(target => replacementBindings.Where(binding => binding.TargetId == target.Id)
-                .Select(binding => (Target: target, File: replacementFiles.SingleOrDefault(file =>
-                    file.Id == binding.MediaFileId))))
-            .Where(item => item.File is not null)
-            .OrderByDescending(item => item.Target.UpdatedAt).FirstOrDefault();
-        if (ready.Target is null || ready.File is null)
+            await db.MediaFiles.AsNoTracking().Where(file => replacementMediaIds.Contains(file.Id))
+                .ToListAsync(ct);
+        var ready = replacementTargets.OrderByDescending(target => target.UpdatedAt)
+            .Select(target => TargetPipeline.ReplacementCopy(target, replacementBindings, replacementFiles))
+            .FirstOrDefault(file => file is not null);
+        if (ready is null)
             return Results.Json(new { ok = false, error = "The new copy isn't ready yet.",
                 message = "The new copy isn't ready yet.", reason = "not-ready" }, statusCode: 409);
 
-        var sourceBinding = (await library.BindingsAsync(ct))
-            .FirstOrDefault(binding => binding.MediaFileId == oldFile.Id && binding.Role == FileRole.Video);
-        var sourceTarget = sourceBinding?.TargetId is { } sourceTargetId
-            ? await db.Targets.AsNoTracking().SingleOrDefaultAsync(target =>
-                target.Id == sourceTargetId, ct) : null;
-        var preview = LibraryRemoval.PreviewFile(oldFile, sourceTarget,
+        // Preview only the old file and its sidecars. Passing the shared target would also
+        // pull in the new copy, because both copies are bound to the same target row.
+        var sidecars = await db.MediaFiles.AsNoTracking().Where(file => file.ParentMediaFileId == oldFile.Id &&
+            file.Status == FilePresence.Present && file.MissingSince == null).ToListAsync(ct);
+        var preview = LibraryRemoval.PreviewFiles([oldFile, .. sidecars],
             [.. await db.DownloadTargets.AsNoTracking().ToListAsync(ct)],
             await library.DownloadsAsync(ct), await library.BindingsAsync(ct));
         if (preview.Plan.Outcome != "deletes")

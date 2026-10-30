@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Domain;
+using TorrentFlow.Targets;
 
 namespace TorrentFlow.Api.Catalog;
 
@@ -39,22 +40,15 @@ internal static class CatalogProjection
         IEnumerable<TargetRow> targets, IEnumerable<DownloadFileRow> bindings,
         IEnumerable<MediaFileRow> mediaFiles)
     {
-        var filesById = mediaFiles.Where(file => file.Role == FileRole.Video &&
-                file.Status == FilePresence.Present && file.MissingSince is null)
-            .ToDictionary(file => file.Id, StringComparer.Ordinal);
-        var bindingsByTarget = bindings.Where(binding => binding.Role == FileRole.Video &&
-                binding.Filed && binding.MediaFileId is not null)
-            .ToLookup(binding => binding.TargetId, StringComparer.Ordinal);
+        var bindingList = bindings as IReadOnlyCollection<DownloadFileRow> ?? [.. bindings];
+        var mediaList = mediaFiles as IReadOnlyCollection<MediaFileRow> ?? [.. mediaFiles];
         var result = new Dictionary<string, MediaFileReplacement>(StringComparer.Ordinal);
         foreach (var target in targets.Where(target => target.Kind == TargetKind.Replace &&
                      target.ReplaceMediaFileId is not null)
                  .OrderByDescending(target => target.UpdatedAt).ThenByDescending(target => target.Id,
                      StringComparer.Ordinal))
         {
-            var readyFile = target.State == TargetState.Done
-                ? bindingsByTarget[target.Id].Select(binding => filesById.GetValueOrDefault(binding.MediaFileId!))
-                    .OfType<MediaFileRow>().FirstOrDefault()
-                : null;
+            var readyFile = TargetPipeline.ReplacementCopy(target, bindingList, mediaList);
             var state = target.State switch
             {
                 TargetState.Wanted or TargetState.Searching or TargetState.Waiting => "looking",

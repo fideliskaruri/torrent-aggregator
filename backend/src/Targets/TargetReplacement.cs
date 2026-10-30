@@ -6,9 +6,14 @@ using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
 
+public sealed record FindAnotherResult(string? TargetId, string? Error)
+{
+    public static readonly FindAnotherResult Missing = new(null, null);
+}
+
 public sealed partial class TargetPipeline
 {
-    public async Task<string?> FindAnotherForLibraryFileAsync(string mediaFileId, string actor,
+    public async Task<FindAnotherResult> FindAnotherForLibraryFileAsync(string mediaFileId, string actor,
         CancellationToken ct)
     {
         await stateGate.WaitAsync(ct);
@@ -21,19 +26,20 @@ public sealed partial class TargetPipeline
                 media.Id == mediaFileId);
             if (file is null || file.Role != FileRole.Video || file.Status != FilePresence.Present ||
                 file.MissingSince is not null)
-                return null;
-
-            var targets = await store.ListAsync<TargetRow>(target => target.WorkId == file.WorkId, ct);
-            var active = targets.Where(target => target.Kind == TargetKind.Replace &&
-                    target.ReplaceMediaFileId == file.Id &&
-                    target.State is not (TargetState.Done or TargetState.Removed))
-                .OrderByDescending(target => target.UpdatedAt).FirstOrDefault();
-            if (active is not null) return active.Id;
+                return FindAnotherResult.Missing;
 
             var work = (await store.ListAsync<WorkRow>(row => row.Id == file.WorkId, ct)).SingleOrDefault();
             if (work is null || work.Kind == WorkKind.Film && file.EpisodeId is not null ||
                 work.Kind == WorkKind.Series && file.EpisodeId is null)
-                return null;
+                return FindAnotherResult.Missing;
+
+            // The schema allows one target per episode (or per film), so the replacement reuses that row.
+            var old = (await store.ListAsync<TargetRow>(target => target.WorkId == file.WorkId &&
+                target.EpisodeId == file.EpisodeId, ct)).SingleOrDefault();
+            if (old is not null && old.State is not (TargetState.Done or TargetState.Removed))
+                return old.Kind == TargetKind.Replace && old.ReplaceMediaFileId == file.Id
+                    ? new(old.Id, null)
+                    : new(null, "This item already has a download in progress. Wait for it to finish, then try again.");
 
             var bindings = await repository.BindingsAsync(ct);
             var binding = bindings.FirstOrDefault(row => row.MediaFileId == file.Id &&
@@ -45,41 +51,54 @@ public sealed partial class TargetPipeline
             var now = DateTimeOffset.UtcNow;
             var preference = (await store.ListAsync<WorkPreferenceRow>(row => row.WorkId == work.Id, ct))
                 .SingleOrDefault();
-            var replacementId = targets.Any(target => target.Id == $"replace:{file.Id}")
-                ? $"replace:{file.Id}:{Guid.NewGuid():N}" : $"replace:{file.Id}";
-            var target = new TargetRow
-            {
-                Id = replacementId,
-                WorkId = work.Id,
-                EpisodeId = file.EpisodeId,
-                Kind = TargetKind.Replace,
-                State = TargetState.Wanted,
-                ResumeState = null,
-                ReasonCode = null,
-                ReasonText = null,
-                NextTryAt = null,
-                ExpectedAt = null,
-                ResolutionFloor = preference?.ResolutionFloor,
-                PreferredResolution = preference?.PreferredResolution ??
-                    preference?.ResolutionFloor ?? 1080,
-                MaxBytes = preference?.MaxBytesPerItem,
-                DownloadNow = false,
-                CreatedBy = actor,
-                Origin = IntentOrigin.Owner,
-                AutoRuleId = null,
-                ChosenReleaseHash = null,
-                ReplaceMediaFileId = file.Id,
-                ReplacementMode = ReplacementMode.Replace,
-                BatchId = Guid.NewGuid().ToString("N"),
-                ClickedAt = now,
-                SubstantiveMisses = 0,
-                HelpNotifiedAt = null,
-                LeaseUntil = null,
-                LeaseToken = null,
-                CreatedAt = now,
-                UpdatedAt = now,
-                Version = 1,
-            };
+            var floor = preference?.ResolutionFloor;
+            var preferred = preference?.PreferredResolution ?? floor ?? 1080;
+            var batch = Guid.NewGuid().ToString("N");
+            var target = old is not null
+                ? old with
+                {
+                    Kind = TargetKind.Replace, ReplaceMediaFileId = file.Id,
+                    ReplacementMode = ReplacementMode.Replace, State = TargetState.Wanted,
+                    ResumeState = null, ReasonCode = null, ReasonText = null, NextTryAt = null,
+                    ExpectedAt = null, ResolutionFloor = floor ?? old.ResolutionFloor,
+                    PreferredResolution = preferred, MaxBytes = preference?.MaxBytesPerItem ?? old.MaxBytes,
+                    DownloadNow = false, CreatedBy = actor, Origin = IntentOrigin.Owner, AutoRuleId = null,
+                    ChosenReleaseHash = null, PickedReleaseHash = null, BatchId = batch, ClickedAt = now,
+                    SubstantiveMisses = 0, HelpNotifiedAt = null, LeaseUntil = null, LeaseToken = null,
+                    UpdatedAt = now, Version = old.Version + 1,
+                }
+                : new TargetRow
+                {
+                    Id = $"target:{work.Id}:{file.EpisodeId ?? "film"}",
+                    WorkId = work.Id,
+                    EpisodeId = file.EpisodeId,
+                    Kind = TargetKind.Replace,
+                    State = TargetState.Wanted,
+                    ResumeState = null,
+                    ReasonCode = null,
+                    ReasonText = null,
+                    NextTryAt = null,
+                    ExpectedAt = null,
+                    ResolutionFloor = floor,
+                    PreferredResolution = preferred,
+                    MaxBytes = preference?.MaxBytesPerItem,
+                    DownloadNow = false,
+                    CreatedBy = actor,
+                    Origin = IntentOrigin.Owner,
+                    AutoRuleId = null,
+                    ChosenReleaseHash = null,
+                    ReplaceMediaFileId = file.Id,
+                    ReplacementMode = ReplacementMode.Replace,
+                    BatchId = batch,
+                    ClickedAt = now,
+                    SubstantiveMisses = 0,
+                    HelpNotifiedAt = null,
+                    LeaseUntil = null,
+                    LeaseToken = null,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    Version = 1,
+                };
             var writes = ImmutableArray.CreateBuilder<RowWrite>();
             if (releaseHash is not null)
             {
@@ -97,7 +116,7 @@ public sealed partial class TargetPipeline
                     Until = null,
                 }, null, existingBlock));
             }
-            writes.Add(new(target, null, null));
+            writes.Add(new(target, old?.Version, null));
             try
             {
                 await CommitAsync(store, writes, [], ct);
@@ -105,14 +124,13 @@ public sealed partial class TargetPipeline
             catch (InvalidOperationException)
             {
                 var concurrent = (await store.ListAsync<TargetRow>(row =>
-                    row.WorkId == file.WorkId && row.Kind == TargetKind.Replace &&
-                    row.ReplaceMediaFileId == file.Id &&
-                    row.State != TargetState.Done && row.State != TargetState.Removed, ct))
-                    .OrderByDescending(row => row.UpdatedAt).FirstOrDefault();
-                if (concurrent is not null) return concurrent.Id;
-                throw;
+                    row.WorkId == file.WorkId && row.EpisodeId == file.EpisodeId, ct)).SingleOrDefault();
+                if (concurrent is { Kind: TargetKind.Replace } && concurrent.ReplaceMediaFileId == file.Id &&
+                    concurrent.State is not (TargetState.Done or TargetState.Removed))
+                    return new(concurrent.Id, null);
+                return new(null, "Something else changed this item at the same time. Try again.");
             }
-            return target.Id;
+            return new(target.Id, null);
         }
         finally { stateGate.Release(); }
     }
@@ -130,9 +148,12 @@ public sealed partial class TargetPipeline
             var now = DateTimeOffset.UtcNow;
             try
             {
+                // Back to a plain acquire row, so the planner treats the item as owned again.
                 await CommitAsync(store, targets.Select(target => new RowWrite(target with
                 {
+                    Kind = TargetKind.Acquire,
                     ReplaceMediaFileId = null,
+                    ReplacementMode = null,
                     UpdatedAt = now,
                     Version = target.Version + 1,
                 }, target.Version, null)), [], ct);
@@ -141,5 +162,20 @@ public sealed partial class TargetPipeline
             catch (InvalidOperationException) { return false; }
         }
         finally { stateGate.Release(); }
+    }
+
+    /// <summary>The newest present video filed by this replacement, never the file it replaces.</summary>
+    public static MediaFileRow? ReplacementCopy(TargetRow target, IEnumerable<DownloadFileRow> bindings,
+        IEnumerable<MediaFileRow> media)
+    {
+        if (target.Kind != TargetKind.Replace || target.ReplaceMediaFileId is null || target.State != TargetState.Done)
+            return null;
+        var since = target.ClickedAt ?? target.CreatedAt;
+        var ids = bindings.Where(binding => binding.TargetId == target.Id && binding.Role == FileRole.Video &&
+                binding.Filed && binding.MediaFileId is not null && binding.MediaFileId != target.ReplaceMediaFileId)
+            .Select(binding => binding.MediaFileId!).ToHashSet(StringComparer.Ordinal);
+        return media.Where(file => ids.Contains(file.Id) && file.Role == FileRole.Video &&
+                file.Status == FilePresence.Present && file.MissingSince is null && file.AddedAt >= since)
+            .OrderByDescending(file => file.AddedAt).FirstOrDefault();
     }
 }

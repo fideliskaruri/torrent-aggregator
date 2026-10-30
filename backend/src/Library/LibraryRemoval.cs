@@ -19,12 +19,11 @@ public sealed record LibraryDeleteResult(bool Ok, long FreedBytes, int FreedFile
 
 public static class LibraryRemoval
 {
-    public static LibraryDeletePreview PreviewFile(MediaFileRow file, TargetRow? target,
+    public static LibraryDeletePreview PreviewFiles(ImmutableArray<MediaFileRow> files,
         ImmutableArray<DownloadTargetRow> links, ImmutableArray<DownloadRow> downloads,
         ImmutableArray<DownloadFileRow> bindings)
     {
-        return Preview(new("show", null, null), file.WorkId, [],
-            target is null ? [] : [target], links, downloads, bindings, [file]);
+        return Preview(new("show", null, null), files[0].WorkId, [], [], links, downloads, bindings, files);
     }
 
     public static LibraryDeletePreview Preview(LibraryDeleteScope scope, string workId, HashSet<string> episodeIds,
