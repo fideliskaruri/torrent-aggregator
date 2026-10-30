@@ -9,7 +9,9 @@ namespace TorrentFlow.Library.Jellyfin;
 public sealed record JellyfinProgress(bool Watched, double? InProgress, DateTimeOffset? LastPlayedAt);
 public sealed record JellyfinNextEpisode(string EpisodeId, int Season, int Episode);
 public sealed record JellyfinTitleState(JellyfinProgress? Film,
-    ImmutableDictionary<string, JellyfinProgress> Episodes, JellyfinNextEpisode? NextUp);
+    ImmutableDictionary<string, JellyfinProgress> Episodes, JellyfinNextEpisode? NextUp,
+    string? FilmItemId = null, string? SeriesItemId = null,
+    ImmutableDictionary<string, string>? EpisodeItemIds = null);
 public sealed record JellyfinBatchRead(string Status,
     ImmutableDictionary<string, JellyfinTitleState> Items);
 
@@ -18,10 +20,13 @@ public sealed class JellyfinWatchState
 {
     private readonly JellyfinClient client;
     private readonly SemaphoreSlim gate = new(1, 1);
-    private MetadataCacheRow? cache;
+    private readonly Dictionary<string, MetadataCacheRow> cache = new(StringComparer.Ordinal);
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
     public JellyfinWatchState(JellyfinClient client) => this.client = client;
-    public void Invalidate() => Interlocked.Exchange(ref cache, null);
+    public void Invalidate()
+    {
+        lock (cache) cache.Clear();
+    }
 
     public static string ValidateUrl(string? value)
     {
@@ -57,9 +62,11 @@ public sealed class JellyfinWatchState
 
     public async Task<JellyfinBatchRead> ReadBatchWithStatusAsync(
         JellyfinSettings settings, string? key,
-        IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct)
+        IEnumerable<(WorkSnapshot Work, ImmutableArray<MediaFileRow> Files)> works, CancellationToken ct,
+        string? userId = null)
     {
-        if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(settings.UserId) || string.IsNullOrWhiteSpace(key))
+        var effectiveUserId = userId ?? settings.UserId;
+        if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(effectiveUserId) || string.IsNullOrWhiteSpace(key))
             return new("off", ImmutableDictionary<string, JellyfinTitleState>.Empty);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
@@ -69,10 +76,18 @@ public sealed class JellyfinWatchState
         {
             var server = ValidateUrl(settings.ServerUrl);
             cacheKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                server + "|" + settings.UserId + "|" + key)));
+                server + "|" + effectiveUserId + "|" + key)));
             await gate.WaitAsync(deadline.Token);
             locked = true;
-            var snapshot = cache;
+            MetadataCacheRow? snapshot;
+            lock (cache)
+            {
+                var now = DateTimeOffset.UtcNow;
+                foreach (var expired in cache.Where(entry => entry.Value.ExpiresAt <= now)
+                             .Select(entry => entry.Key).ToArray())
+                    cache.Remove(expired);
+                cache.TryGetValue(cacheKey, out snapshot);
+            }
             if (snapshot is null || snapshot.CacheKey != cacheKey || snapshot.ExpiresAt <= DateTimeOffset.UtcNow)
             {
                 var items = new List<Item>();
@@ -82,7 +97,7 @@ public sealed class JellyfinWatchState
                 {
                     page = await client.GetItems(server, key, new JellyfinItemQuery
                     {
-                        UserId = settings.UserId,
+                        UserId = effectiveUserId,
                         Recursive = true,
                         IncludeItemTypes = ["Movie", "Episode", "Series"],
                         Fields = ["ProviderIds", "Path", "UserData"],
@@ -95,7 +110,7 @@ public sealed class JellyfinWatchState
                 } while (page.Items.Length > 0 && start < page.TotalRecordCount && start < 100000);
                 if (start < page.TotalRecordCount)
                     return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
-                var next = await client.GetNextUp(server, key, settings.UserId, 1000,
+                var next = await client.GetNextUp(server, key, effectiveUserId, 1000,
                     fields: ["ProviderIds", "Path", "UserData"], ct: deadline.Token);
                 var now = DateTimeOffset.UtcNow;
                 snapshot = new MetadataCacheRow
@@ -111,7 +126,7 @@ public sealed class JellyfinWatchState
                     Complete = true,
                     Provider = "jellyfin",
                 };
-                cache = snapshot;
+                lock (cache) cache[cacheKey] = snapshot;
             }
             if (!snapshot.Complete)
                 return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
@@ -129,7 +144,7 @@ public sealed class JellyfinWatchState
             if (locked && cacheKey is not null && !ct.IsCancellationRequested)
             {
                 var now = DateTimeOffset.UtcNow;
-                cache = new MetadataCacheRow
+                var failed = new MetadataCacheRow
                 {
                     Id = "jellyfin-state",
                     Kind = CacheKind.JellyfinState,
@@ -142,6 +157,7 @@ public sealed class JellyfinWatchState
                     Complete = false,
                     Provider = "jellyfin",
                 };
+                lock (cache) cache[cacheKey] = failed;
             }
             return new("unreachable", ImmutableDictionary<string, JellyfinTitleState>.Empty);
         }
@@ -154,7 +170,8 @@ public sealed class JellyfinWatchState
         var series = Unique(data.Items.Where(i => i.Type == "Series" && IsOwned(i) && ProviderMatch(i, work.Links)));
         Item? Match(EpisodeRow? episode)
         {
-            var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode") && IsOwned(i)).ToArray();
+            var candidates = data.Items.Where(i => i.Type == (episode is null ? "Movie" : "Episode") &&
+                (episode is null ? IsOwned(i) : IsOwnedEpisode(i))).ToArray();
             var byId = episode is null ? candidates.Where(i => ProviderMatch(i, work.Links)) :
                 candidates.Where(i => EpisodeProviderMatch(i, episode) || series is not null &&
                     i.SeriesId == series.Id && i.IndexNumber == episode.Number &&
@@ -168,11 +185,13 @@ public sealed class JellyfinWatchState
             return Unique(candidates.Where(item => item.Path is not null && paths.Any(path => JellyfinPathMapper.PathsEqual(path!, item.Path))));
         }
         var episodes = ImmutableDictionary.CreateBuilder<string, JellyfinProgress>();
+        var episodeItemIds = ImmutableDictionary.CreateBuilder<string, string>();
         JellyfinNextEpisode? nextUp = null;
         foreach (var episode in work.Episodes)
         {
             var item = Match(episode);
             if (item is null) continue;
+            episodeItemIds[episode.Id] = item.Id;
             if (item.UserData is not null) episodes[episode.Id] = Progress(item);
             if (nextUp is null && data.Next.Any(n => n.Id == item.Id))
             {
@@ -181,14 +200,17 @@ public sealed class JellyfinWatchState
             }
         }
         var film = work.Work.Kind == WorkKind.Film ? Match(null) : null;
-        return new(film?.UserData is null ? null : Progress(film), episodes.ToImmutable(), nextUp);
+        return new(film?.UserData is null ? null : Progress(film), episodes.ToImmutable(), nextUp,
+            film?.Id, series?.Id, episodeItemIds.ToImmutable());
     }
 
     private static Item Map(JellyfinItemDto item) => new(item.Id ?? "", item.Type ?? "", item.Path,
         item.ProviderIds, item.SeriesId, item.ParentIndexNumber, item.IndexNumber,
         item.RunTimeTicks ?? 0, item.UserData is null ? null : new UserData(item.UserData.Played,
             item.UserData.PlaybackPositionTicks, item.UserData.LastPlayedDate), item.LocationType);
-    private static bool IsOwned(Item item) => !string.Equals(item.LocationType, "Virtual", StringComparison.OrdinalIgnoreCase);
+    private static bool IsOwned(Item item) => !string.IsNullOrWhiteSpace(item.Id) &&
+        !string.Equals(item.LocationType, "Virtual", StringComparison.OrdinalIgnoreCase);
+    private static bool IsOwnedEpisode(Item item) => IsOwned(item) && !string.IsNullOrWhiteSpace(item.Path);
     private static Item? Unique(IEnumerable<Item> source)
     {
         var matches = source.Take(2).ToArray();

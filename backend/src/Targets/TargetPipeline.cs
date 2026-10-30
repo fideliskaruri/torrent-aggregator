@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
@@ -24,7 +25,8 @@ public sealed record TargetSnapshot(ImmutableArray<TargetRow> Targets,
 }
 
 public sealed partial class TargetPipeline(IServiceScopeFactory scopes, DiscoveryPlan discovery,
-    IEngine engine, RawDownloads rawDownloads, ILogger<TargetPipeline> logger)
+    IEngine engine, RawDownloads rawDownloads, ILogger<TargetPipeline> logger,
+    IJellyfinOwnedStateReader jellyfinOwnedStateReader, IJellyfinPlaybackGuard playbackGuard)
 {
     private readonly SemaphoreSlim stateGate = new(1, 1);
     private readonly ConcurrentDictionary<string, Task> flights = new();
@@ -43,7 +45,9 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         services.AddSingleton<TargetPipeline>(sp => new(sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<DiscoveryPlan>(),             sp.GetRequiredService<IEngine>(),
             sp.GetRequiredService<RawDownloads>(),
-            sp.GetRequiredService<ILogger<TargetPipeline>>())
+            sp.GetRequiredService<ILogger<TargetPipeline>>(),
+            sp.GetRequiredService<IJellyfinOwnedStateReader>(),
+            sp.GetRequiredService<IJellyfinPlaybackGuard>())
         {
             maximumScopes = Math.Clamp(configuration.GetValue("TorrentFlow:Targets:MaximumScopes", 8), 1, 8),
             schedulerDisabled = configuration.GetValue<bool>("TorrentFlow:Scheduler:Disabled"),
@@ -51,4 +55,8 @@ public sealed partial class TargetPipeline(IServiceScopeFactory scopes, Discover
         services.AddHostedService<PipelineWorker>();
         return services;
     }
+
+    public Task<JellyfinTitleState?> ReadJellyfinStateAsync(WorkSnapshot work,
+        ImmutableArray<MediaFileRow> files, CancellationToken ct) =>
+        jellyfinOwnedStateReader.ReadAsync(work, files, ct);
 }

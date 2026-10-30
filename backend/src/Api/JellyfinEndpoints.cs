@@ -11,6 +11,7 @@ namespace TorrentFlow.Api;
 
 internal static class JellyfinEndpoints
 {
+    internal sealed record JellyfinTitleRead(JellyfinTitleState? State, object? Playback);
     internal static JellyfinWatchState Adapter { get; private set; } = null!;
     private static JellyfinClient Client { get; set; } = null!;
     private static readonly SemaphoreSlim Gate = new(1, 1);
@@ -24,14 +25,18 @@ internal static class JellyfinEndpoints
         foreach (var key in new[] { "watchState", "jellyfinNextUp" })
             if (node[key] is null) node.Remove(key);
         foreach (var episode in node["episodes"]!.AsArray())
+        {
             if (episode!["watchState"] is null) episode.AsObject().Remove("watchState");
+            if (episode["jellyfinItemId"] is null) episode.AsObject().Remove("jellyfinItemId");
+        }
         return Results.Json(node, options);
     }
 
-    internal static void MapJellyfin(this RouteGroupBuilder group, string directory)
+    internal static void MapJellyfin(this RouteGroupBuilder group, string directory,
+        JellyfinClient client, JellyfinWatchState adapter)
     {
-        Client = JellyfinClient.Create(directory);
-        Adapter = new JellyfinWatchState(Client);
+        Client = client;
+        Adapter = adapter;
         group.MapGet("/jellyfin", async (TorrentFlowDbContext db, CancellationToken ct) =>
             await Status(db, directory, ct));
         group.MapPut("/jellyfin", async (TorrentFlowDbContext db, JsonElement body, CancellationToken ct) =>
@@ -247,12 +252,34 @@ internal static class JellyfinEndpoints
         }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(8192));
     }
 
-    internal static async Task<JellyfinTitleState?> ReadTitle(HttpContext h, TorrentFlowDbContext db, WorkSnapshot work,
+    internal static async Task<JellyfinTitleRead> ReadTitle(HttpContext h, TorrentFlowDbContext db, WorkSnapshot work,
         ImmutableArray<MediaFileRow> files, CancellationToken ct)
     {
         var settings = await Settings(db, ct);
-        return await Adapter.ReadAsync(settings, SecretFiles.Read(HostPaths.DataDirectory(
-            h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), work, files, ct);
+        JellyfinTitleState? state;
+        try
+        {
+            state = await Adapter.ReadAsync(settings, SecretFiles.Read(HostPaths.DataDirectory(
+                h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), work, files, ct);
+        }
+        catch (Exception ex) when (ex is JellyfinException or OperationCanceledException or JsonException or
+                                   ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return new(null, null);
+        }
+        var itemId = work.Work.Kind switch
+        {
+            WorkKind.Film => state?.FilmItemId,
+            WorkKind.Series => state?.SeriesItemId,
+            _ => null,
+        };
+        var publicUrl = settings.PublicUrl ?? settings.ServerUrl;
+        var playback = itemId is null || publicUrl is null ? null : new
+        {
+            itemId,
+            playUrl = $"{publicUrl.TrimEnd('/')}/web/#/details?id={Uri.EscapeDataString(itemId)}&serverId={Uri.EscapeDataString(settings.ServerId ?? "")}",
+        };
+        return new(state, playback);
     }
 
     internal static async Task<ImmutableDictionary<string, JellyfinTitleState>>
@@ -269,7 +296,42 @@ internal static class JellyfinEndpoints
         var settings = await Settings(db, ct);
         var key = SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential);
-        return await Adapter.ReadBatchWithStatusAsync(settings, key, works, ct);
+        var input = works.ToArray();
+        var userIds = settings.WatchUserIds.IsEmpty
+            ? settings.UserId is null ? [] : [settings.UserId]
+            : settings.WatchUserIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (settings.ServerUrl is null || string.IsNullOrWhiteSpace(key) || userIds.Length == 0)
+            return new("off", ImmutableDictionary<string, JellyfinTitleState>.Empty);
+
+        var reads = new List<JellyfinBatchRead>(userIds.Length);
+        foreach (var userId in userIds)
+        {
+            var read = await Adapter.ReadBatchWithStatusAsync(settings, key, input, ct, userId);
+            if (read.Status != "ok") return read;
+            reads.Add(read);
+        }
+
+        var combined = ImmutableDictionary.CreateBuilder<string, JellyfinTitleState>();
+        foreach (var (work, _) in input)
+        {
+            var states = reads.Select(read => read.Items.GetValueOrDefault(work.Work.Id)).ToArray();
+            if (states.Any(state => state is null)) continue;
+            var first = states[0]!;
+            var film = work.Work.Kind == WorkKind.Film && states.All(state => state!.Film?.Watched == true)
+                ? new JellyfinProgress(true, null, states.Select(state => state!.Film!.LastPlayedAt)
+                    .OfType<DateTimeOffset>().Select(value => (DateTimeOffset?)value).Max())
+                : null;
+            var episodes = ImmutableDictionary.CreateBuilder<string, JellyfinProgress>();
+            foreach (var episode in work.Episodes)
+                if (states.All(state => state!.Episodes.TryGetValue(episode.Id, out var progress) && progress.Watched))
+                {
+                    var lastPlayed = states.Select(state => state!.Episodes[episode.Id].LastPlayedAt)
+                        .OfType<DateTimeOffset>().Select(value => (DateTimeOffset?)value).Max();
+                    episodes[episode.Id] = new(true, null, lastPlayed);
+                }
+            combined[work.Work.Id] = first with { Film = film, Episodes = episodes.ToImmutable() };
+        }
+        return new("ok", combined.ToImmutable());
     }
 
     private static async Task<IResult> Status(TorrentFlowDbContext db, string directory, CancellationToken ct)

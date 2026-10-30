@@ -43,12 +43,14 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                     var owned = inventory.Where(f => f.WorkId == work.Work.Id &&
                         f.Role == FileRole.Video && (f.Status is FilePresence.Present or FilePresence.Offline) &&
                         File.Exists(f.Path)).ToArray();
+                    var jellyfin = await targets.ReadJellyfinStateAsync(work,
+                        [.. inventory.Where(file => file.WorkId == work.Work.Id)], ct);
                     var targetsForWork = snapshot.Targets.Where(t => t.WorkId == work.Work.Id &&
                         t.State != TargetState.Removed).ToArray();
 
                     if (work.Work.Kind == WorkKind.Film)
                     {
-                        if (owned.Any(f => f.EpisodeId is null))
+                        if (owned.Any(f => f.EpisodeId is null) || jellyfin?.FilmItemId is not null)
                         {
                             ownedCount++;
                             continue;
@@ -77,7 +79,8 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                     {
                         var season = work.Seasons.FirstOrDefault(s => s.Id == episode.SeasonId);
                         if (season is null || season.Number < 1) continue;
-                        if (owned.Any(f => f.EpisodeId == episode.Id))
+                        if (owned.Any(f => f.EpisodeId == episode.Id) ||
+                            jellyfin?.EpisodeItemIds?.ContainsKey(episode.Id) == true)
                         {
                             ownedCount++;
                             continue;
@@ -121,11 +124,13 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                     var owned = inventory.Where(f => f.WorkId == work.Work.Id &&
                         f.Role == FileRole.Video && (f.Status is FilePresence.Present or FilePresence.Offline) &&
                         File.Exists(f.Path)).ToArray();
+                    var jellyfin = await targets.ReadJellyfinStateAsync(work,
+                        [.. inventory.Where(file => file.WorkId == work.Work.Id)], ct);
                     var targetsForWork = snapshot.Targets.Where(t => t.WorkId == work.Work.Id).ToArray();
 
                     if (work.Work.Kind == WorkKind.Film)
                     {
-                        if (owned.Any(f => f.EpisodeId is null))
+                        if (owned.Any(f => f.EpisodeId is null) || jellyfin?.FilmItemId is not null)
                         {
                             ownedCount++;
                             continue;
@@ -203,7 +208,8 @@ public sealed class Hunter(AutomationRepository repository, IMetadata metadata, 
                         try
                         {
                             var season = seasonsById[episode.SeasonId];
-                            if (owned.Any(f => f.EpisodeId == episode.Id)) continue;
+                            if (owned.Any(f => f.EpisodeId == episode.Id) ||
+                                jellyfin?.EpisodeItemIds?.ContainsKey(episode.Id) == true) continue;
                             var targetKey = work.Work.Id + ":" + episode.Id;
                             if (targetsForWork.Any(t => t.EpisodeId == episode.Id) ||
                                 !acceptedTargets.Add(targetKey))

@@ -5,6 +5,7 @@ using TorrentFlow.Api.Access;
 using TorrentFlow.Api.Catalog;
 using TorrentFlow.Domain;
 using TorrentFlow.Library;
+using TorrentFlow.Library.Jellyfin;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
@@ -70,12 +71,22 @@ internal static class LibraryEndpoints
         bool Confirm = false, string[]? EpisodeIds = null, string? WorkId = null);
 
     private static async Task<IResult> Cleanup(HttpContext http, TorrentFlowDbContext db,
-        ILibraryRepository inventory, IStorageStatus storage, CancellationToken ct)
+        ILibraryRepository inventory, IStorageStatus storage, IJellyfinPlaybackGuard playbackGuard,
+        CancellationToken ct)
     {
-        var availability = await JellyfinEndpoints.ReadCleanup(http, db, [], ct);
-        if (availability.Status != "ok")
-            return Results.Json(new { jellyfin = availability.Status, items = Array.Empty<CleanupSuggestion>() },
-                CatalogProjection.Json);
+        var playback = await playbackGuard.ReadAsync(ct);
+        if (playback.Status == JellyfinPlaybackReadStatus.NotConfigured)
+            return Results.Json(new { jellyfin = "off", isAdmin = false, needsAdmin = false,
+                message = (string?)null, items = Array.Empty<CleanupSuggestion>() }, CatalogProjection.Json);
+        if (playback.Status == JellyfinPlaybackReadStatus.NotAdmin)
+            return Results.Json(new { jellyfin = "ok", isAdmin = false, needsAdmin = true,
+                message = "Sign in with an admin account so TorrentFlow can see what everyone is watching",
+                items = Array.Empty<CleanupSuggestion>() }, CatalogProjection.Json);
+        if (playback.Status != JellyfinPlaybackReadStatus.Available)
+            return Results.Json(new { jellyfin = "unreachable", isAdmin = false, needsAdmin = false,
+                message = "Couldn't check Jellyfin playback. Try again.",
+                items = Array.Empty<CleanupSuggestion>() }, CatalogProjection.Json);
+
         var managed = (await inventory.MediaAsync(null, ct)).Where(file => file.RootId is not null).ToArray();
         var workIds = managed.Select(file => file.WorkId).Distinct(StringComparer.Ordinal).ToArray();
         List<WorkRow> works = workIds.Length == 0 ? [] :
@@ -102,7 +113,9 @@ internal static class LibraryEndpoints
         var watch = await JellyfinEndpoints.ReadCleanup(http, db,
             snapshots.Select(work => (work, filesByWork[work.Work.Id].ToImmutableArray())), ct);
         if (watch.Status != "ok")
-            return Results.Json(new { jellyfin = watch.Status, items = Array.Empty<CleanupSuggestion>() },
+            return Results.Json(new { jellyfin = watch.Status, isAdmin = true, needsAdmin = false,
+                message = "Couldn't check Jellyfin watch state. Try again.",
+                items = Array.Empty<CleanupSuggestion>() },
                 CatalogProjection.Json);
 
         var roots = await inventory.RootsAsync(ct);
@@ -132,6 +145,8 @@ internal static class LibraryEndpoints
             if (work.Work.Kind == WorkKind.Film)
             {
                 if (state.Film?.Watched != true) continue;
+                if (workFiles.Any(file => playback.PlayingPaths.Any(path =>
+                        JellyfinPathMapper.PathsEqual(file.Path, path)))) continue;
                 played = total = 1;
                 watchedBytes = workFiles.Sum(file => file.Bytes);
                 lastPlayedAt = state.Film.LastPlayedAt;
@@ -142,7 +157,9 @@ internal static class LibraryEndpoints
             else
             {
                 var watchedEpisodeIds = work.Episodes.Where(episode =>
-                    state.Episodes.TryGetValue(episode.Id, out var progress) && progress.Watched)
+                    state.Episodes.TryGetValue(episode.Id, out var progress) && progress.Watched &&
+                    !workFiles.Where(file => file.EpisodeId == episode.Id).Any(file =>
+                        playback.PlayingPaths.Any(path => JellyfinPathMapper.PathsEqual(file.Path, path))))
                     .Select(episode => episode.Id).ToHashSet(StringComparer.Ordinal);
                 played = watchedEpisodeIds.Count;
                 if (played == 0) continue;
@@ -172,7 +189,7 @@ internal static class LibraryEndpoints
 
         return Results.Json(new
         {
-            jellyfin = "ok",
+            jellyfin = "ok", isAdmin = true, needsAdmin = false, message = (string?)null,
             items = items.OrderByDescending(row => row.FullyWatched)
                 .ThenBy(row => row.Item.LastPlayedAt ?? DateTimeOffset.MaxValue)
                 .ThenByDescending(row => row.Item.WatchedBytes)
@@ -262,7 +279,12 @@ internal static class LibraryEndpoints
                     reason = "drive-offline",
                 }, statusCode: 409);
         }
-        var result = await targets.DeleteLibraryAsync(preview, ct);
+        LibraryDeleteResult result;
+        try { result = await targets.DeleteLibraryAsync(preview, ct); }
+        catch (JellyfinDeleteRefusedException ex)
+        {
+            return Results.Json(new { ok = false, error = "Refused", message = ex.Message }, statusCode: 409);
+        }
         if (result.Ok)
         {
             if (input.Scope == "episodes")
