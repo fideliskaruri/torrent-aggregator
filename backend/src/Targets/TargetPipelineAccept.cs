@@ -144,7 +144,8 @@ public sealed partial class TargetPipeline
                 ownedCount++;
                 continue;
             }
-            var old = existing.FirstOrDefault(t => t.Kind == TargetKind.Acquire && t.EpisodeId == episodeId);
+            // One target row per episode (unique index), so a Replace row is reused and rewritten too.
+            var old = existing.FirstOrDefault(t => t.EpisodeId == episodeId);
             if (old is not null && origin is IntentOrigin.Follow or IntentOrigin.Rule or IntentOrigin.Hunter)
                 continue;
             var id = old?.Id ?? $"target:{work.Id}:{episodeId ?? "film"}";

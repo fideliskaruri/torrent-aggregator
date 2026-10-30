@@ -126,16 +126,39 @@ internal sealed partial class TargetTransfers
         var targetIds = files.Select(file => file.TargetId).OfType<string>()
             .Concat(shared ? [] : links.Select(link => link.TargetId)).ToHashSet(StringComparer.Ordinal);
         var targets = await store.ListAsync<TargetRow>(target => targetIds.Contains(target.Id), ct);
+        var allMedia = await repository.MediaAsync(null, ct);
+        var deletedMedia = allMedia.Where(m => m.DownloadId == download.Id && (!shared || files.Any(f =>
+            f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+        // A target that still has another present copy (e.g. the new copy after "Keep new") stays owned.
+        bool HasOtherCopy(TargetRow t) => allMedia.Any(m => m.Role == FileRole.Video &&
+            m.Status == FilePresence.Present && m.MissingSince == null && !deletedMedia.Contains(m.Id) &&
+            m.WorkId == t.WorkId && m.EpisodeId == t.EpisodeId);
+        var now = DateTimeOffset.UtcNow;
+        var targetWrites = new List<RowWrite>();
+        foreach (var t in targets)
+        {
+            if (HasOtherCopy(t))
+            {
+                if (t.ReplaceMediaFileId is { } replaced && deletedMedia.Contains(replaced))
+                    targetWrites.Add(new(t with
+                    {
+                        Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
+                        State = TargetState.Done, ResumeState = null, NextTryAt = null,
+                        LeaseToken = null, LeaseUntil = null, UpdatedAt = now, Version = t.Version + 1,
+                    }, t.Version, null));
+                continue;
+            }
+            if (t.State == TargetState.Removed && t.Kind == TargetKind.Acquire) continue;
+            targetWrites.Add(new(t with
+            {
+                Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
+                State = TargetState.Removed, ResumeState = null, NextTryAt = null,
+                LeaseToken = null, LeaseUntil = null, UpdatedAt = now, Version = t.Version + 1,
+            }, t.Version, null));
+        }
         await TargetPipeline.CommitAsync(store,
             [new(download with { Intent = shared ? download.Intent : DownloadIntent.Stopped,
-                Version = download.Version + 1 }, download.Version, null),
-                 .. targets.Where(t => t.State != TargetState.Removed).Select(t => new RowWrite(t with
-                 {
-                     State = TargetState.Removed, ResumeState = null, NextTryAt = null,
-                     ReplaceMediaFileId = null,
-                     LeaseToken = null, LeaseUntil = null, UpdatedAt = DateTimeOffset.UtcNow,
-                     Version = t.Version + 1,
-                 }, t.Version, null))], [], ct);
+                Version = download.Version + 1 }, download.Version, null), .. targetWrites], [], ct);
         var drain = await engine.StopAndReleaseFilesAsync(download.Id, ct);
         if (!drain.WritesDrained || drain.Failure is not null)
             throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
