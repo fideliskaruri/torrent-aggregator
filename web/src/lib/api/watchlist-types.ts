@@ -7,6 +7,8 @@ export interface JellyfinNextUp {
   episodeId: string;
   season: number;
   episode: number;
+  /** The episode's item in Jellyfin. Sent on the title page only. */
+  jellyfinItemId?: string | null;
 }
 
 export interface WatchlistItem {
@@ -46,6 +48,8 @@ export interface WatchlistItem {
   preferredResolution?: number | null;
   watchState?: JellyfinWatchState;
   jellyfinNextUp?: JellyfinNextUp;
+  /** Where this title opens in Jellyfin. Absent when Jellyfin is off or doesn't have it. */
+  jellyfin?: { itemId: string; playUrl: string } | null;
 }
 
 export interface WatchlistResponse {

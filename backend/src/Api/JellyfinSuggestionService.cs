@@ -43,7 +43,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         if (string.IsNullOrWhiteSpace(token)) return Unavailable();
 
         var cacheKey = CacheKey(settings, jellyfinUserId, userId, owner);
-        if (TryReadCache(cacheKey, out var cached)) return Response(cached);
+        if (TryReadCache(cacheKey, out var cached)) return Response(await LiveAsync(db, cached, ct));
         var gate = gates.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
@@ -52,13 +52,13 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         {
             await gate.WaitAsync(deadline.Token);
             locked = true;
-            if (TryReadCache(cacheKey, out cached)) return Response(cached);
+            if (TryReadCache(cacheKey, out cached)) return Response(await LiveAsync(db, cached, ct));
             try
             {
                 var items = await BuildAsync(db, settings, token, jellyfinUserId, userId,
                     settings.SuggestNextEpisodes, owner, deadline.Token);
                 cache[cacheKey] = new CachedSuggestions(items, DateTimeOffset.UtcNow.Add(CacheDuration));
-                return Response(items);
+                return Response([.. items.Select(entry => entry.Item)]);
             }
             catch (Exception ex) when (ex is JellyfinException or OperationCanceledException or JsonException or ArgumentException or InvalidOperationException)
             {
@@ -120,7 +120,24 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
             cache.TryRemove(key, out _);
     }
 
-    private async Task<object[]> BuildAsync(TorrentFlowDbContext db, JellyfinSettings settings, string token,
+    // Cached suggestions can go stale when an episode is queued or filed elsewhere; recheck those cheaply on every read.
+    private static async Task<object[]> LiveAsync(TorrentFlowDbContext db, SuggestionEntry[]? entries, CancellationToken ct)
+    {
+        if (entries is null || entries.Length == 0) return [];
+        var ids = entries.Select(entry => entry.EpisodeId).ToArray();
+        var queued = await db.Targets.AsNoTracking().Where(target => target.EpisodeId != null &&
+                ids.Contains(target.EpisodeId) && target.State != TargetState.Done && target.State != TargetState.Removed)
+            .Select(target => target.EpisodeId!).ToArrayAsync(ct);
+        var owned = await db.MediaFiles.AsNoTracking().Where(file => file.Role == FileRole.Video &&
+                file.EpisodeId != null && ids.Contains(file.EpisodeId) &&
+                (file.Status == FilePresence.Present || file.Status == FilePresence.Offline ||
+                 file.Status == FilePresence.Missing && file.MissingConfirmedAt == null))
+            .Select(file => file.EpisodeId!).ToArrayAsync(ct);
+        var taken = queued.Concat(owned).ToHashSet(StringComparer.Ordinal);
+        return [.. entries.Where(entry => !taken.Contains(entry.EpisodeId)).Select(entry => entry.Item)];
+    }
+
+    private async Task<SuggestionEntry[]> BuildAsync(TorrentFlowDbContext db, JellyfinSettings settings, string token,
         string jellyfinUserId, string torrentFlowUserId, int suggestionCount, bool isOwner, CancellationToken ct)
     {
         var server = JellyfinWatchState.ValidateUrl(settings.ServerUrl);
@@ -256,12 +273,13 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
             jfEpisodesBySeries[seriesId] = seriesEpisodes;
         }
 
-        var owned = mediaFiles.Where(file => file.Status is FilePresence.Present or FilePresence.Offline)
+        var owned = mediaFiles.Where(file => file.Status is FilePresence.Present or FilePresence.Offline ||
+                file.Status == FilePresence.Missing && file.MissingConfirmedAt is null)
             .Select(file => (file.WorkId, file.EpisodeId)).ToHashSet();
         var queued = targets.Select(target => (target.WorkId, target.EpisodeId)).ToHashSet();
         var dismissedKeys = dismissed.Select(item => (item.WorkId, item.Season, item.Episode)).ToHashSet();
         var now = DateTimeOffset.UtcNow;
-        var suggestions = new List<object>();
+        var suggestions = new List<SuggestionEntry>();
         foreach (var (workId, frontier) in furthest.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             if (!workById.TryGetValue(workId, out var work) ||
@@ -322,7 +340,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
                             seasons = new[] { seasonNumber },
                         },
                     };
-                suggestions.Add(new
+                suggestions.Add(new SuggestionEntry(pair.Episode.Id, new
                 {
                     workKey = work.WorkKey,
                     title,
@@ -334,7 +352,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
                     airDate = pair.Episode.AirAt?.ToString("yyyy-MM-dd"),
                     reason = $"You watched S{frontier.Season}E{frontier.Episode}",
                     action,
-                });
+                }));
             }
         }
         return [.. suggestions];
@@ -380,7 +398,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         return [.. items];
     }
 
-    private bool TryReadCache(string key, out object[]? items)
+    private bool TryReadCache(string key, out SuggestionEntry[]? items)
     {
         if (cache.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
         {
@@ -396,9 +414,10 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         string.Join("|", userId, owner, settings.ServerUrl, settings.Credential?.FileId, settings.Credential?.Revision,
             jellyfinUserId, settings.SuggestNextEpisodes, string.Join(";", settings.PathMappings.Select(mapping => mapping.From + ">" + mapping.To)));
 
-    private static object Response(object[]? items) => new { items = items ?? [] };
+    private static object Response(object[] items) => new { items };
     private static object Unavailable() => new { items = Array.Empty<object>(), unavailable = true };
-    private sealed record CachedSuggestions(object[] Items, DateTimeOffset ExpiresAt);
+    private sealed record CachedSuggestions(SuggestionEntry[] Items, DateTimeOffset ExpiresAt);
+    private sealed record SuggestionEntry(string EpisodeId, object Item);
     private readonly record struct EpisodeFrontier(int Season, int Episode) : IComparable<EpisodeFrontier>
     {
         public int CompareTo(EpisodeFrontier other) =>

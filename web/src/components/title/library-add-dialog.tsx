@@ -35,6 +35,7 @@ export function LibraryAddDialog({
   busy,
   isMobile,
   onCloseAutoFocus,
+  label = "Add to library",
 }: {
   subject: AddSubject;
   title: string | null;
@@ -44,6 +45,8 @@ export function LibraryAddDialog({
   busy: boolean;
   isMobile: boolean;
   onCloseAutoFocus: (event: Event) => void;
+  /** Names the action in the heading and the confirm button. */
+  label?: string;
 }) {
   const [answers, setAnswers] = useState<AddAnswers>(defaultAnswers);
   const questions = addQuestions(subject);
@@ -68,7 +71,7 @@ export function LibraryAddDialog({
     <div
       data-add-questions
       role="group"
-      aria-label="Add to library options"
+      aria-label={`${label} options`}
       className="w-full min-w-0 space-y-4"
     >
       {questions.map((question) => {
@@ -143,7 +146,7 @@ export function LibraryAddDialog({
           className="min-h-[44px] w-full sm:w-auto"
         >
           {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
-          Add to library
+          {label}
         </Button>
         <Button
           type="button"
@@ -167,7 +170,7 @@ export function LibraryAddDialog({
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <SheetHeader className="space-y-1 p-0 pr-12">
-          <SheetTitle>Add to library</SheetTitle>
+          <SheetTitle>{label}</SheetTitle>
           <SheetDescription>{addDescription}</SheetDescription>
         </SheetHeader>
         {questionPanel}
@@ -181,7 +184,7 @@ export function LibraryAddDialog({
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <div className="space-y-1 pr-12">
-          <DialogTitle>Add to library</DialogTitle>
+          <DialogTitle>{label}</DialogTitle>
           <DialogDescription>{addDescription}</DialogDescription>
         </div>
         {questionPanel}

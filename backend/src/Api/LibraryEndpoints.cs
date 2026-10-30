@@ -32,12 +32,15 @@ internal static class LibraryEndpoints
             var node = JsonSerializer.SerializeToNode(
                 await CatalogEndpoints.WatchProjection(item, work, db, library, ct),
                 CatalogProjection.Json)!.AsObject();
-            if (watch.GetValueOrDefault(work.Work.Id) is { } jellyfin)
+            if (watch.States.GetValueOrDefault(work.Work.Id) is { } jellyfin)
             {
                 if (jellyfin.Film is not null)
                     node["watchState"] = JsonSerializer.SerializeToNode(jellyfin.Film, CatalogProjection.Json);
                 if (jellyfin.NextUp is not null)
                     node["jellyfinNextUp"] = JsonSerializer.SerializeToNode(jellyfin.NextUp, CatalogProjection.Json);
+                var itemId = work.Work.Kind == WorkKind.Film ? jellyfin.FilmItemId : jellyfin.SeriesItemId;
+                if (watch.PlayUrl(itemId) is { } playUrl)
+                    node["jellyfin"] = JsonSerializer.SerializeToNode(new { itemId, playUrl }, CatalogProjection.Json);
             }
             items.Add(node);
         }
@@ -84,7 +87,7 @@ internal static class LibraryEndpoints
                 message = (string?)null, items = Array.Empty<CleanupSuggestion>() }, CatalogProjection.Json);
         if (playback.Status == JellyfinPlaybackReadStatus.NotAdmin)
             return Results.Json(new { jellyfin = "ok", isAdmin = false, needsAdmin = true,
-                message = "Sign in with an admin account so TorrentFlow can see what everyone is watching",
+                message = "Sign in with an admin account so TorrentFlow can see what everyone is watching.",
                 items = Array.Empty<CleanupSuggestion>() }, CatalogProjection.Json);
         if (playback.Status != JellyfinPlaybackReadStatus.Available)
             return Results.Json(new { jellyfin = "unreachable", isAdmin = false, needsAdmin = false,

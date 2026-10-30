@@ -10,6 +10,7 @@ import { RAIL_PREVIEWS, missingRailPreviews } from "./first-run";
 import { HeroBanner } from "./hero-banner";
 import { pickHeroItem } from "./hero";
 import { Rail, RailGrid } from "./rail";
+import { UpNextRail } from "./up-next-rail";
 
 /**
  * The browse page's one piece of state.
@@ -91,6 +92,7 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
         {filters}
+        {!genrePage && (payload.view ?? "all") === "all" ? <UpNextRail /> : null}
         {genrePage
           ? shownRails.map((rail) => (
               <RailGrid

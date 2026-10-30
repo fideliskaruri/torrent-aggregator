@@ -287,21 +287,23 @@ internal static class JellyfinEndpoints
             WorkKind.Series => state?.SeriesItemId,
             _ => null,
         };
-        var publicUrl = settings.PublicUrl ?? settings.ServerUrl;
-        var playback = itemId is null || publicUrl is null ? null : new
-        {
-            itemId,
-            playUrl = $"{publicUrl.TrimEnd('/')}/web/#/details?id={Uri.EscapeDataString(itemId)}&serverId={Uri.EscapeDataString(settings.ServerId ?? "")}",
-        };
+        var playUrl = PlayUrl(settings, itemId);
+        var playback = itemId is null || playUrl is null ? null : new { itemId, playUrl };
         return new(state, playback);
     }
 
-    internal static async Task<ImmutableDictionary<string, JellyfinTitleState>>
+    // Jellyfin's own page for an item, on the address people open Jellyfin with.
+    private static string? PlayUrl(JellyfinSettings settings, string? itemId) =>
+        itemId is null || (settings.PublicUrl ?? settings.ServerUrl) is not { } publicUrl ? null :
+            $"{publicUrl.TrimEnd('/')}/web/#/details?id={Uri.EscapeDataString(itemId)}&serverId={Uri.EscapeDataString(settings.ServerId ?? "")}";
+
+    internal static async Task<(ImmutableDictionary<string, JellyfinTitleState> States, Func<string?, string?> PlayUrl)>
         ReadLibrary(HttpContext h, TorrentFlowDbContext db, IEnumerable<WorkSnapshot> works, ILibraryRepository inventory, CancellationToken ct)
     {
         var settings = await Settings(db, ct);
-        return await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
+        var states = await LibraryRead.WatchAsync(Adapter, settings, SecretFiles.Read(HostPaths.DataDirectory(
             h.RequestServices.GetRequiredService<IConfiguration>()), settings.Credential), works, inventory, ct);
+        return (states, itemId => PlayUrl(settings, itemId));
     }
 
     internal static async Task<JellyfinBatchRead> ReadCleanup(HttpContext h, TorrentFlowDbContext db,

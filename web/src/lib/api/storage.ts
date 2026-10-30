@@ -33,6 +33,48 @@ export interface StorageRoot {
   /** What the owner set; 0 means automatic. */
   reserveSetting: number;
   missingCount: number;
+  jellyfin: StorageJellyfin;
+}
+
+export interface StorageJellyfin {
+  state: "off" | "pending" | "registered" | "indexed" | "failed";
+  libraries: string[];
+  message: string | null;
+}
+
+export interface JellyfinOrphanPath {
+  rootId: string;
+  libraryName: string;
+  path: string;
+  state: "off" | "removed-root";
+}
+
+export async function listJellyfinOrphanPaths(): Promise<JellyfinOrphanPath[]> {
+  const response = await get<{ paths: JellyfinOrphanPath[] }>("/api/jellyfin/orphan-paths");
+  return response.ok && response.data ? response.data.paths : [];
+}
+
+export async function syncRootToJellyfin(rootId: string): Promise<StorageJellyfin> {
+  const response = await send<{ jellyfin?: StorageJellyfin; message?: string }>(
+    `/api/library/roots/${encodeURIComponent(rootId)}/jellyfin/sync`,
+    { method: "POST" },
+  );
+  const status = response.data?.jellyfin;
+  if (status?.state === "failed") throw new Error(status.message ?? "Jellyfin did not take the folder. Try again.");
+  if (response.error || !status)
+    throw new Error(failureMessage(response.data, "Could not reach Jellyfin. Check that it is running and try again."));
+  return status;
+}
+
+export async function removeRootFromJellyfin(rootId: string): Promise<string> {
+  const response = await send<{ removed?: number; failed?: number; message?: string }>(
+    `/api/library/roots/${encodeURIComponent(rootId)}/jellyfin/remove`,
+    { method: "POST" },
+  );
+  const message = response.data?.message ?? "Could not reach Jellyfin. Check that it is running and try again.";
+  if (response.error || !response.data || (response.data.removed ?? 0) === 0 || (response.data.failed ?? 0) > 0)
+    throw new Error(message);
+  return message;
 }
 
 export interface StorageRootEdit {
@@ -115,8 +157,15 @@ export interface CleanupItem {
 
 export type CleanupAvailability = "ok" | "off" | "unreachable" | string;
 
-export async function listCleanup(): Promise<{ jellyfin: CleanupAvailability; items: CleanupItem[] }> {
-  const response = await get<{ jellyfin: CleanupAvailability; items: CleanupItem[] }>("/api/library/cleanup");
+export interface CleanupList {
+  jellyfin: CleanupAvailability;
+  needsAdmin?: boolean;
+  message?: string | null;
+  items: CleanupItem[];
+}
+
+export async function listCleanup(): Promise<CleanupList> {
+  const response = await get<CleanupList>("/api/library/cleanup");
   if (response.error || !response.data)
     throw new Error(failureMessage(response.data, "Could not load watched titles."));
   return response.data;

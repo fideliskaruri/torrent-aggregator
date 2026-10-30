@@ -1,4 +1,4 @@
-import { CheckCircle2,Download,FolderOpen,Search } from "lucide-react";
+import { CheckCircle2, Download, FolderOpen, Play, Search } from "lucide-react";
 import { Link } from "react-router";
 import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,9 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
     onLibraryChanged,
     titlePending,
   } = model;
+  const playUrl = payload.jellyfin?.playUrl ?? null;
+  // Once Jellyfin has the title, playing it comes first and getting it again is the quieter choice.
+  const getLabel = playUrl && !payload.isSeries ? "Download anyway" : downloadLabel;
   return (
               <div
                 className={cn(
@@ -56,6 +59,15 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                 )}
                 data-title-acquire
               >
+                {playUrl ? (
+                  <Button asChild size="lg" className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]">
+                    <a href={playUrl} target="_blank" rel="noopener noreferrer" data-title-play-jellyfin
+                      aria-label={`Play ${title} in Jellyfin (opens in a new tab)`}>
+                      <Play aria-hidden />
+                      Play in Jellyfin
+                    </a>
+                  </Button>
+                ) : null}
 
                 {ownedFilm && payload.owned ? (
                   <OwnedQuality
@@ -93,7 +105,7 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                       name={title}
                       busy={openingFile === "open"}
                       disabled={openingFile !== null}
-                      variant="default"
+                      variant={playUrl ? "secondary" : "default"}
                       size="lg"
                       data-title-open
                       onClick={() => void openTitleFile("open")}
@@ -119,6 +131,7 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                   <Button
                     asChild
                     size="lg"
+                    variant={playUrl ? "secondary" : "default"}
                     className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
                   >
                     <Link
@@ -139,10 +152,11 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                   <Button
                     type="button"
                     size="lg"
+                    variant={playUrl ? "secondary" : "default"}
                     data-title-download
                     data-action-kind="get"
                     data-transfer-status={titleTransfer?.status}
-                    aria-label={`${downloadLabel}, ${title}`}
+                    aria-label={`${getLabel}, ${title}`}
                     title={downloadControl.error ?? undefined}
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
@@ -155,7 +169,7 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                       pending={downloadStatus === "pending"}
                       icon={titleTransfer?.state === "looking" ? <Search aria-hidden /> : <Download aria-hidden />}
                     >
-                      {downloadLabel}
+                      {getLabel}
                     </ButtonBody>
                   </Button>
                 ) : null}

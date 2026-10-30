@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Ellipsis, Search } from "lucide-react";
+import { Ellipsis, Play, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -161,6 +161,15 @@ export function WatchlistItemCard({
           <span className="truncate">Downloading</span>
         </Badge>
       </Link>
+    ) : item.jellyfin?.playUrl ? (
+      <a href={item.jellyfin.playUrl} target="_blank" rel="noopener noreferrer" data-library-play
+        aria-label={`Play ${item.title} in Jellyfin (opens in a new tab)`}
+        className="flex min-h-11 min-w-0 items-end rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0">
+        <Badge variant="solid" className={badgeClass}>
+          <Play aria-hidden className="size-3 shrink-0" />
+          <span className="truncate">Play</span>
+        </Badge>
+      </a>
     ) : state === "coming_up" ? (
       <Badge aria-hidden className={cn(badgeClass, "pointer-events-none bg-card text-subtle-foreground")}>
         <span className="truncate">Coming up</span>

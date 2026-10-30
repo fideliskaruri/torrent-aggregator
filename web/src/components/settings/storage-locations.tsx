@@ -14,10 +14,14 @@ import { formatBytes } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import {
+  listJellyfinOrphanPaths,
   listStorageRoots,
+  removeRootFromJellyfin,
   removeStorageRoot,
   reorderStorageRoots,
+  syncRootToJellyfin,
   updateStorageRoot,
+  type JellyfinOrphanPath,
   type StorageRoot,
   type StorageStatus,
 } from "@/lib/api/storage";
@@ -52,13 +56,18 @@ function sameOrder(a: StorageRoot[], b: StorageRoot[]) {
 
 export function useStorageRoots() {
   const [roots, setRoots] = useState<StorageRoot[]>([]);
+  const [orphans, setOrphans] = useState<JellyfinOrphanPath[]>([]);
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const pending = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
-      const next = await listStorageRoots();
+      const [next, stale] = await Promise.all([
+        listStorageRoots(),
+        listJellyfinOrphanPaths().catch(() => null),
+      ]);
       if (pending.current === 0) setRoots(next);
+      if (stale) setOrphans(stale);
       setLoad({ status: "ready" });
     } catch (error) {
       setLoad((current) =>
@@ -90,11 +99,11 @@ export function useStorageRoots() {
     [refresh],
   );
 
-  return { roots, setRoots, load, refresh, run, pending };
+  return { roots, setRoots, orphans, load, refresh, run, pending };
 }
 
 export function StorageLocations() {
-  const { roots, setRoots, load, refresh, run, pending } = useStorageRoots();
+  const { roots, setRoots, orphans, load, refresh, run, pending } = useStorageRoots();
   const [dialog, setDialog] = useState<StorageDialogTarget | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const committed = useRef<StorageRoot[]>([]);
@@ -211,9 +220,28 @@ export function StorageLocations() {
                 toast.success(`Removed ${root.path}`);
               })
             }
+            stillInJellyfin={orphans.some((orphan) => orphan.rootId === root.id)}
+            onJellyfinSync={() =>
+              run(async () => {
+                const status = await syncRootToJellyfin(root.id);
+                toast.success(
+                  status.libraries.length > 0
+                    ? `${root.path} is in Jellyfin: ${status.libraries.join(", ")}`
+                    : `Sent ${root.path} to Jellyfin`,
+                );
+              })
+            }
+            onJellyfinRemove={() =>
+              run(async () => toast.success(await removeRootFromJellyfin(root.id)))
+            }
           />
         ))}
       </Reorder.Group>
+
+      <RemovedInJellyfin
+        orphans={orphans.filter((orphan) => orphan.state === "removed-root")}
+        onRemove={(rootId) => run(async () => toast.success(await removeRootFromJellyfin(rootId)))}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => setDialog({ mode: "add" })}>
@@ -252,6 +280,9 @@ function StorageRow({
   onConfirm,
   onToggle,
   onRemove,
+  stillInJellyfin,
+  onJellyfinSync,
+  onJellyfinRemove,
 }: {
   root: StorageRoot;
   index: number;
@@ -265,6 +296,9 @@ function StorageRow({
   onConfirm: () => void;
   onToggle: () => void;
   onRemove: () => void;
+  stillInJellyfin: boolean;
+  onJellyfinSync: () => Promise<boolean>;
+  onJellyfinRemove: () => Promise<boolean>;
 }) {
   const controls = useDragControls();
   const status = STATUS[root.status];
@@ -298,35 +332,38 @@ function StorageRow({
         <span className="w-4 shrink-0 text-center text-sm tabular-nums text-subtle-foreground">{index + 1}</span>
       ) : null}
 
-      <div className={cn("min-w-0 flex-1 space-y-1.5", !root.enabled && "opacity-60")}>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium" title={root.path}>
-            {root.path}
-          </span>
-          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", status.className)}>
-            {status.label}
-          </span>
-        </div>
-        {total > 0 ? (
-          <div
-            className="relative h-1.5 overflow-hidden rounded-full bg-muted"
-            role="meter"
-            aria-label={`${root.path} space used`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={usedPercent}
-          >
-            <div
-              className={cn("absolute inset-y-0 left-0 rounded-full", root.status === "full" ? "bg-warning" : "bg-foreground/50")}
-              style={{ width: `${usedPercent}%` }}
-            />
-            <div
-              className="absolute inset-y-0 bg-foreground/15"
-              style={{ left: `${usedPercent}%`, width: `${reservePercent}%` }}
-            />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className={cn("space-y-1.5", !root.enabled && "opacity-60")}>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-medium" title={root.path}>
+              {root.path}
+            </span>
+            <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", status.className)}>
+              {status.label}
+            </span>
           </div>
-        ) : null}
-        <p className="text-xs text-subtle-foreground">{describe(root)}</p>
+          {total > 0 ? (
+            <div
+              className="relative h-1.5 overflow-hidden rounded-full bg-muted"
+              role="meter"
+              aria-label={`${root.path} space used`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={usedPercent}
+            >
+              <div
+                className={cn("absolute inset-y-0 left-0 rounded-full", root.status === "full" ? "bg-warning" : "bg-foreground/50")}
+                style={{ width: `${usedPercent}%` }}
+              />
+              <div
+                className="absolute inset-y-0 bg-foreground/15"
+                style={{ left: `${usedPercent}%`, width: `${reservePercent}%` }}
+              />
+            </div>
+          ) : null}
+          <p className="text-xs text-subtle-foreground">{describe(root)}</p>
+        </div>
+        <JellyfinLine root={root} stillInJellyfin={stillInJellyfin} onSync={onJellyfinSync} onRemove={onJellyfinRemove} />
       </div>
 
       {showArrows ? (
@@ -405,4 +442,137 @@ function describe(root: StorageRoot): string {
   const cap = formatBytes(root.maxAllocatedBytes);
   if (cap) parts.push(`Uses at most ${cap}.`);
   return parts.join(" ");
+}
+
+const INLINE_ACTION =
+  "-my-3 inline-flex min-h-11 items-center rounded-sm px-1 text-xs font-medium text-brand-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60 lg:my-0 lg:min-h-0";
+
+function useBusy(action: () => Promise<boolean>) {
+  const [busy, setBusy] = useState(false);
+  const go = useCallback(async () => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  }, [action]);
+  return [busy, go] as const;
+}
+
+/**
+ * Where this location stands in Jellyfin, with the one action that fixes it.
+ * Silent when Jellyfin isn't connected or library sync is off: the Jellyfin
+ * settings say that once, not every drive row.
+ */
+function JellyfinLine({
+  root,
+  stillInJellyfin,
+  onSync,
+  onRemove,
+}: {
+  root: StorageRoot;
+  stillInJellyfin: boolean;
+  onSync: () => Promise<boolean>;
+  onRemove: () => Promise<boolean>;
+}) {
+  const [syncing, sync] = useBusy(onSync);
+  const [removing, remove] = useBusy(onRemove);
+  const jellyfin = root.jellyfin;
+  if (!jellyfin) return null;
+
+  if (!root.enabled && stillInJellyfin)
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 text-xs text-subtle-foreground" data-root-jellyfin="stale">
+        Still in Jellyfin.
+        <button type="button" className={INLINE_ACTION} disabled={removing} onClick={() => void remove()}>
+          {removing ? "Removing…" : "Remove from Jellyfin"}
+        </button>
+      </p>
+    );
+
+  if (jellyfin.state === "indexed" || jellyfin.state === "registered")
+    return (
+      <p className="text-xs text-subtle-foreground" data-root-jellyfin={jellyfin.state}>
+        {jellyfin.libraries.length > 0 ? `In Jellyfin: ${jellyfin.libraries.join(", ")}` : "In Jellyfin"}
+      </p>
+    );
+
+  if (jellyfin.state === "failed")
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 text-xs text-warning" data-root-jellyfin="failed">
+        <span className="min-w-0">{jellyfin.message ?? "Jellyfin did not take this folder."}</span>
+        <button type="button" className={INLINE_ACTION} disabled={syncing} onClick={() => void sync()}>
+          {syncing ? "Trying…" : "Try again"}
+        </button>
+      </p>
+    );
+
+  if (jellyfin.state === "pending" && root.enabled)
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 text-xs text-subtle-foreground" data-root-jellyfin="pending">
+        <span className="min-w-0">{jellyfin.message ?? "Not in Jellyfin yet."}</span>
+        <button type="button" className={INLINE_ACTION} disabled={syncing} onClick={() => void sync()}>
+          {syncing ? "Adding…" : "Add to Jellyfin"}
+        </button>
+      </p>
+    );
+
+  // "off" for a missing admin login is the one off reason only this row can explain.
+  if (jellyfin.state === "off" && root.enabled && jellyfin.message && /admin/i.test(jellyfin.message))
+    return (
+      <p className="text-xs text-warning" data-root-jellyfin="needs-admin">
+        {jellyfin.message}
+      </p>
+    );
+
+  return null;
+}
+
+/** Folders Jellyfin still scans from storage locations that were removed here. */
+function RemovedInJellyfin({
+  orphans,
+  onRemove,
+}: {
+  orphans: JellyfinOrphanPath[];
+  onRemove: (rootId: string) => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  if (orphans.length === 0) return null;
+  const byRoot = new Map<string, JellyfinOrphanPath[]>();
+  for (const orphan of orphans) byRoot.set(orphan.rootId, [...(byRoot.get(orphan.rootId) ?? []), orphan]);
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3" data-jellyfin-orphans>
+      <p className="text-sm font-medium">Removed locations still in Jellyfin</p>
+      <ul className="space-y-2">
+        {[...byRoot].map(([rootId, paths]) => (
+          <li key={rootId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <span className="min-w-0 text-xs text-subtle-foreground">
+              {paths.map((path) => (
+                <span key={path.path} className="block truncate" title={path.path}>
+                  {path.path} <span className="text-muted-foreground">in {path.libraryName}</span>
+                </span>
+              ))}
+            </span>
+            <button
+              type="button"
+              className={INLINE_ACTION}
+              disabled={busy === rootId}
+              onClick={async () => {
+                setBusy(rootId);
+                try {
+                  await onRemove(rootId);
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              {busy === rootId ? "Removing…" : "Remove from Jellyfin"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

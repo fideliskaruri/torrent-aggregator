@@ -228,7 +228,12 @@ internal static class CatalogEndpoints
             availability = owned.Any(f => f.EpisodeId is null) ? "ready" : null, infoHash = (string?)null,
             owned = Owned(owned, null),
             downloadFraction = (double?)null, transfer = transfers.Film,
-            watchState = jellyfin?.Film, jellyfinNextUp = jellyfin?.NextUp,
+            watchState = jellyfin?.Film,
+            jellyfinNextUp = jellyfin?.NextUp is { } next ? new
+            {
+                next.EpisodeId, next.Season, next.Episode,
+                jellyfinItemId = jellyfin.EpisodeItemIds?.GetValueOrDefault(next.EpisodeId),
+            } : null,
             jellyfin = jellyfinRead.Playback,
             seasons = CatalogProjection.TitleSeasons(w).Select(s => new
             {

@@ -29,7 +29,8 @@ export interface TitleEpisode {
   state?: TitleTransferState | null;
   /** Jellyfin progress for this episode. Absent when Jellyfin has no match. */
   watchState?: JellyfinWatchState;
-  /** Present when a file for this episode is in the library, whatever its origin. */
+  /** This episode's item in Jellyfin, when Jellyfin has it. */
+  jellyfinItemId?: string;
   owned?: TitleOwned | null;
 }
 
@@ -175,6 +176,8 @@ export interface TitleDetailPayload {
   watchState?: JellyfinWatchState;
   /** The episode Jellyfin would play next for a series. Absent when unknown. */
   jellyfinNextUp?: JellyfinNextUp;
+  /** Where this title opens in Jellyfin. Absent when Jellyfin is off or doesn't have it. */
+  jellyfin?: { itemId: string; playUrl: string } | null;
 
   /** Every season we know of, ascending. Empty for a film. */
   seasons: TitleSeason[];

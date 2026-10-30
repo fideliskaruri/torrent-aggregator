@@ -30,7 +30,7 @@ import {
 type CleanupState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; jellyfin: CleanupAvailability; items: CleanupItem[] };
+  | { status: "ready"; jellyfin: CleanupAvailability; needsAdmin: boolean; message: string | null; items: CleanupItem[] };
 
 const SCOPES: { scope: CleanupScope; label: string }[] = [
   { scope: "watched", label: "Watched episodes" },
@@ -72,7 +72,13 @@ export function CleanupSheet({
     setState({ status: "loading" });
     try {
       const data = await listCleanup();
-      setState({ status: "ready", jellyfin: data.jellyfin, items: data.items });
+      setState({
+        status: "ready",
+        jellyfin: data.jellyfin,
+        needsAdmin: data.needsAdmin === true,
+        message: data.message ?? null,
+        items: data.items,
+      });
     } catch (error) {
       setState({ status: "error", message: (error as Error).message });
     }
@@ -176,14 +182,16 @@ export function CleanupSheet({
           <CleanupBody state={state} scope={scope} selected={selected} onToggle={toggle} onRetry={() => void load()} />
         </div>
 
-        <SheetFooter className="flex-row items-center justify-between gap-3 border-t border-border p-4">
-          <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">
-            {chosen.length > 0 ? `${formatBytes(total) ?? "0 B"} from ${chosen.length} selected` : "Nothing selected"}
-          </p>
-          <Button type="button" variant="destructive" disabled={chosen.length === 0} onClick={() => setConfirming(true)}>
-            Delete
-          </Button>
-        </SheetFooter>
+        {items.length > 0 ? (
+          <SheetFooter className="flex-row items-center justify-between gap-3 border-t border-border p-4">
+            <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">
+              {chosen.length > 0 ? `${formatBytes(total) ?? "0 B"} from ${chosen.length} selected` : "Nothing selected"}
+            </p>
+            <Button type="button" variant="destructive" disabled={chosen.length === 0} onClick={() => setConfirming(true)}>
+              Delete
+            </Button>
+          </SheetFooter>
+        ) : null}
       </SheetContent>
 
       <AlertDialog
@@ -252,11 +260,13 @@ function CleanupBody({
       </div>
     );
 
-  if (state.jellyfin !== "ok")
+  if (state.jellyfin !== "ok" || state.needsAdmin)
     return (
-      <div className="space-y-2 p-4">
+      <div className="space-y-2 p-4" role={state.needsAdmin ? "alert" : undefined}>
         <p className="text-sm">
-          {state.jellyfin === "off"
+          {state.needsAdmin
+            ? state.message ?? "Sign in with an admin account so TorrentFlow can see what everyone is watching."
+            : state.jellyfin === "off"
             ? "Connect Jellyfin to see what you have already watched."
             : "Jellyfin is not answering, so watched titles can't be listed. Check that it is running."}
         </p>

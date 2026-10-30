@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
-import { WatchStateChip } from "./watch-state";
+import { nextUpHref, WatchStateChip } from "./watch-state";
 import { RatingMetaLine } from "./title-hero-meta";
 
 
@@ -124,6 +124,7 @@ export function TitleHero({ model }: { model: TitleContentViewModel }) {
                   seasonCount={seasonCount}
                 />
                 <WatchStateChip state={payload.watchState} nextUp={payload.jellyfinNextUp}
+                  href={nextUpHref(payload.jellyfin?.playUrl, payload.jellyfinNextUp)}
                   className="mt-2 h-7 rounded-full bg-background/60 px-2.5" />
               </div>
 

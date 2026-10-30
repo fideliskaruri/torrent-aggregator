@@ -147,7 +147,9 @@ export function LibraryControls({
       "Could not add this to your library",
       !isSeries && gated
         ? "We'll download it when it's out"
-        : "Added to library",
+        : library.inLibrary && !library.monitored && ownedShown
+          ? "Following this series"
+          : "Added to library",
     ).then(() => setAsking(false));
 
   const itemId = library.watchListItemId;
@@ -227,6 +229,8 @@ export function LibraryControls({
   const onWatchlist = library.inLibrary && !library.monitored;
   // Owned files mean removing deletes them, so it always asks first.
   const savedOnly = onWatchlist && !ownedShown;
+  // Files on disk already put it in the library, so adding here only follows it.
+  const addLabel = filmWaiting ? "Get it when it's out" : onWatchlist && ownedShown ? "Follow this series" : "Add to library";
 
   // Also offered once saved: a saved title is not followed yet, and the add
   // payload upserts the same entry with monitored on.
@@ -238,9 +242,7 @@ export function LibraryControls({
       variant={filmWaiting ? "default" : "secondary"}
       data-add-to-library
       data-title-watch-release={filmWaiting || undefined}
-      aria-label={
-        filmWaiting ? `Get it when it's out${title ? `, ${title}` : ""}` : undefined
-      }
+      aria-label={`${addLabel}${title ? `, ${title}` : ""}`}
       disabled={busy}
       onClick={onAddPressed}
       className={`min-h-[44px] w-full justify-center md:w-auto${filmWaiting ? " md:min-w-[12rem]" : ""}`}
@@ -252,7 +254,7 @@ export function LibraryControls({
       ) : (
         <Plus aria-hidden />
       )}
-      {filmWaiting ? "Get it when it's out" : "Add to library"}
+      {addLabel}
     </Button>
   ) : null;
 
@@ -324,6 +326,7 @@ export function LibraryControls({
         busy={busy}
         isMobile={isMobile}
         onCloseAutoFocus={returnFocus}
+        label={filmWaiting ? undefined : addLabel}
       />
 
       <ConfirmDialog
