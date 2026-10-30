@@ -72,12 +72,17 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         requests.Writer.TryWrite(true);
+        // WaitToReadAsync doesn't consume, and the pending wait is reused across idle ticks,
+        // so a timed-out wait can never swallow a later "Sync now" request.
+        Task<bool>? wait = null;
         while (!stoppingToken.IsCancellationRequested)
         {
-            var read = requests.Reader.ReadAsync(stoppingToken).AsTask();
+            wait ??= requests.Reader.WaitToReadAsync(stoppingToken).AsTask();
             var delay = Task.Delay(Interval, stoppingToken);
-            try { await Task.WhenAny(read, delay); }
+            try { await Task.WhenAny(wait, delay); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            if (stoppingToken.IsCancellationRequested) break;
+            if (wait.IsCompleted) wait = null;
 
             while (requests.Reader.TryRead(out _)) { }
             using var pass = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
