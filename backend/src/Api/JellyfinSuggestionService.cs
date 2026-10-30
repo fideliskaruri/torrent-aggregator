@@ -43,7 +43,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         if (string.IsNullOrWhiteSpace(token)) return Unavailable();
 
         var cacheKey = CacheKey(settings, jellyfinUserId, userId, owner);
-        if (TryReadCache(cacheKey, out var cached)) return Response(await LiveAsync(db, cached, ct));
+        if (TryReadCache(cacheKey, out var cached)) return Response(await LiveAsync(db, userId, cached, ct));
         var gate = gates.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(1500));
@@ -52,13 +52,13 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
         {
             await gate.WaitAsync(deadline.Token);
             locked = true;
-            if (TryReadCache(cacheKey, out cached)) return Response(await LiveAsync(db, cached, ct));
+            if (TryReadCache(cacheKey, out cached)) return Response(await LiveAsync(db, userId, cached, ct));
             try
             {
                 var items = await BuildAsync(db, settings, token, jellyfinUserId, userId,
                     settings.SuggestNextEpisodes, owner, deadline.Token);
                 cache[cacheKey] = new CachedSuggestions(items, DateTimeOffset.UtcNow.Add(CacheDuration));
-                return Response([.. items.Select(entry => entry.Item)]);
+                return Response(await LiveAsync(db, userId, items, ct));
             }
             catch (Exception ex) when (ex is JellyfinException or OperationCanceledException or JsonException or ArgumentException or InvalidOperationException)
             {
@@ -121,9 +121,11 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
     }
 
     // Cached suggestions can go stale when an episode is queued or filed elsewhere; recheck those cheaply on every read.
-    private static async Task<object[]> LiveAsync(TorrentFlowDbContext db, SuggestionEntry[]? entries, CancellationToken ct)
+    private static async Task<object[]> LiveAsync(TorrentFlowDbContext db, string userId, SuggestionEntry[]? entries,
+        CancellationToken ct)
     {
         if (entries is null || entries.Length == 0) return [];
+        entries = await WithoutOpenRequestsAsync(db, userId, entries, ct);
         var ids = entries.Select(entry => entry.EpisodeId).ToArray();
         var queued = await db.Targets.AsNoTracking().Where(target => target.EpisodeId != null &&
                 ids.Contains(target.EpisodeId) && target.State != TargetState.Done && target.State != TargetState.Removed)
@@ -340,7 +342,7 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
                             seasons = new[] { seasonNumber },
                         },
                     };
-                suggestions.Add(new SuggestionEntry(pair.Episode.Id, new
+                suggestions.Add(new SuggestionEntry(pair.Episode.Id, workId, seasonNumber, new
                 {
                     workKey = work.WorkKey,
                     title,
@@ -417,7 +419,28 @@ internal sealed class JellyfinSuggestionService(JellyfinClient client, string da
     private static object Response(object[] items) => new { items };
     private static object Unavailable() => new { items = Array.Empty<object>(), unavailable = true };
     private sealed record CachedSuggestions(SuggestionEntry[] Items, DateTimeOffset ExpiresAt);
-    private sealed record SuggestionEntry(string EpisodeId, object Item);
+    private sealed record SuggestionEntry(string EpisodeId, string WorkId, int Season, object Item);
+
+    // A pending or approved request already asks for these episodes, so suggesting them again would ask twice.
+    private static async Task<SuggestionEntry[]> WithoutOpenRequestsAsync(TorrentFlowDbContext db, string userId,
+        SuggestionEntry[] entries, CancellationToken ct)
+    {
+        var workIds = entries.Select(entry => entry.WorkId).Distinct(StringComparer.Ordinal).ToArray();
+        var requests = await db.Requests.AsNoTracking().Where(request => request.UserId == userId &&
+                workIds.Contains(request.WorkId) &&
+                (request.Decision == RequestDecision.Pending || request.Decision == RequestDecision.Approved))
+            .ToArrayAsync(ct);
+        if (requests.Length == 0) return entries;
+        var requestIds = requests.Where(request => request.Scope == RequestScope.Episodes)
+            .Select(request => request.Id).ToArray();
+        var askedEpisodes = requestIds.Length == 0 ? [] : await db.RequestItems.AsNoTracking()
+            .Where(item => requestIds.Contains(item.RequestId) && item.EpisodeId != null)
+            .Select(item => item.EpisodeId!).ToArrayAsync(ct);
+        var episodeSet = askedEpisodes.ToHashSet(StringComparer.Ordinal);
+        return [.. entries.Where(entry => !episodeSet.Contains(entry.EpisodeId) && !requests.Any(request =>
+            request.WorkId == entry.WorkId && (request.Scope == RequestScope.Series ||
+                request.Scope == RequestScope.Seasons && request.ScopeData.Seasons.Contains(entry.Season))))];
+    }
     private readonly record struct EpisodeFrontier(int Season, int Episode) : IComparable<EpisodeFrontier>
     {
         public int CompareTo(EpisodeFrontier other) =>

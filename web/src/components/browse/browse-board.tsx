@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
 import { send } from "@/lib/api";
 import type { ActionStatus, CatalogCardAction } from "@/lib/api/catalog-types";
 import { Link } from "react-router";
@@ -92,7 +92,8 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
         {filters}
-        {!genrePage && (payload.view ?? "all") === "all" ? <UpNextRail /> : null}
+        {/* Up next arrives after the page; under the first rail its late arrival does not push down what is being read. */}
+        {!genrePage && (payload.view ?? "all") === "all" && shownRails.length === 0 ? <UpNextRail /> : null}
         {genrePage
           ? shownRails.map((rail) => (
               <RailGrid
@@ -103,18 +104,20 @@ export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filt
               />
             ))
           : shownRails.map((rail, index) => (
-              <Rail
-                key={rail.id}
-                rail={rail}
-                index={index}
-                statuses={statuses}
-                onAction={runAction}
-                seeAllHref={
-                  rail.kind && rail.genre
-                    ? browseHref(rail.kind, rail.genre)
-                    : undefined
-                }
-              />
+              <Fragment key={rail.id}>
+                <Rail
+                  rail={rail}
+                  index={index}
+                  statuses={statuses}
+                  onAction={runAction}
+                  seeAllHref={
+                    rail.kind && rail.genre
+                      ? browseHref(rail.kind, rail.genre)
+                      : undefined
+                  }
+                />
+                {index === 0 && (payload.view ?? "all") === "all" ? <UpNextRail /> : null}
+              </Fragment>
             ))}
         {(payload.view ?? "all") === "all" ? <MissingRailsNote rails={rails} /> : null}
       </div>

@@ -157,6 +157,7 @@ export function StorageLocations() {
     );
   }
 
+  const adminMessage = needsAdminMessage(roots);
   return (
     <div className="space-y-3" data-storage-locations>
       <div className="space-y-1">
@@ -166,6 +167,11 @@ export function StorageLocations() {
             ? "New downloads go to the first location with room. If it is full or unplugged, the next one is used."
             : "Add another drive so downloads keep going when this one is full or unplugged."}
         </p>
+        {adminMessage ? (
+          <p className="text-xs text-warning" data-root-jellyfin="needs-admin">
+            {adminMessage}
+          </p>
+        ) : null}
       </div>
 
       <Reorder.Group
@@ -224,11 +230,13 @@ export function StorageLocations() {
             onJellyfinSync={() =>
               run(async () => {
                 const status = await syncRootToJellyfin(root.id);
-                toast.success(
-                  status.libraries.length > 0
-                    ? `${root.path} is in Jellyfin: ${status.libraries.join(", ")}`
-                    : `Sent ${root.path} to Jellyfin`,
-                );
+                if (status.state === "indexed" || status.state === "registered")
+                  toast.success(
+                    status.libraries.length > 0
+                      ? `${root.path} is in Jellyfin: ${status.libraries.join(", ")}`
+                      : `${root.path} is in Jellyfin`,
+                  );
+                else toast.info(status.message ?? `Jellyfin has not added ${root.path} yet. Try again in a minute.`);
               })
             }
             onJellyfinRemove={() =>
@@ -511,22 +519,28 @@ function JellyfinLine({
   if (jellyfin.state === "pending" && root.enabled)
     return (
       <p className="flex flex-wrap items-center gap-x-2 text-xs text-subtle-foreground" data-root-jellyfin="pending">
+        {/* A message means something else must happen first (reconnect, confirm, checking), which Add can't fix. */}
         <span className="min-w-0">{jellyfin.message ?? "Not in Jellyfin yet."}</span>
-        <button type="button" className={INLINE_ACTION} disabled={syncing} onClick={() => void sync()}>
-          {syncing ? "Adding…" : "Add to Jellyfin"}
-        </button>
+        {jellyfin.message ? null : (
+          <button type="button" className={INLINE_ACTION} disabled={syncing} onClick={() => void sync()}>
+            {syncing ? "Adding…" : "Add to Jellyfin"}
+          </button>
+        )}
       </p>
     );
 
-  // "off" for a missing admin login is the one off reason only this row can explain.
-  if (jellyfin.state === "off" && root.enabled && jellyfin.message && /admin/i.test(jellyfin.message))
-    return (
-      <p className="text-xs text-warning" data-root-jellyfin="needs-admin">
-        {jellyfin.message}
-      </p>
-    );
-
+  // A missing admin login applies to every location, so the list says it once above the rows.
   return null;
+}
+
+const isAdminMessage = (message: string) => /admin/i.test(message);
+
+/** The one admin-login message, if any enabled location is blocked on it. */
+function needsAdminMessage(roots: StorageRoot[]) {
+  return (
+    roots.find((root) => root.enabled && root.jellyfin?.state === "off" && root.jellyfin.message &&
+      isAdminMessage(root.jellyfin.message))?.jellyfin?.message ?? null
+  );
 }
 
 /** Folders Jellyfin still scans from storage locations that were removed here. */

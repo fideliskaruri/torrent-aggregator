@@ -262,7 +262,7 @@ function CleanupBody({
 
   if (state.jellyfin !== "ok" || state.needsAdmin)
     return (
-      <div className="space-y-2 p-4" role={state.needsAdmin ? "alert" : undefined}>
+      <div className="space-y-2 p-4" role={state.needsAdmin ? "status" : undefined}>
         <p className="text-sm">
           {state.needsAdmin
             ? state.message ?? "Sign in with an admin account so TorrentFlow can see what everyone is watching."

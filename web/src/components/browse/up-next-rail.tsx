@@ -44,7 +44,7 @@ const code = (s: Suggestion) =>
  */
 export function UpNextRail() {
   const [items, setItems] = useState<Suggestion[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const { ensureDownloadSetup } = useDownloadSetup();
 
   useEffect(() => {
@@ -72,7 +72,7 @@ export function UpNextRail() {
       if (!action) return;
       const key = keyOf(item);
       if (action.kind === "download" && !(await ensureDownloadSetup())) return;
-      setBusy(key);
+      setBusy((prev) => new Set(prev).add(key));
       try {
         const res = await send<{ ok?: boolean; queued?: number; owned?: number; message?: string }>(
           action.url,
@@ -81,17 +81,29 @@ export function UpNextRail() {
         if (!res.ok || res.data?.ok === false) {
           throw new Error(res.data?.message ?? res.error?.message ?? "Try again in a moment.");
         }
+        if (action.kind !== "download") {
+          // A request covers the whole season, so every card from that season is now asked for.
+          setItems((prev) => prev.filter((s) => s.workKey !== item.workKey || s.season !== item.season));
+          toast.success(`Asked for ${item.title} season ${item.season}`);
+          return;
+        }
         drop(key);
         const label = `${item.title} ${code(item)}`;
-        if (action.kind !== "download") toast.success(`Asked for ${label}`);
-        else if (res.data?.queued === 0 && (res.data.owned ?? 0) > 0) toast.success(`${label} is already in your library`);
+        if (res.data?.queued === 0 && (res.data.owned ?? 0) > 0) toast.success(`${label} is already in your library`);
         else toast.success(`Looking for ${label}`);
       } catch (err) {
-        toast.error(`Could not get ${item.title} ${code(item)}`, {
-          description: err instanceof Error ? err.message : undefined,
-        });
+        toast.error(
+          action.kind === "download"
+            ? `Could not get ${item.title} ${code(item)}`
+            : `Could not ask for ${item.title} season ${item.season}`,
+          { description: err instanceof Error ? err.message : undefined },
+        );
       } finally {
-        setBusy(null);
+        setBusy((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       }
     },
     [drop, ensureDownloadSetup],
@@ -100,6 +112,7 @@ export function UpNextRail() {
   const dismiss = useCallback(
     async (item: Suggestion) => {
       const key = keyOf(item);
+      const at = Math.max(items.findIndex((s) => keyOf(s) === key), 0);
       drop(key);
       try {
         const res = await send("/api/jellyfin/suggestions/dismiss", {
@@ -108,11 +121,15 @@ export function UpNextRail() {
         });
         if (!res.ok) throw new Error();
       } catch {
-        setItems((prev) => (prev.some((s) => keyOf(s) === key) ? prev : [...prev, item]));
+        setItems((prev) =>
+          prev.some((s) => keyOf(s) === key)
+            ? prev
+            : [...prev.slice(0, at), item, ...prev.slice(at)],
+        );
         toast.error(`Could not hide ${item.title} ${code(item)}. Try again.`);
       }
     },
-    [drop],
+    [drop, items],
   );
 
   if (items.length === 0) return null;
@@ -122,6 +139,7 @@ export function UpNextRail() {
       {items.map((item) => {
         const key = keyOf(item);
         const label = `${item.title} ${code(item)}`;
+        const working = busy.has(key);
         return (
           <li
             key={key}
@@ -159,8 +177,10 @@ export function UpNextRail() {
                 variant="outline"
                 size="sm"
                 onClick={() => void run(item)}
-                disabled={busy === key}
-                aria-label={`${item.action.kind === "download" ? "Download" : "Ask for"} ${label}`}
+                disabled={working}
+                aria-label={
+                  item.action.kind === "download" ? `Download ${label}` : `Ask for ${item.title} season ${item.season}`
+                }
                 className="mt-auto min-h-11 w-full text-[12px] text-muted-foreground lg:min-h-0"
               >
                 {item.action.kind === "download" ? (
@@ -169,7 +189,7 @@ export function UpNextRail() {
                   <Send className="h-3 w-3 shrink-0" aria-hidden />
                 )}
                 <span className="truncate">
-                  {busy === key ? "Sending…" : item.action.kind === "download" ? "Download" : "Ask for it"}
+                  {working ? "Sending…" : item.action.kind === "download" ? "Download" : `Ask for S${item.season}`}
                 </span>
               </Button>
             ) : null}

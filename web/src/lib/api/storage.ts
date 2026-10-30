@@ -49,9 +49,10 @@ export interface JellyfinOrphanPath {
   state: "off" | "removed-root";
 }
 
-export async function listJellyfinOrphanPaths(): Promise<JellyfinOrphanPath[]> {
+/** Null when Jellyfin could not be asked, so callers keep the list they already show. */
+export async function listJellyfinOrphanPaths(): Promise<JellyfinOrphanPath[] | null> {
   const response = await get<{ paths: JellyfinOrphanPath[] }>("/api/jellyfin/orphan-paths");
-  return response.ok && response.data ? response.data.paths : [];
+  return response.ok && response.data ? response.data.paths : null;
 }
 
 export async function syncRootToJellyfin(rootId: string): Promise<StorageJellyfin> {

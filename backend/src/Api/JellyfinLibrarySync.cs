@@ -20,6 +20,7 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(30);
     private const string TurnedOffMessage = "This storage location is turned off.";
+    private const string CheckingMessage = "Checking Jellyfin…";
     private readonly Channel<bool> requests = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         FullMode = BoundedChannelFullMode.DropWrite,
@@ -60,8 +61,9 @@ internal sealed class JellyfinLibrarySync(IServiceScopeFactory scopes, JellyfinC
         {
             if (!root.Enabled) return new JellyfinRootStatus("off", [], TurnedOffMessage);
             var cached = statuses.GetValueOrDefault(root.Id);
-            return cached is null || cached.Message == TurnedOffMessage
-                ? new JellyfinRootStatus("pending", []) : cached;
+            return cached is null
+                ? new JellyfinRootStatus("pending", [])
+                : cached.Message == TurnedOffMessage ? new JellyfinRootStatus("pending", [], CheckingMessage) : cached;
         })];
     }
 

@@ -50,7 +50,8 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
   } = model;
   const playUrl = payload.jellyfin?.playUrl ?? null;
   // Once Jellyfin has the title, playing it comes first and getting it again is the quieter choice.
-  const getLabel = playUrl && !payload.isSeries ? "Download anyway" : downloadLabel;
+  const getLabel =
+    playUrl && !payload.isSeries && downloadControl.intent === "download" ? "Download anyway" : downloadLabel;
   return (
               <div
                 className={cn(
