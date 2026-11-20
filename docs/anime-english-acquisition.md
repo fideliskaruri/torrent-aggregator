@@ -61,3 +61,29 @@ It does not download real anime or prove accuracy of provider claims.
 Release verification additionally requires a full API build, unchanged main web
 typecheck/build, isolated published-executable startup/version/HTTP checks, installer
 compilation and updater asset/version checks. Do not install or restart the owner's app.
+
+### Release result — 21 November 2026
+
+Published [v0.4.1](https://github.com/fideliskaruri/torrent-aggregator/releases/tag/v0.4.1)
+from product commit `f174b64aa74e547d10148fe30fa6c3921922332a`, based on main/v0.4.0.
+The separate UI checkout was neither merged nor modified.
+
+- Fresh regression executable: **38 PASS, zero failures**.
+- Full API build and main web TypeScript/Vite production build: passed.
+- Self-contained Windows binary and Inno Setup installer: compiled.
+- Packaged binary startup with a new disposable database on port 3996: health,
+  desktop version 0.4.1, web route, English client settings and downloads API passed.
+- After publishing, the real packaged updater's check endpoint recognized latest
+  0.4.1 with `hasInstaller=true` and no error. Installation was never invoked.
+- Uploaded installer: 38,880,234 bytes; GitHub asset digest matches local SHA-256:
+  `673c86ef24bfe5501d3c702a03acbe33fd3e197136e0f4ea75fac9443904dd04`.
+- Disposable test processes were stopped. Installed app was not installed over,
+  restarted, reconfigured or commanded to acquire media.
+
+The first sandbox startup check could not reach loopback despite a 2.8-second
+ready log. The next smoke attempt used a nonexistent test API route; correcting
+the script to `/api/client/torrents` produced the successful checks above.
+These were test-environment/script issues, not changes to the released product.
+
+Remaining verification: owner installs through the normal updater and tests real
+anime acquisition/provider labels. No claim of live anime content verification.

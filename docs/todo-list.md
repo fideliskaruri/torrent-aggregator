@@ -10,7 +10,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - [x] English-first acquisition and qualified searches across enabled source tiers/aliases.
 - [x] Conservative fallback gate; retain quality/seed/identity/safety checks.
 - [x] 38 deterministic regression/integration assertions; unchanged main web build.
-- [ ] Final Windows package startup, installer and published updater assets.
+- [x] Final Windows package startup, installer and published updater assets (v0.4.1).
 - [ ] Owner installs through in-app update and tests real anime sources.
 
 See [anime-english-acquisition.md](anime-english-acquisition.md). This entry does not
