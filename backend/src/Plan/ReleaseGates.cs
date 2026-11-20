@@ -38,7 +38,7 @@ public sealed partial class ReleasePlanner
         if (accepted.Any(c => c.TrustedSeeders is > 0))
             accepted = [.. accepted.Where(c => c.TrustedSeeders is > 0 ||
                 targets.Length > 0 && targets.All(t => t.PickedReleaseHash == c.Release.Id))];
-        var ordered = accepted.OrderBy(c => QualityClass(c))
+        var ordered = accepted.OrderBy(c => AudioRank(c.Release.Parsed, input)).ThenBy(c => QualityClass(c))
             .ThenBy(c => QualityDistance(c))
             .ThenByDescending(c => c.TrustedSeeders ?? 0)
             .ThenByDescending(c => SourceRank(c.Release.Parsed.Quality.Source))
@@ -111,7 +111,7 @@ public sealed partial class ReleasePlanner
             return new(candidate.Release.Id, target.Id, "already_owned", "This item is already in your library.");
         var parsed = candidate.Release.Parsed;
         var language = AudioLanguage(input);
-        if (!LanguageAllowed(parsed, language))
+        if (!AudioAllowed(parsed, input, ownerPick))
             return new(candidate.Release.Id, target.Id, "foreign_language", LanguageRejection(language));
         var pack = parsed.Pack || parsed.Kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries;
         var episode = input.Work.Episodes.FirstOrDefault(e => e.Id == target.EpisodeId);
@@ -270,6 +270,17 @@ public sealed partial class ReleasePlanner
         !string.IsNullOrWhiteSpace(input.AudioLanguage) &&
         !input.AudioLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase)
             ? input.AudioLanguage : "en";
+
+    private static int AudioRank(ParsedRelease parsed, PlanInput input) =>
+        AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) ? AnimeAudioPolicy.Rank(parsed) : 0;
+
+    private static bool AudioAllowed(ParsedRelease parsed, PlanInput input, bool ownerPick = false)
+    {
+        if (!AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) || ownerPick)
+            return LanguageAllowed(parsed, AudioLanguage(input));
+        var rank = AnimeAudioPolicy.Rank(parsed);
+        return rank == 0 || input.AllowAnimeAudioFallback && rank > 0;
+    }
 
     private static bool LanguageAllowed(ParsedRelease parsed, string? desired)
     {

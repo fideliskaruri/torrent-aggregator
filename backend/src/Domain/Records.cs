@@ -640,6 +640,7 @@ public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, Immutab
     public WorkPreferenceRow? Preference { get; init; }
     public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];
     public string? AudioLanguage { get; init; }
+    public bool AllowAnimeAudioFallback { get; init; }
 }
 public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, ImmutableArray<Rejection> Rejections);
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,

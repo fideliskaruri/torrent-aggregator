@@ -41,7 +41,7 @@ public static partial class SearchQueries
     }
 
     internal static ImmutableArray<string> Build(WorkSnapshot work, TargetScope scope, string name,
-        bool includeYear = false)
+        bool includeYear = false, bool englishAudioFirst = false)
     {
         var queries = new List<string>();
         var episodes = work.Episodes.Where(e => scope.EpisodeIds.Contains(e.Id)).ToArray();
@@ -63,6 +63,13 @@ public static partial class SearchQueries
             if (episodes.Length == 1 && work.Work.Anime == true && episodes[0].AbsoluteNumber is { } absolute &&
                 episodes[0].MappingStatus == MappingStatus.Confirmed)
                 queries.Add($"{name} {absolute:00}");
+        }
+        if (englishAudioFirst)
+        {
+            // Search audio-qualified alternatives explicitly: a popular subbed release can fill
+            // a provider's result window and conceal less-seeded English releases.
+            return [.. queries.Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(q =>
+                new[] { q + " English dub", q + " dual audio", q })];
         }
         var originals = queries.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var variants = new List<string>();

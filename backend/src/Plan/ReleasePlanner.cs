@@ -42,7 +42,7 @@ public sealed partial class ReleasePlanner : IPlan
             }
             if (parsed.Unsafe || parsed.Sample || parsed.Cam || parsed.Kind == ReleaseKind.Other && !raw)
             { Refuse("junk_release", "This source is a sample, camera recording, or non-feature video."); continue; }
-            if (!raw && targets.Length > 0 && targets.All(t => !LanguageAllowed(parsed, AudioLanguage(input))))
+            if (!raw && targets.Length > 0 && targets.All(t => !AudioAllowed(parsed, input, t.PickedReleaseHash == release.Id)))
             {
                 foreach (var target in targets)
                     Refuse("foreign_language", LanguageRejection(AudioLanguage(input)),
@@ -141,7 +141,8 @@ public sealed partial class ReleasePlanner : IPlan
                 if (!ownerPick && floor is not null && (resolution is null || resolution < floor))
                 { Refuse("quality_floor", $"This item requires at least {floor}p.", target.Id); continue; }
                 var language = AudioLanguage(input);
-                if (!LanguageAllowed(parsed, language) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language)))
+                if (!AudioAllowed(parsed, input, ownerPick) || fileParses.Any(p => p is not null && !LanguageAllowed(p, language) &&
+                    !(input.AllowAnimeAudioFallback && AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) && AnimeAudioPolicy.Rank(p) > 0)))
                 { Refuse("foreign_language", LanguageRejection(language), target.Id); continue; }
                 var runtime = episode?.RuntimeMinutes ?? input.Work.Work.RuntimeMinutes;
                 var cap = target.MaxBytes ?? preference?.MaxBytesPerItem;

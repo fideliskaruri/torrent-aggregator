@@ -125,6 +125,19 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                     }
                 }
             }
+            // Do not interpret a source failure, an unknown swarm or an unfinished metadata
+            // probe as proof that English is unavailable. Retry those instead of falling back.
+            var preferred = planner.Shortlist(input with { Pool = [.. pool.Values] }).Candidates;
+            if (AnimeAudioPolicy.EnglishFirst(work, policy.AudioLanguage) &&
+                targets.All(t => t.PickedReleaseHash is null) && !plan.UncoveredTargetIds.IsEmpty &&
+                AnimeAudioPolicy.SearchExhausted(found) && !timedOut &&
+                preferred.All(c => c.TrustedSeeders == 0 || candidateFiles.ContainsKey(c.Release.Id)))
+            {
+                input = input with { AllowAnimeAudioFallback = true };
+                shortlist = planner.Shortlist(input with { Pool = [.. pool.Values] });
+                remainingProbeBudget += 6;
+                plan = await ProbeCandidates(shortlist.Candidates);
+            }
             var selected = plan.Assignments.Select(a => a.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var unused in attachments.Where(p => !selected.Contains(p.Key)).ToArray())
             {

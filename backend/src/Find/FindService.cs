@@ -20,6 +20,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
     {
         Validate(request);
         var timer = Stopwatch.StartNew();
+        var englishAudioFirst = AnimeAudioPolicy.EnglishFirst(request.Work, request.Policy.AudioLanguage);
         var limit = configuration.GetValue<int?>($"TorrentFlow:Find:{(request.Lane == PriorityLane.Owner
             ? "OwnerRequestLimit" : "BackgroundRequestLimit")}") ?? (request.Lane == PriorityLane.Owner ? 12 : 6);
         if (limit is < 1 or > 64) throw new InvalidOperationException("Find request limits must be between 1 and 64.");
@@ -56,7 +57,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                 if (phase == SearchNamePhase.English)
                     englishHealthy |= next.HasHealthyRelease || next.FilmCovered || !next.CoveredEpisodeIds.IsEmpty;
                 if (next.PoolRevision >= stageStartRevision) needFallback = next.NeedFallbackTier;
-                if (next.Stop && AllCovered()) early = true;
+                if (!englishAudioFirst && next.Stop && AllCovered()) early = true;
             }
             feedbackEnded = signals.Reader.Completion.IsCompleted;
         }
@@ -80,7 +81,9 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
             foreach (var name in SearchQueries.Names(request.Work))
             {
                 phase = name.Phase;
-                foreach (var currentTier in new[] { SourceTier.Core, SourceTier.Fallback })
+                foreach (var currentTier in englishAudioFirst
+                             ? new[] { SourceTier.Core, SourceTier.Fallback, SourceTier.OptIn }
+                             : new[] { SourceTier.Core, SourceTier.Fallback })
                 {
                     Feedback();
                     if (early || provisional) break;
@@ -92,11 +95,11 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                     var singleSeason = request.Scope.EpisodeIds.Length > 1 && request.Work.Episodes
                         .Where(e => request.Scope.EpisodeIds.Contains(e.Id)).Select(e => e.SeasonId).Distinct().Count() == 1;
                     var plans = selected.SelectMany((source, index) => SearchQueries.Build(request.Work, request.Scope, name.Name,
-                            configuration.GetValue<bool>($"TorrentFlow:Sources:{source.Id}:RequiresYear"))
-                        .Skip(tier == SourceTier.Fallback && singleSeason ? 1 : 0)
-                        .Take(tier == SourceTier.Fallback ? 1 : int.MaxValue)
+                            configuration.GetValue<bool>($"TorrentFlow:Sources:{source.Id}:RequiresYear"), englishAudioFirst)
+                        .Skip(!englishAudioFirst && tier == SourceTier.Fallback && singleSeason ? 1 : 0)
+                        .Take(!englishAudioFirst && tier == SourceTier.Fallback ? 1 : int.MaxValue)
                         .Select((query, ordinal) => (Source: source, Query: query, Ordinal: ordinal, Priority: index + ordinal)))
-                        .OrderBy(plan => plan.Priority).ThenBy(plan => plan.Ordinal).Take(limit)
+                        .OrderBy(plan => plan.Priority).ThenBy(plan => plan.Ordinal).Take(englishAudioFirst ? int.MaxValue : limit)
                         .Select(plan => (plan.Source, plan.Query)).ToArray();
                     if (plans.Length == 0) continue;
                     needFallback = false;
@@ -105,7 +108,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                     var results = Channel.CreateUnbounded<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)>(
                         new() { SingleReader = true, SingleWriter = false });
                     var producers = ProduceTierAsync(request, phase, plans,
-                        results.Writer, tierCancel.Token);
+                        results.Writer, limit, tierCancel.Token);
                     try
                     {
                         while (true)
@@ -118,7 +121,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                                 if (first is null && !pool.Candidates.IsEmpty) first = timer.Elapsed;
                                 traces[phase + "\0" + answer.Source + "\0" + answer.Query] =
                                     new(answer.Query, answer.Source, phase, tier, answer.Cached, answer.Shared, answer.Result);
-                                provisional = !request.Exhaust && request.ProvisionalGood &&
+                                provisional = !englishAudioFirst && !request.Exhaust && request.ProvisionalGood &&
                                     pool.Candidates.Any(c => c.TrustedSeeders is >= 1);
                                 yield return Snapshot(false);
                                 continue;
@@ -142,7 +145,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                     Feedback();
                     if (early || provisional) break;
                     // Let already-started checks answer at a tier boundary, at most twenty seconds.
-                    if (!request.Exhaust && !pool.Candidates.IsEmpty && !feedbackEnded && !needFallback)
+                    if (!englishAudioFirst && !request.Exhaust && !pool.Candidates.IsEmpty && !feedbackEnded && !needFallback)
                     {
                         using var wait = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                         wait.CancelAfter(TimeSpan.FromSeconds(20));
@@ -154,7 +157,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                         }
                     }
                 }
-                if (early || provisional || englishHealthy) break;
+                if (early || provisional || !englishAudioFirst && englishHealthy) break;
             }
             var final = Snapshot(true);
             yield return final;
@@ -168,7 +171,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
 
     private async Task ProduceTierAsync(SearchRequest request, SearchNamePhase phase,
         (SourceSettings Source, string Query)[] plans,
-        ChannelWriter<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)> output,
+        ChannelWriter<(string Query, string Source, SourceResult Result, bool Cached, bool Shared)> output, int parallelism,
         CancellationToken ct)
     {
         async Task Produce(SourceSettings settings, string query)
@@ -184,7 +187,7 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                 .Select(e => e.SeasonId).Distinct().Order(StringComparer.Ordinal).ToArray();
             var key = JsonSerializer.Serialize(new
             {
-                queryVersion = 3,
+                queryVersion = 4,
                 query = SearchQueries.Fold(query),
                 source,
                 category,
@@ -219,7 +222,14 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                 output.TryWrite((query, source, failed, false, false));
             }
         }
-        try { await Task.WhenAll(plans.Select(plan => Produce(plan.Source, plan.Query))); }
+        try
+        {
+            foreach (var window in plans.Chunk(parallelism))
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.WhenAll(window.Select(plan => Produce(plan.Source, plan.Query)));
+            }
+        }
         finally { output.TryComplete(); }
     }
 

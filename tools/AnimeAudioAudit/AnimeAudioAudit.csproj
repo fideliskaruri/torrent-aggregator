@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../backend/src/Api/Desktop/ReleaseVersion.cs" Link="ReleaseVersion.cs" />
+    <ProjectReference Include="../../backend/src/Plan/Plan.csproj" />
+    <ProjectReference Include="../../backend/src/Parser/Parser.csproj" />
+    <ProjectReference Include="../../backend/src/Targets/Targets.csproj" />
+  </ItemGroup>
+</Project>

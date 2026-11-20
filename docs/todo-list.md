@@ -4,6 +4,18 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## In progress
 
+### 21 November 2026 — focused main-branch anime repair
+
+- [x] Reproduce English losing to higher-seeded unknown/Japanese-with-English-subs releases.
+- [x] English-first acquisition and qualified searches across enabled source tiers/aliases.
+- [x] Conservative fallback gate; retain quality/seed/identity/safety checks.
+- [x] 38 deterministic regression/integration assertions; unchanged main web build.
+- [ ] Final Windows package startup, installer and published updater assets.
+- [ ] Owner installs through in-app update and tests real anime sources.
+
+See [anime-english-acquisition.md](anime-english-acquisition.md). This entry does not
+reactivate historical UI/staging tasks below or authorize installed-app changes.
+
 | Item | Owner (model) | Status |
 |---|---|---|
 | Full QA sweep of every film and series type (FEAT-33): films OPS-566, series OPS-567, anime OPS-568, real requester run | qa-films, qa-series, qa-anime (Opus 5.5) | Done; bugs OPS-569 to OPS-596 split into fix lanes below |
