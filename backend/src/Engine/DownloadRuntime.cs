@@ -203,6 +203,8 @@ public sealed partial class MonoTorrentEngine
 
     private static async Task HashCheckBindingsAsync(Entry entry)
     {
+        DeletionMeasurement.Add("recheckCalls");
+        using var observed = DeletionMeasurement.Time("recheck");
         // MonoTorrent skips DoNotDownload files during a hash check. Include filed and
         // held files for this read-only check, then protect them again before payload starts.
         foreach (var index in entry.Filed.Concat(entry.Held).Distinct())

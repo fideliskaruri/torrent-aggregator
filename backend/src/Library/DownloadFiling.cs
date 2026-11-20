@@ -65,6 +65,9 @@ public sealed class DownloadFiling
     {
         LibraryPaths.NoLinks(path);
         await using var stream = File.OpenRead(path);
+        using var observed = DeletionMeasurement.Time("sha");
+        DeletionMeasurement.Add("shaCalls");
+        DeletionMeasurement.Add("shaBytes", stream.Length);
         return Convert.ToHexString(await SHA256.HashDataAsync(stream, ct));
     }
 

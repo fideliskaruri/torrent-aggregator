@@ -693,6 +693,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     public async Task<EngineDrainResult> StopAndReleaseFilesAsync(string downloadId, CancellationToken ct)
     {
+        DeletionMeasurement.Add("drainCalls");
+        using var observed = DeletionMeasurement.Time("drain");
         await gate.WaitAsync(ct);
         try
         {
@@ -814,6 +816,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     public async Task RecoverAsync(ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> files, CancellationToken ct)
     {
+        DeletionMeasurement.Add("recoverCalls");
+        using var observed = DeletionMeasurement.Time("recover");
         var recovered = fileState is null ? ImmutableArray<EngineRecoveryFiles>.Empty : await fileState.ReadAsync(ct);
         var forceChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await gate.WaitAsync(ct);
@@ -916,6 +920,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     public async Task SaveDevStateAsync(CancellationToken ct)
     {
+        DeletionMeasurement.Add("stateSaveCalls");
+        using var observed = DeletionMeasurement.Time("stateSave");
         await gate.WaitAsync(ct);
         try
         {
