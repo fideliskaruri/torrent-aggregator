@@ -239,7 +239,9 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         MaximumConnections = settings.GlobalPeers,
         MaximumHalfOpenConnections = settings.HalfOpenConnections,
         MaximumOpenFiles = settings.OpenFiles,
-        DiskCacheBytes = checked((int)Math.Min(int.MaxValue, settings.DiskCacheBytes)),
+        // MonoTorrent 3.0.2 can hash cached bytes before async-void destaging finishes.
+        // Keep writes awaited through the standard writer; the OS file cache remains enabled.
+        DiskCacheBytes = 0,
         DiskCachePolicy = MonoTorrent.PieceWriter.CachePolicy.WritesOnly,
         AllowedEncryption = [EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText],
         ListenEndPoints = Socket.OSSupportsIPv6

@@ -85,3 +85,20 @@ The isolated development composition and local-seeder HTTP evidence are describe
 in `..\Library\README.md`. `tools\.filing-proof\summary.json` records the option-(a)
 proof, including a filed first video with a still-downloading second video, crash
 replay, and removal of both final and partial bindings.
+
+## MonoTorrent 3.0.2 completion ordering
+
+Effective block-cache capacity is zero while this pinned version is used. Its
+MemoryCache cache-hit path starts async-void destaging and returns hash input
+before a cross-file write completes. That write can reopen a file after stopping
+has closed its streams; removing the manager then leaves an orphan writer handle.
+Using the stock zero-capacity WritesOnly path keeps writes awaited. Windows file
+caching remains enabled; configured capacity is retained but is not effective.
+Both new and restored clients receive the effective settings before replay.
+
+Run tools/CacheDrainAudit for the deterministic Windows baseline. --no-cache
+checks the corrected ordering; --no-cache --write-failure checks error propagation.
+--loopback compares real private-peer transfers and independently hashes every
+file. These are generated fixtures; ordinary localhost speed does not establish
+performance on slow drives with out-of-order traffic. tools/FilingAudit --pipeline
+also checks actual target filing, media records and independent payload digests.

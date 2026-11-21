@@ -78,6 +78,30 @@ while(!ct.IsCancellationRequested){
  await Task.Delay(100,ct);
 }
 Console.WriteLine($"Completed {state!.CompletedSelectedBytes} bytes");
+if(args.Contains("--pipeline"))
+{
+    await using var scope=provider.CreateAsyncScope();
+    var store=scope.ServiceProvider.GetRequiredService<TargetStore>();
+    var repo=(ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+    var db=scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
+    var download=await db.Downloads.AsNoTracking().SingleAsync(d=>d.Id==pack.Id,ct);
+    var bindings=(await repo.BindingsAsync(ct)).Where(f=>f.DownloadId==pack.Id).ToImmutableArray();
+    var targets=(await store.ListAsync<TargetRow>(null,ct)).ToImmutableArray();
+    var filing=typeof(TargetPipeline).Assembly.GetType("TorrentFlow.Targets.DownloadFiling")!
+        .GetMethod("FileAsync",BindingFlags.Static|BindingFlags.NonPublic)!;
+    await ((Task)filing.Invoke(null,[store,repo,swarm.Engine,download,state,bindings,targets,new SemaphoreSlim(1,1),ct])!);
+    var done=await db.Targets.AsNoTracking().CountAsync(t=>t.State==TargetState.Done,ct);
+    var media=await db.MediaFiles.AsNoTracking().ToArrayAsync(ct);
+    if(done!=pack.Paths.Length || media.Length!=pack.Paths.Length)throw new Exception($"Incomplete publication {done}/{pack.Paths.Length}, media={media.Length}");
+    for(var i=0;i<pack.Paths.Length;i++){
+        var path=pack.Paths[i]+".planned-final";
+        using var file=File.OpenRead(path);
+        if(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file))!=pack.Digests[i])throw new Exception("Published content changed");
+        if(File.Exists(pack.Paths[i]))throw new Exception("Partial remained");
+    }
+    Console.WriteLine($"PASS actual target filing: {done} targets Done, {media.Length} media records, renamed paths match independent SHA256");
+    return;
+}
 var drain=await swarm.Engine.StopAndReleaseFilesAsync(pack.Id,ct);
 if(!drain.WritesDrained || drain.Failure!=null)throw new Exception("Drain failed");
 foreach(var path in pack.Paths){
