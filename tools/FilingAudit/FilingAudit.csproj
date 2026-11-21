@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /><ProjectReference Include="../../backend/src/Api/Api.csproj" /><Compile Include="../DeletionAudit/Swarm.cs" Link="Swarm.cs" /></ItemGroup></Project>

@@ -199,7 +199,8 @@ public sealed partial class TargetPipeline
             var row = old is null
                 ? NewTargetRow(id, work, episodeId, selected, actor, origin, ruleId, maxBytes, quality, batch, now)
                 : old with { Kind = TargetKind.Acquire, ReplacementMode = null, ReplaceMediaFileId = null,
-                    PickedReleaseHash = old.PickedReleaseHash,
+                    // A new ordinary download must search again; only AcceptPicked carries a source override.
+                    PickedReleaseHash = null,
                     Origin = origin, CreatedBy = actor,
                     State = TargetState.Wanted, ReasonCode = null, ReasonText = null, NextTryAt = null,
                     ChosenReleaseHash = null, ResumeState = null, LeaseToken = null, LeaseUntil = null,

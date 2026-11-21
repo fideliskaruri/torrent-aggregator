@@ -205,3 +205,9 @@ reactivate historical UI/staging tasks below or authorize installed-app changes.
 - [ ] Final package smoke, publication and authorized in-app update. See release-0.4.2-verification.md.
 
 - [x] 21 November final0.4.2 package smoke, verified publication and explicitly authorized in-app update completed. Product38b4a48. Supersedes the pending package item above; real-payload acceptance stays with the owner.
+
+- [x] Classroom S01E01 real automatic acquisition and decoded English dialogue verified; see classroom-real-audio-e2e-20261121.md.
+- [ ] Fix newly reproduced completed-payload filing/read failure; full end-to-end acceptance remains blocked.
+
+- [x] Reproduced and fixed stale manual source override on ordinary redownload; regression red/green.
+- [ ] Publish/install0.4.3 and verify installed Classroom S01E01 actual English audio and Ready state.

@@ -90,5 +90,6 @@ try { await PipelineAudit.RunAsync(work, target, (hash, audio, seeds, resolution
 catch (Exception e) { failures++; Console.WriteLine("FAIL pipeline: " + e); }
 try { await SourceAudioAudit.RunAsync(work, target); }
 catch (Exception e) { failures++; Console.WriteLine("FAIL source details: " + e); }
+try { ReacquireAudit.Run(work,target); } catch(Exception e) { failures++; Console.WriteLine("FAIL reacquire: " + e); }
 Environment.ExitCode = failures == 0 ? 0 : 1;
 
