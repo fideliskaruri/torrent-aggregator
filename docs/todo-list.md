@@ -203,3 +203,5 @@ reactivate historical UI/staging tasks below or authorize installed-app changes.
 - [x] Audio evidence regression implementation and independent review;96checks.
 - [x] Batched deletion, protected failed/kept items, populated-schema migration, repeated engine fixtures and actual headless UI flow.
 - [ ] Final package smoke, publication and authorized in-app update. See release-0.4.2-verification.md.
+
+- [x] 21 November final0.4.2 package smoke, verified publication and explicitly authorized in-app update completed. Product38b4a48. Supersedes the pending package item above; real-payload acceptance stays with the owner.
