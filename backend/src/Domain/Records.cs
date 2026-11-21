@@ -570,6 +570,8 @@ public sealed record SourceDiagnostics(string Code, TimeSpan QueueWait, int Requ
 {
     public TimeSpan UpstreamElapsed { get; init; }
 }
+public sealed record SourceAudioEvidence(string SourceId, string SourceItemId, string Hash,
+    ImmutableArray<string> Languages);
 public sealed record Candidate(ReleaseRow Release, ImmutableArray<ReleaseObservationRow> Observations,
     int? ConservativeListedSeeders)
 {
@@ -577,6 +579,9 @@ public sealed record Candidate(ReleaseRow Release, ImmutableArray<ReleaseObserva
     public bool CoversFilm { get; init; }
     public int? ScrapedSeeders { get; init; }
     public int? TrustedSeeders => ScrapedSeeders ?? ConservativeListedSeeders;
+    public ImmutableArray<AnimeAudioMatch> AudioNameClaims { get; init; } = [];
+    public SourceAudioEvidence? AudioEvidence { get; init; }
+    public bool AudioDetailUnavailable { get; init; }
 }
 public sealed record SearchRequest(string SessionId, WorkSnapshot Work, TargetScope Scope,
     Policy Policy, PriorityLane Lane, SearchNamePhase NamePhase, ImmutableArray<string> SourceIds,
@@ -640,9 +645,12 @@ public sealed record PlanInput(WorkSnapshot? Work, AcquisitionMode Mode, Immutab
     public WorkPreferenceRow? Preference { get; init; }
     public ImmutableArray<PlanFileMetadata> FileMetadata { get; init; } = [];
     public string? AudioLanguage { get; init; }
-    public bool AllowAnimeAudioFallback { get; init; }
+    public ImmutableHashSet<string> AnimeJapaneseFallbackTargetIds { get; init; } = ImmutableHashSet<string>.Empty;
 }
-public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, ImmutableArray<Rejection> Rejections);
+public sealed record PlanShortlist(ImmutableArray<Candidate> Candidates, ImmutableArray<Rejection> Rejections)
+{
+    public ImmutableArray<Candidate> EligibleBeforeSeedRanking { get; init; } = Candidates;
+}
 public sealed record PlanResult(ImmutableArray<Assignment> Assignments, ImmutableArray<Rejection> Rejections,
     ImmutableArray<string> UncoveredTargetIds);
 public sealed record EngineFileSnapshot(int Index, long Bytes, long CompletedBytes, long AllocatedBytes,

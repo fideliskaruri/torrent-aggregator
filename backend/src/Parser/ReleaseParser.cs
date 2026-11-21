@@ -358,6 +358,10 @@ public sealed class ReleaseParser : IParser
                 IsLanguageTag(content) ? " " : content;
         }).Trim(' ', '-', '(', ')', '[', ']');
         title = Spaces.Replace(title, " ");
+        // Some season listings put a dub label before quality and the season coordinate.
+        if (kind == ReleaseKind.SeasonPack && seasons.Count > 0 && Resolution.Match(text) is { Success: true } packResolution &&
+            packResolution.Index == titleEnd && seasons.Min(s => s.Index) > titleEnd)
+            title = R(@"\s+(?:English|ENG)\s+Dub$").Replace(title, "");
         return new(releaseName, title, year, seasonNumbers, episodes.Distinct().ToImmutableArray(),
             absolute.Distinct().ToImmutableArray(), episodeRanges.Concat(absoluteRanges).Distinct().ToImmutableArray(),
             kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries,

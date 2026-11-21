@@ -51,6 +51,7 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
             }
             // Conflicting names for one hash must not erase explicit safety/language evidence.
             var retained = MergeFlags(existing.Release.Parsed, parse!);
+            var claim = work?.Work.Anime == true ? AnimeAudioPolicy.NameClaim(parse!) : AnimeAudioMatch.Unknown;
             candidates[hash!] = WithObservations(existing with
             {
                 Release = existing.Release with
@@ -61,7 +62,9 @@ internal sealed partial class CandidatePool(IParser parser, WorkSnapshot? work, 
                     Magnet = existing.Release.Magnet ?? raw.Magnet,
                     TorrentUri = existing.Release.TorrentUri ?? raw.TorrentUri
                 },
-                CoveredEpisodeIds = [.. existing.CoveredEpisodeIds.Union(coverage)]
+                CoveredEpisodeIds = [.. existing.CoveredEpisodeIds.Union(coverage)],
+                AudioNameClaims = claim == AnimeAudioMatch.Unknown || existing.AudioNameClaims.Contains(claim)
+                    ? existing.AudioNameClaims : existing.AudioNameClaims.Add(claim),
             }, observationsByHash[hash!].Values);
         }
     }

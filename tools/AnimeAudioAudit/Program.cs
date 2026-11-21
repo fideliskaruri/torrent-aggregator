@@ -63,14 +63,32 @@ Test("Non-anime selection is unchanged", () =>
 Test("Explicit Japanese preference remains available", () =>
     Equal(true, !AnimeAudioPolicy.EnglishFirst(work, "ja")));
 foreach (var label in new[] { "English Subs", "ENG SUB", "English Subbed", "English (Subtitles)", "Subs: English", "Multi Subs" })
-    Test(label + " is not English audio", () => Equal(true, AnimeAudioPolicy.Rank(Release('c', label, 10).Release.Parsed) > 0));
-Test("Explicit English dual audio is preferred", () => Equal(0,
-    AnimeAudioPolicy.Rank(Release('c', "Dual Audio Japanese English", 10).Release.Parsed)));
-Test("Spanish/Japanese dual is not presumed English", () => Equal(-1,
-    AnimeAudioPolicy.Rank(Release('c', "Dual Audio Spanish Japanese", 10).Release.Parsed)));
+    Test(label + " is not English audio", () => Equal(AnimeAudioMatch.Unknown,
+        AnimeAudioPolicy.Match(Release('c', label, 10))));
+foreach (var label in new[] { "Japanese Audio [English SDH]", "Japanese Audio English CC",
+    "[Japanese] [English SRT]", "[Subtitles in English]", "Japanese Audio [English Commentary]",
+    "Japanese Audio (no English dub)", "English Dub not included", "English Audio: False",
+    "Japanese Audio English Version", "Dual Audio Japanese English Version",
+    "English Audio (Commentary)", "English Dub 2.0 Director Commentary", "not dubbed in English" })
+    Test(label + " supplies no positive English claim", () => Equal(false,
+        AnimeAudioPolicy.Match(Release('c', label, 10)) == AnimeAudioMatch.English));
+Test("Explicit English dual audio is preferred", () => Equal(AnimeAudioMatch.English,
+    AnimeAudioPolicy.Match(Release('c', "Dual Audio Japanese English", 10))));
+Test("A bounded bilingual language tag supplies an English claim", () => Equal(AnimeAudioMatch.English,
+    AnimeAudioPolicy.Match(Release('c', "[JPN/ENG]", 10))));
+Test("Spanish/Japanese dual is not presumed English", () => Equal(AnimeAudioMatch.Other,
+    AnimeAudioPolicy.Match(Release('c', "Dual Audio Spanish Japanese", 10))));
+Test("PT-BR Japanese dual is not presumed English", () => Equal(AnimeAudioMatch.Other,
+    AnimeAudioPolicy.Match(Release('c', "Dual Audio PT-BR Japanese", 10))));
+Test("Multiple subtitle languages cannot supply audio evidence", () => Equal(AnimeAudioMatch.Unknown,
+    AnimeAudioPolicy.Match(Release('c', "1080p Subs: Japanese / English / Portuguese", 10))));
+Test("English audio with Spanish subtitles is English", () => Equal(AnimeAudioMatch.English,
+    AnimeAudioPolicy.Match(Release('c', "English Dub with Spanish Subs", 10))));
 Test("Minimum seed preference is retained", () => Equal(0,
     planner.Shortlist(Input(english) with { Targets = [target with { MinListedSeeders = 10 }] }).Candidates.Length));
 try { await PipelineAudit.RunAsync(work, target, (hash, audio, seeds, resolution) => Release(hash, audio, seeds, resolution)); }
 catch (Exception e) { failures++; Console.WriteLine("FAIL pipeline: " + e); }
+try { await SourceAudioAudit.RunAsync(work, target); }
+catch (Exception e) { failures++; Console.WriteLine("FAIL source details: " + e); }
 Environment.ExitCode = failures == 0 ? 0 : 1;
 

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using TorrentFlow.Domain;
 using TorrentFlow.Find;
+using TorrentFlow.Parser;
 using TorrentFlow.Plan;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
@@ -54,14 +55,28 @@ internal static class PipelineAudit
         Pick("pipeline prefers healthy English over Japanese and unknown", await Discover(Batch(japanese, unknown, english)), english);
         Pick("auto is English-first for anime", await Discover(Batch(japanese, english), language: "auto"), english);
         Pick("Japanese last resort after successful exhausted search", await Discover(Batch(japanese)), japanese);
-        Pick("unknown is a fallback, never verified English", await Discover(Batch(unknown)), unknown);
-        Pick("advertised dual audio outranks unknown fallback", await Discover(Batch(dual, unknown)), dual);
+        Wait("unknown language is never selected as Japanese fallback", await Discover(Batch(unknown)));
+        Wait("unconfirmed dual audio prevents Japanese fallback", await Discover(Batch(dual, japanese)));
+        Wait("unknown language with no seed count prevents Japanese fallback",
+            await Discover(Batch(unknown with { ConservativeListedSeeders = null }, japanese)));
+        Pick("unknown language with zero seeds cannot conceal a healthy English release",
+            await Discover(Batch(unknown with { ConservativeListedSeeders = 0 }, english)), english);
+        Pick("zero-seed unresolved language permits healthy Japanese fallback",
+            await Discover(Batch(unknown with { ConservativeListedSeeders = 0 }, japanese)), japanese);
+        Pick("explicit Japanese preference still selects a Japanese release",
+            await Discover(Batch(japanese), language: "ja"), japanese);
+        Pick("explicit French preference still selects a French release",
+            await Discover(Batch(release('f', "French Audio", 30, 1080)), language: "fr"),
+            release('f', "French Audio", 30, 1080));
+        Pick("any preference still selects an unresolved dual release",
+            await Discover(Batch(dual), language: "any"), dual);
         Pick("zero-seed English permits healthy Japanese fallback", await Discover(Batch(english with { ConservativeListedSeeders = 0 }, japanese)), japanese);
         Wait("unknown English swarm does not prove English unavailable",
             await Discover(Batch(english with { ConservativeListedSeeders = null }, japanese)));
         Wait("unresolved English metadata prevents fallback", await Discover(Batch(english, japanese), english.Release.Id));
         Wait("incomplete search prevents fallback", await Discover(Batch(japanese) with { Complete = false }));
         Wait("early-stopped search prevents fallback", await Discover(Batch(japanese) with { EarlyStopped = true }));
+        Wait("a request budget cap prevents fallback", await Discover(Batch(japanese) with { RequestBudgetExhausted = true }));
         foreach (var outcome in new[] { SourceOutcome.Failed, SourceOutcome.TimedOut, SourceOutcome.Partial,
                      SourceOutcome.Busy, SourceOutcome.CoolingDown })
         {
@@ -73,6 +88,24 @@ internal static class PipelineAudit
         Wait("truncated results do not prove exhaustive search", await Discover(Batch(japanese) with
             { Queries = [new("query", "fixture", SearchNamePhase.English, SourceTier.Fallback, false, false, truncated)] }));
         Wait("other foreign audio is not Japanese fallback", await Discover(Batch(release('e', "Russian Audio", 30, 1080))));
+        var secondEpisode = work.Episodes[0] with { Id = "episode2", Number = 2, AbsoluteNumber = 2 };
+        var seasonWork = work with { Episodes = [work.Episodes[0], secondEpisode],
+            Seasons = [work.Seasons[0] with { ExpectedEpisodeCount = 2 }] };
+        var secondTarget = target with { Id = "target2", EpisodeId = secondEpisode.Id };
+        var secondName = japanese.Release.Name.Replace("S01E01", "S01E02");
+        var secondJapanese = japanese with { Release = japanese.Release with
+            { Name = secondName, Parsed = new ReleaseParser(2026).Parse(secondName),
+                Files = [new(0, "Example Show S01E02.mkv", 500_000_000, 0)] } };
+        var seasonEngine = DispatchProxy.Create<IEngine, ProbeEngine>();
+        var seasonDiscovery = new DiscoveryPlan(new FixtureFind(Batch(unknown, secondJapanese)), new ReleasePlanner(),
+            seasonEngine, new(seasonEngine, NullLogger<ProbeRegistry>.Instance));
+        var season = await seasonDiscovery.RunAsync(seasonWork, new(work.Work.Id, ["episode", "episode2"], false),
+            new(720, 1080, "auto", null, null), PriorityLane.Owner, false, CancellationToken.None,
+            actualTargets: [target, secondTarget]);
+        if (season.Plan.Assignments.SingleOrDefault()?.TargetIds.Single() != secondTarget.Id ||
+            !season.Plan.UncoveredTargetIds.SequenceEqual([target.Id]))
+            throw new InvalidOperationException("An unresolved first episode must not authorize fallback for that episode or block the second.");
+        Console.WriteLine("PASS Japanese fallback applies only to episodes whose English search was exhausted");
         await RealFindAsync(work, target, english, japanese);
     }
 
@@ -150,14 +183,24 @@ internal sealed class FixtureFind(CandidateBatch batch) : IFind
 public class ProbeEngine : DispatchProxy
 {
     public string? FailedHash { get; set; }
+    public ImmutableArray<TorrentFile> Files { get; set; } =
+        [new(0, "Example Show S01E01.mkv", 500_000_000, 0)];
+    public ConcurrentBag<string> Requested { get; } = [];
+
     protected override object? Invoke(MethodInfo? method, object?[]? args) => method?.Name switch
     {
-        nameof(IEngine.AttachProbeAsync) => Task.FromResult(((Candidate)args![0]!).Release.Id == FailedHash
-            ? new ProbeAttachment(null, null, new("metadata_unavailable", "fixture", null, false))
-            : new ProbeAttachment(null, [new(0, "Example Show S01E01.mkv", 500_000_000, 0)], null)),
+        nameof(IEngine.AttachProbeAsync) => Probe((Candidate)args![0]!),
         nameof(IEngine.ReleaseProbeAsync) => Task.CompletedTask,
         _ => throw new NotSupportedException(method?.Name)
     };
+
+    private Task<ProbeAttachment> Probe(Candidate candidate)
+    {
+        Requested.Add(candidate.Release.Id);
+        return Task.FromResult(candidate.Release.Id == FailedHash
+            ? new ProbeAttachment(null, null, new("metadata_unavailable", "fixture", null, false))
+            : new ProbeAttachment(null, candidate.Release.Parsed.Pack ? Files : [Files[0]], null));
+    }
 }
 
 internal sealed class FixtureLifetime : IHostApplicationLifetime

@@ -35,10 +35,11 @@ public sealed partial class ReleasePlanner
             }
             if (eligible) accepted.Add(candidate);
         }
+        var eligibleBeforeSeedRanking = accepted.ToImmutableArray();
         if (accepted.Any(c => c.TrustedSeeders is > 0))
             accepted = [.. accepted.Where(c => c.TrustedSeeders is > 0 ||
                 targets.Length > 0 && targets.All(t => t.PickedReleaseHash == c.Release.Id))];
-        var ordered = accepted.OrderBy(c => AudioRank(c.Release.Parsed, input)).ThenBy(c => QualityClass(c))
+        var ordered = accepted.OrderBy(c => AudioRank(c, input)).ThenBy(c => QualityClass(c))
             .ThenBy(c => QualityDistance(c))
             .ThenByDescending(c => c.TrustedSeeders ?? 0)
             .ThenByDescending(c => SourceRank(c.Release.Parsed.Quality.Source))
@@ -46,7 +47,7 @@ public sealed partial class ReleasePlanner
             .ThenByDescending(c => c.Observations.IsEmpty ? DateTimeOffset.MinValue :
                 c.Observations.Max(o => o.UploadedAt))
             .ThenBy(c => c.Release.Id, StringComparer.Ordinal).ToImmutableArray();
-        return new(ordered, [.. rejections]);
+        return new(ordered, [.. rejections]) { EligibleBeforeSeedRanking = eligibleBeforeSeedRanking };
 
         int QualityClass(Candidate c)
         {
@@ -111,7 +112,7 @@ public sealed partial class ReleasePlanner
             return new(candidate.Release.Id, target.Id, "already_owned", "This item is already in your library.");
         var parsed = candidate.Release.Parsed;
         var language = AudioLanguage(input);
-        if (!AudioAllowed(parsed, input, ownerPick))
+        if (!AudioAllowed(candidate, input, target))
             return new(candidate.Release.Id, target.Id, "foreign_language", LanguageRejection(language));
         var pack = parsed.Pack || parsed.Kind is ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries;
         var episode = input.Work.Episodes.FirstOrDefault(e => e.Id == target.EpisodeId);
@@ -271,15 +272,25 @@ public sealed partial class ReleasePlanner
         !input.AudioLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase)
             ? input.AudioLanguage : "en";
 
-    private static int AudioRank(ParsedRelease parsed, PlanInput input) =>
-        AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) ? AnimeAudioPolicy.Rank(parsed) : 0;
+    private static int AudioRank(Candidate candidate, PlanInput input) =>
+        AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) &&
+        AnimeAudioPolicy.Match(candidate) == AnimeAudioMatch.Japanese ? 1 : 0;
 
-    private static bool AudioAllowed(ParsedRelease parsed, PlanInput input, bool ownerPick = false)
+    private static bool AudioAllowed(Candidate candidate, PlanInput input, TargetRow target)
+    {
+        if (!AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) || target.PickedReleaseHash == candidate.Release.Id)
+            return LanguageAllowed(candidate.Release.Parsed, AudioLanguage(input));
+        var match = AnimeAudioPolicy.Match(candidate);
+        return match == AnimeAudioMatch.English ||
+            match == AnimeAudioMatch.Japanese && input.AnimeJapaneseFallbackTargetIds.Contains(target.Id);
+    }
+
+    private static bool FileAudioAllowed(ParsedRelease parsed, Candidate candidate, PlanInput input, bool ownerPick)
     {
         if (!AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage) || ownerPick)
             return LanguageAllowed(parsed, AudioLanguage(input));
-        var rank = AnimeAudioPolicy.Rank(parsed);
-        return rank == 0 || input.AllowAnimeAudioFallback && rank > 0;
+        var claim = AnimeAudioPolicy.NameClaim(parsed);
+        return claim == AnimeAudioMatch.Unknown || claim == AnimeAudioPolicy.Match(candidate);
     }
 
     private static bool LanguageAllowed(ParsedRelease parsed, string? desired)

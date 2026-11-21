@@ -11,7 +11,8 @@ public static class SourcesComposition
     {
         services.AddSources();
         services.AddSingleton<IParser>(_ => new ReleaseParser(DateTime.UtcNow.Year + 1));
-        services.AddSingleton<SourceSearches>();
+        services.AddSingleton(new SourceSearches<SourceResult>(result =>
+            result.Outcome is not (SourceOutcome.Failed or SourceOutcome.TimedOut)));
         services.AddSingleton<ReleaseFacts>();
         services.AddSingleton<IFind, FindService>();
         return services;

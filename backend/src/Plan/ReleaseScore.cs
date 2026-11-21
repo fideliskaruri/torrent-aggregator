@@ -20,7 +20,7 @@ public sealed partial class ReleasePlanner
             var seasonCover = input.Work?.Work.Kind == WorkKind.Series && eligible.Any(o =>
                 o.Candidate.Release.Parsed.Pack || o.Candidate.Release.Parsed.Kind is
                     ReleaseKind.SeasonPack or ReleaseKind.MultiSeason or ReleaseKind.CompleteSeries);
-            var best = eligible.OrderBy(o => AudioRank(o.Candidate.Release.Parsed, input)).ThenBy(o => o.ResolutionClass).ThenBy(o => o.ResolutionDistance)
+            var best = eligible.OrderBy(o => AudioRank(o.Candidate, input)).ThenBy(o => o.ResolutionClass).ThenBy(o => o.ResolutionDistance)
                 .ThenByDescending(o => o.Candidate.TrustedSeeders ?? 0).ThenByDescending(o => o.Source)
                 .ThenByDescending(o => Coverage(o, eligible))
                 .ThenBy(o => seasonCover ? Reservation(o, eligible) : 0)
@@ -46,8 +46,9 @@ public sealed partial class ReleasePlanner
                 ? $"{resolution}p ({QualityFit(first.ResolutionClass)})" : "quality unknown";
             var seeders = first.Candidate.TrustedSeeders ?? 0;
             var audio = AnimeAudioPolicy.EnglishFirst(input.Work, input.AudioLanguage)
-                ? AnimeAudioPolicy.Rank(first.Candidate.Release.Parsed) == 0 ? "Advertised English audio; "
-                    : input.AllowAnimeAudioFallback ? "English search exhausted; fallback audio is not verified; "
+                ? AnimeAudioPolicy.Match(first.Candidate) == AnimeAudioMatch.English ? "Advertised English audio; "
+                    : first.Target is { } target && input.AnimeJapaneseFallbackTargetIds.Contains(target.Id)
+                        ? "English search exhausted; fallback audio is not verified; "
                         : "Audio is not verified; " : "";
             var text = audio + $"{quality}, {seeders} seeders, {first.Candidate.Release.Parsed.Quality.Source ?? "source unknown"}; " +
                 $"{g.Count()} missing item(s) covered.";
@@ -59,11 +60,11 @@ public sealed partial class ReleasePlanner
                 "No eligible source was selected for this item. Review the source reasons or try again later."));
         return new(assignments, [.. rejections], [.. targets.Where(t => missing.Contains(t.Id)).Select(t => t.Id)]);
 
-        int Coverage(Option o, Option[] available) => available.Where(x => AudioRank(o.Candidate.Release.Parsed, input) == AudioRank(x.Candidate.Release.Parsed, input) && SameRank(o, x) &&
+        int Coverage(Option o, Option[] available) => available.Where(x => SameRank(o, x) &&
             x.Candidate.Release.Id == o.Candidate.Release.Id).Select(x => x.Target?.Id).Distinct().Count();
         long Reservation(Option o, Option[] available)
         {
-            var selection = available.Where(x => AudioRank(o.Candidate.Release.Parsed, input) == AudioRank(x.Candidate.Release.Parsed, input) && SameRank(o, x) && x.Candidate.Release.Id == o.Candidate.Release.Id)
+            var selection = available.Where(x => SameRank(o, x) && x.Candidate.Release.Id == o.Candidate.Release.Id)
                 .SelectMany(x => x.Files).Select(f => f.FileIndex);
             return FileEligibility.Reservation(o.Candidate.Release.Files ?? [], selection, o.PieceLength);
         }

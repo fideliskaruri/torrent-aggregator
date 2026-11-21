@@ -11,10 +11,47 @@ using TorrentFlow.Store;
 
 namespace TorrentFlow.Find;
 
-internal sealed partial class FindService(IParser parser, ISources sources, SourceSearches searches,
+internal sealed partial class FindService(IParser parser, ISources sources, SourceSearches<SourceResult> searches,
     ReleaseFacts facts, IHostApplicationLifetime hostLifetime,
     IDbContextFactory<TorrentFlowDbContext> contexts, IConfiguration configuration) : IFind
 {
+    private readonly SourceSearches<SourceAudioEvidence?> audioDetails = new(result => result is not null);
+
+    public async Task<ImmutableArray<Candidate>> EnrichAudioAsync(SearchRequest request,
+        ImmutableArray<Candidate> candidates, CancellationToken cancellationToken)
+    {
+        if (!candidates.Any(c => c.Observations.Any(o => o.SourceId == "nyaa"))) return candidates;
+        var nyaa = (await SettingsAsync(cancellationToken)).FirstOrDefault(s => s.Enabled && s.Id == "nyaa");
+        if (nyaa is null) return candidates;
+        var lookups = candidates.Select(candidate => (Candidate: candidate, Observation: candidate.Observations
+                .FirstOrDefault(o => o.SourceId == nyaa.Id && !string.IsNullOrWhiteSpace(o.SourceItemId))))
+            .Where(pair => pair.Observation is not null)
+            .Select(pair => (pair.Candidate, Item: pair.Observation!.SourceItemId!, Key: JsonSerializer.Serialize(new
+            {
+                nyaa.BaseUrl, request.SourceRevision, pair.Candidate.Release.Id, pair.Observation!.SourceItemId,
+            })))
+            .ToArray();
+        var resolved = candidates.ToDictionary(c => c.Release.Id, StringComparer.OrdinalIgnoreCase);
+        var remainingRequests = request.Lane == PriorityLane.Owner ? 12 : 6;
+        foreach (var window in lookups.Chunk(3))
+        {
+            var results = await Task.WhenAll(window.Select(async lookup =>
+            {
+                SourceAudioEvidence? evidence = null;
+                if (audioDetails.HasEntry(lookup.Key) || Interlocked.Decrement(ref remainingRequests) >= 0)
+                {
+                    var answer = await audioDetails.GetAsync(lookup.Key,
+                        stopping => sources.ReadAudioAsync(nyaa, lookup.Item, lookup.Candidate.Release.Id, request.Lane, stopping),
+                        hostLifetime.ApplicationStopping, cancellationToken);
+                    evidence = answer.Result;
+                }
+                return lookup.Candidate with { AudioEvidence = evidence, AudioDetailUnavailable = evidence is null };
+            }));
+            foreach (var candidate in results) resolved[candidate.Release.Id] = candidate;
+        }
+        return [.. candidates.Select(candidate => resolved[candidate.Release.Id])];
+    }
+
     public async IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,
         IAsyncEnumerable<SearchFeedback> feedback, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -89,13 +126,16 @@ internal sealed partial class FindService(IParser parser, ISources sources, Sour
                     if (early || provisional) break;
                     tier = currentTier;
                     var selected = settings.Where(s => s.Enabled && s.Tier == tier && Supports(s, request.Work))
+                        .Where(s => !englishAudioFirst || s.Id != "eztv" || request.Work.Links.Any(l =>
+                            l.Provider == "imdb" && l.Status == LinkStatus.Verified))
                         .Where(s => request.SourceIds.IsEmpty || request.SourceIds.Contains(s.Id))
                         .OrderByDescending(s => request.Work.Work.Anime == true &&
                             s.Categories.Contains("anime") && !s.Categories.Contains("all")).ToArray();
                     var singleSeason = request.Scope.EpisodeIds.Length > 1 && request.Work.Episodes
                         .Where(e => request.Scope.EpisodeIds.Contains(e.Id)).Select(e => e.SeasonId).Distinct().Count() == 1;
                     var plans = selected.SelectMany((source, index) => SearchQueries.Build(request.Work, request.Scope, name.Name,
-                            configuration.GetValue<bool>($"TorrentFlow:Sources:{source.Id}:RequiresYear"), englishAudioFirst)
+                            configuration.GetValue<bool>($"TorrentFlow:Sources:{source.Id}:RequiresYear"), englishAudioFirst,
+                            includeWrittenSeason: source.Id == "apibay")
                         .Skip(!englishAudioFirst && tier == SourceTier.Fallback && singleSeason ? 1 : 0)
                         .Take(!englishAudioFirst && tier == SourceTier.Fallback ? 1 : int.MaxValue)
                         .Select((query, ordinal) => (Source: source, Query: query, Ordinal: ordinal, Priority: index + ordinal)))

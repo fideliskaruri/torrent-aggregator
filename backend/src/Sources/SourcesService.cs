@@ -21,6 +21,28 @@ internal sealed class SourcesService(SourceTransport transport, IConfiguration c
         SearchAsync(source, new("Sintel", "all", null, PriorityLane.Owner, 50,
             DateTimeOffset.UtcNow.AddSeconds(6), 0, 0), cancellationToken);
 
+    public async Task<SourceAudioEvidence?> ReadAudioAsync(SourceSettings source, string sourceItemId, string hash,
+        PriorityLane lane, CancellationToken cancellationToken)
+    {
+        if (source.Id != "nyaa" || !source.Enabled || NyaaAudioDetails.ListingId(sourceItemId) is not { } id)
+            return null;
+        var root = source.BaseUrl ?? SourceDefaults.Endpoints["nyaa"];
+        if (!Uri.TryCreate(root.TrimEnd('/') + "/view/" + id, UriKind.Absolute, out var uri)) return null;
+        var query = new SourceQuery("", "anime", null, lane, 50, DateTimeOffset.UtcNow.AddSeconds(6), 0, 0);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(6));
+        try
+        {
+            var html = await transport.ReadAsync(uri, null, source, query, new CallTrace(), deadline.Token,
+                followRedirects: false);
+            return NyaaAudioDetails.Parse(html, sourceItemId, hash);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
+        catch (Exception ex) when (ex is SourceException or HttpRequestException or IOException or ArgumentException or
+            InvalidOperationException or NotSupportedException or System.Text.RegularExpressions.RegexMatchTimeoutException)
+        { return null; }
+    }
+
     private async IAsyncEnumerable<SourceResult> SearchStreamAsync(SourceSettings source, SourceQuery query,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {

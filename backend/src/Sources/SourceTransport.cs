@@ -22,7 +22,7 @@ internal sealed class SourceTransport : IDisposable
     internal PriorityGate Site(Uri uri) => sites.GetOrAdd(uri.IdnHost, _ => new());
 
     internal async Task<string> ReadAsync(Uri uri, string? body, SourceSettings settings,
-        SourceQuery query, CallTrace trace, CancellationToken ct)
+        SourceQuery query, CallTrace trace, CancellationToken ct, bool followRedirects = true)
     {
         for (var redirects = 0; redirects <= 3; redirects++)
         {
@@ -73,6 +73,7 @@ internal sealed class SourceTransport : IDisposable
                     throw new SourceException("SourceFailure", $"The site returned HTTP {trace.HttpStatus}.", site.Cooldown);
                 if (trace.HttpStatus is >= 300 and < 400 && response.Headers.Location is { } location)
                 {
+                    if (!followRedirects) throw new SourceException("InvalidRedirect", "The detail endpoint redirected.");
                     uri = location.IsAbsoluteUri ? location : new Uri(uri, location);
                     if (uri.Scheme == "http") throw new SourceException("InvalidRedirect", "An insecure redirect was refused.");
                     continue;

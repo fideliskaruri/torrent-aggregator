@@ -34,11 +34,15 @@ public interface ISources
 {
     Task<SourceResult> SearchAsync(SourceSettings source, SourceQuery query, CancellationToken cancellationToken);
     Task<SourceResult> TestAsync(SourceSettings source, CancellationToken cancellationToken);
+    Task<SourceAudioEvidence?> ReadAudioAsync(SourceSettings source, string sourceItemId, string hash,
+        PriorityLane lane, CancellationToken cancellationToken) => Task.FromResult<SourceAudioEvidence?>(null);
 }
 
 /// <summary>In: work/scope/policy and coordinator coverage feedback. Out: hash-deduped incremental candidate pools. Never: rank releases, call Engine or own Target state.</summary>
 public interface IFind
 {
+    Task<ImmutableArray<Candidate>> EnrichAudioAsync(SearchRequest request, ImmutableArray<Candidate> candidates,
+        CancellationToken cancellationToken) => Task.FromResult(candidates);
     Task<CandidateBatch> SelectAsync(SearchRequest request, string hash, CancellationToken cancellationToken,
         bool ownerPick = false);
     IAsyncEnumerable<CandidateBatch> SearchAsync(SearchRequest request,

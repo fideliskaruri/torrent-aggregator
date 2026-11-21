@@ -41,7 +41,7 @@ public static partial class SearchQueries
     }
 
     internal static ImmutableArray<string> Build(WorkSnapshot work, TargetScope scope, string name,
-        bool includeYear = false, bool englishAudioFirst = false)
+        bool includeYear = false, bool englishAudioFirst = false, bool includeWrittenSeason = false)
     {
         var queries = new List<string>();
         var episodes = work.Episodes.Where(e => scope.EpisodeIds.Contains(e.Id)).ToArray();
@@ -66,6 +66,9 @@ public static partial class SearchQueries
         }
         if (englishAudioFirst)
         {
+            if (includeWrittenSeason && !scope.Film)
+                foreach (var season in work.Seasons.Where(s => episodes.Any(e => e.SeasonId == s.Id)).OrderBy(s => s.Number))
+                    queries.Add($"{name} Season {season.Number}");
             // Search audio-qualified alternatives explicitly: a popular subbed release can fill
             // a provider's result window and conceal less-seeded English releases.
             return [.. queries.Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(q =>

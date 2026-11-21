@@ -16,6 +16,13 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 See [anime-english-acquisition.md](anime-english-acquisition.md). This entry does not
 reactivate historical UI/staging tasks below or authorize installed-app changes.
 
+### 21 November 2026 — source-audio evidence follow-up
+
+- The v0.4.1 owner report exposed a French/Japanese MULTi selection in
+  Classroom of the Elite. See the [source evidence](audio-regression-source-evidence-20261121.md)
+  and [isolated repair handoff](handoffs/audio-source-evidence-result.md).
+- Independent review of the isolated branch is pending.
+
 | Item | Owner (model) | Status |
 |---|---|---|
 | Full QA sweep of every film and series type (FEAT-33): films OPS-566, series OPS-567, anime OPS-568, real requester run | qa-films, qa-series, qa-anime (Opus 5.5) | Done; bugs OPS-569 to OPS-596 split into fix lanes below |

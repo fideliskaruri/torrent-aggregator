@@ -53,7 +53,9 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
             .ToDictionary(c => c.Release.Id, StringComparer.OrdinalIgnoreCase);
         var input = new PlanInput(work, AcquisitionMode.Catalog, [], targets, [.. pool.Values],
             owned.IsDefault ? [] : owned, [], now) { AudioLanguage = policy.AudioLanguage };
-        var candidateFiles = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
+        var englishAudioFirst = AnimeAudioPolicy.EnglishFirst(work, policy.AudioLanguage) &&
+            targets.All(t => t.PickedReleaseHash is null);
+        var candidatesWithFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var attachments = new Dictionary<string, ProbeHandle>(StringComparer.OrdinalIgnoreCase);
         var attemptedMetadata = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var timedOut = false;
@@ -62,10 +64,11 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
             ? TimeSpan.FromSeconds(12) : TimeSpan.FromSeconds(60);
         var pendingProbes = new Dictionary<ProbeTicket, Candidate>();
         PlanResult plan = new([], [], [.. targets.Select(t => t.Id)]);
-        var shortlist = planner.Shortlist(input);
         var remainingProbeBudget = Math.Clamp(3 * Math.Max(targets.Length, 1), 6, 24);
         try
         {
+            await EnrichAudio(targets);
+            var shortlist = planner.Shortlist(input with { Pool = [.. pool.Values] });
             plan = shortlist.Candidates.IsEmpty
                 ? new([], shortlist.Rejections, [.. targets.Select(t => t.Id)])
                 : await ProbeCandidates(shortlist.Candidates);
@@ -75,7 +78,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                 var uncovered = plan.UncoveredTargetIds.ToHashSet(StringComparer.Ordinal);
                 var episodeIds = targets.Where(t => uncovered.Contains(t.Id) && t.EpisodeId is not null)
                     .Select(t => t.EpisodeId!).Distinct(StringComparer.Ordinal).ToImmutableArray();
-                if (!episodeIds.IsEmpty)
+                if (!episodeIds.IsEmpty && (!englishAudioFirst || !episodeIds.SequenceEqual(scope.EpisodeIds)))
                 {
                     var secondRequest = request with
                     {
@@ -106,9 +109,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                             Sources = [.. found.Sources.Concat(last.Sources)],
                             Rejections = [.. found.Rejections.Concat(last.Rejections)
                                 .DistinctBy(r => $"{r.Hash}:{r.Name}:{r.SourceId}:{r.Query}:{r.Code}")],
-                            Queries = [.. found.Queries.Concat(last.Queries)
-                                .DistinctBy(q => $"{q.Query}:{q.SourceId}:{q.NamePhase}:{q.Tier}")],
-                            Complete = last.Complete,
+                            Queries = [.. found.Queries.Concat(last.Queries)],
+                            Complete = found.Complete && last.Complete,
                             Tier = last.Tier,
                             TierComplete = last.TierComplete,
                             FirstCandidateAt = found.FirstCandidateAt ?? last.FirstCandidateAt,
@@ -116,8 +118,13 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                             SourceRequests = found.SourceRequests + last.SourceRequests,
                             WindowSourceRequests = found.WindowSourceRequests + last.WindowSourceRequests,
                             RequestBudgetExhausted = found.RequestBudgetExhausted || last.RequestBudgetExhausted,
+                            EarlyStopped = found.EarlyStopped || last.EarlyStopped,
+                            ProvisionalStopped = found.ProvisionalStopped || last.ProvisionalStopped,
                         };
                         remainingProbeBudget += 6;
+                        // A new observation can change the audio for a candidate already covering
+                        // another target. Revisit the merged pool through the shared detail cache.
+                        await EnrichAudio(targets);
                         shortlist = planner.Shortlist(input with { Pool = [.. pool.Values] });
                         plan = shortlist.Candidates.IsEmpty
                             ? new([], shortlist.Rejections, [.. targets.Select(t => t.Id)])
@@ -127,16 +134,17 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
             }
             // Do not interpret a source failure, an unknown swarm or an unfinished metadata
             // probe as proof that English is unavailable. Retry those instead of falling back.
-            var preferred = planner.Shortlist(input with { Pool = [.. pool.Values] }).Candidates;
-            if (AnimeAudioPolicy.EnglishFirst(work, policy.AudioLanguage) &&
-                targets.All(t => t.PickedReleaseHash is null) && !plan.UncoveredTargetIds.IsEmpty &&
-                AnimeAudioPolicy.SearchExhausted(found) && !timedOut &&
-                preferred.All(c => c.TrustedSeeders == 0 || candidateFiles.ContainsKey(c.Release.Id)))
+            if (englishAudioFirst && !plan.UncoveredTargetIds.IsEmpty && AnimeAudioPolicy.SearchExhausted(found))
             {
-                input = input with { AllowAnimeAudioFallback = true };
-                shortlist = planner.Shortlist(input with { Pool = [.. pool.Values] });
-                remainingProbeBudget += 6;
-                plan = await ProbeCandidates(shortlist.Candidates);
+                var fallbackTargets = targets.Where(t => plan.UncoveredTargetIds.Contains(t.Id) &&
+                    EnglishAbsenceEstablished(t)).Select(t => t.Id).ToImmutableHashSet(StringComparer.Ordinal);
+                if (!fallbackTargets.IsEmpty)
+                {
+                    input = input with { AnimeJapaneseFallbackTargetIds = fallbackTargets };
+                    shortlist = planner.Shortlist(input with { Pool = [.. pool.Values] });
+                    remainingProbeBudget += 6;
+                    plan = await ProbeCandidates(shortlist.Candidates);
+                }
             }
             var selected = plan.Assignments.Select(a => a.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var unused in attachments.Where(p => !selected.Contains(p.Key)).ToArray())
@@ -144,9 +152,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                 await engine.ReleaseProbeAsync(unused.Value, CancellationToken.None);
                 attachments.Remove(unused.Key);
             }
-            var finalCandidates = pool.Values.Select(c => candidateFiles.GetValueOrDefault(c.Release.Id) ?? c)
-                .ToImmutableArray();
-            found = found with { Candidates = finalCandidates };
+            found = found with { Candidates = [.. pool.Values] };
             // Eligible copies exist but none has a seed: that is a wait for seeders, not "nothing fits".
             var eligibleUnseeded = plan.Assignments.IsEmpty && !shortlist.Candidates.IsEmpty &&
                 shortlist.Candidates.All(c => c.TrustedSeeders is not > 0);
@@ -167,12 +173,51 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
             throw;
         }
 
+        ImmutableArray<Candidate> AudioCandidates(ImmutableArray<TargetRow> scopeTargets) =>
+            planner.Shortlist(input with { Pool = [.. pool.Values], Targets = scopeTargets, AudioLanguage = "any" })
+                .EligibleBeforeSeedRanking;
+
+        async Task EnrichAudio(ImmutableArray<TargetRow> scopeTargets)
+        {
+            if (!englishAudioFirst) return;
+            var eligible = AudioCandidates(scopeTargets)
+                .Where(c => c.TrustedSeeders != 0)
+                .OrderByDescending(c => AnimeAudioPolicy.Match(c) == AnimeAudioMatch.English)
+                .ThenByDescending(c => c.TrustedSeeders ?? -1).ToImmutableArray();
+            if (!eligible.IsEmpty)
+                foreach (var candidate in await find.EnrichAudioAsync(request, eligible, cancellationToken))
+                    pool[candidate.Release.Id] = candidate;
+        }
+
+        bool EnglishAbsenceEstablished(TargetRow target)
+        {
+            foreach (var candidate in AudioCandidates([target]))
+            {
+                if (candidate.TrustedSeeders == 0) continue;
+                if (target.EpisodeId is { } episode &&
+                    !candidate.CoveredEpisodeIds.Contains(episode) && !Covers(candidate.Release.Parsed, target))
+                    continue;
+                var audio = AnimeAudioPolicy.Match(candidate);
+                if (audio == AnimeAudioMatch.English && !candidatesWithFiles.Contains(candidate.Release.Id))
+                    return false;
+                if (audio == AnimeAudioMatch.Unknown)
+                {
+                    // A known file list can definitively exclude a bad mapping or unsafe payload.
+                    var remaining = input with { Targets = [target], AudioLanguage = "any", Pool = [candidate] };
+                    if (candidate.Release.Files is not { IsEmpty: false } ||
+                        !planner.Choose(remaining).Assignments.IsEmpty)
+                        return false;
+                }
+            }
+            return true;
+        }
+
         async Task<PlanResult> ProbeCandidates(ImmutableArray<Candidate> ranked)
         {
             foreach (var candidate in ranked.Where(c => (c.TrustedSeeders is > 0 ||
                          targets.All(t => t.PickedReleaseHash == c.Release.Id)) &&
                          c.Release.Files is { } files && !files.IsDefaultOrEmpty))
-                candidateFiles[candidate.Release.Id] = candidate;
+                candidatesWithFiles.Add(candidate.Release.Id);
 
             var remaining = ranked.Where(NeedsMetadata).ToList();
             var currentPlan = PlanReady(ranked);
@@ -212,18 +257,17 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                     timedOut |= attachment.Failure?.Code.Contains("timeout", StringComparison.OrdinalIgnoreCase) == true;
                     if (attachment.Files is { } files && !files.IsDefaultOrEmpty)
                     {
-                        var updated = candidate with
+                        var current = pool[candidate.Release.Id];
+                        pool[current.Release.Id] = current with
                         {
-                            Release = candidate.Release with
+                            Release = current.Release with
                             {
                                 Files = files,
                                 TotalBytes = files.Sum(file => file.Bytes),
                             }
                         };
-                        candidateFiles[updated.Release.Id] = updated;
-                        pool[updated.Release.Id] = pool.TryGetValue(updated.Release.Id, out var prior)
-                            ? Merge(prior, updated) : updated;
-                        if (attachment.Handle is { } handle) attachments[updated.Release.Id] = handle;
+                        candidatesWithFiles.Add(current.Release.Id);
+                        if (attachment.Handle is { } handle) attachments[current.Release.Id] = handle;
                     }
                     else if (attachment.Handle is { } unused)
                         await engine.ReleaseProbeAsync(unused, CancellationToken.None);
@@ -287,8 +331,8 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
 
         PlanResult PlanReady(ImmutableArray<Candidate> ranked)
         {
-            var ready = ranked.Where(c => candidateFiles.ContainsKey(c.Release.Id))
-                .Select(c => candidateFiles[c.Release.Id]).ToImmutableArray();
+            var ready = ranked.Where(c => candidatesWithFiles.Contains(c.Release.Id))
+                .Select(c => pool[c.Release.Id]).ToImmutableArray();
             return ready.IsEmpty
                 ? new([], [], [.. targets.Select(t => t.Id)])
                 : planner.Choose(input with { Pool = ready });
@@ -296,7 +340,7 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
 
         bool NeedsMetadata(Candidate candidate) => (candidate.TrustedSeeders is > 0 ||
                 targets.All(t => t.PickedReleaseHash == candidate.Release.Id)) &&
-            !candidateFiles.ContainsKey(candidate.Release.Id) &&
+            !candidatesWithFiles.Contains(candidate.Release.Id) &&
             !attemptedMetadata.Contains(candidate.Release.Id);
 
         bool HasHigherPendingCandidate(ImmutableArray<Candidate> ranked, PlanResult currentPlan)
@@ -356,6 +400,9 @@ public sealed class DiscoveryPlan(IFind find, IPlan planner, IEngine engine, Pro
                 CoversFilm = prior.CoversFilm || incoming.CoversFilm,
                 ConservativeListedSeeders = prior.ConservativeListedSeeders ?? incoming.ConservativeListedSeeders,
                 ScrapedSeeders = prior.ScrapedSeeders ?? incoming.ScrapedSeeders,
+                AudioNameClaims = [.. prior.AudioNameClaims.Union(incoming.AudioNameClaims)],
+                AudioEvidence = prior.AudioEvidence ?? incoming.AudioEvidence,
+                AudioDetailUnavailable = prior.AudioDetailUnavailable || incoming.AudioDetailUnavailable,
             };
         }
 

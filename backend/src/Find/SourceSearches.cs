@@ -2,7 +2,7 @@ using TorrentFlow.Domain;
 
 namespace TorrentFlow.Find;
 
-internal sealed class SourceSearches
+internal sealed class SourceSearches<T>(Func<T, bool> cacheable)
 {
     private const int Capacity = 500;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
@@ -10,8 +10,17 @@ internal sealed class SourceSearches
     private readonly Dictionary<string, Entry> entries = new(StringComparer.Ordinal);
     private long sequence;
 
-    internal async Task<(SourceResult Result, bool Cached, bool Shared)> GetAsync(string key,
-        Func<CancellationToken, Task<SourceResult>> search, CancellationToken stopping,
+    internal bool HasEntry(string key)
+    {
+        lock (sync)
+        {
+            EvictExpired();
+            return entries.ContainsKey(key);
+        }
+    }
+
+    internal async Task<(T Result, bool Cached, bool Shared)> GetAsync(string key,
+        Func<CancellationToken, Task<T>> search, CancellationToken stopping,
         CancellationToken caller, bool refresh = false)
     {
         Entry entry;
@@ -42,15 +51,15 @@ internal sealed class SourceSearches
         return (result, cached, shared);
     }
 
-    private async Task<SourceResult> RunAsync(string key, Entry entry,
-        Func<CancellationToken, Task<SourceResult>> search, CancellationToken stopping)
+    private async Task<T> RunAsync(string key, Entry entry,
+        Func<CancellationToken, Task<T>> search, CancellationToken stopping)
     {
         try
         {
             var result = await search(stopping).ConfigureAwait(false);
             lock (sync)
             {
-                if (result.Outcome is SourceOutcome.Failed or SourceOutcome.TimedOut)
+                if (!cacheable(result))
                     RemoveIfCurrent(key, entry);
                 else if (entries.GetValueOrDefault(key) == entry)
                     entry.ExpiresAt = DateTimeOffset.UtcNow + Lifetime;
@@ -81,6 +90,6 @@ internal sealed class SourceSearches
     {
         internal long Sequence { get; } = sequence;
         internal DateTimeOffset? ExpiresAt { get; set; }
-        internal Lazy<Task<SourceResult>>? Work { get; set; }
+        internal Lazy<Task<T>>? Work { get; set; }
     }
 }
