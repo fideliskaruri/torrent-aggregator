@@ -27,6 +27,17 @@ internal static class EngineModule
 
     private sealed class FilingFileState(IServiceScopeFactory scopes) : IEngineFileState
     {
+        public async Task<bool> CanStartAsync(DownloadRow download, CancellationToken ct)
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+            var stored = (await store.ListAsync<DownloadRow>(d => d.Id == download.Id, ct)).SingleOrDefault();
+            if (stored is null) return !download.Id.StartsWith("targets:", StringComparison.Ordinal);
+            if (stored.Version != download.Version) return false;
+            return !(await store.ListAsync<TargetRow>(t => t.ChosenReleaseHash == stored.Hash &&
+                t.ReasonCode == WaitReason.RemovalIncomplete, ct)).Any();
+        }
+
         public async Task<ImmutableArray<EngineRecoveryFiles>> ReadAsync(CancellationToken ct)
         {
             await using var scope = scopes.CreateAsyncScope();
@@ -35,8 +46,15 @@ internal static class EngineModule
             var recovery = await DownloadFiling.RecoveryAsync(repository, ct);
             var downloads = await store.ListAsync<DownloadRow>(null, ct);
             var roots = await store.ListAsync<StorageRootRow>(null, ct);
-            return [.. recovery.Select(item => item with
+            var held = await store.ListAsync<TargetRow>(t => t.ReasonCode == WaitReason.RemovalIncomplete, ct);
+            var links = await store.ListAsync<DownloadTargetRow>(null, ct);
+            var heldIds = downloads.Where(d => held.Any(t => t.ChosenReleaseHash == d.Hash &&
+                links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id))).Select(d => d.Id).ToHashSet(StringComparer.Ordinal);
+            return [.. recovery.Concat(downloads.Where(d => heldIds.Contains(d.Id) &&
+                    recovery.All(r => r.DownloadId != d.Id)).Select(d => new EngineRecoveryFiles(d.Id, [])))
+                .Select(item => item with
             {
+                Suppressed = heldIds.Contains(item.DownloadId),
                 StorageRootPath = downloads.FirstOrDefault(download => download.Id == item.DownloadId)?.RootId is { } rootId
                     ? roots.FirstOrDefault(root => root.Id == rootId)?.Path : null,
             })];

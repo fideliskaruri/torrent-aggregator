@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -24,8 +26,10 @@ Directory.CreateDirectory(root);
 await File.WriteAllTextAsync(Path.Combine(root, "AUDIT-ONLY"), "Generated files only; no installed data or real media.");
 using var lifetime = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 var ct = lifetime.Token;
-var subset = args.Contains("--subset");
-var independent = args.Contains("--independent");
+var kept = args.Contains("--kept");
+var subset = args.Contains("--subset") || kept;
+var partialFailure = args.Contains("--partial");
+var independent = args.Contains("--independent") || partialFailure;
 await using var swarm = new Swarm(root, count: independent ? 15 : 1, fileMiB: 1, filesPerPack: independent ? 1 : subset ? 16 : 14);
 var services = new ServiceCollection().AddLogging().AddStore(Path.Combine(root, "fixture.db"));
 services.AddSingleton<IStorageStatus, StorageStatus>();
@@ -38,6 +42,7 @@ await using (var scope = provider.CreateAsyncScope())
 {
     await scope.ServiceProvider.GetRequiredService<StoreDatabase>().InitializeAsync(null, true, ct);
     var db = scope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
+    await db.Database.GetService<IMigrator>().MigrateAsync("20261029203700_JellyfinIntegration",ct);
     var now = DateTimeOffset.UtcNow;
     db.Users.Add(new UserRow { Id="local", Role=UserRole.Owner, CreatedAt=now, UpdatedAt=now });
     db.Works.Add(new WorkRow { Id="scorpion-generated", WorkKey="scorpion-generated", Kind=WorkKind.Series,
@@ -54,6 +59,13 @@ await using (var scope = provider.CreateAsyncScope())
     db.Entry(row).CurrentValues.SetValues(row with { Value=JsonSerializer.SerializeToElement(settings,json), Revision=row.Revision+1 });
     await db.SaveChangesAsync(ct);
     await swarm.Initialize(settings, db, ct);
+    // Upgrade a populated published-release schema, not just a fresh model.
+    var targetsBeforeUpgrade = await db.Targets.CountAsync(ct);
+    var bindingsBeforeUpgrade = await db.DownloadFiles.CountAsync(ct);
+    await db.Database.MigrateAsync(ct);
+    if (await db.Targets.CountAsync(ct) != targetsBeforeUpgrade ||
+        await db.DownloadFiles.CountAsync(ct) != bindingsBeforeUpgrade)
+        throw new Exception("Release schema upgrade lost targets or bindings");
 }
 var pipeline = new TargetPipeline(provider.GetRequiredService<IServiceScopeFactory>(),null!,swarm.Engine,null!,
     NullLogger<TargetPipeline>.Instance,null!,null!);
@@ -68,6 +80,11 @@ while (connectUntil.Elapsed < TimeSpan.FromSeconds(25))
     await Task.Delay(150,ct);
 }
 if (before?.CompletedSelectedBytes is not > 0 || before.Complete) throw new Exception("Fixture did not establish a real active unfinished transfer");
+if (args.Contains("--prepare-ui"))
+{
+    Console.WriteLine(JsonSerializer.Serialize(new {scenario="ui-fixture",root,database=Path.Combine(root,"fixture.db"),pack.Hash},json));
+    return;
+}
 var apiType = Assembly.Load("TorrentFlow").GetType("TorrentFlow.Api.DownloadsApi")!;
 var actionType = Assembly.Load("TorrentFlow").GetType("TorrentFlow.Api.DownloadEndpoints+DownloadAction")!;
 var api = Activator.CreateInstance(apiType, pipeline,null!,swarm.Engine,factory,new ConfigurationBuilder().Build(),
@@ -96,20 +113,128 @@ using var client = new HttpClient { BaseAddress=new Uri(host.Urls.Single()),Time
 var selected = independent
     ? swarm.Packs.Take(14).Select(p => (Pack:p, Index:0)).ToArray()
     : Enumerable.Range(0,14).Select(i => (Pack:pack, Index:i)).ToArray();
+// A malformed final selector must not remove the earlier valid selection.
+foreach (var invalid in new object[] {
+    new { action="delete", deleteFiles=true, transferIds=new[] {$"builtin:{pack.Hash}:target-s1-e1", $"builtin:{pack.Hash}:STALE-target"} },
+    new { action="delete", deleteFiles=true, confirmCurrentFiles=true, transferIds=new[] {$"builtin:{pack.Hash}:target-s1-e1"} }
+})
+{
+    using var measurement = new DeletionMeasurement();
+    var body = JsonSerializer.Deserialize(JsonSerializer.Serialize(invalid,json),actionType,json);
+    try { await (Task)action.Invoke(api,[body,ct])!; throw new Exception("Invalid deletion was accepted"); }
+    catch (ArgumentException) { }
+    if (measurement.Counters.GetValueOrDefault("drainCalls") != 0)
+        throw new Exception("Validation mutated the engine before rejecting the request");
+    await using var unchanged = await factory.CreateDbContextAsync(ct);
+    if (await unchanged.Targets.AnyAsync(t=>t.State==TargetState.Removed,ct))
+        throw new Exception("Invalid final selector removed an earlier target");
+}
 var requestTimer = Stopwatch.StartNew();
+var locked = args.Contains("--locked");
+if (partialFailure)
+{
+    var second = swarm.Packs[1];
+    Directory.CreateDirectory(Path.GetDirectoryName(second.Paths[0])!);
+    await using (var pin = new FileStream(second.Paths[0],FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None))
+    {
+        await pin.WriteAsync("LOCKED-SECOND-DOWNLOAD"u8.ToArray(),ct); await pin.FlushAsync(ct);
+        var partial = await client.PostAsJsonAsync("/api/client/torrents",new { action="delete",deleteFiles=true,
+            transferIds=selected.Select(i=>$"builtin:{i.Pack.Hash}").ToArray() },ct);
+        var body = JsonDocument.Parse(await partial.Content.ReadAsStringAsync(ct)).RootElement;
+        if (body.GetProperty("ok").GetBoolean() || body.GetProperty("resolvedTransferIds").GetArrayLength()!=1 ||
+            body.GetProperty("resolvedTransferIds")[0].GetString()!=$"builtin:{pack.Hash}")
+            throw new Exception("Partial batch did not report the one completed download accurately");
+        await using var partialDb = await factory.CreateDbContextAsync(ct);
+        if (await partialDb.Downloads.AnyAsync(d=>d.Id==pack.Id,ct) ||
+            !await partialDb.Targets.AnyAsync(t=>t.Id=="target-s2-e1" && t.ReasonCode==WaitReason.RemovalIncomplete,ct))
+            throw new Exception("Earlier success or later failure was not durable");
+    }
+}
+if (locked)
+{
+    await swarm.Engine.SaveDevStateAsync(ct);
+    var staleState = await File.ReadAllBytesAsync(Path.Combine(root,"leecher","engine","dev-engine.state"),ct);
+    Directory.CreateDirectory(Path.GetDirectoryName(pack.Paths[13])!);
+    await using (var pin = new FileStream(pack.Paths[13],FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None))
+    {
+        await pin.WriteAsync("LOCKED-OWNER-FILE"u8.ToArray(),ct);
+        await pin.FlushAsync(ct);
+        var failed = await client.PostAsJsonAsync("/api/client/torrents",new { action="delete",deleteFiles=true,
+            transferIds=selected.Select(i=>$"builtin:{i.Pack.Hash}:target-s{i.Pack.Season}-e{i.Index+1}").ToArray() },ct);
+        var failureBody = JsonDocument.Parse(await failed.Content.ReadAsStringAsync(ct)).RootElement;
+        if (failureBody.GetProperty("ok").GetBoolean()) throw new Exception("Locked file deletion unexpectedly succeeded");
+        await using var heldDb = await factory.CreateDbContextAsync(ct);
+        if (await heldDb.Targets.CountAsync(t=>t.ReasonCode==WaitReason.RemovalIncomplete,ct) != 14 ||
+            await heldDb.Targets.AnyAsync(t=>t.State==TargetState.Removed,ct))
+            throw new Exception("Failed deletion hid selected records instead of holding them");
+        foreach (var command in new[] {TargetAction.TryNow,TargetAction.DownloadNow,TargetAction.Resume,TargetAction.Remove})
+        {
+            try { await pipeline.ActionAsync("target-s1-e14",command,ct); throw new Exception("Ordinary action cleared interrupted-removal fence"); }
+            catch (InvalidOperationException) { }
+        }
+        var stateType = Assembly.Load("TorrentFlow").GetType("TorrentFlow.Api.EngineModule+FilingFileState")!;
+        var state = (IEngineFileState)Activator.CreateInstance(stateType,provider.GetRequiredService<IServiceScopeFactory>())!;
+        var restartRoot = Path.Combine(root,"restart"); Directory.CreateDirectory(Path.Combine(restartRoot,"engine"));
+        await File.WriteAllBytesAsync(Path.Combine(restartRoot,"engine","dev-engine.state"),staleState,ct);
+        await using var restart = new TorrentFlow.Engine.MonoTorrentEngine(restartRoot,_=>{},fileState:state);
+        var config = SettingsCatalog.Read<EngineSettings>(await heldDb.Settings.AsNoTracking().SingleAsync(s=>s.Id=="engine",ct)) with {ListenPort=0};
+        await restart.InitializeAsync(config,(_,_)=>Task.CompletedTask,true,ct);
+        await restart.RecoverAsync([.. await heldDb.Downloads.AsNoTracking().ToListAsync(ct)],
+            [.. await heldDb.DownloadFiles.AsNoTracking().ToListAsync(ct)],ct);
+        if (!(await restart.SnapshotAsync(ct)).IsEmpty) throw new Exception("Restart replayed an interrupted removal");
+    }
+    var retryOne = await client.PostAsJsonAsync("/api/client/torrents",new { action="delete",deleteFiles=true,
+        transferIds=new[] {$"builtin:{pack.Hash}:target-s1-e14"} },ct);
+    if (!retryOne.IsSuccessStatusCode) throw new Exception("Single failed member could not be retried");
+    await using var retryDb = await factory.CreateDbContextAsync(ct);
+    if (await retryDb.Targets.CountAsync(t=>t.ReasonCode==WaitReason.RemovalIncomplete,ct)!=13 ||
+        !(await swarm.Engine.SnapshotAsync(ct)).IsEmpty)
+        throw new Exception("Retrying one member revived another interrupted deletion");
+}
+if (kept)
+{
+    await swarm.Engine.SetIntentAsync(pack.Id,false,ct);
+    foreach (var index in new[] {14,15})
+    {
+        await pipeline.ActionAsync($"target-s1-e{index+1}",TargetAction.Remove,ct);
+        Directory.CreateDirectory(Path.GetDirectoryName(pack.Paths[index])!);
+        await File.WriteAllTextAsync(pack.Paths[index],"KEPT-OWNER-FILE",ct);
+    }
+    using var replay = new DeletionMeasurement();
+    var replayBody = JsonSerializer.Deserialize(JsonSerializer.Serialize(new {action="delete",deleteFiles=true,
+        transferIds=new[] {$"builtin:{pack.Hash}:target-s1-e16"}},json),actionType,json);
+    await (Task)action.Invoke(api,[replayBody,ct])!;
+    if (replay.Counters.GetValueOrDefault("drainCalls")!=0 ||
+        await File.ReadAllTextAsync(pack.Paths[15],ct)!="KEPT-OWNER-FILE")
+        throw new Exception("A removed-target replay touched kept files or live siblings");
+}
 var response = await client.PostAsJsonAsync("/api/client/torrents", new { action="delete",deleteFiles=true,
-    transferIds=selected.Select(i=>$"builtin:{i.Pack.Hash}:target-s{i.Pack.Season}-e{i.Index+1}").ToArray() },ct);
+    hashes=args.Contains("--overlap") || kept ? new[] {pack.Hash.ToUpperInvariant()} : Array.Empty<string>(),
+    transferIds=selected.Where(i=>!locked || i.Index!=13).Select(i=>$"builtin:{i.Pack.Hash}:target-s{i.Pack.Season}-e{i.Index+1}")
+        .Concat(new[] {$"builtin:{pack.Hash.ToUpperInvariant()}:target-s1-e1"}).ToArray() },ct);
 var reply = await response.Content.ReadAsStringAsync(ct);
 requestTimer.Stop();
-if (!response.IsSuccessStatusCode) throw new Exception($"Delete HTTP {(int)response.StatusCode}: {reply}");
+if (!response.IsSuccessStatusCode || !JsonDocument.Parse(reply).RootElement.GetProperty("ok").GetBoolean())
+    throw new Exception($"Delete HTTP {(int)response.StatusCode}: {reply}");
+var measured = JsonSerializer.SerializeToElement(observed,json).GetProperty("counters");
+var drains = measured.GetProperty("drainCalls").GetInt64();
+var recoveries = measured.TryGetProperty("recoverCalls",out var recovered) ? recovered.GetInt64() : 0;
+if (drains != (independent ? partialFailure ? 13 : 14 : 1) || recoveries != (subset && !kept ? 1 : 0))
+    throw new Exception($"Batch regression: drains={drains}, recoveries={recoveries}");
 await using var check = await factory.CreateDbContextAsync(ct);
 var remainingPayload = selected.Count(i=>File.Exists(i.Pack.Paths[i.Index]));
 var remainingDownloads = await check.Downloads.CountAsync(ct);
 var remainingBindings = await check.DownloadFiles.CountAsync(ct);
 var removedTargets = await check.Targets.CountAsync(t=>t.State==TargetState.Removed,ct);
-if (remainingPayload!=0 || remainingDownloads!=(subset || independent ? 1 : 0) || remainingBindings!=(subset ? 16 : independent ? 1 : 0) || removedTargets!=14)
+if (remainingPayload!=0 || remainingDownloads!=(subset || independent ? 1 : 0) || remainingBindings!=(subset ? 16 : independent ? 1 : 0) || removedTargets!=(kept ? 16 : 14))
     throw new Exception($"Physical/metadata outcome mismatch: files{remainingPayload}, downloads{remainingDownloads}, bindings{remainingBindings}, removed{removedTargets}");
-if (subset)
+if (kept)
+{
+    foreach (var index in new[] {14,15})
+        if (await File.ReadAllTextAsync(pack.Paths[index],ct) != "KEPT-OWNER-FILE")
+            throw new Exception("Previously kept file was changed or deleted");
+}
+if (subset && !kept)
 {
     await swarm.Accelerate();
     var finish = Stopwatch.StartNew();
@@ -150,6 +275,8 @@ using (var measurement = new DeletionMeasurement())
     await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync([binding],root,new string('a',40),[media],ct);
     Console.WriteLine(JsonSerializer.Serialize(new { scenario="legacy-completed-file-verification",passed=!File.Exists(completed),
         measurement.Counters,measurement.ElapsedMilliseconds },json));
-    if (args.Contains("--expect-fixed") && measurement.Counters.GetValueOrDefault("shaCalls") != 1)
-        throw new Exception("Regression: duplicate SHA verification remains");
+    // Preserve the release's last content verification before unlink. A path-only
+    // digest cache would widen the replacement window while other files hash.
+    if (measurement.Counters.GetValueOrDefault("shaCalls") != 2)
+        throw new Exception("Historical final-path verification was bypassed");
 }

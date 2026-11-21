@@ -2209,7 +2209,7 @@ namespace TorrentFlow.Store.Migrations
 
                             t.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
 
-                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked')");
+                            t.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked','placementblocked','removalincomplete')");
 
                             t.HasCheckConstraint("CK_Target_replacementMode", "(kind='acquire' AND replacementMode IS NULL) OR (kind='replace' AND replacementMode IS NOT NULL)");
 

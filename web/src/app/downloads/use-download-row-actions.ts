@@ -164,8 +164,16 @@ export function useDownloadRowActions(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "delete", transferIds: transfers.map((torrent) => torrent.transferId), deleteFiles }),
         });
-        const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(response);
+        const body = await readJsonBody<{ ok?: boolean; message?: string; error?: string; resolvedTransferIds?: string[] }>(response);
         if (!response.ok || body?.ok !== true) {
+          const resolved = new Set(body?.resolvedTransferIds ?? []);
+          if (resolved.size) {
+            ui.setSelected((previous) => new Set([...previous].filter((id) => !resolved.has(id))));
+            ui.setPendingDelete((previous) => {
+              const remaining = previous?.filter((torrent) => !resolved.has(torrent.transferId));
+              return remaining?.length ? remaining : null;
+            });
+          }
           toast.error(`Couldn't remove ${what}`, {
             description: body?.message?.trim() || body?.error?.trim() ||
               `TorrentFlow answered HTTP ${response.status}. Try again.`,
@@ -177,9 +185,11 @@ export function useDownloadRowActions(
         ui.setAnnouncement(`${summary}.`);
         ui.setSelected(new Set());
         ui.setPendingDelete(null);
-        void data.load();
       } catch {
         toast.error(`Couldn't remove ${what}`, { description: "Couldn't reach TorrentFlow. Try again." });
+      } finally {
+        data.invalidateInFlight();
+        void data.load();
       }
       return;
     }

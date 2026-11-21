@@ -228,6 +228,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         var links = await store.ListAsync<DownloadTargetRow>(null, ct);
         var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToImmutableArray();
         var targets = await store.ListAsync<TargetRow>(null, ct);
+        downloads = [.. downloads.Where(d => !targets.Any(t => t.ChosenReleaseHash == d.Hash &&
+            t.ReasonCode == WaitReason.RemovalIncomplete && links.Any(l => l.TargetId == t.Id && l.DownloadId == d.Id)))];
         var offlineDownloads = downloads.Where(download => download.RootId is { } rootId &&
             roots.SingleOrDefault(root => root.Id == rootId) is { } root && !storage.IsOnline(root.Path)).ToArray();
         foreach (var download in offlineDownloads)
@@ -293,6 +295,8 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                 {
                     var members = targets.Where(t => associations.Any(a =>
                         a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
+                    if (members.Any(t => t.ReasonCode == WaitReason.RemovalIncomplete &&
+                        t.ChosenReleaseHash == download.Hash)) continue;
                     if (filingTasks.ContainsKey(download.Id)) continue;
                     var root = roots.SingleOrDefault(candidate => candidate.Id == download.RootId);
                     if (root is not null && !storage.IsOnline(root.Path))

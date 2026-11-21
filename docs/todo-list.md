@@ -198,3 +198,8 @@ reactivate historical UI/staging tasks below or authorize installed-app changes.
 | Season pack fallback: plan, critic, then build after season-speed lands | pack-plan | In progress |
 | More torrent sources, each tested live | more-sources | Done, pushed 145ccf1 |
 | Sign out / switch account so the owner can test requesting | sign-out | Done, pushed 4b83b3e |
+
+##21 November2026 —0.4.2 release
+- [x] Audio evidence regression implementation and independent review;96checks.
+- [x] Batched deletion, protected failed/kept items, populated-schema migration, repeated engine fixtures and actual headless UI flow.
+- [ ] Final package smoke, publication and authorized in-app update. See release-0.4.2-verification.md.

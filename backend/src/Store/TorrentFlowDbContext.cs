@@ -131,7 +131,7 @@ public sealed class TorrentFlowDbContext(DbContextOptions<TorrentFlowDbContext> 
             table.HasCheckConstraint("CK_Target_kind", "\"kind\" IN ('acquire','replace')");
             table.HasCheckConstraint("CK_Target_state", "\"state\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
             table.HasCheckConstraint("CK_Target_resumeState", "\"resumeState\" IN ('wanted','searching','fetching','filing','done','waiting','removed')");
-            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked')");
+            table.HasCheckConstraint("CK_Target_reasonCode", "\"reasonCode\" IN ('notreleased','metadataunavailable','noresults','rejectedcandidates','nohealthyrelease','sourcecooldown','sourcefailure','waitingforseeders','downloadcap','downloadwindow','nodrivespace','driveoffline','filebusy','mappinguncertain','ownerpickrequired','recoverymissing','paused','filingblocked','placementblocked','removalincomplete')");
             table.HasCheckConstraint("CK_Target_resolutionFloor", "\"resolutionFloor\" >= 0");
             table.HasCheckConstraint("CK_Target_preferredResolution", "\"preferredResolution\" >= 0");
             table.HasCheckConstraint("CK_Target_maxBytes", "\"maxBytes\" >= 0");

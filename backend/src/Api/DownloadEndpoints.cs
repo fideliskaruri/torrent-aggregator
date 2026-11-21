@@ -29,6 +29,7 @@ internal static class DownloadEndpoints
             try { return await next(context); }
             catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
             catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
+            catch (IOException ex) { return Results.Conflict(new { ok = false, message = ex.Message }); }
         });
         ReleaseReplacementEndpoints.Map(group);
         TorrentSendEndpoints.Map(group);
@@ -181,7 +182,8 @@ internal static class DownloadEndpoints
     }
 
     internal sealed record DownloadAction(string Action, string? Hash = null, string[]? Hashes = null,
-        string? OwnerClientType = null, bool DeleteFiles = false, string[]? TransferIds = null);
+        string? OwnerClientType = null, bool DeleteFiles = false, string[]? TransferIds = null,
+        bool ConfirmCurrentFiles = false);
     internal sealed record RecoverySourcesInput(string[]? Ids, bool Acknowledged,
         ExternalSelection[]? Selections = null, bool Paused = false);
     internal sealed record ExternalSelection(string SourceId, int FileIndex, string WorkId, string? EpisodeId = null);
@@ -265,7 +267,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
                 {
                     WaitReason.DriveOffline => "waiting_drive",
                     WaitReason.NoDriveSpace => "no_space",
-                    WaitReason.PlacementBlocked => "needs_you",
+                    WaitReason.PlacementBlocked or WaitReason.RemovalIncomplete => "needs_you",
                     _ => null,
                 } : null;
                 var checking = live?.Checking == true;
@@ -371,10 +373,14 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         };
         if (input.DeleteFiles && action != TargetAction.Remove)
             throw new ArgumentException("Delete files is only available when removing a download.");
+        if (input.ConfirmCurrentFiles)
+            throw new ArgumentException("This version cannot delete changed files. Refresh the app and try again without that option.");
         var hashes = input.Hashes ?? (input.Hash is { } singleHash ? [singleHash] : []);
         var transferIds = input.TransferIds ?? [];
         if (hashes.Length + transferIds.Length == 0 || hashes.Length + transferIds.Length > 500)
             throw new ArgumentException("Choose downloads to change.");
+        if (input.DeleteFiles)
+            return await DeleteFilesBatchAsync(hashes, transferIds, ct);
         var snapshot = await targets.ReadAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var links = await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
@@ -433,6 +439,83 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             if (ids.Length == 0) throw new ArgumentException("This download no longer has an action.");
             if (input.DeleteFiles) await targets.DeleteDownloadFilesAsync(hash, ct);
             foreach (var id in ids) await targets.ActionAsync(id, action, ct);
+        }
+        return new { ok = true };
+    }
+
+    private async Task<object> DeleteFilesBatchAsync(string[] hashes, string[] transferIds, CancellationToken ct)
+    {
+        // Resolve the whole request before the first mutation. List reads must not
+        // hydrate managers or force a pack through recovery for every episode.
+        var selectors = new List<(string Hash, string? Target)>();
+        foreach (var value in hashes.Concat(transferIds))
+        {
+            if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Choose a valid download.");
+            var match = System.Text.RegularExpressions.Regex.Match(value.Trim(),
+                "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            if (!match.Success) throw new ArgumentException("Choose a valid download.");
+            selectors.Add((match.Groups[1].Value.ToLowerInvariant(),
+                match.Groups[2].Success ? match.Groups[2].Value : null));
+        }
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        var requestedHashes = selectors.Select(s => s.Hash).Distinct().ToArray();
+        var downloads = await db.Downloads.AsNoTracking().Where(d => requestedHashes.Contains(d.Hash)).ToListAsync(ct);
+        var downloadIds = downloads.Select(d => d.Id).ToArray();
+        var links = await db.DownloadTargets.AsNoTracking().Where(l => downloadIds.Contains(l.DownloadId)).ToListAsync(ct);
+        var targetIds = links.Select(l => l.TargetId).Concat(selectors.Select(s => s.Target).OfType<string>()).Distinct().ToArray();
+        var current = await db.Targets.AsNoTracking().Where(t => targetIds.Contains(t.Id)).ToListAsync(ct);
+        var bindings = await db.DownloadFiles.AsNoTracking().Where(f => downloadIds.Contains(f.DownloadId)).ToListAsync(ct);
+        foreach (var selector in selectors)
+        {
+            var download = downloads.SingleOrDefault(d => d.Hash.Equals(selector.Hash, StringComparison.OrdinalIgnoreCase));
+            if (download is null)
+            {
+                if (selector.Target is not null && !current.Any(t => t.Id == selector.Target &&
+                    t.State == TargetState.Removed && selector.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("This download no longer has an action.");
+                continue;
+            }
+            var ids = links.Where(l => l.DownloadId == download.Id).Select(l => l.TargetId).ToArray();
+            if (selector.Target is { } id && !current.Any(t => t.Id == id && t.State == TargetState.Removed &&
+                download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase)) && (!ids.Contains(id, StringComparer.Ordinal) ||
+                !current.Any(t => t.Id == id && download.Hash.Equals(t.ChosenReleaseHash, StringComparison.OrdinalIgnoreCase))))
+                throw new ArgumentException("This download no longer has an action.");
+            if (selector.Target is null && ids.Length == 0 && download.RawIntentId is null)
+                throw new ArgumentException("This download no longer has an action.");
+        }
+        var resolved = new List<string>();
+        foreach (var group in selectors.GroupBy(s => s.Hash, StringComparer.OrdinalIgnoreCase))
+        {
+            ct.ThrowIfCancellationRequested();
+            var submitted = group.Select(s => $"builtin:{s.Hash.ToLowerInvariant()}{(s.Target is null ? "" : ":" + s.Target)}").Distinct().ToArray();
+            var download = downloads.SingleOrDefault(d => d.Hash.Equals(group.Key, StringComparison.OrdinalIgnoreCase));
+            if (download is null) { resolved.AddRange(submitted); continue; }
+            var whole = group.Any(s => s.Target is null);
+            var ids = whole ? links.Where(l => l.DownloadId == download.Id).Select(l => l.TargetId).Distinct().ToArray()
+                : group.Select(s => s.Target!).Distinct(StringComparer.Ordinal)
+                    .Where(id => !current.Any(t => t.Id == id && t.State == TargetState.Removed)).ToArray();
+            if (!whole && ids.Length == 0) { resolved.AddRange(submitted); continue; }
+            try
+            {
+                if (ids.Length == 0 && download.RawIntentId is not null)
+                    await rawDownloads.RemoveAsync(download.Hash, true, ct);
+                else
+                    await targets.DeleteCapturedFilesAsync(new(download,
+                        [.. bindings.Where(f => f.DownloadId == download.Id)],
+                        [.. links.Where(l => l.DownloadId == download.Id)],
+                        [.. current.Where(t => links.Any(l => l.DownloadId == download.Id && l.TargetId == t.Id))]),
+                        whole ? null : [.. ids], ct);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                var message = ex is UnauthorizedAccessException ? "Couldn't remove a selected file. Check folder permissions and try again."
+                    : ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021)
+                        ? "A selected file is in use. Close its player and try again." : ex.Message;
+                return new { ok = false, message, resolvedTransferIds = resolved.ToArray() };
+            }
+            resolved.AddRange(submitted);
         }
         return new { ok = true };
     }

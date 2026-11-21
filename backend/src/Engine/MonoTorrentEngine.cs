@@ -141,6 +141,10 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             return http;
         });
         var statePath = Path.Combine(directory, "dev-engine.state");
+        var durableFiles = fileState is null ? ImmutableArray<EngineRecoveryFiles>.Empty : await fileState.ReadAsync(ct);
+        // Cached development managers are disposable. Never restore one before
+        // the durable interrupted-removal fence has been checked.
+        if (durableFiles.Any(f => f.Suppressed)) restoreDevState = false;
         var devRuns = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var devIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var devBindings = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -183,7 +187,6 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             MaximumDownloadRate = restoreDevState ? client.Settings.MaximumDownloadRate : 0,
         }.ToSettings());
         if (settings.Dht && dht is not null) await dht.StartAsync(ct);
-        var durableFiles = fileState is null ? ImmutableArray<EngineRecoveryFiles>.Empty : await fileState.ReadAsync(ct);
         foreach (var manager in client.Torrents.ToArray())
         {
             var hash = Hash(manager);
@@ -511,6 +514,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         await gate.WaitAsync(ct);
         try
         {
+            if (fileState is not null && !await fileState.CanStartAsync(admission.Download, ct))
+                return Rejected("download_changed", "The download changed or removal did not finish. Refresh and try again.");
             ThrowIfStopped();
             var failure = ValidateAdmission(admission);
             if (failure is not null) return new(false, null, failure);
@@ -695,6 +700,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
     {
         DeletionMeasurement.Add("drainCalls");
         using var observed = DeletionMeasurement.Time("drain");
+        Failure? failure = null;
         await gate.WaitAsync(ct);
         try
         {
@@ -702,13 +708,15 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             if (pair.Value is not null)
             {
                 await RemoveManagerAsync(pair.Value, true);
+                if (pair.Value.FlushFailed)
+                    failure = new("flush_failed", "The download could not flush its files. Files were left untouched; try again.", null, true);
                 entries.Remove(pair.Key);
             }
             await ReconcileQueueAsync();
         }
         finally { gate.Release(); }
         await SaveDevStateAsync(ct);
-        return new(downloadId, true, true, null);
+        return new(downloadId, true, failure is null, failure);
     }
 
     public async Task DeleteTorrentAsync(string downloadId, CancellationToken ct)
@@ -832,6 +840,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         finally { gate.Release(); }
         foreach (var download in downloads.Where(d => d.Intent is DownloadIntent.Run or DownloadIntent.Queued or DownloadIntent.Paused))
         {
+            if (recovered.Any(f => f.DownloadId == download.Id && f.Suppressed)) continue;
             var candidate = CandidateFor(download.Hash);
             var rootPath = recovered.SingleOrDefault(item => item.DownloadId == download.Id)?.StorageRootPath;
             var bindings = files.Where(f => f.DownloadId == download.Id)

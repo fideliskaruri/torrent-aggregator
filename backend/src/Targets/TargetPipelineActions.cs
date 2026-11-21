@@ -41,6 +41,8 @@ public sealed partial class TargetPipeline
             var old = (await store.ListAsync<TargetRow>(row => row.Id == id, ct)).SingleOrDefault();
             if (old is null || old.State == TargetState.Removed && action == TargetAction.Remove)
                 return new(true, 0, 0, [], "Removed");
+            if (old.ReasonCode == WaitReason.RemovalIncomplete)
+                throw new InvalidOperationException("Removal did not finish. Delete with files again before changing this download.");
             var links = await store.ListAsync<DownloadTargetRow>(row => row.TargetId == id, ct);
             var hasCurrentDownload = links.Any(link => link.Role == AssociationRole.Current);
             var wasPaused = old.IsPaused();
