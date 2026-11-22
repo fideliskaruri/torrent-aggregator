@@ -14,6 +14,7 @@ import { EpisodeStrip } from "./episode-strip";
 export { episodeIntentKey } from "./episode-key";
 
 export interface EpisodeListProps {
+  onRetry?: () => void;
   seasons: TitleSeason[];
   season: number | null;
   episodes: EpisodeRowModel[];
@@ -35,6 +36,7 @@ export interface EpisodeListProps {
 }
 
 export function EpisodeList({
+  onRetry,
   seasons,
   season,
   episodes,
@@ -143,6 +145,7 @@ export function EpisodeList({
       )}
 
       <EpisodeStrip
+        onRetry={onRetry}
         episodes={episodes}
         truncated={truncated}
         view={view}

@@ -275,8 +275,8 @@ using (var measurement = new DeletionMeasurement())
     await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync([binding],root,new string('a',40),[media],ct);
     Console.WriteLine(JsonSerializer.Serialize(new { scenario="legacy-completed-file-verification",passed=!File.Exists(completed),
         measurement.Counters,measurement.ElapsedMilliseconds },json));
-    // Preserve the release's last content verification before unlink. A path-only
-    // digest cache would widen the replacement window while other files hash.
-    if (measurement.Counters.GetValueOrDefault("shaCalls") != 2)
-        throw new Exception("Historical final-path verification was bypassed");
+    // One guarded checksum replaces the old two reads; the same open file object is unlinked.
+    if (measurement.Counters.GetValueOrDefault("shaCalls") != 1 ||
+        measurement.Counters.GetValueOrDefault("shaBytes") != media.Bytes)
+        throw new Exception("Deletion must verify the completed payload exactly once");
 }

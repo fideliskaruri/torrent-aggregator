@@ -3,6 +3,7 @@ using TorrentFlow.Domain;
 using TorrentFlow.Library;
 using TorrentFlow.Library.Jellyfin;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Store;
 
 namespace TorrentFlow.Targets;
@@ -116,20 +117,53 @@ internal sealed partial class TargetTransfers
         SemaphoreSlim stateGate, CancellationToken ct, ImmutableArray<DownloadFileRow>? captured = null,
         DownloadDeletionSelection? selection = null)
     {
-        await gate.WaitAsync(ct);
+        await using var scope = scopes.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var normalizedHash = hash.ToLowerInvariant();
+        var download = (await store.ListAsync<DownloadRow>(row => row.Hash == normalizedHash, ct)).SingleOrDefault();
+        if (download is null) return;
+        DeletionSlot slot;
+        lock (deletionSlotGate)
+        {
+            if (!deletionSlots.TryGetValue(download.Id, out slot!)) deletionSlots.Add(download.Id, slot = new());
+            slot.Users++;
+        }
+        var acquired = false;
         try
         {
-            // Background filing holds no gate while moving files; let it finish so deletion sees its result.
-            await Task.WhenAll(filingTasks.Values);
-            await stateGate.WaitAsync(ct);
-            try { await DeleteFilesCoreAsync(hash, indices, captured, selection, ct); }
-            finally { stateGate.Release(); }
+            await slot.Gate.WaitAsync(ct); acquired = true;
+            while (true)
+            {
+                await gate.WaitAsync(ct);
+                if (filingTasks.TryGetValue(download.Id, out var filing))
+                {
+                    if (filingCancellations.TryGetValue(download.Id, out var cancellation))
+                        try { cancellation.Cancel(); } catch (ObjectDisposedException) { }
+                    // Wait only for this payload, without preventing unrelated transfer ticks/commands.
+                    gate.Release();
+                    await filing.WaitAsync(ct);
+                    continue;
+                }
+                try
+                {
+                    await stateGate.WaitAsync(ct);
+                    try { await DeleteFilesCoreAsync(hash, indices, captured, selection, stateGate, ct); }
+                    finally { stateGate.Release(); }
+                    return;
+                }
+                finally { gate.Release(); }
+            }
         }
-        finally { gate.Release(); }
+        finally
+        {
+            if (acquired) slot.Gate.Release();
+            lock (deletionSlotGate)
+                if (--slot.Users == 0) { deletionSlots.Remove(download.Id); slot.Gate.Dispose(); }
+        }
     }
 
     private async Task DeleteFilesCoreAsync(string hash, ImmutableArray<int>? indices,
-        ImmutableArray<DownloadFileRow>? captured, DownloadDeletionSelection? selection, CancellationToken ct)
+        ImmutableArray<DownloadFileRow>? captured, DownloadDeletionSelection? selection, SemaphoreSlim stateGate, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
@@ -206,11 +240,29 @@ internal sealed partial class TargetTransfers
         targetWrites.AddRange(held.Where(t => targetWrites.All(w => w.Row.Id != t.Id))
             .Select(t => new RowWrite(t with { State = TargetState.Done, ResumeState = null,
                 ReasonCode = null, ReasonText = null, Version = t.Version + 2 }, t.Version + 1, null)));
-        var drain = await engine.StopAndReleaseFilesAsync(download.Id, ct);
-        if (!drain.WritesDrained || drain.Failure is not null)
-            throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
-        await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
-            await repository.MediaAsync(null, ct), ct);
+        // The durable removal hold above prevents admission/retry. Keep only this
+        // download's deletion slot during disk I/O; unrelated commands remain usable.
+        deleting[download.Id] = 0;
+        stateGate.Release();
+        gate.Release();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var drain = await engine.StopAndReleaseFilesAsync(download.Id, ct);
+            logger.LogInformation("Delete {DownloadId}: drain completed after {Milliseconds}ms", download.Id, timer.ElapsedMilliseconds);
+            if (!drain.WritesDrained || drain.Failure is not null)
+                throw new IOException(drain.Failure?.Message ?? "The download could not stop writing. Try again.");
+            await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync(files, root.Path, hash,
+                await repository.MediaAsync(null, ct), ct, [.. await store.ListAsync<FileOperationRow>(o => o.DownloadId == download.Id, ct)]);
+            logger.LogInformation("Delete {DownloadId}: verified payload removal completed after {Milliseconds}ms", download.Id, timer.ElapsedMilliseconds);
+        }
+        finally
+        {
+            // Restore the caller's lock contract even on cancellation/failure.
+            await gate.WaitAsync(CancellationToken.None);
+            await stateGate.WaitAsync(CancellationToken.None);
+            deleting.TryRemove(download.Id, out _);
+        }
         if (shared)
         {
             var replacements = TorrentFlow.Library.DownloadFiling.RetireBindings(files, allFiles, root.Path, hash);

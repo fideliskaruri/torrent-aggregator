@@ -16,6 +16,12 @@ internal static class VideoDimensions
     internal static (int? Width, int? Height, double? RuntimeSeconds) ReadDetails(string path)
     {
         using var stream = File.OpenRead(path);
+        return ReadDetails(stream);
+    }
+
+    internal static (int? Width, int? Height, double? RuntimeSeconds) ReadDetails(FileStream stream)
+    {
+        stream.Position = 0;
         Span<byte> signature = stackalloc byte[12];
         if (stream.Length < signature.Length) return (null, null, null);
         stream.ReadExactly(signature);

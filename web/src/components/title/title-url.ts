@@ -80,3 +80,11 @@ export function extrasDataIdentity(url: string | null): string | null {
   parsed.searchParams.delete("s");
   return `${parsed.pathname}?${parsed.searchParams.toString()}`;
 }
+
+/** Retain one title while its selected season refreshes, never another title. */
+export function detailDataIdentity(url: string): string {
+  const parsed = new URL(url, "http://torrentflow.local");
+  parsed.searchParams.delete("s");
+  parsed.searchParams.delete("remembered");
+  return `${parsed.pathname}?${parsed.searchParams.toString()}`;
+}

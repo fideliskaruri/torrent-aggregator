@@ -8,7 +8,7 @@ namespace TorrentFlow.Library;
 
 public sealed partial class LocalFiles(ILibraryRepository repository) : ILocalFiles
 {
-    [GeneratedRegex("^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BuiltinId();
 
     public LocalFileResult Browse(string? path)

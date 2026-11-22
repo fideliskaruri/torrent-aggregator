@@ -478,6 +478,8 @@ public sealed record FileOperationRow : StoreRow
     public string? DestinationPath { get; init; }
     public long? ExpectedBytes { get; init; }
     public string? ExpectedDigest { get; init; }
+    public string? SourceIdentity { get; init; }
+    public string? BindingFingerprint { get; init; }
     public required FileOperationState State { get; init; }
     public required bool DeleteSource { get; init; }
     public required int Attempts { get; init; }

@@ -269,7 +269,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
     }
 
     private static MagnetLink Link(string value) => MagnetLink.Parse(
-        value.Length == 40 && value.All(Uri.IsHexDigit) ? $"magnet:?xt=urn:btih:{value}" : value);
+        value.Length == 40 && value.All(Uri.IsHexDigit) ? $"magnet:?xt=urn:btih:{value}" :
+        value.Length == 64 && value.All(Uri.IsHexDigit) ? $"magnet:?xt=urn:btmh:1220{value}" : value);
     private static string Hash(TorrentManager manager) => manager.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
     private static Failure Fail(string code, string message) => new(code, message, null, false);
     private static EngineResult Rejected(string code, string message) => new(false, null, Fail(code, message));
@@ -671,6 +672,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         {
             var entry = entries.Values.SingleOrDefault(e => !e.Probe && e.Id == downloadId);
             if (entry is null) return Rejected("not_attached", "The download is not attached. Recover its bindings before resuming.");
+            if (entry.WantsRun == run && publishedSnapshots.TryGetValue(entry.Id, out var observed))
+                return new(true, observed, null);
             entry.WantsRun = run;
             await ReconcileQueueAsync();
             return new(true, await SnapshotAsync(entry), null);
@@ -743,6 +746,20 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         await SaveDevStateAsync(ct);
     }
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, EngineSnapshot> publishedSnapshots = new(StringComparer.Ordinal);
+
+    public Task<EngineSnapshot?> ReadDownloadAsync(string downloadId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(publishedSnapshots.GetValueOrDefault(downloadId));
+    }
+
+    public Task<ImmutableArray<EngineSnapshot>> ReadSnapshotAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(publishedSnapshots.Values.ToImmutableArray());
+    }
+
     public async Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken ct)
     {
         await gate.WaitAsync(ct);
@@ -773,7 +790,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
         var bytes = selected.Sum(f => f.Bytes);
         var completed = selected.Sum(f => f.CompletedBytes);
         UpdateUploaded(entry);
-        return new(entry.Id, Hash(manager), MetadataReady(manager), true, entry.Completed || entry.Bound && SelectedComplete(entry),
+        var result = new EngineSnapshot(entry.Id, Hash(manager), MetadataReady(manager), true, entry.Completed || entry.Bound && SelectedComplete(entry),
             entry.Run && entry.MetadataStalled, entry.Run && entry.ProgressStalled, bytes, completed,
             manager.Monitor.DownloadRate, peers.Count, peers.Count(p => p.IsSeeder), files,
             DateTimeOffset.UtcNow, manager.Error is not null ? Fail("engine_error", manager.Error.Exception.Message) :
@@ -789,6 +806,8 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
             Checking = manager.State == TorrentState.Hashing,
             ErrorHResult = manager.Error?.Exception.HResult,
         };
+        if (!entry.Probe) publishedSnapshots[entry.Id] = result;
+        return result;
     }
 
     private static long CompletedFileBytes(TorrentManager manager, ITorrentManagerFile file)
@@ -896,6 +915,7 @@ public sealed partial class MonoTorrentEngine : IEngine, IExternalEngineAdmissio
 
     private async Task RemoveManagerAsync(Entry entry, bool keepResume)
     {
+        publishedSnapshots.TryRemove(entry.Id, out _);
         if (entry.Manager.Error is not null && entry.Manager.HasMetadata)
         {
             entry.FlushFailed = true;

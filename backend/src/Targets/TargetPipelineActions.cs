@@ -50,10 +50,11 @@ public sealed partial class TargetPipeline
             {
                 TargetAction.Remove => TargetState.Removed,
                 TargetAction.Pause when old.State != TargetState.Done => TargetState.Waiting,
-                TargetAction.Resume when wasPaused => hasCurrentDownload ? TargetState.Fetching : TargetState.Wanted,
-                TargetAction.TryNow when old.State == TargetState.Waiting && !wasPaused => TargetState.Wanted,
+                TargetAction.Resume when wasPaused => old.ResumeState == TargetState.Filing ? TargetState.Filing : hasCurrentDownload ? TargetState.Fetching : TargetState.Wanted,
+                TargetAction.TryNow when old.State == TargetState.Waiting && !wasPaused =>
+                    hasCurrentDownload && old.ResumeState is TargetState.Filing or TargetState.Fetching ? old.ResumeState.Value : TargetState.Wanted,
                 TargetAction.DownloadNow when old.State == TargetState.Waiting =>
-                    hasCurrentDownload ? TargetState.Fetching : TargetState.Wanted,
+                    hasCurrentDownload ? old.ResumeState == TargetState.Filing ? TargetState.Filing : TargetState.Fetching : TargetState.Wanted,
                 TargetAction.DownloadNow when old.State is TargetState.Wanted or TargetState.Searching => TargetState.Wanted,
                 _ => old.State,
             };
@@ -61,7 +62,7 @@ public sealed partial class TargetPipeline
                 state == old.State && action != TargetAction.DownloadNow &&
                     !(action == TargetAction.TryNow && state == TargetState.Wanted))
                 return new(true, 0, 0, [id], state.ToString());
-            var next = old with { State = state, ResumeState = null,
+            var next = old with { State = state, ResumeState = action == TargetAction.Pause ? old.State : null,
                 ReasonCode = action == TargetAction.Pause ? WaitReason.Paused : null,
                 ReasonText = action == TargetAction.Pause ? "Paused by you." : null,
                 NextTryAt = null, LeaseToken = null, LeaseUntil = null,
@@ -73,8 +74,8 @@ public sealed partial class TargetPipeline
                     LeaseToken = state is TargetState.Fetching or TargetState.Filing ? old.LeaseToken : null };
             await CommitAsync(store, [new(next, old.Version, null),
                 .. (action == TargetAction.Pause ? [] : links.Where(l =>
-                    l.Role != (state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired))).Select(l =>
-                    new RowWrite(l with { Role = state == TargetState.Fetching ? AssociationRole.Current : AssociationRole.Retired }, null, l))], [], ct);
+                    l.Role != (state is TargetState.Fetching or TargetState.Filing ? AssociationRole.Current : AssociationRole.Retired))).Select(l =>
+                    new RowWrite(l with { Role = state is TargetState.Fetching or TargetState.Filing ? AssociationRole.Current : AssociationRole.Retired }, null, l))], [], ct);
             if (!(action == TargetAction.DownloadNow && state is TargetState.Fetching or TargetState.Filing) &&
                 cancellations.TryGetValue(id, out var cancellation)) cancellation.Cancel();
             if (state == TargetState.Wanted && action is TargetAction.TryNow or TargetAction.DownloadNow)

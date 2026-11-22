@@ -9,7 +9,7 @@ import type { TitleDetailPayload,TitleExtrasPayload,TitleProgressPayload } from 
 
 import type { TitleDetailProps } from "./title-props";
 
-import { buildDetailUrl,buildExtrasUrl,extrasDataIdentity } from "./title-url";
+import { buildDetailUrl,buildExtrasUrl,extrasDataIdentity,detailDataIdentity } from "./title-url";
 import { readLegacySeasonFromLocation,readRememberedSeasonFromDocument,removeLegacySeasonFromLocation,writeRememberedSeasonCookie } from "./season-memory";
 import { withCatalogDefaults } from "./title-payload";
 import { titleNeedsTransferPoll,titleProgressHasActiveTransfer } from "./title-poll";
@@ -90,6 +90,7 @@ export function useTitleDetailQuery(props: TitleDetailProps) {
     useApiQuery<TitleDetailPayload>(url, {
       refreshMs: 0,
       select: withCatalogDefaults,
+      dataIdentity: detailDataIdentity(url),
     });
   useEffect(() => {
     if (titleNeedsTransferPoll(data)) startTransferPoll();

@@ -646,6 +646,14 @@ namespace TorrentFlow.Store.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("resumeStage");
 
+                    b.Property<string>("SourceIdentity")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sourceIdentity");
+
+                    b.Property<string>("BindingFingerprint")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("bindingFingerprint");
+
                     b.Property<string>("SourcePath")
                         .HasColumnType("TEXT")
                         .HasColumnName("sourcePath");

@@ -389,7 +389,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         foreach (var transferId in transferIds)
         {
             var match = System.Text.RegularExpressions.Regex.Match(transferId.Trim(),
-                "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$",
+                "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant);
             if (!match.Success) throw new ArgumentException("Choose a valid download.");
@@ -452,7 +452,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         {
             if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Choose a valid download.");
             var match = System.Text.RegularExpressions.Regex.Match(value.Trim(),
-                "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$",
+                "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant);
             if (!match.Success) throw new ArgumentException("Choose a valid download.");
@@ -534,7 +534,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
     internal async Task<IResult> KeepAsync(string transferId, CancellationToken ct)
     {
         var match = System.Text.RegularExpressions.Regex.Match(transferId.Trim(),
-            "^(?:builtin:)?([0-9a-f]{40})(?::(.+))?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            "^(?:builtin:)?([0-9a-f]{40}|[0-9a-f]{64})(?::(.+))?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         if (!match.Success) return Results.BadRequest(new { ok = false, reason = "invalid-id",
             error = "That is not a download id.", message = "Reload the page and try again." });

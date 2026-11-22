@@ -15,9 +15,15 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     private const string Prefix = "targets:";
     private const long SpaceWakeBytes = 1_000_000_000;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private sealed class DeletionSlot { internal readonly SemaphoreSlim Gate = new(1, 1); internal int Users; }
+    private readonly Dictionary<string, DeletionSlot> deletionSlots = new(StringComparer.Ordinal);
+    private readonly object deletionSlotGate = new();
+    private readonly ConcurrentDictionary<string, byte> deleting = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Task> filingTasks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> filingCancellations = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> noSpaceBaselines = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, DateTimeOffset> engineErrorRestarts = new(StringComparer.Ordinal);
+    internal Task WaitForFilingAsync() => Task.WhenAll(filingTasks.Values);
 
     private static WaitReason PlacementWaitReason(string code) => code switch
     {
@@ -289,19 +295,25 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var associations = await store.ListAsync<DownloadTargetRow>(null, ct);
             var downloads = (await store.ListAsync<DownloadRow>(null, ct)).Where(d => d.Id.StartsWith(Prefix)).ToArray();
             await TargetQueue.ApplyAsync(engine, store, ct);
+            var bindingsForTick = await repository.BindingsAsync(ct);
+            var filesByDownload = bindingsForTick.ToLookup(f => f.DownloadId);
+            var idsByDownload = associations.ToLookup(a => a.DownloadId, a => a.TargetId);
+            var targetById = targets.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var liveForTick = (await engine.SnapshotAsync(ct)).ToDictionary(s => s.DownloadId, StringComparer.Ordinal);
             foreach (var download in downloads)
             {
+                if (deleting.ContainsKey(download.Id)) continue;
                 try
                 {
-                    var members = targets.Where(t => associations.Any(a =>
-                        a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
+                    var memberIds = idsByDownload[download.Id].Distinct().ToArray();
+                    var members = memberIds.Where(targetById.ContainsKey).Select(id => targetById[id]).ToArray();
                     if (members.Any(t => t.ReasonCode == WaitReason.RemovalIncomplete &&
                         t.ChosenReleaseHash == download.Hash)) continue;
                     if (filingTasks.ContainsKey(download.Id)) continue;
                     var root = roots.SingleOrDefault(candidate => candidate.Id == download.RootId);
                     if (root is not null && !storage.IsOnline(root.Path))
                     {
-                        if ((await engine.SnapshotAsync(ct)).Any(snapshot => snapshot.DownloadId == download.Id))
+                        if (liveForTick.ContainsKey(download.Id))
                             await engine.StopAndReleaseFilesAsync(download.Id, ct);
                         foreach (var target in members.Where(target =>
                                      target.State is TargetState.Fetching or TargetState.Filing))
@@ -309,8 +321,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                                 $"Waiting for drive {storage.Label(root.Path)}", ct);
                         continue;
                     }
-                    var files = (await repository.BindingsAsync(ct))
-                        .Where(f => f.DownloadId == download.Id).ToImmutableArray();
+                    var files = filesByDownload[download.Id].ToImmutableArray();
                     if (members.Length > 0 && members.All(t => t.ChosenReleaseHash != download.Hash))
                     {
                         await engine.StopAndReleaseFilesAsync(download.Id, ct);
@@ -339,8 +350,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         if (engine is MonoTorrentEngine removedEngine) await removedEngine.SaveDevStateAsync(ct);
                         continue;
                     }
-                    var live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
-                        snapshot.DownloadId == download.Id);
+                    var live = liveForTick.GetValueOrDefault(download.Id);
                     if (live?.Failure?.Code == "engine_error")
                     {
                         if (IsDiskFull(live))
@@ -377,8 +387,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         if (live is null)
                         {
                             await engine.RecoverAsync([download], files, ct);
-                            live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
-                                snapshot.DownloadId == download.Id);
+                            live = await engine.ReadDownloadAsync(download.Id, ct);
                         }
                         await change(retry.Id, TargetState.Fetching, null, null, ct);
                     }
@@ -388,13 +397,11 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         if (live is null)
                         {
                             await engine.RecoverAsync([download], files, ct);
-                            live = (await engine.SnapshotAsync(ct)).SingleOrDefault(snapshot =>
-                                snapshot.DownloadId == download.Id);
+                            live = await engine.ReadDownloadAsync(download.Id, ct);
                         }
                         await change(retry.Id, TargetState.Filing, null, null, ct);
                     }
-                    members = (await store.ListAsync<TargetRow>(null, ct))
-                        .Where(t => associations.Any(a => a.DownloadId == download.Id && a.TargetId == t.Id)).ToArray();
+                    members = await store.ListAsync<TargetRow>(t => memberIds.Contains(t.Id), ct);
                     var runnable = members.Where(t => t.State is TargetState.Fetching or TargetState.Filing ||
                         t.State == TargetState.Waiting && t.ResumeState == TargetState.Filing).ToArray();
                     var run = runnable.Length > 0 && members.Any(t => t.State == TargetState.Fetching);
@@ -410,7 +417,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                     if (live is null && members.Any(t => t.State == TargetState.Fetching))
                     {
                         await engine.RecoverAsync([latestDownload], files, ct);
-                        live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
+                        live = await engine.ReadDownloadAsync(download.Id, ct);
                     }
                     var selected = files.Select(f => new FileBinding(f.FileIndex, f.EnginePath!, f.Selected &&
                         !f.Filed && members.Any(t => t.Id == f.TargetId && t.State == TargetState.Fetching), root?.Path))
@@ -419,7 +426,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
                         live.Files.FirstOrDefault(l => l.Index == f.FileIndex)?.Selected != f.Selected))
                     {
                         await engine.SelectAsync(download.Id, selected, ct);
-                        live = (await engine.SnapshotAsync(ct)).SingleOrDefault(s => s.DownloadId == download.Id);
+                        live = await engine.ReadDownloadAsync(download.Id, ct);
                     }
                     var now = DateTimeOffset.UtcNow;
                     var filingReady = members.Any(t => !t.IsPaused() && t.State == TargetState.Filing &&
@@ -445,7 +452,9 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!filingTasks.TryAdd(downloadId, completion.Task)) return;
-        _ = FileDownloadAsync(downloadId, download, snapshot, stateGate, ct, completion);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        filingCancellations[downloadId] = cancellation;
+        _ = FileDownloadAsync(downloadId, download, snapshot, stateGate, cancellation.Token, completion);
     }
 
     private async Task FileDownloadAsync(string downloadId, DownloadRow download, EngineSnapshot? snapshot,
@@ -464,7 +473,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
             var files = (await repository.BindingsAsync(ct))
                 .Where(f => f.DownloadId == downloadId).ToImmutableArray();
             await DownloadFiling.FileAsync(store, repository, engine, download, snapshot, files,
-                members, stateGate, ct);
+                members, stateGate, ct, logger);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception ex)
@@ -474,6 +483,7 @@ internal sealed partial class TargetTransfers(IServiceScopeFactory scopes, IEngi
         finally
         {
             filingTasks.TryRemove(downloadId, out _);
+            if (filingCancellations.TryRemove(downloadId, out var cancellation)) cancellation.Dispose();
             completion.TrySetResult();
         }
     }

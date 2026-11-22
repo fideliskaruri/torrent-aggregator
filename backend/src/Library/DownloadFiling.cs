@@ -126,7 +126,7 @@ public sealed class DownloadFiling
         return [.. output.OrderBy(f => f.FileIndex)];
     }
 
-    public static Failure? ValidatePartial(DownloadFileRow binding, EngineFileSnapshot file)
+    public static Failure? ValidatePartial(DownloadFileRow binding, EngineFileSnapshot file, Action<Exception>? readFailure = null)
     {
         if (!file.AllTouchingPiecesComplete)
             return new("HashIncomplete", "Wait for every piece touching this file to pass its hash check.", null, false);
@@ -149,16 +149,24 @@ public sealed class DownloadFiling
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        { return new("FileBusy", "The completed file cannot be read. Close any app using it and try again.", null, false); }
+        { readFailure?.Invoke(ex); return new("FileBusy", "The completed file cannot be read. Close any app using it and try again.", null, false); }
+    }
+
+    public static bool RecognizedVideo(FileStream stream)
+    {
+        Span<byte> header = stackalloc byte[16];
+        stream.Position = 0;
+        return stream.Length >= 1024 * 1024 && VideoSignature.Recognized(header[..stream.Read(header)]);
     }
 
     public static MediaFileRow Media(DownloadRow download, WorkSnapshot work, TargetRow target,
-        int? resolution, string? source, DownloadFileRow binding)
+        int? resolution, string? source, DownloadFileRow binding, FileStream? verifiedStream = null)
     {
         var now = DateTimeOffset.UtcNow;
         var path = binding.FinalPath!;
         LibraryPaths.NoLinks(path);
-        (int? Width, int? Height) dimensions = binding.Role == FileRole.Video ? VideoDimensions.Read(path) : (null, null);
+        var details = binding.Role == FileRole.Video && verifiedStream is not null ? VideoDimensions.ReadDetails(verifiedStream) : (null, null, (double?)null);
+        (int? Width, int? Height) dimensions = binding.Role != FileRole.Video ? (null, null) : verifiedStream is null ? VideoDimensions.Read(path) : (details.Item1, details.Item2);
         var physicalKey = LibraryPaths.PhysicalKey(path);
         var identity = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(physicalKey)));
         return new MediaFileRow
@@ -199,52 +207,58 @@ public sealed class DownloadFiling
     }
 
     public static async Task DeletePayloadAsync(ImmutableArray<DownloadFileRow> bindings, string itemFolder, string hash,
-        ImmutableArray<MediaFileRow> media, CancellationToken ct)
+        ImmutableArray<MediaFileRow> media, CancellationToken ct, ImmutableArray<FileOperationRow> operations = default)
     {
+        if (operations.IsDefault) operations = [];
         var ownedMedia = media.Where(m => bindings.Any(f => f.DownloadId == m.DownloadId &&
             (f.MediaFileId == m.Id || f.FileIndex == m.FileIndex))).ToArray();
+        var paths = new Dictionary<string, (string? Digest, string? Identity)>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in ownedMedia.Where(m => File.Exists(m.Path)))
         {
-            LibraryPaths.NoLinks(file.Path);
-            if (!LibraryPaths.IsInside(itemFolder, file.Path) ||
-                LibraryPaths.PhysicalKey(file.Path) != file.PhysicalKey || file.ContentDigest is null ||
-                await DigestAsync(file.Path, ct) != file.ContentDigest)
-                throw new IOException("A recorded library file changed. It was left untouched. Review it before removing it.");
+            if (LibraryPaths.PhysicalKey(file.Path) != file.PhysicalKey || file.ContentDigest is null)
+                throw new IOException("A library file has no valid ownership proof. It was left untouched.");
+            paths[file.Path] = (file.ContentDigest, operations.SingleOrDefault(o => o.MediaFileId == file.Id)?.SourceIdentity);
         }
         foreach (var file in bindings)
         {
-            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (file.PartialPath is { } partial) paths.Add(partial);
-            if (file.EnginePath is { } enginePath && enginePath != file.FinalPath) paths.Add(enginePath);
+            if (file.PartialPath is { } partial) paths.TryAdd(partial, (null, null));
+            if (file.EnginePath is { } enginePath && enginePath != file.FinalPath) paths.TryAdd(enginePath, (null, null));
+            var operation = operations.SingleOrDefault(o => o.Id == "file:" + file.Id);
             if (file.FinalPath is { } final && File.Exists(final))
             {
-                var digest = media.SingleOrDefault(m => m.Id == file.MediaFileId)?.ContentDigest;
                 if (file.Filed || file.EnginePath == final)
                 {
-                    if (digest is null || await DigestAsync(final, ct) != digest)
-                        throw new IOException("The file at the final path changed. It was left untouched. Review it before removing it.");
-                    paths.Add(final);
+                    if (!paths.ContainsKey(final)) throw new IOException("The final file has no library ownership proof. It was left untouched.");
                 }
+                else if (operation is { State: FileOperationState.Verified or FileOperationState.Done, SourceIdentity: not null, ExpectedDigest: not null } &&
+                    operation.SourcePath == file.PartialPath && operation.DestinationPath == final &&
+                    operation.TargetId == file.TargetId && operation.ExpectedBytes == file.ExpectedBytes &&
+                    operation.BindingFingerprint == Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(file)))))
+                    paths[final] = (operation.ExpectedDigest, operation.SourceIdentity);
+                else if (!File.Exists(file.PartialPath))
+                    throw new IOException("An existing destination cannot be identified as this download. It was left untouched.");
             }
-            foreach (var path in paths)
+        }
+        // Validate the whole batch before deleting any payload. Each guard survives its one checksum and delete.
+        var guards = new List<PayloadFile>();
+        try
+        {
+            foreach (var (path, proof) in paths)
             {
                 LibraryPaths.NoLinks(path);
                 if (!LibraryPaths.IsInside(itemFolder, path)) throw new IOException("The deletion path is outside the title folder.");
-                if (File.Exists(path)) File.Delete(path);
+                if (!File.Exists(path)) continue;
+                var guard = new PayloadFile(path);
+                guards.Add(guard);
+                if (proof.Identity is not null && guard.Identity != proof.Identity ||
+                    proof.Digest is not null && await guard.DigestAsync(ct) != proof.Digest)
+                    throw new IOException("A recorded file changed. It was left untouched. Review it before removing it.");
             }
-            if (file.FinalPath is { } ownedFinal)
-            {
-                var partialSibling = ownedFinal + ".partial";
-                if (File.Exists(partialSibling) && !media.Any(m => m.Path.Equals(partialSibling, StringComparison.OrdinalIgnoreCase)))
-                {
-                    LibraryPaths.NoLinks(partialSibling);
-                    if (!LibraryPaths.IsInside(itemFolder, partialSibling)) throw new IOException("The partial is outside the title folder.");
-                    File.Delete(partialSibling);
-                }
-            }
+            ct.ThrowIfCancellationRequested();
+            foreach (var guard in guards) guard.Delete();
         }
-        foreach (var file in ownedMedia)
-            if (File.Exists(file.Path)) File.Delete(file.Path);
+        finally { foreach (var guard in guards) guard.Dispose(); }
         foreach (var directory in UnwantedFolders(bindings))
         {
             if (Path.GetFileName(directory) != hash || !LibraryPaths.IsInside(itemFolder, directory))

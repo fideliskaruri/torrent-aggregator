@@ -71,7 +71,7 @@ export function TitleDetail(props: TitleDetailProps) {
     >
       {loading && !data ? (
         <TitleDetailSkeleton />
-      ) : error ? (
+      ) : error && !data ? (
         <div className="container-app py-10">
           <TfErrorState
             title="Could not load this title"
@@ -97,10 +97,10 @@ export function TitleDetail(props: TitleDetailProps) {
           progress={visibleProgress}
           extrasLoading={extrasLoading}
           extrasRefreshing={extrasRefreshing}
-          extrasError={extrasError}
+          extrasError={error ?? extrasError}
           extrasSettled={extrasSettled}
           extrasSeason={activeSeason}
-          refetchExtras={refetchExtras}
+          refetchExtras={() => { refetch(); void refetchExtras(); }}
           season={season}
           refreshing={refreshing}
           statusFor={statusFor}

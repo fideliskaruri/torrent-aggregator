@@ -24,3 +24,5 @@ public interface IEngineFileState
     Task<ImmutableArray<EngineRecoveryFiles>> ReadAsync(CancellationToken cancellationToken);
     Task<bool> CanStartAsync(DownloadRow download, CancellationToken cancellationToken) => Task.FromResult(true);
 }
+
+public sealed record VerifiedPayload(int FileIndex, string Path, long Bytes, string? Digest, Failure? Failure);

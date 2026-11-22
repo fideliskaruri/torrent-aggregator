@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollArea,ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { WantedAction } from "@/components/wanted/wanted-actions";
 import { type EpisodeRowModel } from "./merge-extras";
@@ -14,7 +15,7 @@ import { pageScrollDelta,railEdges } from "@/components/browse/rail-scroll";
 import { RailArrow } from "@/components/browse/rail-arrow";
 
 export function EpisodeStrip({
-  episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction, onFilesChanged,
+  episodes, truncated, view, busy, season, statusFor, gated, onAction, onFindAnother, onPickRelease, onWantedAction, onFilesChanged, onRetry,
 }: {
   episodes: EpisodeRowModel[];
   truncated: boolean;
@@ -28,6 +29,7 @@ export function EpisodeStrip({
   onPickRelease?: (season: number, episode: number) => void;
   onWantedAction?: (season: number, episode: number, action: WantedAction) => void;
   onFilesChanged?: () => void;
+  onRetry?: () => void;
 }) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const viewport = useCallback(
@@ -88,12 +90,13 @@ export function EpisodeStrip({
           }
         />
       ) : view.kind === "error" ? (
-        <p
+        <div
           role="alert"
           className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-subtle-foreground"
         >
-          Could not load this season&apos;s episodes. {view.message}
-        </p>
+          <p>Could not load this season&apos;s episodes. {view.message}</p>
+          {onRetry ? <Button type="button" variant="outline" size="sm" className="mt-3 max-md:min-h-11 pointer-coarse:min-h-11" onClick={onRetry}>Try again</Button> : null}
+        </div>
       ) : view.kind === "empty" ? (
         <p className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-subtle-foreground">
 

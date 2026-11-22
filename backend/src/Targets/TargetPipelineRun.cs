@@ -18,8 +18,8 @@ public sealed partial class TargetPipeline
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
         var result = new TargetSnapshot([.. await store.ListAsync<TargetRow>(null, ct)],
-            [.. await store.ListAsync<DownloadRow>(null, ct)], await engine.SnapshotAsync(ct),
-            [.. (await store.ListAsync<AttemptRow>(null, ct)).Where(a => a.TargetId is not null)],
+            [.. await store.ListAsync<DownloadRow>(null, ct)], await engine.ReadSnapshotAsync(ct),
+            [.. await store.ListAsync<AttemptRow>(a => a.TargetId != null, ct)],
             [.. await store.ListAsync<ScopeIntentRow>(null, ct)]);
         var raws = await store.ListAsync<RawIntentRow>(null, ct);
         return result with { RawIntents = [.. raws],
@@ -256,19 +256,35 @@ public sealed partial class TargetPipeline
         return settings is { Enabled: true };
     }
 
+    private Task WaitForJournalWorkersAsync() => Task.WhenAll(transfers.WaitForFilingAsync(), rawDownloads.WaitForPublicationsAsync());
+
     private sealed class PipelineWorker(TargetPipeline pipeline, ILogger<PipelineWorker> logger) : BackgroundService
     {
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await pipeline.RecoverAsync(stoppingToken);
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            try
             {
-                try { await pipeline.TickAsync(stoppingToken); }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-                catch (Exception ex) { logger.LogWarning(ex, "Targets worker tick failed"); }
+                await pipeline.RecoverAsync(stoppingToken);
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+                while (await timer.WaitForNextTickAsync(stoppingToken))
+                {
+                    try { await pipeline.TickAsync(stoppingToken); }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                    catch (Exception ex) { logger.LogWarning(ex, "Targets worker tick failed"); }
+                }
             }
-            await Task.WhenAll(pipeline.flights.Values);
+            finally
+            {
+                foreach (var cancellation in pipeline.cancellations.Values)
+                    try { cancellation.Cancel(); } catch (ObjectDisposedException) { }
+                try
+                {
+                    await Task.WhenAll(Task.WhenAll(pipeline.flights.Values), pipeline.WaitForJournalWorkersAsync())
+                        .WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+                catch (TimeoutException) { logger.LogWarning("Download workers did not stop within ten seconds; durable operations will recover on restart."); }
+            }
         }
     }
 }

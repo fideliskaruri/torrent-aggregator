@@ -17,6 +17,9 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
     ILogger<RawDownloads> logger, ExternalIdentity externalIdentity)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task> publications = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> publicationCancellations = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim publicationSlot = new(1, 1);
     private const string Prefix = "raw:";
 
     public async Task<RawSendReply> SendAsync(string? magnet, string? torrentUrl, string? name,
@@ -332,6 +335,7 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                 {
                     var raw = rawRows.SingleOrDefault(r => r.Id == snapshot.DownloadId);
                     if (raw is null) continue;
+                    if (publications.ContainsKey(raw.Id)) continue;
                     var row = (await store.ListAsync<DownloadRow>(d => d.Id == snapshot.DownloadId, ct)).Single();
                     if (snapshot.MetadataAvailable && snapshot.Files.All(f => !f.Selected) && row.FinishedAt is null &&
                         await engine.MetadataAsync(snapshot.Hash, ct) is { } metadata)
@@ -345,21 +349,10 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                             Files = metadata, TotalBytes = metadata.Sum(f => f.Bytes),
                         }, null, oldRelease)], [], ct);
                     }
-                    if (snapshot.Complete && raw.State != RawDownloadState.Done)
+                    if (snapshot.Complete && raw.State is not (RawDownloadState.Done or RawDownloadState.Paused or RawDownloadState.Removed))
                     {
-                        if (raw.State != RawDownloadState.Publishing)
-                        {
-                            var publishing = raw with { State = RawDownloadState.Publishing,
-                                UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1 };
-                            await CommitAsync(store, [new(publishing, raw.Version, null)], [], ct);
-                            raw = publishing;
-                        }
-                        await PublishAsync(snapshot, raw.ExplicitDirectory!, ct);
-                        await RemoveRawReservationsAsync(scope, snapshot.DownloadId, ct);
-                        var done = raw with { State = RawDownloadState.Done,
-                            UpdatedAt = DateTimeOffset.UtcNow, Version = raw.Version + 1 };
-                        await CommitAsync(store, [new(done, raw.Version, null)], [], ct);
-                        raw = done;
+                        StartPublication(row, raw, ct);
+                        continue;
                     }
                     var nextIntent = snapshot.Complete ? DownloadIntent.Stopped :
                         raw.State == RawDownloadState.Paused ? DownloadIntent.Paused :
@@ -384,22 +377,11 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
                     raw.DownloadId is not null && !completedSnapshots.Contains(raw.DownloadId)).ToArray();
             foreach (var raw in publishingRows)
             {
+                if (publications.ContainsKey(raw.Id)) continue;
                 try
                 {
                     var download = (await store.ListAsync<DownloadRow>(row => row.Id == raw.DownloadId, ct)).Single();
-                    var release = (await store.ListAsync<ReleaseRow>(row => row.Id == raw.ReleaseHash, ct)).Single();
-                    var metadata = release.Files ?? throw new IOException("The completed torrent file list is missing.");
-                    var bindings = Bindings(raw.ReleaseHash, raw.ExplicitDirectory!, metadata,
-                        raw.SelectedFiles.ToArray(), recovery: true);
-                    CompletePublication(bindings, raw.ExplicitDirectory!, raw.ReleaseHash);
-                    await RemoveRawReservationsAsync(scope, download.Id, ct);
-                    var now = DateTimeOffset.UtcNow;
-                    await CommitAsync(store, [
-                        new(raw with { State = RawDownloadState.Done, UpdatedAt = now,
-                            Version = raw.Version + 1 }, raw.Version, null),
-                        new(download with { Intent = DownloadIntent.Stopped, FinishedAt = now,
-                            Version = download.Version + 1 }, download.Version, null),
-                    ], [], ct);
+                    StartPublication(download, raw, ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
@@ -411,47 +393,50 @@ public sealed partial class RawDownloads(MonoTorrentEngine engine, IServiceScope
         finally { gate.Release(); }
     }
 
-    private async Task PublishAsync(EngineSnapshot snapshot, string root, CancellationToken ct)
-    {
-        var stopped = await engine.StopAndReleaseFilesAsync(snapshot.DownloadId, ct);
-        if (!stopped.WritesDrained || stopped.Failure is not null)
-            throw new IOException(stopped.Failure?.Message ?? "The download could not stop writing.");
-        RawDownloadFiles.CompletePublication(
-            [.. snapshot.Files.Select(file => new FileBinding(file.Index, file.PhysicalPath!, file.Selected))],
-            root, snapshot.Hash);
-        await engine.SaveDevStateAsync(ct);
-    }
-
     public async Task<object> RemoveAsync(string hash, bool data, CancellationToken ct)
     {
-        await gate.WaitAsync(ct);
-        try
+        while (true)
         {
-            await using var scope = scopes.CreateAsyncScope();
-            var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
-            var raw = (await store.ListAsync<RawIntentRow>(row => row.Id == Prefix + hash, ct)).SingleOrDefault();
-            if (raw is null) return new { removed = true, files = 0 };
-            var paths = await engine.RemoveDevAsync(hash, ct);
-            if (data)
+            await gate.WaitAsync(ct);
+            if (publications.TryGetValue(Prefix + hash, out var publication))
             {
-                var release = (await store.ListAsync<ReleaseRow>(row => row.Id == hash, ct)).Single();
-                if (release.Files is { } metadata)
-                    paths = Bindings(hash, raw.ExplicitDirectory!, metadata, raw.SelectedFiles.ToArray(), true)
-                        .SelectMany(b => b.Selected ? new[] { b.AbsolutePath, b.AbsolutePath[..^".partial".Length] }
-                            : [b.AbsolutePath]).ToImmutableArray();
-                RawDownloadFiles.DeletePayload(raw.ExplicitDirectory!, hash, paths);
+                if (publicationCancellations.TryGetValue(Prefix + hash, out var cancellation))
+                    try { cancellation.Cancel(); } catch (ObjectDisposedException) { }
+                gate.Release();
+                await publication.WaitAsync(ct);
+                continue;
             }
-            var row = (await store.ListAsync<DownloadRow>(download => download.Id == raw.DownloadId, ct)).Single();
-            await RemoveRawReservationsAsync(scope, row.Id, ct);
-            await CommitAsync(store,
-                [new(raw with { DownloadId = null, Version = raw.Version + 1 }, raw.Version, null)], [], ct);
-            await CommitAsync(store, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
-            await CommitAsync(store, [], [new(StoreTable.RawIntent, raw.Id, raw.Version + 1, null)], ct);
-            await engine.DeleteTorrentAsync(row.Id, ct);
-            await engine.SaveDevStateAsync(ct);
-            return new { removed = true, files = paths.Length };
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
+                var raw = (await store.ListAsync<RawIntentRow>(row => row.Id == Prefix + hash, ct)).SingleOrDefault();
+                if (raw is null) return new { removed = true, files = 0 };
+                var paths = await engine.RemoveDevAsync(hash, ct);
+                if (data)
+                {
+                    var release = (await store.ListAsync<ReleaseRow>(row => row.Id == hash, ct)).Single();
+                    if (release.Files is { } metadata)
+                        paths = Bindings(hash, raw.ExplicitDirectory!, metadata, raw.SelectedFiles.ToArray(), true)
+                            .SelectMany(b => b.Selected ? new[] { b.AbsolutePath, b.AbsolutePath[..^".partial".Length] }
+                                : [b.AbsolutePath]).ToImmutableArray();
+                    var repository = (ILibraryDownloadRepository)scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
+                    var bindings = (await repository.BindingsAsync(ct)).Where(f => f.DownloadId == raw.DownloadId).ToImmutableArray();
+                    await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync(bindings, raw.ExplicitDirectory!, hash, [], ct,
+                        [.. await store.ListAsync<FileOperationRow>(o => o.DownloadId == raw.DownloadId, ct)]);
+                }
+                var row = (await store.ListAsync<DownloadRow>(download => download.Id == raw.DownloadId, ct)).Single();
+                await RemoveRawReservationsAsync(scope, row.Id, ct);
+                await CommitAsync(store,
+                    [new(raw with { DownloadId = null, Version = raw.Version + 1 }, raw.Version, null)], [], ct);
+                await CommitAsync(store, [], [new(StoreTable.Download, row.Id, row.Version, null)], ct);
+                await CommitAsync(store, [], [new(StoreTable.RawIntent, raw.Id, raw.Version + 1, null)], ct);
+                await engine.DeleteTorrentAsync(row.Id, ct);
+                await engine.SaveDevStateAsync(ct);
+                return new { removed = true, files = paths.Length };
+            }
+            finally { gate.Release(); }
         }
-        finally { gate.Release(); }
     }
 
     private static async Task CommitAsync(TargetStore store, IEnumerable<RowWrite> writes,

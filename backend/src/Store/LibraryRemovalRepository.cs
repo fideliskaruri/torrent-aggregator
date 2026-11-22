@@ -40,7 +40,6 @@ public sealed partial class LibraryRepository
             var operationIds = files.Select(file => $"file:{file.Id}").ToArray();
             var operations = await db.FileOperations.Where(row => operationIds.Contains(row.Id) ||
                 (row.MediaFileId != null && mediaIds.Contains(row.MediaFileId))).ToListAsync(ct);
-            if (operations.Any(operation => operation.State != FileOperationState.Done)) return false;
             var claimed = operations.Select(operation => operation.Id).ToArray();
             db.FilePathClaims.RemoveRange(
                 await db.FilePathClaims.Where(row => claimed.Contains(row.OperationId)).ToListAsync(ct));

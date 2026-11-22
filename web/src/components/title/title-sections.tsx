@@ -14,6 +14,7 @@ export function TitleSections({ model }: { model: TitleContentViewModel }) {
       <div className="container-app space-y-7 py-6 md:space-y-10 md:py-8">
         {payload.isSeries ? (
           <EpisodeList
+            onRetry={() => void model.refetchExtras()}
             seasons={seasons}
             season={activeSeason}
             episodes={rows}

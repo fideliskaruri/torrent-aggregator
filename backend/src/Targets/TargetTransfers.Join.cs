@@ -29,6 +29,14 @@ internal sealed partial class TargetTransfers
             .Where(file => file.DownloadId == download.Id).ToArray();
         var existing = bindings.ToDictionary(file => file.FileIndex);
         var allTargets = await store.ListAsync<TargetRow>(null, ct);
+        if (deleting.ContainsKey(download.Id) || allTargets.Any(t =>
+            t.ChosenReleaseHash == download.Hash && t.ReasonCode == WaitReason.RemovalIncomplete))
+        {
+            foreach (var target in targets)
+                await change(target.Id, TargetState.Waiting, WaitReason.FileBusy,
+                    "This download is being removed. Trying again later.");
+            return;
+        }
         var liveTargetIds = allTargets.Where(target =>
             target.State is not (TargetState.Done or TargetState.Removed)).Select(target => target.Id).ToHashSet();
         var joinTargets = ImmutableArray.CreateBuilder<TargetRow>();

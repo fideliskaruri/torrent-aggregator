@@ -15,6 +15,8 @@ public sealed partial class RawDownloads
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
             var old = (await store.ListAsync<RawIntentRow>(row => row.Id == Prefix + hash, ct)).Single();
+            if (publications.ContainsKey(old.Id) || old.State is RawDownloadState.Publishing or RawDownloadState.Done or RawDownloadState.Removed)
+                throw new InvalidOperationException("This download is already finishing or finished.");
             var next = old with { NowAt = DateTimeOffset.UtcNow, State = RawDownloadState.Fetching,
                 UpdatedAt = DateTimeOffset.UtcNow, Version = old.Version + 1 };
             await CommitAsync(store, [new(next, old.Version, null)], [], ct);

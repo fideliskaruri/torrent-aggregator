@@ -63,11 +63,18 @@ public interface IEngine
     Task<EngineResult> SetIntentAsync(string downloadId, bool run, CancellationToken cancellationToken);
     Task<EngineResult> SelectAsync(string downloadId, ImmutableArray<FileBinding> files, CancellationToken cancellationToken);
     Task<EngineDrainResult> StopAndReleaseFilesAsync(string downloadId, CancellationToken cancellationToken);
+    Task<ImmutableArray<VerifiedPayload>> VerifyFilesAsync(string hash, ImmutableArray<FileBinding> bindings,
+        CancellationToken cancellationToken, IReadOnlyDictionary<int, Stream>? openedFiles = null) => throw new NotSupportedException("Read-only completion verification is required.");
     Task DeleteTorrentAsync(string downloadId, CancellationToken cancellationToken);
     Task ApplyQueueAsync(EngineQueuePolicy policy, CancellationToken cancellationToken);
     Task UpdateSettingsAsync(EngineSettings settings, CancellationToken cancellationToken);
     Task<ImmutableArray<EngineEvent>> ReadEventsAsync(CancellationToken cancellationToken);
     Task<ImmutableArray<EngineSnapshot>> SnapshotAsync(CancellationToken cancellationToken);
+    // Observation for read APIs; implementations must not drive stop/flush or queue transitions.
+    Task<ImmutableArray<EngineSnapshot>> ReadSnapshotAsync(CancellationToken cancellationToken)
+        => SnapshotAsync(cancellationToken);
+    async Task<EngineSnapshot?> ReadDownloadAsync(string downloadId, CancellationToken cancellationToken)
+        => (await ReadSnapshotAsync(cancellationToken)).SingleOrDefault(s => s.DownloadId == downloadId);
     Task RecoverAsync(ImmutableArray<DownloadRow> downloads, ImmutableArray<DownloadFileRow> files, CancellationToken cancellationToken);
 }
 

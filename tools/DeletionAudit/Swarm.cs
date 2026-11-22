@@ -16,7 +16,8 @@ sealed class Swarm : IAsyncDisposable {
     private ClientEngine seed = null!;
     public List<Pack> Packs { get; } = []; public object RepeatedLogs()=>logs.Where(p=>p.Value>1).Select(p=>new{message=p.Key,count=p.Value}).ToArray();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> logs=new(); private readonly string root; private readonly int count; private readonly bool single; private readonly int fileMiB; private readonly int filesPerPack;
-    public Swarm(string directory,int count=4,bool single=false,int fileMiB=8,int filesPerPack=14) { root = directory; this.count=count;this.single=single;this.fileMiB=fileMiB; this.filesPerPack=filesPerPack; Engine = new(Path.Combine(root, "leecher"),message=>{if(logs.Count<256){var repeats=logs.AddOrUpdate(message,1,(_,n)=>n+1);if(repeats==1)Console.WriteLine(message);}}); }
+    private readonly byte[]? sampleVideo; private readonly bool v2;
+    public Swarm(string directory,int count=4,bool single=false,int fileMiB=8,int filesPerPack=14,string? samplePath=null,bool v2=false) { this.v2=v2; root = directory; this.count=count;this.single=single;this.fileMiB=fileMiB; this.filesPerPack=filesPerPack; sampleVideo=samplePath is null?null:File.ReadAllBytes(samplePath); Engine = new(Path.Combine(root, "leecher"),message=>{if(logs.Count<256){var repeats=logs.AddOrUpdate(message,1,(_,n)=>n+1);if(repeats==1)Console.WriteLine(message);}}); }
     public async Task Initialize(TorrentFlow.Domain.EngineSettings settings, TorrentFlowDbContext db, CancellationToken ct) {
         await Engine.InitializeAsync(settings, (_, _) => Task.CompletedTask, false, ct);
         Physical = (ClientEngine)typeof(MonoTorrentEngine).GetField("client", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Engine)!;
@@ -33,7 +34,7 @@ sealed class Swarm : IAsyncDisposable {
         var add=typeof(TorrentManager).GetMethod("AddPeers",BindingFlags.Instance|BindingFlags.NonPublic)!;
         foreach(var pack in Packs) {
             var manager=Physical.Torrents.FirstOrDefault(m=>m.InfoHashes.V1OrV2.ToHex().Equals(pack.Hash,StringComparison.OrdinalIgnoreCase)); if(manager is null)continue;
-            Action action=()=>add.Invoke(manager,[new[]{new PeerInfo(new Uri("ipv4://127.0.0.1:3989"))},manager.InfoHashes.V1!,false,true]);
+            Action action=()=>add.Invoke(manager,[new[]{new PeerInfo(new Uri("ipv4://127.0.0.1:3989"))},manager.InfoHashes.V1OrV2,false,true]);
             loop.GetType().GetMethod("QueueWait",[typeof(Action)])!.Invoke(loop,[action]);
         }
     }
@@ -47,8 +48,17 @@ sealed class Swarm : IAsyncDisposable {
         return verified.ToArray();
     }
     private async Task Add(int season,TorrentFlowDbContext db,CancellationToken ct) {
-        int[] lengths=Enumerable.Range(0,filesPerPack).Select(i=>fileMiB*1024*1024+137+97*i).ToArray();
-        var data=new byte[lengths.Sum()]; RandomNumberGenerator.Fill(data); var headerOffset=0; foreach(var length in lengths){System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(headerOffset,4),length);"ftypisom"u8.CopyTo(data.AsSpan(headerOffset+4));headerOffset+=length;}
+        int[] lengths=Enumerable.Range(0,filesPerPack).Select(i=>(sampleVideo?.Length??fileMiB*1024*1024)+137+97*i).ToArray();
+        var data=new byte[lengths.Sum()]; RandomNumberGenerator.Fill(data); var headerOffset=0; foreach(var length in lengths){
+            if(sampleVideo is not null) {
+                sampleVideo.CopyTo(data,headerOffset);
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(headerOffset+sampleVideo.Length,4),length-sampleVideo.Length);
+                "free"u8.CopyTo(data.AsSpan(headerOffset+sampleVideo.Length+4));
+            } else {
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(headerOffset,4),length);"ftypisom"u8.CopyTo(data.AsSpan(headerOffset+4));
+            }
+            headerOffset+=length;
+        }
         var pieces=new byte[((data.Length+16383)/16384)*20];
         for(var at=0;at<data.Length;at+=16384)SHA1.HashData(data.AsSpan(at,Math.Min(16384,data.Length-at))).CopyTo(pieces,at/16384*20);
         var names=Enumerable.Range(1,lengths.Length).Select(i=>$"Scorpion.S{season:00}E{i:00}.GENERATED.1080p.mkv").ToArray();
@@ -58,6 +68,12 @@ sealed class Swarm : IAsyncDisposable {
         var seedDir=Path.Combine(root,$"seed-{season}");Directory.CreateDirectory(seedDir);
         var paths=names.Select(n=>Path.Combine(root,"library",$"payload-{season}",n)).ToArray();var digests=new string[lengths.Length];var offset=0;
         for(var i=0;i<lengths.Length;i++) {var content=data.AsMemory(offset,lengths[i]).ToArray();offset+=lengths[i];await File.WriteAllBytesAsync(Path.Combine(seedDir,names[i]),content,ct);digests[i]=Convert.ToHexString(SHA256.HashData(content));}
+        if(v2) {
+            var creator=new TorrentCreator(TorrentType.V2Only) { PieceLength=65536 };
+            var dictionary=await creator.CreateAsync(new TorrentFileSource(seedDir));
+            ((BEncodedDictionary)dictionary["info"])["private"]=new BEncodedNumber(1);
+            bytes=dictionary.Encode();torrent=Torrent.Load(bytes);hash=torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        }
         var seeder=await seed.AddAsync(torrent,seedDir,new TorrentSettingsBuilder { AllowDht=false,AllowPeerExchange=false,AllowInitialSeeding=false,CreateContainingDirectory=false }.ToSettings());
         await seeder.StartAsync();while(seeder.State!=TorrentState.Seeding)await Task.Delay(100,ct);
         var now=DateTimeOffset.UtcNow;var id=$"targets:frontend-pack-{season}";var token=Guid.NewGuid().ToString("N");
