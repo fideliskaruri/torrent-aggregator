@@ -20,6 +20,77 @@ using TorrentFlow.Parser;
 using TorrentFlow.Store;
 using TorrentFlow.Targets;
 
+if(args.Contains("--notification-read")) {
+    var noteServices=new ServiceCollection().AddStore(Path.GetFullPath("artifacts/system-latency/read-fixture/torrentflow.db"));
+    await using var noteProvider=noteServices.BuildServiceProvider();await using var noteScope=noteProvider.CreateAsyncScope();
+    var noteDb=noteScope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
+    var noteRepo=noteScope.ServiceProvider.GetRequiredService<NotificationRepository>();
+    await noteDb.Notifications.ExecuteDeleteAsync();
+    if(!await noteDb.Users.AnyAsync(u=>u.Id=="audit-guest"))noteDb.Users.Add(new UserRow {Id="audit-guest",Role=UserRole.Requester,CreatedAt=DateTimeOffset.UtcNow,UpdatedAt=DateTimeOffset.UtcNow});
+    noteDb.Notifications.Add(new NotificationRow {Id=Guid.NewGuid().ToString("N"),UserId="audit-guest",Kind="download.completed",Title="Generated guest note",DedupeKey=Guid.NewGuid().ToString("N"),CreatedAt=DateTimeOffset.UtcNow,ReadAt=null,PushPending=false,PushAttemptAt=null,PushAttempts=0});
+    await noteDb.SaveChangesAsync();noteDb.ChangeTracker.Clear();
+    var primary=await noteDb.Works.FirstAsync();noteDb.Entry(primary).CurrentValues.SetValues(primary with {PosterUrl="https://example.invalid/current.jpg"});
+    var token=Guid.NewGuid().ToString("N");var rawWork=primary with {Id="poster-work-"+token,WorkKey="poster:"+token,PosterUrl="https://example.invalid/raw.jpg"};noteDb.Works.Add(rawWork);
+    var existingDownload=await noteDb.Downloads.AsNoTracking().FirstAsync();
+    var rawDownload=existingDownload with {Id="poster-download-"+token,Hash=token+"12345678",AdmissionToken=Guid.NewGuid().ToString("N")};
+    var release=await noteDb.Releases.AsNoTracking().FirstAsync();noteDb.Releases.Add(release with {Id=rawDownload.Hash});noteDb.Downloads.Add(rawDownload);
+    var file=await noteDb.MediaFiles.AsNoTracking().FirstAsync();noteDb.MediaFiles.Add(file with {Id="poster-media-"+token,WorkId=rawWork.Id,DownloadId=rawDownload.Id,EpisodeId=null,Path=Path.GetFullPath("artifacts/poster-"+token),PhysicalKey="poster-"+token});
+    var removedWork=rawWork with {Id=rawWork.Id+"-removed",WorkKey=rawWork.WorkKey+"-removed"};noteDb.Works.Add(removedWork);
+    var target=await noteDb.Targets.AsNoTracking().FirstAsync();var removed=target with {Id="poster-removed-"+token,WorkId=removedWork.Id,EpisodeId=null,State=TargetState.Removed};noteDb.Targets.Add(removed);
+    noteDb.DownloadTargets.Add(new DownloadTargetRow {Id="poster-link-"+token,DownloadId=existingDownload.Id,TargetId=removed.Id,Role=AssociationRole.Retired,CreatedAt=DateTimeOffset.UtcNow});
+    var stale=target with {Id="poster-stale-"+token,WorkId=rawWork.Id,EpisodeId=null,State=TargetState.Done,ChosenReleaseHash=rawDownload.Hash};noteDb.Targets.Add(stale);
+    noteDb.DownloadTargets.Add(new DownloadTargetRow {Id="poster-stale-link-"+token,DownloadId=existingDownload.Id,TargetId=stale.Id,Role=AssociationRole.Retired,CreatedAt=DateTimeOffset.UtcNow});
+    await noteDb.SaveChangesAsync();noteDb.ChangeTracker.Clear();
+    var posters=await noteRepo.PostersAsync([primary.WorkKey],[existingDownload.Hash.ToUpperInvariant(),rawDownload.Hash.ToUpperInvariant()],CancellationToken.None);
+    if(posters[primary.WorkKey]!="https://example.invalid/current.jpg" || posters["hash:"+existingDownload.Hash]!="https://example.invalid/current.jpg" || posters["hash:"+rawDownload.Hash]!="https://example.invalid/raw.jpg")throw new Exception("Notification poster parity failed");
+    var owner=await noteRepo.CountUnreadAsync("local",CancellationToken.None);var guest=await noteRepo.CountUnreadAsync("audit-guest",CancellationToken.None);
+    if(guest!=1 || owner!=0)throw new Exception("Unread user scoping changed");
+    if((await noteRepo.PageAsync("local",1,CancellationToken.None)).Any(n=>n.UserId!="local"))throw new Exception("Other user notification leaked");
+    Console.WriteLine("PASS notification user scoping, title/hash posters, removed-link exclusion and raw inventory fallback");return;
+}
+if(args.Contains("--delete-cost")) {
+    var costRoot=Path.GetFullPath("artifacts/delete-cost");Directory.CreateDirectory(costRoot);
+    var fixtureRoot=File.ReadAllText("artifacts/lifecycle-hardening/playable-root.txt").Trim();
+    var costServices=new ServiceCollection().AddStore(Path.Combine(fixtureRoot,"fixture.db"));
+    await using var costProvider=costServices.BuildServiceProvider();await using var costScope=costProvider.CreateAsyncScope();
+    var costDb=costScope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
+    var baseMedia=await costDb.MediaFiles.AsNoTracking().FirstAsync();var baseBinding=await costDb.DownloadFiles.AsNoTracking().FirstAsync();
+    var baseOperation=await costDb.FileOperations.AsNoTracking().FirstAsync();
+    var source=Path.GetFullPath("artifacts/digest-speed/generated.bin");
+    string expected;using(var original=File.OpenRead(source))expected=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(original));
+    foreach(var withIdentity in new[]{false,true}) {
+        var payload=Path.Combine(costRoot,withIdentity?"identity.bin":"legacy.bin");File.Copy(source,payload,true);
+        string fileIdentity;using(var held=new PayloadFile(payload))fileIdentity=held.Identity;
+        var item=baseMedia with {Id="cost-media",Path=payload,PhysicalKey=LibraryPaths.PhysicalKey(payload),DownloadId="cost-download",FileIndex=0,Bytes=new FileInfo(payload).Length,MtimeUtc=File.GetLastWriteTimeUtc(payload),ContentDigest=expected};
+        var binding=baseBinding with {Id="cost-binding",DownloadId=item.DownloadId!,FileIndex=0,MediaFileId=item.Id,Filed=true,Selected=false,PartialPath=null,EnginePath=payload,FinalPath=payload,ExpectedBytes=item.Bytes};
+        var receipt=baseOperation with {Id="file:cost-binding",DownloadId=item.DownloadId,MediaFileId=item.Id,SourceIdentity=withIdentity?fileIdentity:null};
+        using var cost=new DeletionMeasurement();var timer=Stopwatch.StartNew();
+        await TorrentFlow.Library.DownloadFiling.DeletePayloadAsync([binding],costRoot,"audit",[item],CancellationToken.None,[receipt]);
+        if(File.Exists(payload))throw new Exception("Cost fixture payload remained");
+        var reads=cost.Counters.GetValueOrDefault("shaBytes");if(reads!=item.Bytes)throw new Exception("Unexpected payload reread count");
+        Console.WriteLine($"DELETE identity={withIdentity} bytes={item.Bytes} shaBytes={reads} elapsedMs={timer.ElapsedMilliseconds}");
+    }
+    return;
+}
+if(args.Contains("--queue-cost")) {
+    var queueServices=new ServiceCollection().AddStore(Path.GetFullPath("artifacts/system-latency/read-fixture/torrentflow.db"));
+    await using var queueProvider=queueServices.BuildServiceProvider();await using var queueScope=queueProvider.CreateAsyncScope();
+    var queueStore=queueScope.ServiceProvider.GetRequiredService<TargetStore>();
+    var queueDownloads=await queueStore.ListAsync<DownloadRow>(null,CancellationToken.None);
+    var queueLinks=(await queueStore.ListAsync<DownloadTargetRow>(null,CancellationToken.None)).ToImmutableArray();
+    var queueTargets=(await queueStore.ListAsync<TargetRow>(null,CancellationToken.None)).ToImmutableArray();
+    var queueType=typeof(TargetPipeline).Assembly.GetType("TorrentFlow.Targets.TargetQueue")!;
+    var buildQueue=queueType.GetMethod("Build",BindingFlags.Static|BindingFlags.NonPublic)!;
+    for(var pass=0;pass<3;pass++) {var timer=Stopwatch.StartNew();var value=buildQueue.Invoke(null,[queueDownloads,queueLinks,queueTargets,ImmutableArray<RawIntentRow>.Empty]);Console.WriteLine($"QUEUE downloads={queueDownloads.Length} targets={queueTargets.Length} links={queueLinks.Length} elapsedMs={timer.ElapsedMilliseconds}");File.WriteAllText("artifacts/system-latency/queue-result.json",JsonSerializer.Serialize(value));}
+    return;
+}
+if(args.Contains("--digest-speed")) {
+    var speedRoot=Path.GetFullPath(Path.Combine("artifacts","digest-speed"));Directory.CreateDirectory(speedRoot);
+    var speedFile=Path.Combine(speedRoot,"generated.bin");
+    if(!File.Exists(speedFile)){using var output=File.Create(speedFile);var bytes=System.Security.Cryptography.RandomNumberGenerator.GetBytes(1024*1024);for(var i=0;i<512;i++)output.Write(bytes);}
+    for(var pass=0;pass<3;pass++) {using var held=new PayloadFile(speedFile);var timer=Stopwatch.StartNew();var digest=await held.DigestAsync(CancellationToken.None);Console.WriteLine($"DIGEST bytes={held.Stream.Length} elapsedMs={timer.ElapsedMilliseconds} sha256={digest}");}
+    return;
+}
 if(args.Contains("--guard")) {
     var folder=Path.GetFullPath(Path.Combine("artifacts","payload-guard",Guid.NewGuid().ToString("N")));
     Directory.CreateDirectory(folder);var file=Path.Combine(folder,"payload.bin");
@@ -56,7 +127,7 @@ if(args.Contains("--many-files")) {
         var read=measurement.Counters.GetValueOrDefault("verifyReadBytes");
         Console.WriteLine($"Many-file verifier: files=256 payload={torrent.Size} read={read} pieces={measurement.Counters.GetValueOrDefault("verifyPiecePasses")} elapsedMs={measurement.ElapsedMilliseconds:F0}");
         if(read>torrent.Size*2)throw new Exception("Shared pieces were redundantly reread per file");
-        Console.WriteLine("PASS guarded many-file verification reads at most twice the payload with one fixed 16KiB work buffer");
+        Console.WriteLine("PASS guarded many-file verification reads at most twice the payload with one shared 128KiB work buffer");
     } finally {foreach(var guard in guards)guard.Dispose();}
     return;
 }
@@ -67,6 +138,36 @@ if(args.Contains("--format-api")) {
         foreach(var method in type.GetMethods().Where(m=>m.Name.StartsWith("Create")))Console.WriteLine(method);
     }
     Console.WriteLine(string.Join(",",Enum.GetNames(typeof(MonoTorrent.TorrentType))));return;
+}
+if(args.Contains("--sparse-boundary")) {
+    var sparseRoot=Path.GetFullPath(Path.Combine("artifacts","sparse-boundary",Guid.NewGuid().ToString("N")));
+    var payload=Path.Combine(sparseRoot,"payload");Directory.CreateDirectory(payload);Directory.CreateDirectory(Path.Combine(sparseRoot,"engine"));
+    var a=System.Security.Cryptography.RandomNumberGenerator.GetBytes(100000);var b=System.Security.Cryptography.RandomNumberGenerator.GetBytes(300000);
+    await File.WriteAllBytesAsync(Path.Combine(payload,"a.bin"),a);await File.WriteAllBytesAsync(Path.Combine(payload,"b.bin"),b);
+    var creator=new MonoTorrent.TorrentCreator(MonoTorrent.TorrentType.V1Only){PieceLength=65536};
+    var metadata=await creator.CreateAsync(new MonoTorrent.TorrentFileSource(payload));var torrent=MonoTorrent.Torrent.Load(metadata.Encode());
+    var hash=torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();await File.WriteAllBytesAsync(Path.Combine(sparseRoot,"engine",hash+".torrent"),metadata.Encode());
+    var neighbor=Path.Combine(payload,"b.bin");using(var partial=File.OpenWrite(neighbor))partial.SetLength(31072);
+    var verifier=new TorrentFlow.Engine.MonoTorrentEngine(sparseRoot,Console.WriteLine);
+    var bindings=torrent.Files.Select((f,i)=>new FileBinding(i,Path.Combine(payload,Path.GetFileName(f.Path)),i==0)).ToImmutableArray();
+    var result=(await verifier.VerifyFilesAsync(hash,bindings,CancellationToken.None)).Single();
+    if(result.Failure is not null || result.Digest!=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(a)))throw new Exception("SPARSE_NEIGHBOR: complete selected file did not finish with authenticated sparse boundary: "+result.Failure);
+    if(OperatingSystem.IsWindows()) {
+        var junction=Path.Combine(sparseRoot,"alias");var script=Path.Combine(sparseRoot,"junction.ps1");
+        await File.WriteAllTextAsync(script,"param($link,$target)\nNew-Item -ItemType Junction -Path $link -Target $target | Out-Null");
+        var start=new ProcessStartInfo("powershell.exe"){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden};
+        foreach(var arg in new[]{"-NoProfile","-File",script,junction,payload})start.ArgumentList.Add(arg);
+        using var process=Process.Start(start)!;await process.WaitForExitAsync();if(process.ExitCode!=0)throw new Exception("Junction fixture failed");
+        var linked=bindings.SetItem(0,bindings[0] with {AbsolutePath=Path.Combine(junction,"a.bin")});
+        var rejected=(await verifier.VerifyFilesAsync(hash,linked,CancellationToken.None)).Single();
+        if(rejected.Failure?.Message.Contains("link",StringComparison.OrdinalIgnoreCase)!=true)throw new Exception("Unguarded selected junction was followed");
+        Console.WriteLine("PASS unguarded selected-file junction refused");
+    }
+    using(var stream=File.OpenWrite(neighbor))stream.WriteByte((byte)(b[0]^1));
+    if((await verifier.VerifyFilesAsync(hash,bindings,CancellationToken.None)).Single().Failure?.Code!="hash_mismatch")throw new Exception("Corrupt shared boundary was accepted");
+    await File.WriteAllBytesAsync(neighbor,b[..31071]);
+    if((await verifier.VerifyFilesAsync(hash,bindings,CancellationToken.None)).Single().Failure is null)throw new Exception("Missing required boundary was accepted");
+    Console.WriteLine("PASS selected-file digest and touching-piece hashes verified with sparse neighbor; corrupt/missing boundary refused");return;
 }
 if(args.Contains("--formats")) {
     var formatRoot=Path.GetFullPath(Path.Combine("artifacts","format-audit",Guid.NewGuid().ToString("N")));
@@ -143,7 +244,7 @@ var subset = args.Contains("--subset") || kept;
 var partialFailure = args.Contains("--partial");
 var independent = args.Contains("--independent") || partialFailure;
 await using var swarm = new Swarm(root, count: independent ? 15 : 1, fileMiB: 1, filesPerPack: independent ? 1 : subset ? 16 : 14,
-    samplePath:args.Contains("--playable")?"artifacts/lifecycle-hardening/sample/sintel.mp4":null,v2:args.Contains("--v2"));
+    samplePath:args.Contains("--playable")?"artifacts/lifecycle-hardening/sample/sintel.mp4":null,v2:args.Contains("--v2"),selective:args.Contains("--selective"));
 var services = new ServiceCollection().AddLogging().AddStore(Path.Combine(root, "fixture.db"));
 services.AddSingleton<IStorageStatus, StorageStatus>();
 services.AddScoped<ILibraryPlacement>(sp => new LibraryPlacement(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IStorageStatus>()));
@@ -201,6 +302,21 @@ if(args.Contains("--pause-transfer"))
     foreach(var id in ids)await pipeline.ActionAsync(id,TargetAction.Resume,ct);
     await (Task)transfer.GetType().GetMethod("TickAsync",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(transfer,[change,stateGate,ct])!;
     Console.WriteLine("PASS actual target pause/resume actions and transfer worker preserved partial payload and resumed the same download");
+}
+if(args.Contains("--swap-backoff")) {
+    await using var backoffScope=provider.CreateAsyncScope();var backoffDb=backoffScope.ServiceProvider.GetRequiredService<TorrentFlowDbContext>();
+    var now=DateTimeOffset.UtcNow;
+    for(var i=0;i<3;i++)backoffDb.Attempts.Add(new AttemptRow {Id="swap-audit-"+i,TargetId="target-s1-e1",WorkId="scorpion-generated",Kind=AttemptKind.Swap,StartedAt=now.AddMinutes(-2),Outcome="Searching",ReasonCode="NoProgress"});
+    await backoffDb.SaveChangesAsync();backoffDb.ChangeTracker.Clear();
+    var snap=await pipeline.ReadTransfersAsync(ct);if(!snap.History.IsEmpty)throw new Exception("Transfer read loaded diagnostic history");
+    var observed=(await swarm.Engine.SnapshotAsync(ct)).Single(s=>s.Hash==pack.Hash) with {Active=true,Complete=false,StalledProgress=true};
+    snap=snap with {Live=[observed]};var recover=typeof(TargetPipeline).GetMethod("RecoverStallsAsync",BindingFlags.Instance|BindingFlags.NonPublic)!;
+    var flights=(System.Collections.Concurrent.ConcurrentDictionary<string,Task>)typeof(TargetPipeline).GetField("flights",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(pipeline)!;
+    await (Task)recover.Invoke(pipeline,[snap,ct])!;if(!flights.IsEmpty)throw new Exception("Maximum swaps guard was bypassed");
+    await backoffDb.Attempts.Where(a=>a.Id=="swap-audit-1"||a.Id=="swap-audit-2").ExecuteDeleteAsync(ct);
+    await backoffDb.Attempts.Where(a=>a.Id=="swap-audit-0").ExecuteUpdateAsync(x=>x.SetProperty(a=>a.StartedAt,DateTimeOffset.UtcNow),ct);
+    await (Task)recover.Invoke(pipeline,[snap,ct])!;if(!flights.IsEmpty)throw new Exception("Recent swap backoff was bypassed");
+    Console.WriteLine("PASS empty transfer history retains maximum-swap and recent-backoff protection through targeted persisted query");return;
 }
 await swarm.Accelerate();
 EngineSnapshot? state=null;
@@ -476,8 +592,8 @@ if(args.Contains("--pipeline"))
     }
 
     var media=await db.MediaFiles.AsNoTracking().ToArrayAsync(ct);
-    if(done!=pack.Paths.Length-(args.Contains("--sidecar")?1:0) || media.Length!=pack.Paths.Length)throw new Exception($"Incomplete publication {done}/{pack.Paths.Length}, media={media.Length}");
-    for(var i=0;i<pack.Paths.Length;i++){
+    if(done!=(args.Contains("--selective")?1:pack.Paths.Length-(args.Contains("--sidecar")?1:0)) || media.Length!=(args.Contains("--selective")?1:pack.Paths.Length))throw new Exception($"Incomplete publication {done}/{pack.Paths.Length}, media={media.Length}");
+    for(var i=0;i<(args.Contains("--selective")?1:pack.Paths.Length);i++){
         var path=pack.Paths[i]+".planned-final";
         using var file=File.OpenRead(path);
         if(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file))!=pack.Digests[i])throw new Exception("Published content changed");
@@ -492,11 +608,32 @@ if(args.Contains("--pipeline"))
         if(target.Kind!=TargetKind.Replace||target.ReplaceMediaFileId!=original.Id)throw new Exception("Replacement did not retain existing-media identity");
         Console.WriteLine("PASS completed source replacement retained original file and exact media identity");
     }
+    if(args.Contains("--identity-delete") || args.Contains("--changed-delete")) {
+        var targetFile=media.First(m=>m.Role==FileRole.Video);
+        if(args.Contains("--changed-delete")) {
+            var writeTime=File.GetLastWriteTimeUtc(targetFile.Path);
+            using(var changed=File.OpenWrite(targetFile.Path))changed.WriteByte(0xAA);
+            if(args.Contains("--restore-mtime"))File.SetLastWriteTimeUtc(targetFile.Path,writeTime);
+        }
+        using var deletion=new DeletionMeasurement();var timer=Stopwatch.StartNew();
+        try {
+            await pipeline.DeleteDownloadFilesAsync(pack.Hash,ct);
+            if(args.Contains("--changed-delete"))throw new Exception("Changed library file was deleted");
+            if(deletion.Counters.GetValueOrDefault("shaBytes")!=media.Sum(m=>m.Bytes))throw new Exception("Owned files did not retain one-pass digest validation");
+            if(media.Any(m=>File.Exists(m.Path)))throw new Exception("Payload remained after deletion");
+            Console.WriteLine($"PASS identity-backed deletion files={media.Length} bytes={media.Sum(m=>m.Bytes)} shaBytes={deletion.Counters.GetValueOrDefault("shaBytes")} elapsedMs={timer.ElapsedMilliseconds}");
+        }catch(IOException) when(args.Contains("--changed-delete")) {
+            if(media.Any(m=>!File.Exists(m.Path)))throw new Exception("Batch changed-file refusal deleted a sibling");
+            Console.WriteLine("PASS changed same-object payload refused before deleting any library sibling");
+        }
+    }
     if(args.Contains("--v2")) {
         await pipeline.DeleteDownloadFilesAsync(pack.Hash,ct);
         if(pack.Paths.Any(p=>File.Exists(p+".planned-final")))throw new Exception("V2 deletion left payload");
         Console.WriteLine("PASS pure-v2 loopback acquisition, verified filing and final-payload deletion");
     }
+    Directory.CreateDirectory("artifacts/lifecycle-hardening");
+    File.WriteAllText("artifacts/lifecycle-hardening/last-filing-root.txt",root);
     if(args.Contains("--playable"))File.WriteAllText("artifacts/lifecycle-hardening/playable-root.txt",root);
     return;
 }

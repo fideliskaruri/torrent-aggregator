@@ -51,7 +51,7 @@ internal sealed class OldTorrentHandoff(IServiceScopeFactory scopes, TargetPipel
         if (oldApp.Count == 0) return;
 
         var scan = new ExternalDownloadScanner().Scan(null, ct, oldApp, clients: false);
-        var downloads = (await targets.ReadAsync(ct)).Downloads
+        var downloads = (await targets.ReadTransfersAsync(ct)).Downloads
             .Select(download => download.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
 
         await using var scope = scopes.CreateAsyncScope();

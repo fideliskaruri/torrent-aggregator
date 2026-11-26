@@ -92,7 +92,7 @@ internal static class DownloadEndpoints
             var scan = new ExternalDownloadScanner().Scan(configuration["TorrentFlow:ExternalDownloadScan:ScanRoot"], ct,
                 OldAppDownloads.Read(configuration));
             var adoption = new ExternalMediaAdoption(importer, inventory);
-            var downloadHashes = (await targets.ReadAsync(ct)).Downloads
+            var downloadHashes = (await targets.ReadTransfersAsync(ct)).Downloads
                 .Select(d => d.Hash.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
             var candidates = new List<object>();
             foreach (var row in scan.Candidates)
@@ -126,7 +126,7 @@ internal static class DownloadEndpoints
                 {
                     try
                     {
-                        if ((await targets.ReadAsync(ct)).Downloads.Any(d =>
+                        if ((await targets.ReadTransfersAsync(ct)).Downloads.Any(d =>
                             d.Hash.Equals(candidate.Hash, StringComparison.OrdinalIgnoreCase)))
                         {
                             result = result with { Skipped = result.Skipped + 1 };
@@ -202,14 +202,15 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
 
     internal async Task<object> ListAsync(CancellationToken ct)
     {
-        var snapshot = await targets.ReadAsync(ct);
+        var snapshot = await targets.ReadTransfersAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var links = await db.DownloadTargets.AsNoTracking().ToListAsync(ct);
         var works = await db.Works.AsNoTracking().ToListAsync(ct);
         var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);
         var episodes = await db.Episodes.AsNoTracking().ToListAsync(ct);
         var seasons = await db.Seasons.AsNoTracking().ToListAsync(ct);
-        var releases = await db.Releases.AsNoTracking().ToListAsync(ct);
+        var releaseHashes = snapshot.Downloads.Select(d => d.Hash).ToArray();
+        var releases = await db.Releases.AsNoTracking().Where(r => releaseHashes.Contains(r.Id)).ToListAsync(ct);
         var raw = await db.RawIntents.AsNoTracking().ToListAsync(ct);
         var files = await db.DownloadFiles.AsNoTracking().OrderBy(f => f.Id).ToListAsync(ct);
         var media = await db.MediaFiles.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
@@ -381,7 +382,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             throw new ArgumentException("Choose downloads to change.");
         if (input.DeleteFiles)
             return await DeleteFilesBatchAsync(hashes, transferIds, ct);
-        var snapshot = await targets.ReadAsync(ct);
+        var snapshot = await targets.ReadTransfersAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var links = await db.DownloadTargets.AsNoTracking().OrderBy(l => l.Id).ToListAsync(ct);
         var work = new List<(string Hash, string? TargetId)>();
@@ -539,7 +540,7 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         if (!match.Success) return Results.BadRequest(new { ok = false, reason = "invalid-id",
             error = "That is not a download id.", message = "Reload the page and try again." });
         var hash = match.Groups[1].Value.ToLowerInvariant();
-        var snapshot = await targets.ReadAsync(ct);
+        var snapshot = await targets.ReadTransfersAsync(ct);
         var download = snapshot.Downloads.SingleOrDefault(d => d.Hash == hash);
         if (download is null) return Results.NotFound(new { ok = false, reason = "not-found",
             error = "Torrent not found in engine.", message = "Torrent not found in engine." });
@@ -551,9 +552,9 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
         return Results.Ok(new { ok = true, message = "The download is already kept in your library." });
     }
 
-    private async Task<(TargetRow Target, WorkRow? Work, string? Title, int? Season, int? Episode)[]> WantedRows(CancellationToken ct)
+    private async Task<(TargetRow Target, WorkRow? Work, string? Title, int? Season, int? Episode)[]> WantedRows(CancellationToken ct, TargetSnapshot? captured = null)
     {
-        var snapshot = await targets.ReadAsync(ct);
+        var snapshot = captured ?? await targets.ReadTransfersAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var works = await db.Works.AsNoTracking().ToListAsync(ct);
         var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);
@@ -576,7 +577,8 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
 
     internal async Task<object> WantedAsync(CancellationToken ct)
     {
-        var rows = (await WantedRows(ct)).Select(r => (object)new
+        var snapshot = await targets.ReadTransfersAsync(ct);
+        var rows = (await WantedRows(ct, snapshot)).Select(r => (object)new
         {
             status = "waiting", statusLabel = DownloadRowView.WantedStatusLabel(r.Target.State, r.Target.ReasonText),
             workKey = r.Work?.WorkKey ?? r.Target.WorkId, title = r.Title, year = r.Work?.Year,
@@ -585,7 +587,6 @@ internal sealed class DownloadsApi(TargetPipeline targets, RawDownloads rawDownl
             looking = r.Target.State is TargetState.Wanted or TargetState.Searching,
             nextAttemptAt = r.Target.NextTryAt,
         }).ToList();
-        var snapshot = await targets.ReadAsync(ct);
         await using var db = await contexts.CreateDbContextAsync(ct);
         var works = await db.Works.AsNoTracking().ToListAsync(ct);
         var names = await db.WorkNames.AsNoTracking().OrderBy(n => n.Id).ToListAsync(ct);

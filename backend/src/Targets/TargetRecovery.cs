@@ -72,7 +72,7 @@ public sealed partial class TargetPipeline
     private async Task<TargetActionReply> FindAnotherCoreAsync(string targetId, string? stall,
         string? pickedReleaseHash, CancellationToken ct)
     {
-        var snapshot = await ReadAsync(ct);
+        var snapshot = await ReadTransfersAsync(ct);
         var target = snapshot.Targets.SingleOrDefault(t => t.Id == targetId);
         if (target is null || target.State is not (TargetState.Fetching or TargetState.Filing) ||
             target.ChosenReleaseHash is null)
@@ -148,6 +148,10 @@ public sealed partial class TargetPipeline
         var repository = scope.ServiceProvider.GetRequiredService<ILibraryRepository>();
         var storage = scope.ServiceProvider.GetRequiredService<IStorageStatus>();
         var roots = await repository.RootsAsync(ct);
+        var recoveryStore = scope.ServiceProvider.GetRequiredService<TargetStore>();
+        var since = DateTimeOffset.UtcNow.AddSeconds(-settings.BackoffSeconds);
+        var recentSwaps = await recoveryStore.ListAsync<AttemptRow>(a => a.TargetId != null && a.Kind == AttemptKind.Swap &&
+            a.Outcome == "Searching" && a.ReasonCode != null && a.StartedAt > since, ct);
         var downloads = snapshot.Downloads.ToDictionary(download => download.Id);
         foreach (var live in snapshot.Live.Where(l => l.Active && !l.Complete &&
             (l.StalledMetadata || l.StalledProgress)))
@@ -159,7 +163,7 @@ public sealed partial class TargetPipeline
             var target = snapshot.Targets.FirstOrDefault(t => t.State == TargetState.Fetching &&
                 t.ChosenReleaseHash == live.Hash);
             if (target is null || swapping.ContainsKey(live.DownloadId)) continue;
-            var attempts = snapshot.History.Where(a => a.WorkId == target.WorkId && a.Kind == AttemptKind.Swap && a.Outcome == "Searching" &&
+            var attempts = recentSwaps.Where(a => a.WorkId == target.WorkId && a.Kind == AttemptKind.Swap && a.Outcome == "Searching" &&
                 a.ReasonCode is not null && a.StartedAt > DateTimeOffset.UtcNow.AddSeconds(-settings.BackoffSeconds))
                 .OrderByDescending(a => a.StartedAt).ToArray();
             if (attempts.Length >= settings.MaximumSwaps ||

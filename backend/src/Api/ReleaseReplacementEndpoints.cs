@@ -21,7 +21,7 @@ internal static class ReleaseReplacementEndpoints
                 return Results.NotFound(new { ok = false, error = "Download not found." });
             var target = await CurrentTarget(targets, hash, ct);
             if (target is null) return Results.NotFound(new { ok = false, error = "Download not found." });
-            return ActionReply(await targets.FindAnotherAsync(target.Id, ct), await targets.ReadAsync(ct), target.Id);
+            return ActionReply(await targets.FindAnotherAsync(target.Id, ct), await targets.ReadTransfersAsync(ct), target.Id);
         });
     }
 
@@ -35,7 +35,7 @@ internal static class ReleaseReplacementEndpoints
     internal static async Task<TargetRow?> CurrentTarget(TargetPipeline targets, string hash, CancellationToken ct)
     {
         if (hash.Length is not (40 or 64) || hash.Any(c => !Uri.IsHexDigit(c))) return null;
-        var snapshot = await targets.ReadAsync(ct);
+        var snapshot = await targets.ReadTransfersAsync(ct);
         return snapshot.Targets.FirstOrDefault(t => t.State == TargetState.Fetching &&
             t.ChosenReleaseHash?.Equals(hash, StringComparison.OrdinalIgnoreCase) == true);
     }

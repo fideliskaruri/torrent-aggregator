@@ -15,7 +15,7 @@ export function PreviewBanner() {
       <div className="container-app flex min-h-[44px] items-center justify-between gap-3 py-1 text-[13px]">
         <p className="flex min-w-0 items-center gap-2 text-brand-foreground">
           <Eye className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="truncate">Previewing as a requester</span>
+          <span className="truncate">Previewing as a guest</span>
         </p>
         <Button
           variant="ghost"

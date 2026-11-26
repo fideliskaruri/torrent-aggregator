@@ -66,13 +66,13 @@ export function RemoteAccessFields({
           placeholder="you@example.com" autoComplete="off" spellCheck={false}
           aria-describedby="remote-access-owners-help" className="min-w-0 scroll-mb-32" data-remote-access-owners />
         <p id="remote-access-owners-help" className="text-xs text-subtle-foreground">
-          One per line. Everyone else Cloudflare lets in is a requester, or refused if requests are off.
+          One per line. Other signed-in people can browse only when guest access is enabled.
         </p>
       </FormField>
       <ToggleRow
         id="remote-access-requesters"
-        label="Let friends request titles"
-        description="Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else."
+        label="Allow read-only guests"
+        description="Other signed-in emails can browse titles and available media. They cannot download or change settings."
         checked={form.allowRequesters}
         disabled={readOnly}
         busy={false}

@@ -11,7 +11,6 @@ export interface ReleasePickTarget {
   /** The search we used; the dialog starts from it. The server's default is used when absent. */
   query?: string | null;
   /** Set when the pick is for a request, so the transfer joins that request. */
-  requestId?: string | null;
   /** Replaces this active download atomically when a source is picked. */
   replaceTransferId?: string | null;
   /** Called after a source started, e.g. to refresh the page that offered the pick. */

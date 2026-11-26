@@ -22,7 +22,6 @@ public static class AccessModule
         app.UseMiddleware<RequesterCatalogGuard>();
         app.MapGet("/api/me", async (HttpContext http, TorrentFlowDbContext db, CancellationToken ct) =>
         {
-            var requester = AccessIdentity.Role(http) == "requester";
             var userId = AccessIdentity.UserId(http);
             int? pending = null;
             int? unread = null;
@@ -33,12 +32,6 @@ public static class AccessModule
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 app.Logger.LogWarning(ex, "Could not count session notifications.");
-            }
-            if (!requester)
-            {
-                try { pending = await db.Requests.CountAsync(r => r.Decision == RequestDecision.Pending, ct); }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                { app.Logger.LogWarning(ex, "Could not count pending requests."); }
             }
             return Reply(new { role = AccessIdentity.Role(http), via = AccessIdentity.Via(http),
                 email = http.User.FindFirst("email")?.Value, pendingRequests = pending, unreadNotifications = unread });

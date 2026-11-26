@@ -13,13 +13,16 @@ namespace TorrentFlow.Targets;
 
 public sealed partial class TargetPipeline
 {
-    public async Task<TargetSnapshot> ReadAsync(CancellationToken ct)
+    public Task<TargetSnapshot> ReadAsync(CancellationToken ct) => ReadCoreAsync(ct, true);
+    // Transfer/list consumers do not need the potentially large diagnostic attempt payloads.
+    public Task<TargetSnapshot> ReadTransfersAsync(CancellationToken ct) => ReadCoreAsync(ct, false);
+    private async Task<TargetSnapshot> ReadCoreAsync(CancellationToken ct, bool history)
     {
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
         var result = new TargetSnapshot([.. await store.ListAsync<TargetRow>(null, ct)],
             [.. await store.ListAsync<DownloadRow>(null, ct)], await engine.ReadSnapshotAsync(ct),
-            [.. await store.ListAsync<AttemptRow>(a => a.TargetId != null, ct)],
+            history ? [.. await store.ListAsync<AttemptRow>(a => a.TargetId != null, ct)] : [],
             [.. await store.ListAsync<ScopeIntentRow>(null, ct)]);
         var raws = await store.ListAsync<RawIntentRow>(null, ct);
         return result with { RawIntents = [.. raws],
@@ -32,7 +35,7 @@ public sealed partial class TargetPipeline
     {
         await rawDownloads.RecoverAsync(ct);
         if (!await CanRunAsync(ct)) return;
-        var snapshot = await ReadAsync(ct);
+        var snapshot = await ReadTransfersAsync(ct);
         foreach (var row in snapshot.Targets.Where(t => t.State == TargetState.Searching))
             await ChangeAsync(row.Id, row.LeaseToken, TargetState.Wanted, ct);
         await transfers.RecoverAsync(ChangeTransferAsync, ct);
@@ -44,12 +47,12 @@ public sealed partial class TargetPipeline
         if (!await CanRunAsync(ct)) return;
         foreach (var flight in flights.Where(f => f.Value.IsCompleted)) flights.TryRemove(flight.Key, out _);
         await transfers.TickAsync(ChangeTransferAsync, stateGate, ct);
-        var snapshot = await ReadAsync(ct);
+        var snapshot = await ReadTransfersAsync(ct);
         await RecoverStallsAsync(snapshot, ct);
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<TargetStore>();
         var now = DateTimeOffset.UtcNow;
-        snapshot = await ReadAsync(ct);
+        snapshot = await ReadTransfersAsync(ct);
         var episodes = await store.ListAsync<EpisodeRow>(null, ct);
         var due = TargetQueue.Order(snapshot.Targets.Where(t => t.State == TargetState.Wanted ||
             t.State == TargetState.Waiting && t.NextTryAt <= now &&

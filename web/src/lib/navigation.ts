@@ -42,7 +42,6 @@ import {
   Bookmark,
   Clapperboard,
   HardDriveDownload,
-  Inbox,
   Library,
   Settings,
   type LucideIcon,
@@ -91,8 +90,6 @@ export const DOWNLOADS_HREF = "/downloads";
 /** The quiet inbox. Formerly `/activity`. */
 export const NOTIFICATIONS_HREF = "/notifications";
 
-/** The owner's inbox of friends' requests. Its entry carries the pending count. */
-const REQUESTS_HREF = "/requests";
 const SETTINGS_HREF = "/settings";
 
 /** One route list supplies the desktop header and the mobile tabs and sheet. */
@@ -120,15 +117,6 @@ const NAV_CONFIG: readonly NavItem[] = [
     owns: ["/activity", "/history"],
   },
   {
-    href: REQUESTS_HREF,
-    label: "Requests",
-    icon: Inbox,
-    role: "canReviewRequests",
-    badge: "pending-requests",
-    desktop: "secondary",
-    mobile: "more",
-  },
-  {
     href: "/settings",
     label: "Settings",
     icon: Settings,
@@ -136,13 +124,6 @@ const NAV_CONFIG: readonly NavItem[] = [
     desktop: "primary",
     mobile: "more",
     owns: ["/about"],
-  },
-  {
-    href: REQUESTS_HREF,
-    label: "Requests",
-    icon: Inbox,
-    role: "canRequest",
-    mobile: "primary",
   },
 ] as const;
 
@@ -276,7 +257,6 @@ export function titleForRoute(pathname: string): string | null {
   if (navActive(pathname, "/activity")) return "Notifications";
   if (navActive(pathname, NOTIFICATIONS_HREF)) return "Notifications";
   if (navActive(pathname, "/library")) return "Library";
-  if (navActive(pathname, REQUESTS_HREF)) return "Requests";
   if (navActive(pathname, SETTINGS_HREF)) return "Settings";
   return null;
 }

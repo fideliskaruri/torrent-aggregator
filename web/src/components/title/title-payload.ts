@@ -1,5 +1,3 @@
-import { parseRequestState, type RequesterTitle } from "@/lib/requests";
-import type { CatalogIdentity } from "@/lib/browse/types";
 import type { TitleDetailPayload } from "./types";
 
 export function withCatalogDefaults(json: unknown): TitleDetailPayload {
@@ -38,26 +36,4 @@ export function withCatalogDefaults(json: unknown): TitleDetailPayload {
       },
     },
   } as TitleDetailPayload;
-}
-
-export function requestTitleFor(
-  payload: TitleDetailPayload & CatalogIdentity,
-): RequesterTitle | null {
-  if (!payload.provider || !payload.providerId) return null;
-  const mediaType = payload.mediaType ?? (payload.isSeries ? "tv" : "movie");
-  return {
-    key: payload.workKey,
-    title: payload.title,
-    year: payload.year,
-    mediaType,
-    isSeries: payload.isSeries,
-    format: null,
-    category: "",
-    provider: payload.provider,
-    providerId: payload.providerId,
-    posterUrl: payload.posterUrl ?? null,
-    overview: payload.overview ?? null,
-    releaseDate: payload.releaseDate ?? null,
-    ...parseRequestState(payload),
-  };
 }

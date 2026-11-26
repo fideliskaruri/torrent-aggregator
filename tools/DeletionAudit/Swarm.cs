@@ -16,8 +16,8 @@ sealed class Swarm : IAsyncDisposable {
     private ClientEngine seed = null!;
     public List<Pack> Packs { get; } = []; public object RepeatedLogs()=>logs.Where(p=>p.Value>1).Select(p=>new{message=p.Key,count=p.Value}).ToArray();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string,int> logs=new(); private readonly string root; private readonly int count; private readonly bool single; private readonly int fileMiB; private readonly int filesPerPack;
-    private readonly byte[]? sampleVideo; private readonly bool v2;
-    public Swarm(string directory,int count=4,bool single=false,int fileMiB=8,int filesPerPack=14,string? samplePath=null,bool v2=false) { this.v2=v2; root = directory; this.count=count;this.single=single;this.fileMiB=fileMiB; this.filesPerPack=filesPerPack; sampleVideo=samplePath is null?null:File.ReadAllBytes(samplePath); Engine = new(Path.Combine(root, "leecher"),message=>{if(logs.Count<256){var repeats=logs.AddOrUpdate(message,1,(_,n)=>n+1);if(repeats==1)Console.WriteLine(message);}}); }
+    private readonly byte[]? sampleVideo; private readonly bool v2; private readonly bool selective;
+    public Swarm(string directory,int count=4,bool single=false,int fileMiB=8,int filesPerPack=14,string? samplePath=null,bool v2=false,bool selective=false) { this.selective=selective; this.v2=v2; root = directory; this.count=count;this.single=single;this.fileMiB=fileMiB; this.filesPerPack=filesPerPack; sampleVideo=samplePath is null?null:File.ReadAllBytes(samplePath); Engine = new(Path.Combine(root, "leecher"),message=>{if(logs.Count<256){var repeats=logs.AddOrUpdate(message,1,(_,n)=>n+1);if(repeats==1)Console.WriteLine(message);}}); }
     public async Task Initialize(TorrentFlow.Domain.EngineSettings settings, TorrentFlowDbContext db, CancellationToken ct) {
         await Engine.InitializeAsync(settings, (_, _) => Task.CompletedTask, false, ct);
         Physical = (ClientEngine)typeof(MonoTorrentEngine).GetField("client", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Engine)!;
@@ -83,7 +83,7 @@ sealed class Swarm : IAsyncDisposable {
         db.Releases.Add(release);db.Downloads.Add(download);
         db.Seasons.Add(new SeasonRow { Id=$"season-{season}",WorkId="scorpion-generated",Number=season,MappingStatus=MappingStatus.Confirmed,CreatedAt=now,UpdatedAt=now,Version=1 });
         for(var i=0;i<lengths.Length;i++) {
-            string? target=true?$"target-s{season}-e{i+1}":null;
+            string? target=(!selective || i==0)?$"target-s{season}-e{i+1}":null;
             db.Episodes.Add(new EpisodeRow { Id=$"episode-s{season}-e{i+1}",SeasonId=$"season-{season}",Number=i+1,AirPrecision=DatePrecision.Unknown,MappingStatus=MappingStatus.Confirmed,CreatedAt=now,UpdatedAt=now,Version=1 });
             if(target!=null) {
                 db.Targets.Add(new TargetRow { Id=target,WorkId="scorpion-generated",EpisodeId=$"episode-s{season}-e{i+1}",Kind=TargetKind.Acquire,State=TargetState.Fetching,ChosenReleaseHash=hash,CreatedBy="local",Origin=IntentOrigin.Owner,DownloadNow=false,SubstantiveMisses=0,CreatedAt=now,UpdatedAt=now,Version=1 });
@@ -92,7 +92,7 @@ sealed class Swarm : IAsyncDisposable {
             db.DownloadFiles.Add(new DownloadFileRow { Id=$"file-{season}-{i}",DownloadId=id,TargetId=target,FileIndex=i,Selected=target!=null,Role=target!=null?FileRole.Video:FileRole.Unwanted,ExpectedBytes=lengths[i],EnginePath=paths[i],PartialPath=paths[i],FinalPath=paths[i]+".planned-final",Filed=false });
         }
         await Engine.PrepareExternalAsync(bytes,hash,ct);if(season<=2 || !single){var claim=await Engine.ClaimAdmissionAsync(new(token,hash,id,null,now.AddMinutes(1)),ct);if(!claim.Accepted)throw new Exception(claim.Failure?.Message);
-        var admitted=await Engine.AdmitExternalAsync(new(download,new(release,[],null),[..paths.Select((p,i)=>new FileBinding(i,p,true,Path.Combine(root,"library")))],token),ct);if(!admitted.Accepted)throw new Exception(admitted.Failure?.Message);}
+        var admitted=await Engine.AdmitExternalAsync(new(download,new(release,[],null),[..paths.Select((p,i)=>new FileBinding(i,p,!selective || i==0,Path.Combine(root,"library")))],token),ct);if(!admitted.Accepted)throw new Exception(admitted.Failure?.Message);}
         Packs.Add(new(season,id,hash,paths,digests,lengths));
     }
     public async ValueTask DisposeAsync() { await Engine.DisposeAsync(); seed?.Dispose(); }

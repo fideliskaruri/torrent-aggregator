@@ -93,7 +93,7 @@ public sealed partial class TargetPipeline
     {
         if (action is not (TargetAction.Pause or TargetAction.Resume))
             throw new ArgumentException("Choose Pause all or Resume all.");
-        var snapshot = await ReadAsync(ct);
+        var snapshot = await ReadTransfersAsync(ct);
         var ids = ImmutableArray.CreateBuilder<string>();
         foreach (var target in snapshot.Targets.Where(t => action == TargetAction.Pause
             ? !t.IsPaused() && t.State is not (TargetState.Done or TargetState.Removed)

@@ -93,12 +93,12 @@ export function HeaderActions({
           variant="ghost"
           onClick={() => setPreviewAsRequester(true)}
           data-preview-toggle
-          aria-label="View as requester"
+          aria-label="View as guest"
           title="See the app the way people you share it with do"
           className="hidden md:inline-flex h-9 min-w-9 pointer-coarse:h-11 pointer-coarse:min-w-11 shrink-0 px-2.5 text-[12px] text-subtle-foreground hover:text-muted-foreground"
         >
           <Eye className="size-3.5 shrink-0" aria-hidden />
-          {showPreviewLabel ? <span aria-hidden>View as requester</span> : null}
+          {showPreviewLabel ? <span aria-hidden>View as guest</span> : null}
         </Button>
       ) : null}
       {showAccount && isDesktop ? (

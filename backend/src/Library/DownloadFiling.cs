@@ -251,6 +251,7 @@ public sealed class DownloadFiling
                 if (!File.Exists(path)) continue;
                 var guard = new PayloadFile(path);
                 guards.Add(guard);
+                DeletionMeasurement.Add("guardedFiles");
                 if (proof.Identity is not null && guard.Identity != proof.Identity ||
                     proof.Digest is not null && await guard.DigestAsync(ct) != proof.Digest)
                     throw new IOException("A recorded file changed. It was left untouched. Review it before removing it.");

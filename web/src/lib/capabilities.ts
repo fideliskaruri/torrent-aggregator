@@ -31,8 +31,8 @@ export function capabilitiesFor(role: SessionRole): Capabilities {
     canManage: owner,
     canSeePaths: owner,
     canSeeTransfers: owner,
-    canRequest: !owner,
-    canReviewRequests: owner,
+    canRequest: false,
+    canReviewRequests: false,
   };
 }
 

@@ -25,7 +25,7 @@ export function ReleasePickerHost() {
   if (!target) return null;
   return (
     <ReleasePickerDialog
-      key={`${target.workKey}:${target.season ?? "-"}:${target.episode ?? "-"}:${target.requestId ?? "-"}`}
+      key={`${target.workKey}:${target.season ?? "-"}:${target.episode ?? "-"}`}
       target={target}
       onClose={() => setTarget(null)}
     />

@@ -122,7 +122,7 @@ export function MobileNav() {
                 type="button"
                 variant="ghost"
                 data-preview-toggle
-                aria-label="View as requester"
+                aria-label="View as guest"
                 onClick={() => {
                   setPreviewAsRequester(true);
                   setMoreOpen(false);
@@ -130,7 +130,7 @@ export function MobileNav() {
                 className="h-auto min-h-[44px] w-full justify-start gap-3 px-3 py-2.5 text-[13px] text-muted-foreground"
               >
                 <Eye className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
-                View as requester
+                View as guest
               </Button>
             </div>
           </>

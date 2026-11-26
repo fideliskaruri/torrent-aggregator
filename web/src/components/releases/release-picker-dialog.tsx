@@ -5,7 +5,6 @@
  *
  *   GET  /api/title/{workKey}/releases?season&episode&q → { query, releases[] }
  *   POST /api/title/{workKey}/releases { token }        → { ok, message, infoHash }
- *   POST /api/requests/{id}/pick { token }              → { ok, message, status }
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Search } from "lucide-react";
@@ -173,13 +172,13 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
     setPickingToken(release.token);
     setPickError(null);
     try {
-      const url = target.requestId ? `/api/requests/${encodeURIComponent(target.requestId)}/pick` : base;
+      const url = base;
       const res = await sessionAwareFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token: release.token,
-          ...(!target.requestId && target.replaceTransferId
+          ...(target.replaceTransferId
             ? { replaceTransferId: target.replaceTransferId }
             : {}),
         }),

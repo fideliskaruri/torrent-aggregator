@@ -19,7 +19,7 @@ internal static class TitleTransfers
     internal static async Task<TitleTransferProjection> ReadAsync(string workId, TargetPipeline pipeline,
         TorrentFlowDbContext db, CancellationToken ct)
     {
-        var snapshot = await pipeline.ReadAsync(ct);
+        var snapshot = await pipeline.ReadTransfersAsync(ct);
         var targets = snapshot.Targets.Where(target => target.WorkId == workId && target.State != TargetState.Removed)
             .GroupBy(target => target.EpisodeId)
             .Select(group => group.OrderByDescending(target => target.UpdatedAt).First())

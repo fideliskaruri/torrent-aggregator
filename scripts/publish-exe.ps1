@@ -20,8 +20,11 @@ try {
 
     Push-Location (Join-Path $repoRoot 'web')
     try {
-        pnpm install --frozen-lockfile
-        pnpm build
+        $packageManager = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).packageManager
+        if ($packageManager -notmatch '^pnpm@\d+\.\d+\.\d+$') { throw "Expected an exact pnpm packageManager version." }
+        corepack $packageManager install --frozen-lockfile
+        if ($LASTEXITCODE -ne 0) { throw "dependency install failed." }
+        corepack $packageManager build
         if ($LASTEXITCODE -ne 0) { throw "web build failed." }
     }
     finally {

@@ -15,27 +15,21 @@ public static class NotificationEndpoints
     public static void MapNotifications(this WebApplication app)
     {
         var group = app.MapGroup("/api/notifications");
-        group.MapGet("", async (HttpContext http, NotificationRepository db, DownloadsApi downloads, int? limit, CancellationToken ct) =>
+        group.MapGet("/unread-count", async (HttpContext http, NotificationRepository db, CancellationToken ct) =>
+            Results.Json(new { unreadCount = await db.CountUnreadAsync(AccessIdentity.UserId(http), ct) }));
+        group.MapGet("", async (HttpContext http, NotificationRepository db, int? limit, CancellationToken ct) =>
         {
             var user = AccessIdentity.UserId(http);
-            var all = (await db.AllAsync<NotificationRow>(ct)).Where(n => n.UserId == user).ToArray();
-            var works = (await db.AllAsync<WorkRow>(ct)).ToDictionary(w => w.WorkKey);
-            var transfers = JsonSerializer.SerializeToElement(await downloads.ListAsync(ct), CatalogProjection.Json)
-                .GetProperty("torrents").EnumerateArray()
-                .GroupBy(t => t.GetProperty("hash").GetString()!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().GetProperty("posterUrl").GetString(),
-                    StringComparer.OrdinalIgnoreCase);
-            var rows = all.OrderByDescending(n => n.CreatedAt).ThenByDescending(n => n.Id)
-                .Take(Math.Clamp(limit ?? 100, 1, 100));
-            return Results.Json(new { items = rows.Select(n =>
-            {
-                var key = n.Link?.StartsWith("/title/", StringComparison.Ordinal) == true
-                    ? Uri.UnescapeDataString(n.Link[7..].Split('?', '#')[0]) : null;
-                var poster = key is not null && works.TryGetValue(key, out var w) ? w.PosterUrl : null;
-                if (n.Link?.StartsWith("/downloads?hash=", StringComparison.Ordinal) == true)
-                    poster = transfers.GetValueOrDefault(Uri.UnescapeDataString(n.Link[16..].Split('&', '#')[0]));
-                return new NotificationView(n.Id, n.Kind, n.Title, n.Body, n.Link, n.CreatedAt, n.ReadAt, poster);
-            }), unreadCount = all.Count(n => n.ReadAt is null) }, CatalogProjection.Json);
+            var rows = await db.PageAsync(user, Math.Clamp(limit ?? 100, 1, 100), ct);
+            static string? Key(NotificationRow row) => row.Link?.StartsWith("/title/", StringComparison.Ordinal) == true
+                ? Uri.UnescapeDataString(row.Link[7..].Split('?', '#')[0]) : null;
+            static string? Hash(NotificationRow row) => row.Link?.StartsWith("/downloads?hash=", StringComparison.Ordinal) == true
+                ? Uri.UnescapeDataString(row.Link[16..].Split('&', '#')[0]).ToLowerInvariant() : null;
+            var posters = await db.PostersAsync(rows.Select(Key).OfType<string>().Distinct().ToArray(),
+                rows.Select(Hash).OfType<string>().Distinct().ToArray(), ct);
+            return Results.Json(new { items = rows.Select(n => new NotificationView(n.Id, n.Kind, n.Title, n.Body,
+                n.Link, n.CreatedAt, n.ReadAt, posters.GetValueOrDefault(Key(n) ?? "hash:" + Hash(n)))),
+                unreadCount = await db.CountUnreadAsync(user, ct) }, CatalogProjection.Json);
         });
         group.MapPost("/read/{id}", async (HttpContext h, NotificationRepository db, string id, CancellationToken ct) =>
             await db.ReadAsync(AccessIdentity.UserId(h), id, ct) > 0 ? Results.NoContent() : Results.NotFound());

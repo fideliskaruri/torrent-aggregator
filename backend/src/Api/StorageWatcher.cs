@@ -11,7 +11,7 @@ namespace TorrentFlow.Api;
 internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus status,
     TargetPipeline targets, JellyfinLibrarySync jellyfinSync, ILogger<StorageWatcher> logger) : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProbeDeadline = TimeSpan.FromSeconds(3);
     private readonly ConcurrentDictionary<string, PendingProbe> pending = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> failures = new(StringComparer.Ordinal);
@@ -48,7 +48,9 @@ internal sealed class StorageWatcher(IServiceScopeFactory scopes, IStorageStatus
             if (!pending.TryGetValue(root.Id, out var item))
             {
                 StartProbe(root);
-                continue;
+                item = pending[root.Id];
+                // Consume ordinary local probes in this pass instead of adding a full poll interval.
+                await Task.WhenAny(item.Task, Task.Delay(TimeSpan.FromMilliseconds(100), ct));
             }
             if (!item.Task.IsCompleted)
             {

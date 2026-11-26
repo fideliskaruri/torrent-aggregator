@@ -14,18 +14,19 @@ internal static class TargetQueue
         ImmutableArray<DownloadTargetRow> links, ImmutableArray<TargetRow> targets,
         ImmutableArray<RawIntentRow> raws = default)
     {
+        var targetsById = targets.ToDictionary(t => t.Id, StringComparer.Ordinal);
+        var linksByDownload = links.ToLookup(l => l.DownloadId, StringComparer.Ordinal);
+        var rawById = raws.IsDefault ? new Dictionary<string, RawIntentRow>() : raws.ToDictionary(r => r.Id);
         var queue = downloads.Select(download =>
         {
-            if (download.RawIntentId is { } rawId && !raws.IsDefault &&
-                raws.SingleOrDefault(row => row.Id == rawId) is { } raw)
+            if (download.RawIntentId is { } rawId && rawById.TryGetValue(rawId, out var raw))
                 return (DownloadId: download.Id, CreatedAt: raw.CreatedAt,
                     Now: raw.NowAt is not null, Eligible: download.FinishedAt is null &&
                         raw.State is not (RawDownloadState.Paused or RawDownloadState.Publishing or
                             RawDownloadState.Done or RawDownloadState.Removed));
 
-            var members = targets.Where(target =>
-                links.Any(link => link.DownloadId == download.Id && link.TargetId == target.Id) &&
-                target.State == TargetState.Fetching);
+            var members = linksByDownload[download.Id].Select(link => targetsById.GetValueOrDefault(link.TargetId))
+                .OfType<TargetRow>().DistinctBy(target => target.Id).Where(target => target.State == TargetState.Fetching);
             var first = Order(members).FirstOrDefault();
             return (DownloadId: download.Id, CreatedAt: first?.CreatedAt ?? download.AddedAt,
                 Now: first?.DownloadNow ?? false, Eligible: first is not null);

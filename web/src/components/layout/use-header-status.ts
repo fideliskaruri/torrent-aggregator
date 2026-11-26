@@ -1,11 +1,10 @@
-import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
 
-export function useHeaderStatus(canReviewRequests: boolean) {
-  const { pendingRequests, via, email } = useSessionInfo();
+export function useHeaderStatus(_canReviewRequests: boolean) {
+  const { via, email } = useSessionInfo();
   return {
     email,
     showAccount: via === "tunnel" && Boolean(email),
-    requestsBadge: canReviewRequests ? pendingBadge(pendingRequests) : null,
+    requestsBadge: null,
   };
 }

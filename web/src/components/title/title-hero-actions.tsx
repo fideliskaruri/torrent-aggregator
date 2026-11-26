@@ -4,14 +4,11 @@ import { TfOpenFileButton } from "@/components/tf/open-file-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ButtonBody } from "./button-body";
-import { requestTitleFor } from "./title-payload";
 import { LibraryControls } from "./library-controls";
 import { OwnedQuality } from "./owned-quality";
 import { AudioCheckNotice } from "./audio-check-notice";
 import { audioCheck } from "@/lib/library/audio-check";
-import { RequestAction } from "@/components/requests/request-action";
 import { WantedActions } from "@/components/wanted/wanted-actions";
-import { parseRequestState } from "@/lib/requests";
 import { FIND_ANOTHER_SOURCE_LABEL } from "@/components/releases/find-another-source";
 import { DOWNLOAD_KEY } from "./title-actions";
 import type { TitleContentViewModel } from "./use-title-content-view-model";
@@ -82,15 +79,7 @@ export function TitleHeroActions({ model }: { model: TitleContentViewModel }) {
                       <AudioCheckNotice check={audioCheck(payload.owned)} name={title} onChanged={onLibraryChanged} />
                     ) : null}
                   </>
-                ) : !caps.canDownload ? (
-                  gated ? null : (
-                    <RequestAction
-                      title={requestTitleFor(payload)}
-                      state={parseRequestState(payload)}
-                      onRequested={onLibraryChanged}
-                    />
-                  )
-                ) : discoverEpisodes && !gated ? (
+                ) : !caps.canDownload ? null : discoverEpisodes && !gated ? (
                   <Button
                     type="button"
                     size="lg"

@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { formatBytes } from "@/lib/format";
 import { toast } from "@/lib/toast";
@@ -78,9 +79,10 @@ export function useStorageRoots() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), POLL_MS);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+  useVisiblePoll(refresh, {
+    intervalMs: roots.some(root => root.enabled && root.status === "offline") ? 2_000 : POLL_MS,
+  });
 
   const run = useCallback(
     async (work: () => Promise<unknown>) => {

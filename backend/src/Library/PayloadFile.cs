@@ -23,7 +23,7 @@ public sealed class PayloadFile : IDisposable
         if (OperatingSystem.IsWindows())
         {
             HoldParents(Path);
-            var handle = CreateFileW(Path, 0x80000000u | 0x00010000u, 1, IntPtr.Zero, 3, 0x00200000, IntPtr.Zero);
+            var handle = CreateFileW(Path, 0x80000000u | 0x00010000u, 1, IntPtr.Zero, 3, 0x08200000, IntPtr.Zero);
             if (handle.IsInvalid) { var error = Marshal.GetLastWin32Error(); handle.Dispose(); ReleaseParents(); throw Error("Open", error); }
             try
             {
@@ -48,7 +48,15 @@ public sealed class PayloadFile : IDisposable
         using var observed = DeletionMeasurement.Time("sha");
         DeletionMeasurement.Add("shaCalls");
         DeletionMeasurement.Add("shaBytes", Stream.Length);
-        return Convert.ToHexString(await SHA256.HashDataAsync(Stream, ct));
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(1024 * 1024);
+        try
+        {
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            int count;
+            while ((count = await Stream.ReadAsync(buffer, ct)) > 0) digest.AppendData(buffer, 0, count);
+            return Convert.ToHexString(digest.GetHashAndReset());
+        }
+        finally { System.Buffers.ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     public void MoveTo(string destination)

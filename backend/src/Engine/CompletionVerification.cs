@@ -8,6 +8,7 @@ namespace TorrentFlow.Engine;
 public sealed partial class MonoTorrentEngine
 {
     private readonly SemaphoreSlim verificationGate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Hash, int File), (string Message, DateTimeOffset At)> verificationWarnings = new();
 
     // Authenticated metadata is captured once. Supplied streams remain owned by the publication guard.
     public async Task<ImmutableArray<VerifiedPayload>> VerifyFilesAsync(string hash,
@@ -30,7 +31,7 @@ public sealed partial class MonoTorrentEngine
                 : [];
             var verifiedSharedPieces = new HashSet<int>();
             var output = ImmutableArray.CreateBuilder<VerifiedPayload>();
-            var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+            var buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
             try
             {
                 foreach (var binding in bindings.Where(b => b.Selected))
@@ -41,6 +42,12 @@ public sealed partial class MonoTorrentEngine
                         if (binding.FileIndex < 0 || binding.FileIndex >= files.Count)
                             throw new InvalidDataException("The reserved file is not in this torrent.");
                         var file = files[binding.FileIndex];
+                        if (openedFiles?.ContainsKey(binding.FileIndex) != true) RefusePayloadLinks(binding.AbsolutePath);
+                        using var ownSelected = openedFiles?.ContainsKey(binding.FileIndex) == true ? null :
+                            new FileStream(binding.AbsolutePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete,
+                                128 * 1024, FileOptions.SequentialScan);
+                        var selectedStream = ownSelected ?? openedFiles![binding.FileIndex];
+                        if (selectedStream.Length != file.Length) throw new InvalidDataException("The selected completed file changed size.");
                         using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                         var firstPiece = file.StartPieceIndex;
                         var lastPiece = file.EndPieceIndex;
@@ -91,14 +98,19 @@ public sealed partial class MonoTorrentEngine
                                     try
                                     {
                                         Stream stream;
-                                        if (openedFiles?.TryGetValue(index, out var held) == true) stream = held;
+                                        if (index == binding.FileIndex) stream = selectedStream;
+                                        else if (openedFiles?.TryGetValue(index, out var held) == true) stream = held;
                                         else
                                         {
                                             RefusePayloadLinks(source.AbsolutePath);
                                             owned = new FileStream(source.AbsolutePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
                                             stream = owned;
                                         }
-                                        if (stream.Length != part.Length) throw new IOException("A completed or shared-piece file changed size.");
+                                        // Skipped files contain only the boundary bytes we requested. Their
+                                        // unneeded tail may not be allocated; authenticate the touching piece,
+                                        // not the size of the unrelated remainder of that file.
+                                        if (stream.Length < position - part.OffsetInTorrent + length)
+                                            throw new IOException("Required shared-piece bytes are not available yet.");
                                         stream.Position = position - part.OffsetInTorrent;
                                         await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
                                         DeletionMeasurement.Add("verifyReadBytes", length);
@@ -122,12 +134,21 @@ public sealed partial class MonoTorrentEngine
                             }
                             if (sharedPieces.Contains(piece)) verifiedSharedPieces.Add(piece);
                         }
+                        verificationWarnings.TryRemove((hash, binding.FileIndex), out _);
                         output.Add(new(binding.FileIndex, binding.AbsolutePath, file.Length,
                             Convert.ToHexString(digest.GetHashAndReset()), null));
                     }
                     catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
                     {
-                        log($"Completion verification failed for {hash} file {binding.FileIndex}: {ex}");
+                        var key = (hash, binding.FileIndex);
+                        var now = DateTimeOffset.UtcNow;
+                        if (!verificationWarnings.TryGetValue(key, out var prior) || prior.Message != ex.Message ||
+                            now - prior.At >= TimeSpan.FromMinutes(5))
+                        {
+                            if (verificationWarnings.Count >= 4096) verificationWarnings.Clear();
+                            verificationWarnings[key] = (ex.Message, now);
+                            log($"Completion verification failed for {hash} file {binding.FileIndex}: {ex}");
+                        }
                         output.Add(new(binding.FileIndex, binding.AbsolutePath, 0, null,
                             new(ex is InvalidDataException ? "hash_mismatch" : "verification_unavailable", ex.Message, null, true)));
                     }

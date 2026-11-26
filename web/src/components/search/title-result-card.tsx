@@ -7,7 +7,6 @@ import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { requestViewFor } from "@/lib/requests";
 
 interface TitleResultCardProps {
   title: TitleResult;
@@ -39,15 +38,11 @@ export function TitleResultCard({
     title.isSeries,
     title.format,
   );
-  const request = title.request
-    ? requestViewFor(title.request, title.isSeries)
-    : null;
   const accessibleName = [
     title.name,
     title.year ? String(title.year) : null,
     typeLabel,
     title.status.comingLabel,
-    request?.label,
   ]
     .filter(Boolean)
     .join(", ");
@@ -90,18 +85,6 @@ export function TitleResultCard({
             ) : null}
             <ReleaseGateChip gate={{ gated: title.status.unreleased, label: title.status.comingLabel }} />
 
-            {request?.label ? (
-              <Badge
-                variant={request.tone}
-                data-title-request-status={
-                  title.request?.inLibrary
-                    ? "available"
-                    : (title.request?.requestStatus ?? "")
-                }
-              >
-                {request.label}
-              </Badge>
-            ) : null}
           </div>
         </div>
         {title.overview ? (

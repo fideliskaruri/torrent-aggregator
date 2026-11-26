@@ -13,6 +13,44 @@ public sealed class NotificationRepository
         return await db.Set<T>().AsNoTracking().ToArrayAsync(ct);
     }
 
+    public Task<int> CountUnreadAsync(string user, CancellationToken ct) =>
+        db.Notifications.AsNoTracking().CountAsync(n => n.UserId == user && n.ReadAt == null, ct);
+
+    public Task<NotificationRow[]> PageAsync(string user, int limit, CancellationToken ct) =>
+        db.Notifications.AsNoTracking().Where(n => n.UserId == user)
+            .OrderByDescending(n => n.CreatedAt).ThenByDescending(n => n.Id).Take(limit).ToArrayAsync(ct);
+
+    public async Task<Dictionary<string, string?>> PostersAsync(string[] keys, string[] hashes, CancellationToken ct)
+    {
+        hashes = hashes.Select(h => h.ToLowerInvariant()).Distinct().ToArray();
+        var result = (await db.Works.AsNoTracking().Where(w => keys.Contains(w.WorkKey))
+            .Select(w => new { w.WorkKey, w.PosterUrl }).ToArrayAsync(ct)).ToDictionary(w => w.WorkKey, w => w.PosterUrl);
+        if (hashes.Length > 0)
+        {
+            var rows = await (from download in db.Downloads.AsNoTracking()
+                join link in db.DownloadTargets.AsNoTracking() on download.Id equals link.DownloadId
+                join target in db.Targets.AsNoTracking() on link.TargetId equals target.Id
+                join work in db.Works.AsNoTracking() on target.WorkId equals work.Id
+                where hashes.Contains(download.Hash) && target.State != TargetState.Removed
+                select new { download.Hash, target.Id, target.ChosenReleaseHash, work.PosterUrl }).ToArrayAsync(ct);
+            foreach (var group in rows.GroupBy(r => r.Hash))
+            {
+                var chosen = group.Where(r => r.ChosenReleaseHash == r.Hash).ToArray();
+                result.TryAdd("hash:" + group.Key, (chosen.Length > 0 ? chosen : group.ToArray())
+                    .OrderBy(r => r.Id, StringComparer.Ordinal).First().PosterUrl);
+            }
+            // Unassociated/raw library copies can still have a catalog identity.
+            var rawPosters = await (from download in db.Downloads.AsNoTracking()
+                join file in db.MediaFiles.AsNoTracking() on download.Id equals file.DownloadId
+                join work in db.Works.AsNoTracking() on file.WorkId equals work.Id
+                where hashes.Contains(download.Hash) && file.Role == FileRole.Video
+                orderby file.Id
+                select new { download.Hash, work.PosterUrl }).ToArrayAsync(ct);
+            foreach (var row in rawPosters) result.TryAdd("hash:" + row.Hash, row.PosterUrl);
+        }
+        return result;
+    }
+
     public async Task<bool> PublishAsync(NotificationRow row, CancellationToken ct)
     {
         var existing = await db.Notifications.SingleOrDefaultAsync(x =>
