@@ -22,3 +22,5 @@ Acceptance checklist
 Backend and production web builds passed. Seven retired API routes returned410 feature_removed on disposable port3988; health/session/downloads/watchlist/notifications stayed HTTP200. Actual router redirected /requests to Browse. Headless built UI at390/768/1280 showed no Request links/actions; guest preview hid owner Downloads and title actions. Captures inspected locally. Guest preview is not authenticated Cloudflare testing: remote JWT integration was not exercised; existing authorization preserved. No schema migration/data deletion; installed app unchanged. Request processing implementations removed; shared HunterScheduler/NotificationWorker remain registered. Existing accepted Targets remain independent.
 
 Terra audit in docs/performance-system-audit-20261126.md completed and key notification/shell-poll source findings spot-checked. React Profiler and per-phase backend attribution remain proposed. This task includes no performance fix or installed update claim.
+
+27November delivery: included in verified/published/installed0.4.6. Above source-only statements describe the26November checkpoint, not the final deployment status.

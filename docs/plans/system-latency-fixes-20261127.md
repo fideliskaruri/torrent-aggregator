@@ -8,9 +8,13 @@ Slices/checklist:
 - [x] Baseline seeded HTTP workload (600+ downloads, irrelevant releases/history), then filter read projections to needed data and remove duplicate wanted snapshot. Preserve response statuses/order/selection/queues.
 - [x] Dedicated SQL unread count and visible notification projection; remove full Downloads call and duplicate shell polling. Verify auth/unread events and poster compatibility.
 - [x] Trace drive probe and recheck/resume delays; isolated disconnect/reconnect with marker identity; bounded polling without new unbounded I/O workers. Never require physical owner unplug for tests.
-- [ ] Production headless Downloads load/actions at390/768/1280, request count/long-task measurements, cancel/error flows and Requests removal.
-- [ ] Final regression matrix, explicit performance results/limits, clean commit, packaged isolated smoke, publish/install, verify installed health/version and targeted read timings.
+- [x] Production headless Downloads load/actions at390/768/1280, request count/long-task measurements, cancel/error flows and Requests removal.
+- [x] Final regression matrix, explicit performance results/limits, clean commit, packaged isolated smoke, publish/install, verify installed health/version and targeted read timings.
 
 Critique: don't hide waits with spinners, skip torrent authentication, mark mismatches Ready, cache mutable path results, remove authorization or treat synthetic timing as real-drive proof. Identity/size/last-write alone were rejected as insufficient during review; retain full digest verification before deletion. Missing sparse neighbor tail isn't required to authenticate an earlier touching piece. Request performance improvements must not retain multi-second stale statuses. No blanket engine rewrite.
 
 Review and executed measurements: docs/release-0.4.6-verification.md. The identity-only skip experiment is superseded and must not be used as current evidence.
+
+## Delivery checkpoint
+
+Published v0.4.6 from a9da544c55e9cfb6a9fa9bc80b23b34f284f789d after exact packaged Ready/Open/Cancel/Delete and retired API verification. Installed through the existing updater; installed health and web-index checksum match tested artifacts. Read-only production timing improved materially; local detailed results in artifacts/system-latency/delivery-result.json. Original media was never used for destructive regression tests; previously held failed deletions were not repeated automatically.

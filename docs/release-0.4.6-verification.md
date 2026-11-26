@@ -44,3 +44,7 @@ Terra reviewed source/evidence and identified the unsafe deletion shortcut, miss
 ## Release boundary
 
 Owner explicitly authorized publication/installation after isolated verification. All destructive tests used generated paths. Do not automatically repeat previously failed destructive operations against original media; pending failed deletions remain explicit retries. The package must be checked in a separate data directory/port before publishing, then installed through the existing verified updater and checked for exact version/health. Public swarm, actual phone and physical-drive performance are not established by synthetic results.
+
+## Executed delivery
+
+Exact0.4.6+a9da544 package passed14 Ready episodes, native Open launched VLC, Cancel retained14, and Delete removed14 generated files and closed dialogs. Full delete HTTP1502ms; drain+verified payload removal276ms. Published assets match recorded SHA256 values. The installed updater completed; exact build health ready and installed web-index hash matched. Read-only installed Downloads warm reads improved from roughly5.5–5.9s to0.9–1.4s; wanted6.9–7.4s to0.33–0.39s. This observational production comparison includes changing background load and is not a controlled A/B experiment. No new finishing errors were observed in the checked new-process startup logs; that short observation is not a long-running reliability guarantee.
